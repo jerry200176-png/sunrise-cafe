@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, Calendar, Clock, Repeat, Users, StickyNote, User, Phone, Mail } from "lucide-react";
+import { X, Clock, Repeat, Users, StickyNote, User, Phone, Mail } from "lucide-react";
 import { format, addMonths } from "date-fns";
 import type { Room } from "@/types";
 
@@ -27,6 +27,12 @@ const WEEKDAYS = [
   { value: 6, label: "六" },
   { value: 0, label: "日" },
 ];
+
+// 產生 1~10 小時，間隔 0.5
+const DURATION_OPTIONS = [];
+for (let i = 1; i <= 10; i += 0.5) {
+  DURATION_OPTIONS.push(i);
+}
 
 interface AddReservationFormProps {
   branchId: string | null;
@@ -56,7 +62,7 @@ export function AddReservationForm({
   const [time, setTime] = useState("");
   const [duration, setDuration] = useState(1);
   
-  // Recurring State (New)
+  // Recurring State
   const [repeatEnabled, setRepeatEnabled] = useState(false);
   const [endDate, setEndDate] = useState("");
   const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>([]);
@@ -65,19 +71,21 @@ export function AddReservationForm({
   const [error, setError] = useState<string | null>(null);
 
   // 初始化預設結束日期 (一個月後)
+  // Fix: 加上 endDate 依賴，解決 Vercel 警告
   useEffect(() => {
     if (open && !endDate) {
       setEndDate(format(addMonths(new Date(), 1), "yyyy-MM-dd"));
     }
-  }, [open]);
+  }, [open, endDate]); 
 
   // 當開啟重複預約且日期改變時，自動勾選當天的星期
+  // Fix: 加上 selectedWeekdays.length 依賴，解決 Vercel 警告
   useEffect(() => {
     if (repeatEnabled && date && selectedWeekdays.length === 0) {
       const day = new Date(date).getDay();
       setSelectedWeekdays([day]);
     }
-  }, [repeatEnabled, date]);
+  }, [repeatEnabled, date, selectedWeekdays.length]); 
 
   const reset = () => {
     setRoomId("");
@@ -117,7 +125,7 @@ export function AddReservationForm({
 
     try {
       if (repeatEnabled) {
-        // --- 進階重複預約 (New Logic) ---
+        // --- 進階重複預約 ---
         if (selectedWeekdays.length === 0) {
           setError("請至少選擇一個重複的星期");
           setSubmitting(false);
@@ -147,7 +155,6 @@ export function AddReservationForm({
 
         if (!res.ok) {
           if (res.status === 409 && data.conflicts) {
-            // 衝突顯示
             const conflictDates = data.conflicts.slice(0, 5).join(", ");
             const more = data.conflicts.length > 5 ? `...等 ${data.conflicts.length} 筆` : "";
             setError(`部分時段已有預約，操作取消。\n衝突日期：${conflictDates}${more}`);
@@ -164,7 +171,7 @@ export function AddReservationForm({
         return;
 
       } else {
-        // --- 單次預約 (Original Logic) ---
+        // --- 單次預約 ---
         const start = new Date(`${date}T${time}:00`);
         const end = new Date(start.getTime() + duration * 60 * 60 * 1000);
         const start_time = start.toISOString();
@@ -185,7 +192,7 @@ export function AddReservationForm({
             total_price,
             guest_count: guestCount === "" ? null : Number(guestCount),
             notes: notes.trim() || null,
-            status: "confirmed", // 後台新增直接 confirmed
+            status: "confirmed",
           }),
         });
 
@@ -333,17 +340,15 @@ export function AddReservationForm({
                     onChange={(e) => setDuration(Number(e.target.value))}
                     className="w-full rounded-lg border border-gray-300 px-2 py-2 text-sm"
                   >
-                    {Array.from({ length: 19 }, (_, i) => 1 + i * 0.5).map((h) => (
-                      <option key={h} value={h}>
-                        {h} 小時
-                      </option>
+                    {DURATION_OPTIONS.map((h) => (
+                      <option key={h} value={h}>{h} 小時</option>
                     ))}
                   </select>
                 </div>
               </div>
             </div>
 
-            {/* 長期預約區塊 (New) */}
+            {/* 長期預約區塊 */}
             <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
