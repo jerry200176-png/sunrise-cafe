@@ -124,6 +124,7 @@ export async function GET(request: NextRequest) {
         branchName: branch.name,
         openTime: branch.open_time,
         closeTime: branch.close_time,
+        image_url: (room as any).image_url, // 🔹 新增: 回傳圖片網址 (單一房間)
       });
     }
     const [branch, rooms, blocked] = await Promise.all([
@@ -146,6 +147,7 @@ export async function GET(request: NextRequest) {
         capacity: room.capacity,
         price_weekday: room.price_weekday,
         price_weekend: room.price_weekend,
+        image_url: (room as any).image_url, // 🔹 新增: 回傳圖片網址 (房間列表)
         slots,
       };
     });

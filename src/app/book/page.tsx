@@ -35,6 +35,8 @@ export default function BookPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  
+  // 這裡確保介面包含 image_url
   const [branchRoomsAvailability, setBranchRoomsAvailability] = useState<{
     rooms: {
       roomId: string;
@@ -43,7 +45,7 @@ export default function BookPage() {
       price_weekday: number;
       price_weekend: number;
       slots: SlotItem[];
-      image_url?: string | null;
+      image_url?: string | null; 
     }[];
     branchName: string;
   } | null>(null);
@@ -162,6 +164,20 @@ export default function BookPage() {
     return Math.round(Number(pricePerHour) * duration);
   };
 
+  // UX Helper: 計算選擇摘要
+  const getSelectedSummary = () => {
+    if (!selectedStart || !date) return null;
+    const start = new Date(selectedStart);
+    const end = new Date(start.getTime() + duration * 60 * 60 * 1000);
+    
+    // 簡單格式化
+    const dateLabel = new Date(date).toLocaleDateString("zh-TW", { month: "numeric", day: "numeric", weekday: "short" });
+    const startLabel = start.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const endLabel = end.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
+
+    return { dateLabel, startLabel, endLabel };
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedStart || !name.trim() || !phone.trim()) return;
@@ -212,6 +228,7 @@ export default function BookPage() {
     new Date(iso).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" });
 
   const today = new Date().toISOString().slice(0, 10);
+  const summary = getSelectedSummary(); // 取得當前選擇摘要
 
   return (
     <main className="min-h-screen bg-gray-50">
@@ -353,6 +370,7 @@ export default function BookPage() {
                         }}
                         className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-sm hover:border-amber-400 hover:bg-amber-50/50"
                       >
+                        {/* 圖片顯示區塊 */}
                         <div className="mb-2 overflow-hidden rounded-lg">
                           <div className="aspect-video w-full overflow-hidden rounded-lg bg-gray-100 flex items-center justify-center text-xs text-gray-500">
                             {r.image_url ? (
@@ -364,10 +382,12 @@ export default function BookPage() {
                                 className="h-full w-full object-cover"
                               />
                             ) : (
+                              // Fallback (若無圖片)
                               <span>圖片載入中: {String(r.image_url ?? "無")}</span>
                             )}
                           </div>
                         </div>
+
                         <span className="font-medium text-gray-900">{r.roomName}</span>
                         <p className="mt-0.5 text-sm text-gray-500">
                           {r.capacity} 人 · 平日 ${r.price_weekday}/時 · 假日 ${r.price_weekend}/時
@@ -446,21 +466,26 @@ export default function BookPage() {
                     <span className="inline-block h-3 w-3 rounded bg-rose-200" /> 已額滿
                   </span>
                 </div>
-                <div className="mb-3">
-                  <label className="mb-1 block text-xs text-gray-600">預計使用時數</label>
+
+                {/* 步驟 1：時數 */}
+                <div className="mb-4">
+                  <div className="mb-2 flex items-center justify-between">
+                     <h3 className="text-sm font-bold text-gray-800">步驟 1：選擇租借時數</h3>
+                  </div>
                   <select
                     value={duration}
                     onChange={(e) => {
                       setDuration(Number(e.target.value));
                       setSelectedStart("");
                     }}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                    className="w-full rounded-xl border border-gray-300 p-3"
                   >
                     {getDurationOptions().map((h) => (
                       <option key={h} value={h}>{h} 小時</option>
                     ))}
                   </select>
                 </div>
+
                 {duration === 1 && !slots.some((s) => s.available) && slots.length > 0 && (
                   <p className="mb-3 text-sm text-amber-700">
                     本日此時段已滿，請點擊上方「重選包廂」或返回重選日期選擇其他日期。
@@ -471,28 +496,44 @@ export default function BookPage() {
                     目前沒有連續 {duration} 小時的空檔。請改選 1 小時，或點擊上方「重選包廂」/重選日期選擇其他日期。
                   </p>
                 )}
-                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                  {slots.map((s) => {
-                    const available = duration === 1 ? s.available : canSelectDuration(s.start);
-                    return (
-                      <button
-                        key={s.start}
-                        type="button"
-                        disabled={!available}
-                        onClick={() => setSelectedStart(s.start)}
-                        className={`rounded-lg border py-3 text-sm font-medium ${
-                          selectedStart === s.start
-                            ? "border-amber-600 bg-amber-600 text-white"
-                            : available
-                              ? "border-green-300 bg-green-50 text-green-800 hover:bg-green-100"
-                              : "cursor-not-allowed border border-rose-200 bg-rose-50 text-rose-600"
-                        }`}
-                      >
-                        {formatSlotTime(s.start)}
-                      </button>
-                    );
-                  })}
+
+                {/* 步驟 2：時段 */}
+                <div>
+                   <h3 className="mb-2 text-sm font-bold text-gray-800">
+                     步驟 2：選擇開始時間 <span className="text-xs font-normal text-gray-500">(綠色可預約)</span>
+                   </h3>
+                   <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                     {slots.map((s) => {
+                       const available = duration === 1 ? s.available : canSelectDuration(s.start);
+                       return (
+                         <button
+                           key={s.start}
+                           type="button"
+                           disabled={!available}
+                           onClick={() => setSelectedStart(s.start)}
+                           className={`rounded-lg border py-3 text-sm font-medium ${
+                             selectedStart === s.start
+                               ? "border-amber-600 bg-amber-600 text-white"
+                               : available
+                               ? "border-green-300 bg-green-50 text-green-800 hover:bg-green-100"
+                               : "cursor-not-allowed border border-rose-200 bg-rose-50 text-rose-600"
+                           }`}
+                         >
+                           {formatSlotTime(s.start)}
+                         </button>
+                       );
+                     })}
+                   </div>
                 </div>
+
+                {/* Summary Bar: 預約摘要 */}
+                {summary && (
+                  <div className="mt-4 mb-2 rounded-lg bg-emerald-50 border border-emerald-100 p-3 text-sm text-emerald-900 animate-in fade-in slide-in-from-bottom-2">
+                    <p className="font-bold">📅 您選擇的是：</p>
+                    <p>{summary.dateLabel} {summary.startLabel} ~ {summary.endLabel} (共 {duration} 小時)</p>
+                  </div>
+                )}
+
                 <div className="mt-4 flex justify-end">
                   <button
                     type="button"
@@ -534,15 +575,18 @@ export default function BookPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">電話 *</label>
+                <label className="mb-1 block text-sm font-medium text-gray-700">手機號碼 *</label>
                 <input
                   type="tel"
                   required
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
-                  placeholder="0912345678"
+                  placeholder="0912345678 (請填寫正確手機)" 
                 />
+                <p className="mt-1 text-xs text-gray-500">
+                  假日訂位將透過簡訊/LINE通知匯款，請務必填寫正確。
+                </p>
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">Email</label>
