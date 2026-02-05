@@ -11,6 +11,7 @@ import {
 const TAIWAN_OFFSET_HOURS = 8;
 const DEFAULT_OPEN = { h: 8, m: 0 };
 const DEFAULT_CLOSE = { h: 22, m: 0 };
+type BlockedSlot = { room_id: string; start_time: string; end_time: string };
 
 function parseTime(t: string | null, fallback: { h: number; m: number }): { h: number; m: number } {
   if (!t) return fallback;
@@ -99,11 +100,12 @@ export async function GET(request: NextRequest) {
 
   try {
     if (roomId) {
-      const [branch, room, blocked] = await Promise.all([
+      const [branch, room, blockedRaw] = await Promise.all([
         fetchBranch(branchId),
         fetchRoom(roomId),
         getBlockedSlots(branchId, date),
       ]);
+      const blocked = blockedRaw as BlockedSlot[];
       if (!branch || !room || room.branch_id !== branchId) {
         return NextResponse.json({ error: "分店或包廂不存在" }, { status: 404 });
       }
@@ -122,11 +124,12 @@ export async function GET(request: NextRequest) {
         image_url: room.image_url, 
       });
     }
-    const [branch, rooms, blocked] = await Promise.all([
+    const [branch, rooms, blockedRaw] = await Promise.all([
       fetchBranch(branchId),
       fetchRoomsWithDetails(branchId),
       getBlockedSlots(branchId, date),
     ]);
+    const blocked = blockedRaw as BlockedSlot[];
     if (!branch) {
       return NextResponse.json({ error: "分店不存在" }, { status: 404 });
     }
