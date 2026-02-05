@@ -257,29 +257,25 @@ export async function fetchReservationsByPhone(phone: string) {
 }
 
 // ✅ 補回遺失的函式：fetchReservationsForReminder
-export async function fetchReservationsForReminder(startRange: string, endRange: string) {
-  // 找出 "明天" 的訂單，且 is_notified = false，且 status = confirmed
+export async function fetchReservationsForReminder() {
+  const now = new Date();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  const y = tomorrow.getFullYear();
+  const m = String(tomorrow.getMonth() + 1).padStart(2, "0");
+  const d = String(tomorrow.getDate()).padStart(2, "0");
+  const startRange = `${y}-${m}-${d}T00:00:00`;
+  const endRange = `${y}-${m}-${d}T23:59:59.999`;
+
   const { data, error } = await supabaseAdmin()
     .from("reservations")
-    .select(`
-      id,
-      customer_name,
-      phone,
-      start_time,
-      end_time,
-      is_notified,
-      status,
-      room:rooms (
-        name,
-        branch:branches (
-          name
-        )
-      )
-    `)
-    .eq("status", "confirmed")
-    .eq("is_notified", false)
+    .select("id,booking_code,room_id,start_time,end_time,customer_name,phone,email,is_notified,status")
     .gte("start_time", startRange)
-    .lt("start_time", endRange);
+    .lte("start_time", endRange)
+    .eq("is_notified", false)
+    .neq("status", "cancelled")
+    .order("start_time", { ascending: true });
 
   if (error) throw error;
   return data;
