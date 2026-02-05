@@ -3,12 +3,13 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/supabase";
 import { isAdminConfigured } from "@/lib/supabase-admin";
 
+// Vercel Build Fix: Strict typing
 const supabaseAdmin = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// 定義預約資料型別，解決 implicit any 問題
+// ✅ 修正：定義完整型別
 type NewReservation = {
   room_id: string;
   customer_name: string;
@@ -38,10 +39,10 @@ export async function POST(request: NextRequest) {
       customer_name,
       phone,
       email,
-      start_date, // YYYY-MM-DD
-      end_date,   // YYYY-MM-DD
-      weekdays,   // number[] (0=Sun, 1=Mon...)
-      start_time, // HH:mm
+      start_date, 
+      end_date,   
+      weekdays,   
+      start_time, 
       duration_hours,
       guest_count,
       notes,
@@ -54,10 +55,11 @@ export async function POST(request: NextRequest) {
     // 1. 計算所有符合星期的日期
     const candidates: { start: string; end: string }[] = [];
     
-    // ✅ 強制更新：改為 const
+    // ✅ 修正：使用 const，並明確建立 Date 物件
     const current = new Date(start_date);
     const end = new Date(end_date);
     
+    // 設定到中午避免時區問題
     current.setHours(12, 0, 0, 0);
     end.setHours(12, 0, 0, 0);
 
@@ -100,7 +102,7 @@ export async function POST(request: NextRequest) {
 
     if (fetchError) throw fetchError;
 
-    // ✅ 強制更新：明確轉型
+    // ✅ 修正：明確轉型，移除 implicit any
     const existing = (existingRaw ?? []) as { start_time: string; end_time: string }[];
 
     const conflicts: string[] = [];
@@ -154,7 +156,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error: unknown) {
-    // ✅ 強制更新：安全處理 error
+    // ✅ 修正：使用 type narrowing 處理 unknown error
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   }

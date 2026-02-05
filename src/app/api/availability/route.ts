@@ -7,6 +7,7 @@ import {
   isAdminConfigured,
 } from "@/lib/supabase-admin";
 
+// Vercel Build Fix: Updated types
 const TAIWAN_OFFSET_HOURS = 8;
 const DEFAULT_OPEN = { h: 8, m: 0 };
 const DEFAULT_CLOSE = { h: 22, m: 0 };
@@ -111,13 +112,13 @@ export async function GET(request: NextRequest) {
       const roomBlocked = blocked.filter((b) => b.room_id === roomId);
       const slots = buildSlotsForRoom(date, open, close, roomBlocked, isToday);
       
-      // ✅ 強制更新：直接讀取 image_url，不使用 any
       return NextResponse.json({
         slots,
         roomName: room.name,
         branchName: branch.name,
         openTime: branch.open_time,
         closeTime: branch.close_time,
+        // ✅ 修正：現在 fetchRoom 已經有正確型別，不需要 as any
         image_url: room.image_url, 
       });
     }
@@ -141,7 +142,7 @@ export async function GET(request: NextRequest) {
         capacity: room.capacity,
         price_weekday: room.price_weekday,
         price_weekend: room.price_weekend,
-        // ✅ 強制更新：直接讀取 image_url
+        // ✅ 修正：直接讀取
         image_url: room.image_url,
         slots,
       };
