@@ -1,0 +1,408 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import { ArrowLeft, Calendar, Clock } from "lucide-react";
+import type { Branch, Room } from "@/types";
+
+type Step = "branch" | "room" | "date" | "slot" | "form";
+
+interface SlotItem {
+  start: string;
+  end: string;
+  available: boolean;
+}
+
+export default function BookPage() {
+  const [step, setStep] = useState<Step>("branch");
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [branchId, setBranchId] = useState("");
+  const [roomId, setRoomId] = useState("");
+  const [date, setDate] = useState("");
+  const [slots, setSlots] = useState<SlotItem[]>([]);
+  const [roomName, setRoomName] = useState("");
+  const [branchName, setBranchName] = useState("");
+  const [selectedStart, setSelectedStart] = useState("");
+  const [duration, setDuration] = useState(1);
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [guestCount, setGuestCount] = useState<number | "">("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/branches")
+      .then((r) => r.json())
+      .then((d) => setBranches(Array.isArray(d) ? d : []))
+      .catch(() => setBranches([]));
+  }, []);
+
+  useEffect(() => {
+    if (!branchId) {
+      setRooms([]);
+      return;
+    }
+    setLoading(true);
+    fetch(`/api/rooms?branchId=${encodeURIComponent(branchId)}`)
+      .then((r) => r.json())
+      .then((d) => setRooms(Array.isArray(d) ? d : []))
+      .catch(() => setRooms([]))
+      .finally(() => setLoading(false));
+  }, [branchId]);
+
+  useEffect(() => {
+    if (step !== "slot" || !branchId || !roomId || !date) return;
+    setLoading(true);
+    setError(null);
+    fetch(
+      `/api/availability?branchId=${encodeURIComponent(branchId)}&roomId=${encodeURIComponent(roomId)}&date=${encodeURIComponent(date)}`
+    )
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.error) throw new Error(d.error);
+        setSlots(d.slots ?? []);
+        setRoomName(d.roomName ?? "");
+        setBranchName(d.branchName ?? "");
+      })
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : "無法載入時段");
+        setSlots([]);
+      })
+      .finally(() => setLoading(false));
+  }, [step, branchId, roomId, date]);
+
+  const canSelectDuration = (slotStart: string): boolean => {
+    const startIdx = slots.findIndex((s) => s.start === slotStart);
+    if (startIdx < 0) return false;
+    for (let i = 0; i < duration; i++) {
+      const s = slots[startIdx + i];
+      if (!s?.available) return false;
+    }
+    return true;
+  };
+
+  const getTotalPrice = (): number | null => {
+    const room = rooms.find((r) => r.id === roomId);
+    if (!room || !date) return null;
+    const d = new Date(date + "T12:00:00");
+    const day = d.getDay();
+    const isWeekend = day === 0 || day === 6;
+    const pricePerHour = isWeekend ? room.price_weekend : room.price_weekday;
+    return Math.round(Number(pricePerHour) * duration);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedStart || !name.trim() || !phone.trim()) return;
+    const start = new Date(selectedStart);
+    const end = new Date(start.getTime() + duration * 60 * 60 * 1000);
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/reservations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          room_id: roomId,
+          customer_name: name.trim(),
+          phone: phone.trim(),
+          email: email.trim() || null,
+          start_time: start.toISOString(),
+          end_time: end.toISOString(),
+          total_price: getTotalPrice(),
+          guest_count: guestCount === "" ? null : Number(guestCount),
+          notes: null,
+        }),
+      });
+      const data = await res.json();
+      setSubmitting(false);
+      if (res.status === 409) {
+        setError((data as { error?: string })?.error ?? "該時段已被預訂，請重新選擇");
+        return;
+      }
+      if (!res.ok) {
+        setError((data as { error?: string })?.error ?? "無法完成預約");
+        return;
+      }
+      const code = (data as { booking_code?: string })?.booking_code;
+      if (code) {
+        window.location.href = `/book/success?code=${encodeURIComponent(code)}`;
+      } else {
+        setError("預約成功，但未取得訂位代號");
+      }
+    } catch (e) {
+      setSubmitting(false);
+      setError(e instanceof Error ? e.message : "連線失敗");
+    }
+  };
+
+  const formatSlotTime = (iso: string) =>
+    new Date(iso).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" });
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  return (
+    <main className="min-h-screen bg-gray-50">
+      <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
+        <div className="mx-auto flex max-w-lg items-center gap-3 px-4 py-3">
+          <Link
+            href="/"
+            className="flex items-center justify-center rounded-lg p-2 text-gray-600 hover:bg-gray-100"
+            aria-label="返回"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Link>
+          <h1 className="text-lg font-semibold text-gray-900">我要訂位</h1>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-lg px-4 py-6">
+        {error && (
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            {error}
+          </div>
+        )}
+
+        {step === "branch" && (
+          <>
+            <h2 className="mb-3 text-sm font-medium text-gray-700">選擇分店</h2>
+            <ul className="space-y-2">
+              {branches.map((b) => (
+                <li key={b.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBranchId(b.id);
+                      setStep("room");
+                    }}
+                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-sm hover:border-amber-400 hover:bg-amber-50/50"
+                  >
+                    <span className="font-medium text-gray-900">{b.name}</span>
+                    {b.address && (
+                      <p className="mt-0.5 text-sm text-gray-500">{b.address}</p>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {branches.length === 0 && !loading && (
+              <p className="text-sm text-gray-500">尚無分店資料</p>
+            )}
+          </>
+        )}
+
+        {step === "room" && (
+          <>
+            <button
+              type="button"
+              onClick={() => setStep("branch")}
+              className="mb-3 text-sm text-amber-700"
+            >
+              ← 重選分店
+            </button>
+            <h2 className="mb-3 text-sm font-medium text-gray-700">選擇包廂</h2>
+            <ul className="space-y-2">
+              {rooms.map((r) => (
+                <li key={r.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRoomId(r.id);
+                      setStep("date");
+                    }}
+                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-sm hover:border-amber-400 hover:bg-amber-50/50"
+                  >
+                    <span className="font-medium text-gray-900">{r.name}</span>
+                    <p className="mt-0.5 text-sm text-gray-500">
+                      {r.capacity} 人 · 平日 ${r.price_weekday}/時 · 假日 ${r.price_weekend}/時
+                    </p>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {rooms.length === 0 && !loading && (
+              <p className="text-sm text-gray-500">此分店尚無包廂</p>
+            )}
+          </>
+        )}
+
+        {step === "date" && (
+          <>
+            <button
+              type="button"
+              onClick={() => setStep("room")}
+              className="mb-3 text-sm text-amber-700"
+            >
+              ← 重選包廂
+            </button>
+            <h2 className="mb-3 text-sm font-medium text-gray-700">選擇日期</h2>
+            <input
+              type="date"
+              min={today}
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-full rounded-xl border border-gray-300 px-4 py-3 text-base"
+            />
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                disabled={!date}
+                onClick={() => setStep("slot")}
+                className="rounded-lg bg-amber-600 px-4 py-2 text-white disabled:opacity-50"
+              >
+                下一步
+              </button>
+            </div>
+          </>
+        )}
+
+        {step === "slot" && (
+          <>
+            <button
+              type="button"
+              onClick={() => setStep("date")}
+              className="mb-3 text-sm text-amber-700"
+            >
+              ← 重選日期
+            </button>
+            <h2 className="mb-2 text-sm font-medium text-gray-700">選擇時段</h2>
+            <p className="mb-3 text-xs text-gray-500">
+              {branchName} · {roomName} · {date}
+            </p>
+            {loading ? (
+              <p className="py-4 text-center text-gray-500">載入中…</p>
+            ) : (
+              <>
+                <div className="mb-3 flex items-center gap-4 text-xs text-gray-600">
+                  <span className="flex items-center gap-1">
+                    <span className="inline-block h-4 w-4 rounded bg-green-200" /> 可預約
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="inline-block h-4 w-4 rounded bg-red-200" /> 已額滿
+                  </span>
+                </div>
+                <div className="mb-3">
+                  <label className="mb-1 block text-xs text-gray-600">預計使用時數</label>
+                  <select
+                    value={duration}
+                    onChange={(e) => setDuration(Number(e.target.value))}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  >
+                    {[1, 2, 3, 4].map((h) => (
+                      <option key={h} value={h}>{h} 小時</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                  {slots.map((s) => {
+                    const available = duration === 1 ? s.available : canSelectDuration(s.start);
+                    return (
+                      <button
+                        key={s.start}
+                        type="button"
+                        disabled={!available}
+                        onClick={() => setSelectedStart(s.start)}
+                        className={`rounded-lg border py-3 text-sm font-medium ${
+                          selectedStart === s.start
+                            ? "border-amber-600 bg-amber-600 text-white"
+                            : available
+                              ? "border-green-300 bg-green-50 text-green-800 hover:bg-green-100"
+                              : "cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400"
+                        }`}
+                      >
+                        {formatSlotTime(s.start)}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    disabled={!selectedStart}
+                    onClick={() => setStep("form")}
+                    className="rounded-lg bg-amber-600 px-4 py-2 text-white disabled:opacity-50"
+                  >
+                    下一步 · 填寫資料
+                  </button>
+                </div>
+              </>
+            )}
+          </>
+        )}
+
+        {step === "form" && (
+          <>
+            <button
+              type="button"
+              onClick={() => setStep("slot")}
+              className="mb-3 text-sm text-amber-700"
+            >
+              ← 重選時段
+            </button>
+            <p className="mb-4 text-sm text-gray-600">
+              {branchName} · {roomName} · {date}{" "}
+              {selectedStart && formatSlotTime(selectedStart)} 起 {duration} 小時
+            </p>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">姓名 *</label>
+                <input
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
+                  placeholder="王小明"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">電話 *</label>
+                <input
+                  type="tel"
+                  required
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
+                  placeholder="0912345678"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
+                  placeholder="選填"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">人數</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={guestCount === "" ? "" : guestCount}
+                  onChange={(e) =>
+                    setGuestCount(e.target.value === "" ? "" : Number(e.target.value))
+                  }
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
+                  placeholder="選填"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full rounded-lg bg-amber-600 py-3 text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {submitting ? "送出中…" : "確認預約"}
+              </button>
+            </form>
+          </>
+        )}
+      </div>
+    </main>
+  );
+}
