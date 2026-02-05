@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/supabase";
 
-// Force Update: Ensure image_url type is included
+// Force Update: Restore all missing functions + image_url fix
 const supabaseAdmin = () =>
   createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -54,7 +54,7 @@ export async function fetchRoom(roomId: string): Promise<{
   capacity: number;
   price_weekday: number;
   price_weekend: number;
-  image_url: string | null; // ✅ 這裡就是 Vercel 報錯缺少的東西
+  image_url: string | null;
 } | null> {
   const { url: baseUrl } = baseAdmin();
   const res = await fetch(
@@ -155,6 +155,7 @@ export async function insertReservationAdmin(payload: {
   return data;
 }
 
+// ✅ 補回遺失的函式：fetchReservationsAdmin
 export async function fetchReservationsAdmin(branchId: string): Promise<unknown[]> {
   const { url: baseUrl } = baseAdmin();
   const roomsRes = await fetch(
@@ -176,4 +177,110 @@ export async function fetchReservationsAdmin(branchId: string): Promise<unknown[
   if (!res.ok) throw new Error("Supabase reservations error: " + (await res.text()));
 
   return res.json();
+}
+
+// ✅ 補回遺失的函式：updateReservationAdmin
+export async function updateReservationAdmin(
+  id: string,
+  updates: {
+    status?: string;
+    is_notified?: boolean;
+    notes?: string | null;
+    customer_name?: string;
+    phone?: string;
+    email?: string | null;
+    start_time?: string;
+    end_time?: string;
+    total_price?: number | null;
+    guest_count?: number | null;
+  }
+) {
+  const { error } = await supabaseAdmin()
+    .from("reservations")
+    .update(updates)
+    .eq("id", id);
+  if (error) throw error;
+}
+
+// ✅ 補回遺失的函式：deleteReservationAdmin
+export async function deleteReservationAdmin(id: string) {
+  const { error } = await supabaseAdmin()
+    .from("reservations")
+    .delete()
+    .eq("id", id);
+  if (error) throw error;
+}
+
+// ✅ 補回遺失的函式：hasSlotConflict
+export async function hasSlotConflict(
+  roomId: string,
+  startTime: string,
+  endTime: string,
+  excludeReservationId?: string
+) {
+  let query = supabaseAdmin()
+    .from("reservations")
+    .select("id")
+    .eq("room_id", roomId)
+    .neq("status", "cancelled")
+    .lt("start_time", endTime)
+    .gt("end_time", startTime);
+
+  if (excludeReservationId) {
+    query = query.neq("id", excludeReservationId);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data && data.length > 0;
+}
+
+// ✅ 補回遺失的函式：fetchReservationsByPhone
+export async function fetchReservationsByPhone(phone: string) {
+  const { data, error } = await supabaseAdmin()
+    .from("reservations")
+    .select(`
+      *,
+      room:rooms (
+        name,
+        branch:branches (
+          name
+        )
+      )
+    `)
+    .eq("phone", phone)
+    .neq("status", "cancelled") // 只抓未取消的
+    .order("start_time", { ascending: true });
+
+  if (error) throw error;
+  return data;
+}
+
+// ✅ 補回遺失的函式：fetchReservationsForReminder
+export async function fetchReservationsForReminder(startRange: string, endRange: string) {
+  // 找出 "明天" 的訂單，且 is_notified = false，且 status = confirmed
+  const { data, error } = await supabaseAdmin()
+    .from("reservations")
+    .select(`
+      id,
+      customer_name,
+      phone,
+      start_time,
+      end_time,
+      is_notified,
+      status,
+      room:rooms (
+        name,
+        branch:branches (
+          name
+        )
+      )
+    `)
+    .eq("status", "confirmed")
+    .eq("is_notified", false)
+    .gte("start_time", startRange)
+    .lt("start_time", endRange);
+
+  if (error) throw error;
+  return data;
 }
