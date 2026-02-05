@@ -1,19 +1,13 @@
 import type { NextConfig } from "next";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseHostname = supabaseUrl ? new URL(supabaseUrl).hostname : undefined;
-
 const nextConfig: NextConfig = {
   images: {
-    remotePatterns: supabaseHostname
-      ? [
-          {
-            protocol: "https",
-            hostname: supabaseHostname,
-            pathname: "/storage/v1/object/public/**",
-          },
-        ]
-      : [],
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**.supabase.co', // 直接允許所有 supabase 子網域
+      },
+    ],
   },
 };
 
