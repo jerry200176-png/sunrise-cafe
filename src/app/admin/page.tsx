@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Plus, Pencil, Trash2, MapPin } from "lucide-react";
+import { ArrowLeft, Plus, Pencil, Trash2, MapPin, LogOut } from "lucide-react";
 import type { Branch, Room } from "@/types";
 import { BranchSwitcher } from "@/components/BranchSwitcher";
 import { ReservationList } from "@/components/ReservationList";
@@ -242,12 +242,24 @@ export default function AdminBranchesRoomsPage() {
             </Link>
             <h1 className="text-xl font-bold text-gray-900">後台管理</h1>
           </div>
-          <Link
-            href="/admin/dashboard"
-            className="rounded-lg border border-amber-600 px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50"
-          >
-            儀表板
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/admin/dashboard"
+              className="rounded-lg border border-amber-600 px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50"
+            >
+              儀表板
+            </Link>
+            <button
+              type="button"
+              onClick={async () => {
+                await fetch("/api/admin/logout", { method: "POST" });
+                window.location.href = "/admin/login";
+              }}
+              className="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              <LogOut className="h-4 w-4" /> 登出
+            </button>
+          </div>
         </div>
       </header>
 

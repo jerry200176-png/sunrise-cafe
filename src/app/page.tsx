@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Calendar, Search, Settings } from "lucide-react";
+import { Calendar, Search } from "lucide-react";
 
 export default function Home() {
   return (
@@ -32,18 +32,6 @@ export default function Home() {
             <div className="text-left">
               <p className="font-semibold text-gray-900">查詢我的訂位</p>
               <p className="text-sm text-gray-500">以電話查詢、取消訂位</p>
-            </div>
-          </Link>
-          <Link
-            href="/admin"
-            className="flex w-full items-center gap-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm hover:border-gray-300 hover:bg-gray-50"
-          >
-            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-600">
-              <Settings className="h-6 w-6" />
-            </span>
-            <div className="text-left">
-              <p className="font-semibold text-gray-900">後台管理</p>
-              <p className="text-sm text-gray-500">分店、包廂與訂位管理</p>
             </div>
           </Link>
         </nav>

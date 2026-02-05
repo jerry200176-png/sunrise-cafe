@@ -86,16 +86,17 @@
 ### 2.3 設定 Environment Variables（環境變數）
 
 1. 在 **Configure Project** 頁面找到 **Environment Variables** 區塊。
-2. 新增三筆變數（Name / Value 成對，每筆新增後可再補下一筆）：
+2. 新增四筆變數（Name / Value 成對，每筆新增後可再補下一筆）：
 
    | Name                            | Value                                           | 說明                   |
    | ------------------------------- | ----------------------------------------------- | ---------------------- |
    | `NEXT_PUBLIC_SUPABASE_URL`      | 你 .env.local 裡的 `NEXT_PUBLIC_SUPABASE_URL`   | 前端與 API 連 Supabase 用 |
    | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 你 .env.local 裡的 `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 前端與 API 用 anon key |
    | `SUPABASE_SERVICE_ROLE_KEY`     | 你 .env.local 裡的 `SUPABASE_SERVICE_ROLE_KEY`  | 後端訂位、時段、我的訂位等 API 用 |
+   | `ADMIN_PASSWORD`                | 你自訂的後台登入密碼（建議 16 字元以上）         | 後台 /admin 密碼保護；勿與他人共用、建議定期更換 |
 
 3. 每一筆的 **Environment** 建議三個都勾選：**Production**、**Preview**、**Development**（或至少勾 Production）。
-4. 確認三筆都填好且無多餘空白，再點 **Deploy**。
+4. 確認四筆都填好且無多餘空白，再點 **Deploy**。
 5. 等待建置與部署完成，Vercel 會給你一個網址，例如 `https://sunrise-cafe-xxx.vercel.app`。用瀏覽器開啟即可訪問線上版。
 
 ### 2.4 若部署後才要補環境變數
@@ -145,6 +146,7 @@
 ## 注意事項
 
 - **絕對不要** 把 `.env.local` 的內容 commit 或 push；機密只放在本機與 Vercel 環境變數。
+- **ADMIN_PASSWORD**：後台僅能透過網址 `/admin` 或 `/admin/login` 進入（首頁已不顯示後台按鈕）。請勿與他人共用密碼，並建議定期更換。
 - 若 Supabase 專案有暫停（免費方案閒置會暫停），部署後網站連不到資料庫時，請到 Supabase Dashboard 先恢復專案。
 - 自訂網域（例如 `booking.yourdomain.com`）可在 Vercel 專案 **Settings → Domains** 設定。
 

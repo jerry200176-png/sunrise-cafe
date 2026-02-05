@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Calendar, DollarSign, Users } from "lucide-react";
+import { ArrowLeft, Calendar, DollarSign, Users, LogOut } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import type { Branch } from "@/types";
@@ -96,15 +96,27 @@ export default function AdminDashboardPage() {
   return (
     <main className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-white">
-        <div className="mx-auto flex max-w-4xl items-center gap-4 px-4 py-4">
-          <Link
-            href="/admin"
-            className="rounded-lg p-2 text-gray-600 hover:bg-gray-100"
-            aria-label="返回"
+        <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-4 py-4">
+          <div className="flex items-center gap-4">
+            <Link
+              href="/admin"
+              className="rounded-lg p-2 text-gray-600 hover:bg-gray-100"
+              aria-label="返回"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
+            <h1 className="text-xl font-bold text-gray-900">儀表板</h1>
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              await fetch("/api/admin/logout", { method: "POST" });
+              window.location.href = "/admin/login";
+            }}
+            className="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
           >
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-          <h1 className="text-xl font-bold text-gray-900">儀表板</h1>
+            <LogOut className="h-4 w-4" /> 登出
+          </button>
         </div>
       </header>
 
