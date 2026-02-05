@@ -1,10 +1,11 @@
 "use client";
 
+import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle2, ArrowLeft } from "lucide-react";
 
-export default function BookSuccessPage() {
+function SuccessContent() {
   const searchParams = useSearchParams();
   const code = searchParams.get("code") ?? "";
 
@@ -43,5 +44,17 @@ export default function BookSuccessPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function BookSuccessPage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-gray-500">載入中...</p>
+      </main>
+    }>
+      <SuccessContent />
+    </Suspense>
   );
 }
