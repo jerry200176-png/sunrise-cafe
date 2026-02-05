@@ -377,9 +377,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                         });
                         const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
                         const deposit = Math.ceil(Number(r.total_price) / 2);
-                        const branchName =
-                          (r as any).room_with_branch?.branch?.name ??
-                          "";
+                        const branchName = r.room_with_branch?.branch?.name ?? "";
                         const isDaan = branchName.includes("大安");
                         const linePayUrl =
                           "https://qrcodepay.line.me/qr/payment/%252BmF6rR41PSp3R8NMydLA%252BRt1IvAFgPchBvtrJoR20aoZKY4Hr1qrbfaYSoPDUyu0";
