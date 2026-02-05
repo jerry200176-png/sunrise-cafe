@@ -32,6 +32,17 @@ export default function BookPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [branchRoomsAvailability, setBranchRoomsAvailability] = useState<{
+    rooms: {
+      roomId: string;
+      roomName: string;
+      capacity: number;
+      price_weekday: number;
+      price_weekend: number;
+      slots: SlotItem[];
+    }[];
+    branchName: string;
+  } | null>(null);
 
   useEffect(() => {
     fetch("/api/branches")
@@ -54,6 +65,50 @@ export default function BookPage() {
   }, [branchId]);
 
   useEffect(() => {
+    if (step !== "room" || !branchId || !date) return;
+    setLoading(true);
+    setError(null);
+    setBranchRoomsAvailability(null);
+    fetch(
+      `/api/availability?branchId=${encodeURIComponent(branchId)}&date=${encodeURIComponent(date)}`
+    )
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.error) throw new Error(d.error);
+        setBranchRoomsAvailability({
+          rooms: d.rooms ?? [],
+          branchName: d.branchName ?? "",
+        });
+        if (Array.isArray(d.rooms) && d.rooms.length > 0) {
+          setRooms(
+            d.rooms.map(
+              (r: {
+                roomId: string;
+                roomName: string;
+                capacity: number;
+                price_weekday: number;
+                price_weekend: number;
+              }) => ({
+                id: r.roomId,
+                name: r.roomName,
+                capacity: r.capacity,
+                price_weekday: r.price_weekday,
+                price_weekend: r.price_weekend,
+                branch_id: branchId,
+                type: null,
+              })
+            )
+          );
+        }
+      })
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : "無法載入空檔");
+        setBranchRoomsAvailability(null);
+      })
+      .finally(() => setLoading(false));
+  }, [step, branchId, date]);
+
+  useEffect(() => {
     if (step !== "slot" || !branchId || !roomId || !date) return;
     setLoading(true);
     setError(null);
@@ -64,6 +119,7 @@ export default function BookPage() {
       .then((d) => {
         if (d.error) throw new Error(d.error);
         setSlots(d.slots ?? []);
+        setSelectedStart("");
         setRoomName(d.roomName ?? "");
         setBranchName(d.branchName ?? "");
       })
@@ -176,7 +232,7 @@ export default function BookPage() {
                     type="button"
                     onClick={() => {
                       setBranchId(b.id);
-                      setStep("room");
+                      setStep("date");
                     }}
                     className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-sm hover:border-amber-400 hover:bg-amber-50/50"
                   >
@@ -194,7 +250,7 @@ export default function BookPage() {
           </>
         )}
 
-        {step === "room" && (
+        {step === "date" && (
           <>
             <button
               type="button"
@@ -202,41 +258,6 @@ export default function BookPage() {
               className="mb-3 text-sm text-amber-700"
             >
               ← 重選分店
-            </button>
-            <h2 className="mb-3 text-sm font-medium text-gray-700">選擇包廂</h2>
-            <ul className="space-y-2">
-              {rooms.map((r) => (
-                <li key={r.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRoomId(r.id);
-                      setStep("date");
-                    }}
-                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-sm hover:border-amber-400 hover:bg-amber-50/50"
-                  >
-                    <span className="font-medium text-gray-900">{r.name}</span>
-                    <p className="mt-0.5 text-sm text-gray-500">
-                      {r.capacity} 人 · 平日 ${r.price_weekday}/時 · 假日 ${r.price_weekend}/時
-                    </p>
-                  </button>
-                </li>
-              ))}
-            </ul>
-            {rooms.length === 0 && !loading && (
-              <p className="text-sm text-gray-500">此分店尚無包廂</p>
-            )}
-          </>
-        )}
-
-        {step === "date" && (
-          <>
-            <button
-              type="button"
-              onClick={() => setStep("room")}
-              className="mb-3 text-sm text-amber-700"
-            >
-              ← 重選包廂
             </button>
             <h2 className="mb-3 text-sm font-medium text-gray-700">選擇日期</h2>
             <input
@@ -250,7 +271,7 @@ export default function BookPage() {
               <button
                 type="button"
                 disabled={!date}
-                onClick={() => setStep("slot")}
+                onClick={() => setStep("room")}
                 className="rounded-lg bg-amber-600 px-4 py-2 text-white disabled:opacity-50"
               >
                 下一步
@@ -259,7 +280,7 @@ export default function BookPage() {
           </>
         )}
 
-        {step === "slot" && (
+        {step === "room" && (
           <>
             <button
               type="button"
@@ -267,6 +288,83 @@ export default function BookPage() {
               className="mb-3 text-sm text-amber-700"
             >
               ← 重選日期
+            </button>
+            <h2 className="mb-2 text-sm font-medium text-gray-700">選擇包廂</h2>
+            <p className="mb-3 text-xs text-gray-500">
+              {date} · 以下為各包廂當日空檔
+            </p>
+            {loading ? (
+              <p className="py-4 text-center text-gray-500">載入中…</p>
+            ) : branchRoomsAvailability ? (
+              <ul className="space-y-3">
+                {branchRoomsAvailability.rooms.map((r) => {
+                  const freeCount = r.slots.filter((s) => s.available).length;
+                  const ranges: string[] = [];
+                  let i = 0;
+                  while (i < r.slots.length) {
+                    if (r.slots[i].available) {
+                      const start = formatSlotTime(r.slots[i].start);
+                      let j = i;
+                      while (j + 1 < r.slots.length && r.slots[j + 1].available) j++;
+                      const end = formatSlotTime(r.slots[j].end);
+                      ranges.push(`${start}–${end}`);
+                      i = j + 1;
+                    } else i++;
+                  }
+                  return (
+                    <li key={r.roomId}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRoomId(r.roomId);
+                          setRoomName(r.roomName);
+                          setBranchName(branchRoomsAvailability.branchName);
+                          setStep("slot");
+                        }}
+                        className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-sm hover:border-amber-400 hover:bg-amber-50/50"
+                      >
+                        <span className="font-medium text-gray-900">{r.roomName}</span>
+                        <p className="mt-0.5 text-sm text-gray-500">
+                          {r.capacity} 人 · 平日 ${r.price_weekday}/時 · 假日 ${r.price_weekend}/時
+                        </p>
+                        <p className="mt-1.5 text-xs text-gray-600">
+                          {freeCount > 0 ? (
+                            <>可預約 {ranges.slice(0, 3).join("、")}{ranges.length > 3 ? " …" : ""}</>
+                          ) : (
+                            <span className="text-red-600">本日已滿</span>
+                          )}
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-0.5">
+                          {r.slots.slice(0, 12).map((s) => (
+                            <span
+                              key={s.start}
+                              className={`inline-block h-2 w-4 rounded-sm ${s.available ? "bg-green-300" : "bg-gray-200"}`}
+                              title={formatSlotTime(s.start)}
+                            />
+                          ))}
+                          {r.slots.length > 12 && (
+                            <span className="text-xs text-gray-400">…</span>
+                          )}
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="text-sm text-gray-500">無法載入包廂空檔，請重試或重選日期</p>
+            )}
+          </>
+        )}
+
+        {step === "slot" && (
+          <>
+            <button
+              type="button"
+              onClick={() => setStep("room")}
+              className="mb-3 text-sm text-amber-700"
+            >
+              ← 重選包廂
             </button>
             <h2 className="mb-2 text-sm font-medium text-gray-700">選擇時段</h2>
             <p className="mb-3 text-xs text-gray-500">
@@ -276,6 +374,11 @@ export default function BookPage() {
               <p className="py-4 text-center text-gray-500">載入中…</p>
             ) : (
               <>
+                {slots.length > 0 && (
+                  <p className="mb-3 text-xs text-gray-600">
+                    本日共 {slots.length} 個時段，{slots.filter((s) => s.available).length} 個可預約
+                  </p>
+                )}
                 <div className="mb-3 flex items-center gap-4 text-xs text-gray-600">
                   <span className="flex items-center gap-1">
                     <span className="inline-block h-4 w-4 rounded bg-green-200" /> 可預約
@@ -299,9 +402,14 @@ export default function BookPage() {
                     ))}
                   </select>
                 </div>
-                {duration > 1 && !slots.some((s) => canSelectDuration(s.start)) && (
+                {duration === 1 && !slots.some((s) => s.available) && slots.length > 0 && (
                   <p className="mb-3 text-sm text-amber-700">
-                    目前沒有連續 {duration} 小時的空檔，請改選其他日期或時數。
+                    本日此時段已滿，請點擊上方「重選包廂」或返回重選日期選擇其他日期。
+                  </p>
+                )}
+                {duration > 1 && !slots.some((s) => canSelectDuration(s.start)) && slots.length > 0 && (
+                  <p className="mb-3 text-sm text-amber-700">
+                    目前沒有連續 {duration} 小時的空檔。請改選 1 小時，或點擊上方「重選包廂」/重選日期選擇其他日期。
                   </p>
                 )}
                 <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">

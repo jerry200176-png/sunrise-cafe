@@ -70,6 +70,19 @@ export async function fetchRooms(branchId: string): Promise<{ id: string; name: 
   return Array.isArray(data) ? data : [];
 }
 
+export async function fetchRoomsWithDetails(branchId: string): Promise<
+  { id: string; name: string; capacity: number; price_weekday: number; price_weekend: number }[]
+> {
+  const { url: baseUrl } = baseAdmin();
+  const res = await fetch(
+    `${baseUrl}/rest/v1/rooms?branch_id=eq.${encodeURIComponent(branchId)}&select=id,name,capacity,price_weekday,price_weekend&order=name.asc`,
+    { method: "GET", headers: headersAdmin(), cache: "no-store" }
+  );
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
 /** 呼叫 Postgres 函式 get_blocked_slots，回傳該分店該日已佔用時段（無個資） */
 export async function getBlockedSlots(
   branchId: string,
