@@ -3,6 +3,7 @@ import {
   getBlockedSlots,
   fetchBranch,
   fetchRoom,
+  fetchRoomsWithDetails,
   isAdminConfigured,
 } from "@/lib/supabase-admin";
 
@@ -29,13 +30,34 @@ function overlaps(
   return aStart < bEnd && aEnd > bStart;
 }
 
+function buildSlotsForRoom(
+  date: string,
+  open: { h: number; m: number },
+  close: { h: number; m: number },
+  roomBlocked: { start_time: string; end_time: string }[]
+): { start: string; end: string; available: boolean }[] {
+  const { start: dayStart, end: dayEnd } = slotRange(date, open, close);
+  const slots: { start: string; end: string; available: boolean }[] = [];
+  const startMs = new Date(dayStart).getTime();
+  const endMs = new Date(dayEnd).getTime();
+  for (let t = startMs; t < endMs; t += 60 * 60 * 1000) {
+    const slotStart = new Date(t).toISOString();
+    const slotEnd = new Date(t + 60 * 60 * 1000).toISOString();
+    const taken = roomBlocked.some((b) =>
+      overlaps(slotStart, slotEnd, b.start_time, b.end_time)
+    );
+    slots.push({ start: slotStart, end: slotEnd, available: !taken });
+  }
+  return slots;
+}
+
 export async function GET(request: NextRequest) {
   const branchId = request.nextUrl.searchParams.get("branchId");
   const roomId = request.nextUrl.searchParams.get("roomId");
   const date = request.nextUrl.searchParams.get("date");
-  if (!branchId || !roomId || !date) {
+  if (!branchId || !date) {
     return NextResponse.json(
-      { error: "缺少 branchId、roomId 或 date (YYYY-MM-DD)" },
+      { error: "缺少 branchId 或 date (YYYY-MM-DD)" },
       { status: 400 }
     );
   }
@@ -49,39 +71,52 @@ export async function GET(request: NextRequest) {
     );
   }
   try {
-    const [branch, room, blocked] = await Promise.all([
+    if (roomId) {
+      const [branch, room, blocked] = await Promise.all([
+        fetchBranch(branchId),
+        fetchRoom(roomId),
+        getBlockedSlots(branchId, date),
+      ]);
+      if (!branch || !room || room.branch_id !== branchId) {
+        return NextResponse.json({ error: "分店或包廂不存在" }, { status: 404 });
+      }
+      const open = parseTime(branch.open_time);
+      const close = parseTime(branch.close_time);
+      const roomBlocked = blocked.filter((b) => b.room_id === roomId);
+      const slots = buildSlotsForRoom(date, open, close, roomBlocked);
+      return NextResponse.json({
+        slots,
+        roomName: room.name,
+        branchName: branch.name,
+        openTime: branch.open_time,
+        closeTime: branch.close_time,
+      });
+    }
+    const [branch, rooms, blocked] = await Promise.all([
       fetchBranch(branchId),
-      fetchRoom(roomId),
+      fetchRoomsWithDetails(branchId),
       getBlockedSlots(branchId, date),
     ]);
-    if (!branch || !room || room.branch_id !== branchId) {
-      return NextResponse.json({ error: "分店或包廂不存在" }, { status: 404 });
+    if (!branch) {
+      return NextResponse.json({ error: "分店不存在" }, { status: 404 });
     }
     const open = parseTime(branch.open_time);
     const close = parseTime(branch.close_time);
-    const { start: dayStart, end: dayEnd } = slotRange(date, open, close);
-    const roomBlocked = blocked.filter((b) => b.room_id === roomId);
-    const slots: { start: string; end: string; available: boolean }[] = [];
-    const startMs = new Date(dayStart).getTime();
-    const endMs = new Date(dayEnd).getTime();
-    for (let t = startMs; t < endMs; t += 60 * 60 * 1000) {
-      const slotStart = new Date(t).toISOString();
-      const slotEnd = new Date(t + 60 * 60 * 1000).toISOString();
-      const taken = roomBlocked.some((b) =>
-        overlaps(slotStart, slotEnd, b.start_time, b.end_time)
-      );
-      slots.push({
-        start: slotStart,
-        end: slotEnd,
-        available: !taken,
-      });
-    }
+    const roomList = rooms.map((room) => {
+      const roomBlocked = blocked.filter((b) => b.room_id === room.id);
+      const slots = buildSlotsForRoom(date, open, close, roomBlocked);
+      return {
+        roomId: room.id,
+        roomName: room.name,
+        capacity: room.capacity,
+        price_weekday: room.price_weekday,
+        price_weekend: room.price_weekend,
+        slots,
+      };
+    });
     return NextResponse.json({
-      slots,
-      roomName: room.name,
+      rooms: roomList,
       branchName: branch.name,
-      openTime: branch.open_time,
-      closeTime: branch.close_time,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法取得時段";
