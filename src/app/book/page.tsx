@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import type { Branch, Room } from "@/types";
+import { getDurationOptions } from "@/lib/booking-utils";
 
 type Step = "branch" | "room" | "date" | "slot" | "form";
 
@@ -133,7 +134,8 @@ export default function BookPage() {
   const canSelectDuration = (slotStart: string): boolean => {
     const startIdx = slots.findIndex((s) => s.start === slotStart);
     if (startIdx < 0) return false;
-    for (let i = 0; i < duration; i++) {
+    const slotsNeeded = Math.ceil(duration);
+    for (let i = 0; i < slotsNeeded; i++) {
       const s = slots[startIdx + i];
       if (!s?.available) return false;
     }
@@ -338,14 +340,14 @@ export default function BookPage() {
                           {freeCount > 0 ? (
                             <>可預約 {ranges.slice(0, 3).join("、")}{ranges.length > 3 ? " …" : ""}</>
                           ) : (
-                            <span className="text-red-600">本日已滿</span>
+                            <span className="text-rose-600">本日已滿</span>
                           )}
                         </p>
                         <div className="mt-2 flex flex-wrap gap-0.5">
                           {r.slots.slice(0, 12).map((s) => (
                             <span
                               key={s.start}
-                              className={`inline-block h-2 w-4 rounded-sm ${s.available ? "bg-green-300" : "bg-gray-200"}`}
+                              className={`inline-block h-2 w-4 rounded-sm ${s.available ? "bg-green-300" : "bg-rose-200"}`}
                               title={formatSlotTime(s.start)}
                             />
                           ))}
@@ -399,8 +401,8 @@ export default function BookPage() {
                   <span className="flex items-center gap-1">
                     <span className="inline-block h-4 w-4 rounded bg-green-200" /> 可預約
                   </span>
-                  <span className="flex items-center gap-1">
-                    <span className="inline-block h-4 w-4 rounded bg-red-200" /> 已額滿
+                  <span className="flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-rose-600">
+                    <span className="inline-block h-3 w-3 rounded bg-rose-200" /> 已額滿
                   </span>
                 </div>
                 <div className="mb-3">
@@ -413,7 +415,7 @@ export default function BookPage() {
                     }}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2"
                   >
-                    {[1, 2, 3, 4, 5, 6, 7, 8].map((h) => (
+                    {getDurationOptions().map((h) => (
                       <option key={h} value={h}>{h} 小時</option>
                     ))}
                   </select>
@@ -442,7 +444,7 @@ export default function BookPage() {
                             ? "border-amber-600 bg-amber-600 text-white"
                             : available
                               ? "border-green-300 bg-green-50 text-green-800 hover:bg-green-100"
-                              : "cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400"
+                              : "cursor-not-allowed border border-rose-200 bg-rose-50 text-rose-600"
                         }`}
                       >
                         {formatSlotTime(s.start)}
