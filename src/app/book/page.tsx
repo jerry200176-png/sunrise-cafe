@@ -377,17 +377,20 @@ export default function BookPage() {
                         <div className="mb-2 overflow-hidden rounded-lg">
                           <div className="aspect-video w-full overflow-hidden rounded-lg bg-gray-100 flex items-center justify-center text-xs text-gray-500">
                             {imageUrl ? (
-                              <img
-                                src={imageUrl}
-                                alt={r.roomName}
-                                className="h-full w-full object-cover"
-                                loading="lazy"
-                                decoding="async"
-                                onError={(e) => {
-                                  const img = e.currentTarget;
-                                  img.style.display = "none";
-                                }}
-                              />
+                              <>
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={imageUrl}
+                                  alt={r.roomName}
+                                  className="h-full w-full object-cover"
+                                  loading="lazy"
+                                  decoding="async"
+                                  onError={(e) => {
+                                    const img = e.currentTarget;
+                                    img.style.display = "none";
+                                  }}
+                                />
+                              </>
                             ) : (
                               // Fallback (若無圖片)
                               <span>無圖片</span>
