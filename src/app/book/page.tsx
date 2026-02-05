@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { ArrowLeft } from "lucide-react";
 import type { Branch, Room } from "@/types";
 import { getDurationOptions } from "@/lib/booking-utils";
@@ -347,6 +346,10 @@ export default function BookPage() {
                 {branchRoomsAvailability.rooms.map((r) => {
                   const freeCount = r.slots.filter((s) => s.available).length;
                   const ranges: string[] = [];
+                  const imageUrl =
+                    r.image_url ??
+                    rooms.find((rm) => rm.id === r.roomId)?.image_url ??
+                    null;
                   let i = 0;
                   while (i < r.slots.length) {
                     if (r.slots[i].available) {
@@ -373,17 +376,21 @@ export default function BookPage() {
                         {/* 圖片顯示區塊 */}
                         <div className="mb-2 overflow-hidden rounded-lg">
                           <div className="aspect-video w-full overflow-hidden rounded-lg bg-gray-100 flex items-center justify-center text-xs text-gray-500">
-                            {r.image_url ? (
-                              <Image
-                                src={r.image_url}
+                            {imageUrl ? (
+                              <img
+                                src={imageUrl}
                                 alt={r.roomName}
-                                width={800}
-                                height={450}
                                 className="h-full w-full object-cover"
+                                loading="lazy"
+                                decoding="async"
+                                onError={(e) => {
+                                  const img = e.currentTarget;
+                                  img.style.display = "none";
+                                }}
                               />
                             ) : (
                               // Fallback (若無圖片)
-                              <span>圖片載入中: {String(r.image_url ?? "無")}</span>
+                              <span>無圖片</span>
                             )}
                           </div>
                         </div>
