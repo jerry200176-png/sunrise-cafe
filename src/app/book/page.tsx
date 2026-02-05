@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, Calendar, Clock } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import type { Branch, Room } from "@/types";
 
 type Step = "branch" | "room" | "date" | "slot" | "form";

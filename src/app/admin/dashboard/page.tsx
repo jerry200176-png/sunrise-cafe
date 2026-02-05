@@ -53,6 +53,7 @@ export default function AdminDashboardPage() {
         if (arr.length > 0 && !branchId) setBranchId(arr[0].id);
       })
       .catch(() => setBranches([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

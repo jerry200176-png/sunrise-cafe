@@ -64,6 +64,7 @@ export default function AdminBranchesRoomsPage() {
 
   useEffect(() => {
     loadRooms();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBranchId]);
 
   useEffect(() => {
