@@ -62,6 +62,21 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    const startMs = new Date(startTime).getTime();
+    const endMs = new Date(endTime).getTime();
+    const durationHours = (endMs - startMs) / (60 * 60 * 1000);
+    if (durationHours <= 0) {
+      return NextResponse.json(
+        { error: "結束時間必須晚於開始時間" },
+        { status: 400 }
+      );
+    }
+    if (durationHours > 8) {
+      return NextResponse.json(
+        { error: "單次預約時長不得超過 8 小時" },
+        { status: 400 }
+      );
+    }
     const conflict = await hasSlotConflict(roomId, startTime, endTime);
     if (conflict) {
       return NextResponse.json(

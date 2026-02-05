@@ -41,6 +41,8 @@ export function AddReservationForm({
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [duration, setDuration] = useState(1);
+  const [repeatType, setRepeatType] = useState<"once" | "weekly">("once");
+  const [repeatWeeks, setRepeatWeeks] = useState(4);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,6 +56,8 @@ export function AddReservationForm({
     setDate("");
     setTime("");
     setDuration(1);
+    setRepeatType("once");
+    setRepeatWeeks(4);
     setError(null);
   };
 
@@ -70,6 +74,38 @@ export function AddReservationForm({
     setSubmitting(true);
     setError(null);
     try {
+      if (repeatType === "weekly") {
+        const res = await fetch("/api/reservations/recurring", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            room_id: roomId,
+            customer_name: name.trim(),
+            phone: phone.trim(),
+            email: email.trim() || null,
+            start_date: date,
+            start_time: time,
+            duration_hours: duration,
+            repeat_weeks: repeatWeeks,
+            guest_count: guestCount === "" ? null : Number(guestCount),
+            notes: notes.trim() || null,
+          }),
+        });
+        const data = await res.json();
+        setSubmitting(false);
+        if (!res.ok) {
+          setError((data as { error?: string })?.error ?? "無法建立週期預約");
+          return;
+        }
+        const created = (data as { created?: number }).created ?? 0;
+        const skipped = (data as { skipped?: number }).skipped ?? 0;
+        handleClose();
+        onSuccess?.();
+        if (created > 0 || skipped > 0) {
+          alert(`已建立 ${created} 筆訂位${skipped > 0 ? `，略過 ${skipped} 筆` : ""}`);
+        }
+        return;
+      }
       const start = new Date(`${date}T${time}:00`);
       const end = new Date(start.getTime() + duration * 60 * 60 * 1000);
       const start_time = start.toISOString();
@@ -244,11 +280,37 @@ export function AddReservationForm({
                 onChange={(e) => setDuration(Number(e.target.value))}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 sm:text-sm"
               >
-                {[1, 2, 3, 4].map((h) => (
+                {[1, 2, 3, 4, 5, 6, 7, 8].map((h) => (
                   <option key={h} value={h}>{h} 小時</option>
                 ))}
               </select>
             </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">重複</label>
+              <select
+                value={repeatType}
+                onChange={(e) => setRepeatType(e.target.value as "once" | "weekly")}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 sm:text-sm"
+              >
+                <option value="once">單次</option>
+                <option value="weekly">每週重複</option>
+              </select>
+            </div>
+            {repeatType === "weekly" && (
+              <div>
+                <label htmlFor="repeatWeeks" className="mb-1 block text-sm font-medium text-gray-700">重複週數</label>
+                <select
+                  id="repeatWeeks"
+                  value={repeatWeeks}
+                  onChange={(e) => setRepeatWeeks(Number(e.target.value))}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 sm:text-sm"
+                >
+                  {[4, 5, 6, 7, 8, 9, 10, 11, 12].map((w) => (
+                    <option key={w} value={w}>{w} 週</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div>
               <label htmlFor="notes" className="mb-1 block text-sm font-medium text-gray-700">備註</label>
               <textarea

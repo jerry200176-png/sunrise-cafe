@@ -15,8 +15,15 @@ export async function GET(request: NextRequest) {
   }
   try {
     const rows = await fetchReservationsByPhone(phone.trim());
+    const now = new Date().toISOString();
+    const active = rows.filter(
+      (r) =>
+        r.status !== "completed" &&
+        r.status !== "cancelled" &&
+        r.end_time >= now
+    );
     const withNames = await Promise.all(
-      rows.map(async (r) => {
+      active.map(async (r) => {
         const room = await fetchRoom(r.room_id);
         const branch = room?.branch_id ? await fetchBranch(room.branch_id) : null;
         return {
@@ -33,6 +40,7 @@ export async function GET(request: NextRequest) {
         };
       })
     );
+    withNames.sort((a, b) => a.start_time.localeCompare(b.start_time));
     return NextResponse.json(withNames);
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法查詢";

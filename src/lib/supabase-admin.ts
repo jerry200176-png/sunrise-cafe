@@ -191,6 +191,7 @@ export async function updateReservationAdmin(
     total_price: number | null;
     guest_count: number | null;
     notes: string | null;
+    is_notified: boolean;
   }>
 ): Promise<void> {
   const { url: baseUrl } = baseAdmin();
@@ -220,6 +221,41 @@ export async function fetchReservationsByPhone(phone: string): Promise<
   const { url: baseUrl } = baseAdmin();
   const res = await fetch(
     `${baseUrl}/rest/v1/reservations?select=id,booking_code,room_id,start_time,end_time,status,total_price,guest_count,customer_name&phone=eq.${encodeURIComponent(normalized)}&order=start_time.desc`,
+    { method: "GET", headers: headersAdmin(), cache: "no-store" }
+  );
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
+/** 查詢「預約日期為明天」且尚未發送提醒的訂位（供提醒排程使用） */
+export async function fetchReservationsForReminder(): Promise<
+  {
+    id: string;
+    booking_code: string;
+    room_id: string;
+    start_time: string;
+    end_time: string;
+    customer_name: string;
+    phone: string;
+    email: string | null;
+  }[]
+> {
+  const now = new Date();
+  const tomorrow = new Date(now);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  const dateStr = tomorrow.toISOString().slice(0, 10);
+  const tomorrowStart = `${dateStr}T00:00:00.000Z`;
+  const tomorrowEnd = `${dateStr}T23:59:59.999Z`;
+
+  const { url: baseUrl } = baseAdmin();
+  const res = await fetch(
+    `${baseUrl}/rest/v1/reservations?select=id,booking_code,room_id,start_time,end_time,customer_name,phone,email` +
+      `&start_time=gte.${encodeURIComponent(tomorrowStart)}` +
+      `&start_time=lte.${encodeURIComponent(tomorrowEnd)}` +
+      `&is_notified=eq.false` +
+      `&status=neq.cancelled` +
+      `&order=start_time.asc`,
     { method: "GET", headers: headersAdmin(), cache: "no-store" }
   );
   if (!res.ok) return [];

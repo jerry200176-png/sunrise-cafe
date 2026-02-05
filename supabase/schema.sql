@@ -41,6 +41,7 @@ CREATE TABLE reservations (
   guest_count INTEGER,
   notes TEXT,
   booking_code TEXT NOT NULL UNIQUE DEFAULT upper(substring(md5(gen_random_uuid()::text), 1, 8)),
+  is_notified BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT now(),
   CONSTRAINT chk_end_after_start CHECK (end_time > start_time)
 );

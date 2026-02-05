@@ -288,14 +288,22 @@ export default function BookPage() {
                   <label className="mb-1 block text-xs text-gray-600">預計使用時數</label>
                   <select
                     value={duration}
-                    onChange={(e) => setDuration(Number(e.target.value))}
+                    onChange={(e) => {
+                      setDuration(Number(e.target.value));
+                      setSelectedStart("");
+                    }}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2"
                   >
-                    {[1, 2, 3, 4].map((h) => (
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map((h) => (
                       <option key={h} value={h}>{h} 小時</option>
                     ))}
                   </select>
                 </div>
+                {duration > 1 && !slots.some((s) => canSelectDuration(s.start)) && (
+                  <p className="mb-3 text-sm text-amber-700">
+                    目前沒有連續 {duration} 小時的空檔，請改選其他日期或時數。
+                  </p>
+                )}
                 <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
                   {slots.map((s) => {
                     const available = duration === 1 ? s.available : canSelectDuration(s.start);
@@ -321,7 +329,7 @@ export default function BookPage() {
                 <div className="mt-4 flex justify-end">
                   <button
                     type="button"
-                    disabled={!selectedStart}
+                    disabled={!selectedStart || !canSelectDuration(selectedStart)}
                     onClick={() => setStep("form")}
                     className="rounded-lg bg-amber-600 px-4 py-2 text-white disabled:opacity-50"
                   >

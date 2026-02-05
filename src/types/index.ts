@@ -35,6 +35,7 @@ export interface Reservation {
   guest_count: number | null;
   notes: string | null;
   booking_code?: string;
+  is_notified?: boolean;
   created_at: string;
 }
 
