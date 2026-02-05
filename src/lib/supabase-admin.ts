@@ -59,10 +59,10 @@ export async function fetchRoom(roomId: string): Promise<{
   return Array.isArray(arr) && arr[0] ? arr[0] : null;
 }
 
-export async function fetchRooms(branchId: string): Promise<{ id: string; name: string }[]> {
+export async function fetchRooms(branchId: string): Promise<{ id: string; name: string; image_url: string | null }[]> {
   const { url: baseUrl } = baseAdmin();
   const res = await fetch(
-    `${baseUrl}/rest/v1/rooms?branch_id=eq.${encodeURIComponent(branchId)}&select=id,name&order=name.asc`,
+    `${baseUrl}/rest/v1/rooms?branch_id=eq.${encodeURIComponent(branchId)}&select=id,name,image_url&order=name.asc`,
     { method: "GET", headers: headersAdmin(), cache: "no-store" }
   );
   if (!res.ok) return [];
@@ -71,11 +71,11 @@ export async function fetchRooms(branchId: string): Promise<{ id: string; name: 
 }
 
 export async function fetchRoomsWithDetails(branchId: string): Promise<
-  { id: string; name: string; capacity: number; price_weekday: number; price_weekend: number }[]
+  { id: string; name: string; capacity: number; price_weekday: number; price_weekend: number; image_url: string | null }[]
 > {
   const { url: baseUrl } = baseAdmin();
   const res = await fetch(
-    `${baseUrl}/rest/v1/rooms?branch_id=eq.${encodeURIComponent(branchId)}&select=id,name,capacity,price_weekday,price_weekend&order=name.asc`,
+    `${baseUrl}/rest/v1/rooms?branch_id=eq.${encodeURIComponent(branchId)}&select=id,name,capacity,price_weekday,price_weekend,image_url&order=name.asc`,
     { method: "GET", headers: headersAdmin(), cache: "no-store" }
   );
   if (!res.ok) return [];
@@ -174,7 +174,7 @@ export async function insertReservationAdmin(body: {
   const payload = {
     ...body,
     booking_code: bookingCode,
-    status: body.status ?? "confirmed",
+    status: body.status ?? "pending",
     email: body.email ?? null,
     guest_count: body.guest_count ?? null,
     notes: body.notes ?? null,

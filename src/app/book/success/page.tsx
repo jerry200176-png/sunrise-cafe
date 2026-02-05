@@ -31,7 +31,7 @@ function SuccessContent() {
           )}
           <div className="mt-6">
             <Link
-              href="https://line.me/ti/p/~@sunrise_cafe"
+              href="https://lin.ee/cxcV0lo"
               target="_blank"
               rel="noopener noreferrer"
               className="block w-full rounded-lg bg-green-600 py-3 text-center text-sm font-medium text-white hover:bg-green-700"

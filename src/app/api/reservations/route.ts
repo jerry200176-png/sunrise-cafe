@@ -45,6 +45,7 @@ export async function POST(request: NextRequest) {
       total_price: totalPrice,
       guest_count: guestCount,
       notes,
+      status,
     } = body as {
       room_id: string;
       customer_name: string;
@@ -55,6 +56,7 @@ export async function POST(request: NextRequest) {
       total_price?: number | null;
       guest_count?: number | null;
       notes?: string | null;
+      status?: string;
     };
     if (!roomId || !customerName?.trim() || !phone?.trim() || !startTime || !endTime) {
       return NextResponse.json(
@@ -91,6 +93,7 @@ export async function POST(request: NextRequest) {
       email: email?.trim() || null,
       start_time: startTime,
       end_time: endTime,
+      status: status ?? "pending",
       total_price: totalPrice ?? null,
       guest_count: guestCount ?? null,
       notes: notes?.trim() || null,
