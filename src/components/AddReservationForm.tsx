@@ -29,7 +29,7 @@ const WEEKDAYS = [
 ];
 
 // 產生 1~10 小時，間隔 0.5
-const DURATION_OPTIONS = [];
+const DURATION_OPTIONS: number[] = [];
 for (let i = 1; i <= 10; i += 0.5) {
   DURATION_OPTIONS.push(i);
 }
