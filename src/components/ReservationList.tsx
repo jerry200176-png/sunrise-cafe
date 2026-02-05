@@ -267,14 +267,32 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
               >
                 {STATUS_LABELS[r.status] ?? r.status}
               </span>
-              <button
-                type="button"
-                onClick={() => openEdit(r)}
-                className="shrink-0 rounded-lg border border-gray-300 p-2 text-gray-600 hover:bg-gray-100"
-                aria-label="編輯訂位"
-              >
-                <Pencil className="h-4 w-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openEdit(r)}
+                  className="shrink-0 rounded-lg border border-gray-300 p-2 text-gray-600 hover:bg-gray-100"
+                  aria-label="編輯訂位"
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const ok = window.confirm("確定要永久刪除此訂位嗎？此動作無法復原！");
+                    if (!ok) return;
+                    try {
+                      await fetch(`${RESERVATIONS_API}/${r.id}`, { method: "DELETE" });
+                      fetchReservations();
+                    } catch {
+                      // ignore; 重新整理會補上最新狀態
+                    }
+                  }}
+                  className="shrink-0 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+                >
+                  🗑️ 刪除
+                </button>
+              </div>
             </li>
           );
           })}

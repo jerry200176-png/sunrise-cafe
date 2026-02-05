@@ -8,6 +8,7 @@ import { CheckCircle2, ArrowLeft } from "lucide-react";
 function SuccessContent() {
   const searchParams = useSearchParams();
   const code = searchParams.get("code") ?? "";
+  const weekend = searchParams.get("weekend") === "1";
 
   return (
     <main className="min-h-screen bg-gray-50">
@@ -16,8 +17,10 @@ function SuccessContent() {
           <div className="flex justify-center text-green-600">
             <CheckCircle2 className="h-14 w-14" />
           </div>
-          <h1 className="mt-4 text-center text-xl font-bold text-gray-900">預約成功</h1>
-          <p className="mt-2 text-center text-gray-600">請妥善保存您的訂位代號</p>
+          <h1 className="mt-4 text-center text-xl font-bold text-gray-900">預約申請已送出</h1>
+          <p className="mt-2 text-center text-gray-600">
+            您的預約申請已送出，待管理員確認後，將發送確認信給您。
+          </p>
           {code && (
             <div className="mt-6 rounded-xl bg-amber-50 p-4 text-center">
               <p className="text-sm text-amber-800">訂位代號</p>
@@ -25,6 +28,16 @@ function SuccessContent() {
                 {code}
               </p>
               <p className="mt-3 text-xs text-amber-700">建議截圖保存，查詢或取消訂位時會用到</p>
+            </div>
+          )}
+          {weekend && (
+            <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              <p className="font-semibold mb-2">假日訂金匯款資訊</p>
+              <p>銀行：822 中國信託</p>
+              <p>帳號：1234-5678-9012</p>
+              <p className="mt-2 text-xs">
+                備註：請於 24 小時內回傳匯款末五碼以保留座位。
+              </p>
             </div>
           )}
           <div className="mt-6 space-y-3">

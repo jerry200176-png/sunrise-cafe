@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { updateReservationAdmin, isAdminConfigured } from "@/lib/supabase-admin";
+import { updateReservationAdmin, deleteReservationAdmin, isAdminConfigured } from "@/lib/supabase-admin";
 
 export async function PATCH(
   request: NextRequest,
@@ -34,6 +34,29 @@ export async function PATCH(
     return NextResponse.json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法更新訂位";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const id = (await params).id;
+  if (!id) {
+    return NextResponse.json({ error: "缺少訂位 id" }, { status: 400 });
+  }
+  if (!isAdminConfigured()) {
+    return NextResponse.json(
+      { error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY" },
+      { status: 503 }
+    );
+  }
+  try {
+    await deleteReservationAdmin(id);
+    return NextResponse.json({ ok: true, id });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "無法刪除訂位";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

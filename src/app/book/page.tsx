@@ -26,6 +26,7 @@ export default function BookPage() {
   const [branchName, setBranchName] = useState("");
   const [selectedStart, setSelectedStart] = useState("");
   const [duration, setDuration] = useState(1);
+  const [isHoliday, setIsHoliday] = useState(false);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -187,7 +188,8 @@ export default function BookPage() {
       }
       const code = (data as { booking_code?: string })?.booking_code;
       if (code) {
-        window.location.href = `/book/success?code=${encodeURIComponent(code)}`;
+        const weekendFlag = isHoliday ? "1" : "0";
+        window.location.href = `/book/success?code=${encodeURIComponent(code)}&weekend=${weekendFlag}`;
       } else {
         setError("預約成功，但未取得訂位代號");
       }
@@ -273,7 +275,17 @@ export default function BookPage() {
               type="date"
               min={today}
               value={date}
-              onChange={(e) => setDate(e.target.value)}
+              onChange={(e) => {
+                const next = e.target.value;
+                setDate(next);
+                if (next) {
+                  const d = new Date(next + "T12:00:00");
+                  const day = d.getDay();
+                  setIsHoliday(day === 0 || day === 6);
+                } else {
+                  setIsHoliday(false);
+                }
+              }}
               className="w-full rounded-xl border border-gray-300 px-4 py-3 text-base"
             />
             <div className="mt-4 flex justify-end">
@@ -332,6 +344,17 @@ export default function BookPage() {
                         }}
                         className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-sm hover:border-amber-400 hover:bg-amber-50/50"
                       >
+                        {("image_url" in r && (r as any).image_url) && (
+                          <div className="mb-2 overflow-hidden rounded-lg">
+                            <div className="aspect-video w-full overflow-hidden rounded-lg bg-gray-100">
+                              <img
+                                src={(r as any).image_url as string}
+                                alt={r.roomName}
+                                className="h-full w-full object-cover"
+                              />
+                            </div>
+                          </div>
+                        )}
                         <span className="font-medium text-gray-900">{r.roomName}</span>
                         <p className="mt-0.5 text-sm text-gray-500">
                           {r.capacity} 人 · 平日 ${r.price_weekday}/時 · 假日 ${r.price_weekend}/時
@@ -395,6 +418,11 @@ export default function BookPage() {
                 {slots.length > 0 && (
                   <p className="mb-3 text-xs text-gray-600">
                     本日共 {slots.length} 個時段，{slots.filter((s) => s.available).length} 個可預約
+                  </p>
+                )}
+                {isHoliday && (
+                  <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    ⚠️ 假日訂位需預付訂金 $500，請於送出後依指示匯款。
                   </p>
                 )}
                 <div className="mb-3 flex items-center gap-4 text-xs text-gray-600">

@@ -216,6 +216,16 @@ export async function updateReservationAdmin(
   if (!res.ok) throw new Error("Supabase reservation update: " + (await res.text()));
 }
 
+/** 永久刪除訂位（Admin 權限） */
+export async function deleteReservationAdmin(id: string): Promise<void> {
+  const { url: baseUrl } = baseAdmin();
+  const res = await fetch(`${baseUrl}/rest/v1/reservations?id=eq.${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: headersAdmin({ Prefer: "return=minimal" }),
+  });
+  if (!res.ok) throw new Error("Supabase reservation delete: " + (await res.text()));
+}
+
 /** 依電話查詢訂位（僅回傳必要欄位，供「我的訂位」） */
 export async function fetchReservationsByPhone(phone: string): Promise<
   {

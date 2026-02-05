@@ -18,6 +18,7 @@ export interface Room {
   capacity: number;
   price_weekday: number;
   price_weekend: number;
+  image_url?: string | null;
   created_at?: string;
 }
 
