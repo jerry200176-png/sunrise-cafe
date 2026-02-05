@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { ArrowLeft } from "lucide-react";
 import type { Branch, Room } from "@/types";
 import { getDurationOptions } from "@/lib/booking-utils";
@@ -42,6 +43,7 @@ export default function BookPage() {
       price_weekday: number;
       price_weekend: number;
       slots: SlotItem[];
+      image_url?: string | null;
     }[];
     branchName: string;
   } | null>(null);
@@ -344,12 +346,14 @@ export default function BookPage() {
                         }}
                         className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-sm hover:border-amber-400 hover:bg-amber-50/50"
                       >
-                        {("image_url" in r && (r as any).image_url) && (
+                        {r.image_url && (
                           <div className="mb-2 overflow-hidden rounded-lg">
                             <div className="aspect-video w-full overflow-hidden rounded-lg bg-gray-100">
-                              <img
-                                src={(r as any).image_url as string}
+                              <Image
+                                src={r.image_url}
                                 alt={r.roomName}
+                                width={800}
+                                height={450}
                                 className="h-full w-full object-cover"
                               />
                             </div>
