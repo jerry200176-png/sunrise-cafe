@@ -17,10 +17,6 @@ function parseTime(t: string | null, fallback: { h: number; m: number }): { h: n
   return { h: Number.isFinite(h) ? h : fallback.h, m: Number.isFinite(m) ? m : fallback.m };
 }
 
-/**
- * 營業時段起訖（台灣 UTC+8 解讀 date 與 open/close），回傳 UTC ISO。
- * 若 close <= open 則視為跨日。預設 08:00–22:00 避免 0 個 slot。
- */
 function slotRange(date: string, open: { h: number; m: number }, close: { h: number; m: number }) {
   const pad = (n: number) => String(n).padStart(2, "0");
   const openStr = `${pad(open.h)}:${pad(open.m)}:00`;
@@ -40,10 +36,6 @@ function overlaps(
   return slotStart < bookEnd && slotEnd > bookStart;
 }
 
-/**
- * Slot Available = (在營業時間內) AND (不與任一訂位重疊)。
- * 僅當「查詢日期 = 台灣今天」時，將已過時段標為 Past。
- */
 function buildSlotsForRoom(
   date: string,
   open: { h: number; m: number },
@@ -118,13 +110,15 @@ export async function GET(request: NextRequest) {
       const close = parseTime(branch.close_time, DEFAULT_CLOSE);
       const roomBlocked = blocked.filter((b) => b.room_id === roomId);
       const slots = buildSlotsForRoom(date, open, close, roomBlocked, isToday);
+      
+      // ✅ 強制更新：直接讀取 image_url，不使用 any
       return NextResponse.json({
         slots,
         roomName: room.name,
         branchName: branch.name,
         openTime: branch.open_time,
         closeTime: branch.close_time,
-        image_url: (room as any).image_url, // 🔹 新增: 回傳圖片網址 (單一房間)
+        image_url: room.image_url, 
       });
     }
     const [branch, rooms, blocked] = await Promise.all([
@@ -147,7 +141,8 @@ export async function GET(request: NextRequest) {
         capacity: room.capacity,
         price_weekday: room.price_weekday,
         price_weekend: room.price_weekend,
-        image_url: (room as any).image_url, // 🔹 新增: 回傳圖片網址 (房間列表)
+        // ✅ 強制更新：直接讀取 image_url
+        image_url: room.image_url,
         slots,
       };
     });
