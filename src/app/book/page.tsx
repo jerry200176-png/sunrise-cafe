@@ -48,13 +48,12 @@ export default function BookPage() {
     branchName: string;
   } | null>(null);
 
-  // Debug: 檢查是否有拿到 image_url 等房間資料
-  useEffect(() => {
-    if (branchRoomsAvailability) {
-      // eslint-disable-next-line no-console
-      console.log("Debug Rooms Data:", branchRoomsAvailability.rooms);
-    }
-  }, [branchRoomsAvailability]);
+  // Debug: 檢查是否有拿到 image_url 等房間資料（已在開發階段使用，可視需要再打開）
+  // useEffect(() => {
+  //   if (branchRoomsAvailability) {
+  //     console.log("Debug Rooms Data:", branchRoomsAvailability.rooms);
+  //   }
+  // }, [branchRoomsAvailability]);
 
   useEffect(() => {
     fetch("/api/branches")
