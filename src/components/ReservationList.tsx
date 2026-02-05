@@ -39,9 +39,9 @@ const STATUS_OPTIONS: { value: ReservationStatus; label: string }[] = [
 ];
 
 const STATUS_STYLES: Record<string, string> = {
-  pending: "bg-gray-100 text-gray-700",
-  confirmed: "bg-amber-100 text-amber-800",
-  checked_in: "bg-green-100 text-green-800",
+  pending: "bg-yellow-100 text-yellow-800",
+  confirmed: "bg-green-100 text-green-800",
+  checked_in: "bg-emerald-100 text-emerald-800",
   cancelled: "bg-gray-100 text-gray-600",
   completed: "bg-blue-100 text-blue-800",
   reserved: "bg-amber-100 text-amber-800",
@@ -69,6 +69,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   const [editStatus, setEditStatus] = useState<ReservationStatus>("confirmed");
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"pending" | "upcoming" | "history">("pending");
 
   const fetchReservations = useCallback(async () => {
     if (!branchId) {
@@ -214,11 +215,64 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
     );
   }
 
+  const pendingList = reservations.filter((r) => r.status === "pending");
+  const upcomingList = reservations.filter((r) =>
+    ["confirmed", "paid", "checked_in"].includes(r.status)
+  );
+  const historyList = reservations.filter((r) =>
+    ["cancelled", "completed"].includes(r.status)
+  );
+  const pendingCount = pendingList.length;
+
+  const listForTab =
+    activeTab === "pending" ? pendingList : activeTab === "upcoming" ? upcomingList : historyList;
+
   return (
     <>
+      <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-gray-200 bg-gray-50 px-4 py-2">
+        <button
+          type="button"
+          onClick={() => setActiveTab("pending")}
+          className={`rounded-full px-3 py-1 text-xs font-medium ${
+            activeTab === "pending"
+              ? "bg-amber-600 text-white"
+              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+          }`}
+        >
+          待審核
+          {pendingCount > 0 && (
+            <span className="ml-1 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+              {pendingCount}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("upcoming")}
+          className={`rounded-full px-3 py-1 text-xs font-medium ${
+            activeTab === "upcoming"
+              ? "bg-amber-600 text-white"
+              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+          }`}
+        >
+          訂位管理
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("history")}
+          className={`rounded-full px-3 py-1 text-xs font-medium ${
+            activeTab === "history"
+              ? "bg-amber-600 text-white"
+              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+          }`}
+        >
+          歷史紀錄
+        </button>
+      </div>
+
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
         <ul className="divide-y divide-gray-100">
-          {reservations.map((r) => {
+          {listForTab.map((r) => {
             const roomName = rooms.find((ro) => ro.id === r.room_id)?.name ?? "—";
             return (
             <li
@@ -259,6 +313,11 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                 {r.total_price != null && (
                   <span>${Number(r.total_price)}</span>
                 )}
+                {isWeekend(r.start_time.slice(0, 10)) && (
+                  <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                    💰 需收訂金
+                  </span>
+                )}
               </div>
               <span
                 className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
@@ -267,32 +326,84 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
               >
                 {STATUS_LABELS[r.status] ?? r.status}
               </span>
-              <div className="flex items-center gap-2">
+              {activeTab === "pending" ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await fetch(`${RESERVATIONS_API}/${r.id}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ status: "confirmed" }),
+                        });
+                        fetchReservations();
+                      } catch {
+                        // ignore
+                      }
+                    }}
+                    className="shrink-0 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+                  >
+                    ✅ 確認
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const ok = window.confirm("確定要將此訂位標記為取消/拒絕嗎？");
+                      if (!ok) return;
+                      try {
+                        await fetch(`${RESERVATIONS_API}/${r.id}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ status: "cancelled" }),
+                        });
+                        fetchReservations();
+                      } catch {
+                        // ignore
+                      }
+                    }}
+                    className="shrink-0 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100"
+                  >
+                    ❌ 拒絕
+                  </button>
+                </div>
+              ) : activeTab === "upcoming" ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => openEdit(r)}
+                    className="shrink-0 rounded-lg border border-gray-300 p-2 text-gray-600 hover:bg-gray-100"
+                    aria-label="編輯訂位"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const ok = window.confirm("確定要永久刪除此訂位嗎？此動作無法復原！");
+                      if (!ok) return;
+                      try {
+                        await fetch(`${RESERVATIONS_API}/${r.id}`, { method: "DELETE" });
+                        fetchReservations();
+                      } catch {
+                        // ignore
+                      }
+                    }}
+                    className="shrink-0 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+                  >
+                    🗑️ 刪除
+                  </button>
+                </div>
+              ) : (
                 <button
                   type="button"
                   onClick={() => openEdit(r)}
                   className="shrink-0 rounded-lg border border-gray-300 p-2 text-gray-600 hover:bg-gray-100"
-                  aria-label="編輯訂位"
+                  aria-label="檢視/編輯訂位"
                 >
                   <Pencil className="h-4 w-4" />
                 </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const ok = window.confirm("確定要永久刪除此訂位嗎？此動作無法復原！");
-                    if (!ok) return;
-                    try {
-                      await fetch(`${RESERVATIONS_API}/${r.id}`, { method: "DELETE" });
-                      fetchReservations();
-                    } catch {
-                      // ignore; 重新整理會補上最新狀態
-                    }
-                  }}
-                  className="shrink-0 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
-                >
-                  🗑️ 刪除
-                </button>
-              </div>
+              )}
             </li>
           );
           })}
