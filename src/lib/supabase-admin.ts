@@ -118,7 +118,7 @@ export async function fetchReservationsAdmin(branchId: string): Promise<unknown[
   const ids = rooms.map((r) => r.id);
   const inFilter = ids.map((id) => encodeURIComponent(id)).join(",");
   const res = await fetch(
-    `${baseAdmin().url}/rest/v1/reservations?select=*&room_id=in.(${inFilter})&order=start_time.asc`,
+    `${baseAdmin().url}/rest/v1/reservations?select=*,room_with_branch:rooms(id,name,branch:branches(name))&room_id=in.(${inFilter})&order=start_time.asc`,
     { method: "GET", headers: headersAdmin(), cache: "no-store" }
   );
   if (!res.ok) throw new Error("Supabase reservations: " + (await res.text()));

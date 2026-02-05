@@ -327,7 +327,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                 {STATUS_LABELS[r.status] ?? r.status}
               </span>
               {activeTab === "pending" ? (
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={async () => {
@@ -366,6 +366,47 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                   >
                     ❌ 拒絕
                   </button>
+                  {isWeekend(r.start_time.slice(0, 10)) && r.total_price != null && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const startDate = parseISO(r.start_time);
+                        const endDate = parseISO(r.end_time);
+                        const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", {
+                          locale: zhTW,
+                        });
+                        const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
+                        const deposit = Math.ceil(Number(r.total_price) / 2);
+                        const branchName =
+                          (r as any).room_with_branch?.branch?.name ??
+                          "";
+                        const isDaan = branchName.includes("大安");
+                        const linePayUrl =
+                          "https://qrcodepay.line.me/qr/payment/%252BmF6rR41PSp3R8NMydLA%252BRt1IvAFgPchBvtrJoR20aoZKY4Hr1qrbfaYSoPDUyu0";
+                        const text = isDaan
+                          ? `您好，這裡是昇昇咖啡 (大安店)。\n\n收到您 ${formattedDate} ${timeRange} 的預約申請（${r.customer_name}）。\n確認該時段有空位，本筆訂單總金額為 $${r.total_price}，請於今日內匯款訂金 $${deposit} (總額一半) 以保留座位。\n\n【匯款資訊】\n銀行：台北富邦銀行 (012)\n帳號：8212-0000-8489-6\n戶名：昇昇咖啡張文霞\n\n或者您可以使用 LINE Pay 付款：\n${linePayUrl}\n\n匯款後請回傳「末五碼」或「截圖」告知，謝謝！`
+                          : `您好，這裡是昇昇咖啡。\n\n收到您 ${formattedDate} ${timeRange} 的預約申請（${r.customer_name}）。\n確認該時段有空位，本筆訂單總金額為 $${r.total_price}，請於今日內匯款訂金 $${deposit} (總額一半) 以保留座位。\n\n請依照官網或現場指示完成付款，並回傳證明，謝謝！`;
+                        try {
+                          if (navigator.clipboard?.writeText) {
+                            await navigator.clipboard.writeText(text);
+                          } else {
+                            const textarea = document.createElement("textarea");
+                            textarea.value = text;
+                            document.body.appendChild(textarea);
+                            textarea.select();
+                            document.execCommand("copy");
+                            document.body.removeChild(textarea);
+                          }
+                          alert("已複製通知內容");
+                        } catch {
+                          alert("複製失敗，請手動複製。");
+                        }
+                      }}
+                      className="shrink-0 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
+                    >
+                      📋 複製匯款通知
+                    </button>
+                  )}
                 </div>
               ) : activeTab === "upcoming" ? (
                 <div className="flex items-center gap-2">

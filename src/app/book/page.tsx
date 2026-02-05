@@ -48,6 +48,14 @@ export default function BookPage() {
     branchName: string;
   } | null>(null);
 
+  // Debug: 檢查是否有拿到 image_url 等房間資料
+  useEffect(() => {
+    if (branchRoomsAvailability) {
+      // eslint-disable-next-line no-console
+      console.log("Debug Rooms Data:", branchRoomsAvailability.rooms);
+    }
+  }, [branchRoomsAvailability]);
+
   useEffect(() => {
     fetch("/api/branches")
       .then((r) => r.json())
@@ -346,9 +354,9 @@ export default function BookPage() {
                         }}
                         className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-sm hover:border-amber-400 hover:bg-amber-50/50"
                       >
-                        {r.image_url && (
-                          <div className="mb-2 overflow-hidden rounded-lg">
-                            <div className="aspect-video w-full overflow-hidden rounded-lg bg-gray-100">
+                        <div className="mb-2 overflow-hidden rounded-lg">
+                          <div className="aspect-video w-full overflow-hidden rounded-lg bg-gray-100 flex items-center justify-center text-xs text-gray-500">
+                            {r.image_url ? (
                               <Image
                                 src={r.image_url}
                                 alt={r.roomName}
@@ -356,9 +364,11 @@ export default function BookPage() {
                                 height={450}
                                 className="h-full w-full object-cover"
                               />
-                            </div>
+                            ) : (
+                              <span>圖片載入中: {String(r.image_url ?? "無")}</span>
+                            )}
                           </div>
-                        )}
+                        </div>
                         <span className="font-medium text-gray-900">{r.roomName}</span>
                         <p className="mt-0.5 text-sm text-gray-500">
                           {r.capacity} 人 · 平日 ${r.price_weekday}/時 · 假日 ${r.price_weekend}/時
@@ -426,7 +436,7 @@ export default function BookPage() {
                 )}
                 {isHoliday && (
                   <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                    ⚠️ 假日訂位需預付訂金 $500，請於送出後依指示匯款。
+                    ⚠️ 假日訂位需預付 總金額 50% 作為訂金。請先送出申請，待管理員確認有位後，將透過 LINE/簡訊通知您匯款。
                   </p>
                 )}
                 <div className="mb-3 flex items-center gap-4 text-xs text-gray-600">
