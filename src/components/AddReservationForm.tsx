@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { X } from "lucide-react";
+import { useState, useEffect } from "react";
+import { X, Calendar, Clock, Repeat, Users, StickyNote, User, Phone, Mail } from "lucide-react";
+import { format, addMonths } from "date-fns";
 import type { Room } from "@/types";
 
 /** 是否為假日（六、日） */
@@ -16,6 +17,16 @@ function isWeekend(dateStr: string): boolean {
 function getPricePerHour(room: Room, dateStr: string): number {
   return isWeekend(dateStr) ? Number(room.price_weekend) : Number(room.price_weekday);
 }
+
+const WEEKDAYS = [
+  { value: 1, label: "一" },
+  { value: 2, label: "二" },
+  { value: 3, label: "三" },
+  { value: 4, label: "四" },
+  { value: 5, label: "五" },
+  { value: 6, label: "六" },
+  { value: 0, label: "日" },
+];
 
 interface AddReservationFormProps {
   branchId: string | null;
@@ -32,19 +43,41 @@ export function AddReservationForm({
   onClose,
   onSuccess,
 }: AddReservationFormProps) {
+  // Form State
   const [roomId, setRoomId] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [guestCount, setGuestCount] = useState<number | "">("");
   const [notes, setNotes] = useState("");
+  
+  // Time State
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [duration, setDuration] = useState(1);
-  const [repeatType, setRepeatType] = useState<"once" | "weekly">("once");
-  const [repeatWeeks, setRepeatWeeks] = useState(4);
+  
+  // Recurring State (New)
+  const [repeatEnabled, setRepeatEnabled] = useState(false);
+  const [endDate, setEndDate] = useState("");
+  const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>([]);
+
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // 初始化預設結束日期 (一個月後)
+  useEffect(() => {
+    if (open && !endDate) {
+      setEndDate(format(addMonths(new Date(), 1), "yyyy-MM-dd"));
+    }
+  }, [open]);
+
+  // 當開啟重複預約且日期改變時，自動勾選當天的星期
+  useEffect(() => {
+    if (repeatEnabled && date && selectedWeekdays.length === 0) {
+      const day = new Date(date).getDay();
+      setSelectedWeekdays([day]);
+    }
+  }, [repeatEnabled, date]);
 
   const reset = () => {
     setRoomId("");
@@ -56,8 +89,9 @@ export function AddReservationForm({
     setDate("");
     setTime("");
     setDuration(1);
-    setRepeatType("once");
-    setRepeatWeeks(4);
+    setRepeatEnabled(false);
+    setSelectedWeekdays([]);
+    setEndDate(format(addMonths(new Date(), 1), "yyyy-MM-dd"));
     setError(null);
   };
 
@@ -66,16 +100,31 @@ export function AddReservationForm({
     onClose();
   };
 
+  const toggleWeekday = (day: number) => {
+    setSelectedWeekdays((prev) =>
+      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
+    );
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!branchId || !roomId) return;
     const room = rooms.find((r) => r.id === roomId);
     if (!room) return;
+
     setSubmitting(true);
     setError(null);
+
     try {
-      if (repeatType === "weekly") {
-        const res = await fetch("/api/reservations/recurring", {
+      if (repeatEnabled) {
+        // --- 進階重複預約 (New Logic) ---
+        if (selectedWeekdays.length === 0) {
+          setError("請至少選擇一個重複的星期");
+          setSubmitting(false);
+          return;
+        }
+
+        const res = await fetch("/api/reservations/recurring/admin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -84,59 +133,74 @@ export function AddReservationForm({
             phone: phone.trim(),
             email: email.trim() || null,
             start_date: date,
+            end_date: endDate,
+            weekdays: selectedWeekdays,
             start_time: time,
             duration_hours: duration,
-            repeat_weeks: repeatWeeks,
             guest_count: guestCount === "" ? null : Number(guestCount),
             notes: notes.trim() || null,
           }),
         });
+
         const data = await res.json();
         setSubmitting(false);
+
         if (!res.ok) {
-          setError((data as { error?: string })?.error ?? "無法建立週期預約");
+          if (res.status === 409 && data.conflicts) {
+            // 衝突顯示
+            const conflictDates = data.conflicts.slice(0, 5).join(", ");
+            const more = data.conflicts.length > 5 ? `...等 ${data.conflicts.length} 筆` : "";
+            setError(`部分時段已有預約，操作取消。\n衝突日期：${conflictDates}${more}`);
+          } else {
+            setError(data.error || "無法建立週期預約");
+          }
           return;
         }
-        const created = (data as { created?: number }).created ?? 0;
-        const skipped = (data as { skipped?: number }).skipped ?? 0;
+
+        const created = data.created ?? 0;
         handleClose();
         onSuccess?.();
-        if (created > 0 || skipped > 0) {
-          alert(`已建立 ${created} 筆訂位${skipped > 0 ? `，略過 ${skipped} 筆` : ""}`);
+        alert(`成功建立 ${created} 筆預約！`);
+        return;
+
+      } else {
+        // --- 單次預約 (Original Logic) ---
+        const start = new Date(`${date}T${time}:00`);
+        const end = new Date(start.getTime() + duration * 60 * 60 * 1000);
+        const start_time = start.toISOString();
+        const end_time = end.toISOString();
+        const pricePerHour = getPricePerHour(room, date);
+        const total_price = Math.round(pricePerHour * duration);
+
+        const res = await fetch("/api/reservations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            room_id: roomId,
+            customer_name: name.trim(),
+            phone: phone.trim(),
+            email: email.trim() || null,
+            start_time,
+            end_time,
+            total_price,
+            guest_count: guestCount === "" ? null : Number(guestCount),
+            notes: notes.trim() || null,
+            status: "confirmed", // 後台新增直接 confirmed
+          }),
+        });
+
+        const data = await res.json();
+        setSubmitting(false);
+
+        if (!res.ok) {
+          const msg = (data as { error?: string })?.error ?? "無法新增訂位";
+          setError(msg);
+          return;
         }
-        return;
+
+        handleClose();
+        onSuccess?.();
       }
-      const start = new Date(`${date}T${time}:00`);
-      const end = new Date(start.getTime() + duration * 60 * 60 * 1000);
-      const start_time = start.toISOString();
-      const end_time = end.toISOString();
-      const pricePerHour = getPricePerHour(room, date);
-      const total_price = Math.round(pricePerHour * duration);
-      const res = await fetch("/api/reservations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          room_id: roomId,
-          customer_name: name.trim(),
-          phone: phone.trim(),
-          email: email.trim() || null,
-          start_time,
-          end_time,
-          total_price,
-          guest_count: guestCount === "" ? null : Number(guestCount),
-          notes: notes.trim() || null,
-        }),
-      });
-      const data = await res.json();
-      setSubmitting(false);
-      if (!res.ok) {
-        const msg = (data as { error?: string })?.error ?? "無法新增訂位";
-        if (res.status === 409) setError(msg);
-        else setError(msg);
-        return;
-      }
-      handleClose();
-      onSuccess?.();
     } catch (e) {
       setSubmitting(false);
       setError(e instanceof Error ? e.message : "連線失敗");
@@ -147,208 +211,272 @@ export function AddReservationForm({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4 overscroll-contain"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4 overscroll-contain backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="add-reservation-title"
     >
-      <div className="flex w-full max-h-[90dvh] sm:max-h-[85vh] sm:max-w-md flex-col rounded-t-2xl sm:rounded-xl bg-white shadow-xl">
-        <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-4 py-3">
-          <h2 id="add-reservation-title" className="text-lg font-semibold">
-            新增訂位
+      <div className="flex w-full max-h-[90dvh] sm:max-h-[85vh] sm:max-w-lg flex-col rounded-t-2xl sm:rounded-xl bg-white shadow-xl">
+        {/* Header */}
+        <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-6 py-4">
+          <h2 id="add-reservation-title" className="text-xl font-bold text-gray-800">
+            新增後台預約
           </h2>
           <button
             type="button"
             onClick={handleClose}
-            className="-mr-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 touch-manipulation"
+            className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
             aria-label="關閉"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
+
+        {/* Scrollable Content */}
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 space-y-3 sm:space-y-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4 space-y-6">
             {error && (
-              <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+              <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 whitespace-pre-line border border-red-100">
                 {error}
-              </p>
+              </div>
             )}
-            <div>
-              <label htmlFor="room" className="mb-1 block text-sm font-medium text-gray-700">
-              包廂 *
-              </label>
-              {rooms.length === 0 ? (
-                <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">此分店尚無包廂，請先至管理後台新增。</p>
-              ) : (
-                <select
-                  id="room"
-                  required
-                  value={roomId}
-                  onChange={(e) => setRoomId(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 sm:text-sm [&>option]:text-sm"
-                  aria-label="選擇包廂"
-                >
-                  <option value="">請選擇包廂</option>
-                  {rooms.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}（{r.capacity} 人 · 平日 ${Number(r.price_weekday)}/時 · 假日 ${Number(r.price_weekend)}/時）
-                    </option>
-                  ))}
-                </select>
+
+            {/* 基本資訊區塊 */}
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="room" className="mb-1.5 block text-sm font-semibold text-gray-700">
+                  選擇包廂
+                </label>
+                {rooms.length === 0 ? (
+                  <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">此分店尚無包廂，請先至管理後台新增。</p>
+                ) : (
+                  <select
+                    id="room"
+                    required
+                    value={roomId}
+                    onChange={(e) => setRoomId(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
+                  >
+                    <option value="">請選擇包廂</option>
+                    {rooms.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name} ({r.capacity}人)
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="name" className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-gray-700">
+                    <User className="h-4 w-4" /> 姓名
+                  </label>
+                  <input
+                    id="name"
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:ring-amber-600"
+                    placeholder="客戶姓名"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="phone" className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-gray-700">
+                    <Phone className="h-4 w-4" /> 電話
+                  </label>
+                  <input
+                    id="phone"
+                    required
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:ring-amber-600"
+                    placeholder="09xx..."
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="h-px bg-gray-100" />
+
+            {/* 時間設定區塊 */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                <Clock className="h-4 w-4" /> 時間設定
+              </h3>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-1">
+                  <label className="mb-1.5 block text-xs font-medium text-gray-500">日期</label>
+                  <input
+                    type="date"
+                    required
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-2 py-2 text-sm"
+                  />
+                </div>
+                <div className="col-span-1">
+                  <label className="mb-1.5 block text-xs font-medium text-gray-500">開始時間</label>
+                  <input
+                    type="time"
+                    required
+                    value={time}
+                    onChange={(e) => setTime(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-2 py-2 text-sm"
+                  />
+                </div>
+                <div className="col-span-1">
+                  <label className="mb-1.5 block text-xs font-medium text-gray-500">時數</label>
+                  <select
+                    value={duration}
+                    onChange={(e) => setDuration(Number(e.target.value))}
+                    className="w-full rounded-lg border border-gray-300 px-2 py-2 text-sm"
+                  >
+                    {Array.from({ length: 19 }, (_, i) => 1 + i * 0.5).map((h) => (
+                      <option key={h} value={h}>
+                        {h} 小時
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* 長期預約區塊 (New) */}
+            <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Repeat className="h-5 w-5 text-blue-600" />
+                  <div>
+                    <span className="block text-sm font-bold text-gray-900">長期重複預約</span>
+                    <span className="text-xs text-gray-500">開啟後可設定固定每週時段</span>
+                  </div>
+                </div>
+                <label className="relative inline-flex cursor-pointer items-center">
+                  <input
+                    type="checkbox"
+                    checked={repeatEnabled}
+                    onChange={(e) => setRepeatEnabled(e.target.checked)}
+                    className="peer sr-only"
+                  />
+                  <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:top-[2px] after:left-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-blue-600 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300"></div>
+                </label>
+              </div>
+
+              {repeatEnabled && (
+                <div className="mt-4 space-y-4 border-t border-blue-100 pt-4 animate-in fade-in slide-in-from-top-2">
+                  <div>
+                    <label className="mb-2 block text-xs font-semibold text-gray-600">重複星期 (可複選)</label>
+                    <div className="flex flex-wrap gap-2">
+                      {WEEKDAYS.map((day) => (
+                        <button
+                          key={day.value}
+                          type="button"
+                          onClick={() => toggleWeekday(day.value)}
+                          className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium transition-all ${
+                            selectedWeekdays.includes(day.value)
+                              ? "bg-blue-600 text-white shadow-md shadow-blue-200"
+                              : "bg-white text-gray-600 border border-gray-200 hover:border-blue-300"
+                          }`}
+                        >
+                          {day.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold text-gray-600">
+                      結束日期 (最多一年)
+                    </label>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      min={date}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      將建立從 {date || "開始日期"} 至 {endDate} 符合星期的所有訂單。
+                    </p>
+                  </div>
+                </div>
               )}
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+
+            {/* 其他資訊區塊 */}
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="name" className="mb-1 block text-sm font-medium text-gray-700">姓名 *</label>
+                <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-gray-700">
+                  <Mail className="h-4 w-4" /> Email
+                </label>
                 <input
-                  id="name"
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 sm:text-sm"
-                  placeholder="王小明"
-                  autoComplete="name"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm"
+                  placeholder="選填"
                 />
               </div>
               <div>
-                <label htmlFor="phone" className="mb-1 block text-sm font-medium text-gray-700">電話 *</label>
+                <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-gray-700">
+                  <Users className="h-4 w-4" /> 人數
+                </label>
                 <input
-                  id="phone"
-                  type="tel"
-                  required
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 sm:text-sm"
-                  placeholder="0912345678"
-                  autoComplete="tel"
+                  type="number"
+                  min={1}
+                  value={guestCount}
+                  onChange={(e) => setGuestCount(e.target.value === "" ? "" : Number(e.target.value))}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm"
+                  placeholder="選填"
                 />
               </div>
             </div>
+
             <div>
-              <label htmlFor="email" className="mb-1 block text-sm font-medium text-gray-700">Email</label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 sm:text-sm"
-                placeholder="選填"
-              />
-            </div>
-            <div>
-              <label htmlFor="guestCount" className="mb-1 block text-sm font-medium text-gray-700">人數</label>
-              <input
-                id="guestCount"
-                type="number"
-                min={1}
-                value={guestCount === "" ? "" : guestCount}
-                onChange={(e) => setGuestCount(e.target.value === "" ? "" : Number(e.target.value))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 sm:text-sm"
-                placeholder="選填"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label htmlFor="date" className="mb-1 block text-sm font-medium text-gray-700">日期 *</label>
-                <input
-                  id="date"
-                  type="date"
-                  required
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 sm:text-sm"
-                />
-              </div>
-              <div>
-                <label htmlFor="time" className="mb-1 block text-sm font-medium text-gray-700">開始時間 *</label>
-                <input
-                  id="time"
-                  type="time"
-                  required
-                  value={time}
-                  onChange={(e) => setTime(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 sm:text-sm"
-                />
-              </div>
-            </div>
-            <div>
-              <label htmlFor="duration" className="mb-1 block text-sm font-medium text-gray-700">時數 *</label>
-              <select
-                id="duration"
-                value={duration}
-                onChange={(e) => setDuration(Number(e.target.value))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 sm:text-sm"
-              >
-                {[1, 2, 3, 4, 5, 6, 7, 8].map((h) => (
-                  <option key={h} value={h}>{h} 小時</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">重複</label>
-              <select
-                value={repeatType}
-                onChange={(e) => setRepeatType(e.target.value as "once" | "weekly")}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 sm:text-sm"
-              >
-                <option value="once">單次</option>
-                <option value="weekly">每週重複</option>
-              </select>
-            </div>
-            {repeatType === "weekly" && (
-              <div>
-                <label htmlFor="repeatWeeks" className="mb-1 block text-sm font-medium text-gray-700">重複週數</label>
-                <select
-                  id="repeatWeeks"
-                  value={repeatWeeks}
-                  onChange={(e) => setRepeatWeeks(Number(e.target.value))}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 sm:text-sm"
-                >
-                  {[4, 5, 6, 7, 8, 9, 10, 11, 12].map((w) => (
-                    <option key={w} value={w}>{w} 週</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            <div>
-              <label htmlFor="notes" className="mb-1 block text-sm font-medium text-gray-700">備註</label>
+              <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-gray-700">
+                <StickyNote className="h-4 w-4" /> 備註
+              </label>
               <textarea
-                id="notes"
                 rows={2}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 sm:text-sm"
-                placeholder="例：需要投影機、慶生"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm"
+                placeholder="選填"
               />
             </div>
-            {roomId && date && (() => {
+
+            {/* 價格預估 */}
+            {!repeatEnabled && roomId && date && (() => {
               const room = rooms.find((r) => r.id === roomId);
               if (!room) return null;
               const pricePerHour = getPricePerHour(room, date);
               const estimated = Math.round(pricePerHour * duration);
-              const kind = isWeekend(date) ? "假日" : "平日";
               return (
-                <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                  預估總價：<strong>${estimated}</strong>（{kind} ${pricePerHour}/時 × {duration} 小時）
-                </p>
+                <div className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900 border border-amber-100 flex justify-between items-center">
+                  <span>單次預估總價</span>
+                  <strong className="text-lg">${estimated}</strong>
+                </div>
               );
             })()}
           </div>
-          <div className="flex shrink-0 gap-2 border-t border-gray-200 bg-white px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+
+          {/* Footer Actions */}
+          <div className="flex shrink-0 gap-3 border-t border-gray-200 bg-gray-50/50 px-6 py-4">
             <button
               type="button"
               onClick={handleClose}
-              className="min-h-[44px] flex-1 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-700 hover:bg-gray-50 touch-manipulation active:bg-gray-100"
+              className="flex-1 rounded-xl border border-gray-300 bg-white px-4 py-2.5 font-medium text-gray-700 hover:bg-gray-50 transition-colors"
             >
               取消
             </button>
             <button
               type="submit"
               disabled={submitting || !branchId || !roomId || rooms.length === 0}
-              className="min-h-[44px] flex-1 rounded-lg bg-amber-600 px-4 py-2.5 text-white hover:bg-amber-700 disabled:opacity-50 touch-manipulation active:bg-amber-800"
+              className="flex-1 rounded-xl bg-gray-900 px-4 py-2.5 font-medium text-white hover:bg-gray-800 disabled:opacity-50 disabled:hover:bg-gray-900 transition-colors shadow-sm"
             >
-              {submitting ? "送出中…" : "送出"}
+              {submitting ? "處理中..." : repeatEnabled ? "批次建立預約" : "建立預約"}
             </button>
           </div>
         </form>
