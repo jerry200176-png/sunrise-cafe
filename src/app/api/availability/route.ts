@@ -26,7 +26,7 @@ function slotRange(date: string, open: { h: number; m: number }, close: { h: num
   const openStr = `${pad(open.h)}:${pad(open.m)}:00`;
   const closeStr = `${pad(close.h)}:${pad(close.m)}:00`;
   const startLocal = new Date(`${date}T${openStr}+0${TAIWAN_OFFSET_HOURS}:00`);
-  let endLocal = new Date(`${date}T${closeStr}+0${TAIWAN_OFFSET_HOURS}:00`);
+  const endLocal = new Date(`${date}T${closeStr}+0${TAIWAN_OFFSET_HOURS}:00`);
   if (endLocal.getTime() <= startLocal.getTime()) endLocal.setDate(endLocal.getDate() + 1);
   return { start: startLocal.toISOString(), end: endLocal.toISOString() };
 }
