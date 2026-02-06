@@ -14,11 +14,17 @@ export const baseAdmin = () => ({
   url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
 });
 
-export const headersAdmin = () => ({
-  apikey: process.env.NEXT_PUBLIC_SUPABASE_KEY!,
-  Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
-  "Content-Type": "application/json",
-});
+export const headersAdmin = () => {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+  const apiKey = serviceRoleKey || anonKey;
+
+  return {
+    apikey: apiKey,
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+  };
+};
 
 export function isAdminConfigured() {
   return !!process.env.SUPABASE_SERVICE_ROLE_KEY;
