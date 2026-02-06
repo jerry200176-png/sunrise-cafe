@@ -48,6 +48,9 @@ const STATUS_STYLES: Record<string, string> = {
   paid: "bg-blue-100 text-blue-800",
 };
 
+const normalizeText = (value: string) =>
+  value.toLowerCase().replace(/\s+/g, "");
+
 interface ReservationListProps {
   branchId: string | null;
   rooms?: Room[];
@@ -70,6 +73,10 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"pending" | "upcoming" | "history">("pending");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortBy, setSortBy] = useState<"time_desc" | "time_asc" | "price_desc" | "price_asc">(
+    "time_asc"
+  );
 
   const fetchReservations = useCallback(async () => {
     if (!branchId) {
@@ -183,6 +190,19 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
     }
   };
 
+  const updateStatus = async (id: string, status: ReservationStatus) => {
+    try {
+      await fetch(`${RESERVATIONS_API}/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      fetchReservations();
+    } catch {
+      // ignore
+    }
+  };
+
   if (!branchId) {
     return (
       <div className="rounded-xl border border-gray-200 bg-gray-50/50 p-8 text-center text-gray-500">
@@ -227,6 +247,52 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   const listForTab =
     activeTab === "pending" ? pendingList : activeTab === "upcoming" ? upcomingList : historyList;
 
+  const roomNameMap = new Map(rooms.map((r) => [r.id, r.name]));
+  const query = normalizeText(searchTerm.trim());
+  const filteredList = listForTab.filter((r) => {
+    if (!query) return true;
+    const roomName = roomNameMap.get(r.room_id) ?? "";
+    const haystack = [
+      r.customer_name,
+      r.phone,
+      r.booking_code ?? "",
+      roomName,
+      r.notes ?? "",
+    ]
+      .join(" ")
+      .toLowerCase();
+    return normalizeText(haystack).includes(query);
+  });
+  const sortedList = [...filteredList].sort((a, b) => {
+    switch (sortBy) {
+      case "time_desc":
+        return b.start_time.localeCompare(a.start_time);
+      case "price_desc":
+        return (Number(b.total_price) || 0) - (Number(a.total_price) || 0);
+      case "price_asc":
+        return (Number(a.total_price) || 0) - (Number(b.total_price) || 0);
+      case "time_asc":
+      default:
+        return a.start_time.localeCompare(b.start_time);
+    }
+  });
+  const showDateGroup = sortBy === "time_asc" || sortBy === "time_desc";
+  const displayList: Array<{ type: "date"; date: string } | { type: "item"; item: Reservation }> =
+    [];
+  if (showDateGroup) {
+    let lastDate = "";
+    sortedList.forEach((r) => {
+      const dateKey = r.start_time.slice(0, 10);
+      if (dateKey !== lastDate) {
+        displayList.push({ type: "date", date: dateKey });
+        lastDate = dateKey;
+      }
+      displayList.push({ type: "item", item: r });
+    });
+  } else {
+    sortedList.forEach((r) => displayList.push({ type: "item", item: r }));
+  }
+
   return (
     <>
       <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-gray-200 bg-gray-50 px-4 py-2">
@@ -269,11 +335,39 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
           歷史紀錄
         </button>
       </div>
+      <div className="mb-3 flex flex-wrap items-center gap-2 px-4">
+        <input
+          type="text"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm sm:w-64"
+          placeholder="搜尋姓名/電話/代號/包廂/備註"
+        />
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+          className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+        >
+          <option value="time_asc">時間：早 → 晚</option>
+          <option value="time_desc">時間：晚 → 早</option>
+          <option value="price_desc">金額：高 → 低</option>
+          <option value="price_asc">金額：低 → 高</option>
+        </select>
+        <span className="text-xs text-gray-500">共 {sortedList.length} 筆</span>
+      </div>
 
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
         <ul className="divide-y divide-gray-100">
-          {listForTab.map((r) => {
-            const roomName = rooms.find((ro) => ro.id === r.room_id)?.name ?? "—";
+          {displayList.map((row) => {
+            if (row.type === "date") {
+              return (
+                <li key={`date-${row.date}`} className="bg-gray-50 px-4 py-2 text-xs text-gray-500">
+                  {format(parseISO(row.date), "yyyy/MM/dd (EEE)", { locale: zhTW })}
+                </li>
+              );
+            }
+            const r = row.item;
+            const roomName = roomNameMap.get(r.room_id) ?? "—";
             return (
             <li
               key={r.id}
@@ -330,18 +424,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    onClick={async () => {
-                      try {
-                        await fetch(`${RESERVATIONS_API}/${r.id}`, {
-                          method: "PATCH",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ status: "confirmed" }),
-                        });
-                        fetchReservations();
-                      } catch {
-                        // ignore
-                      }
-                    }}
+                    onClick={() => updateStatus(r.id, "confirmed")}
                     className="shrink-0 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
                   >
                     ✅ 確認
@@ -351,16 +434,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                     onClick={async () => {
                       const ok = window.confirm("確定要將此訂位標記為取消/拒絕嗎？");
                       if (!ok) return;
-                      try {
-                        await fetch(`${RESERVATIONS_API}/${r.id}`, {
-                          method: "PATCH",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ status: "cancelled" }),
-                        });
-                        fetchReservations();
-                      } catch {
-                        // ignore
-                      }
+                      await updateStatus(r.id, "cancelled");
                     }}
                     className="shrink-0 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100"
                   >
@@ -407,7 +481,38 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                   )}
                 </div>
               ) : activeTab === "upcoming" ? (
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {r.status !== "checked_in" && r.status !== "completed" && (
+                    <button
+                      type="button"
+                      onClick={() => updateStatus(r.id, "checked_in")}
+                      className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+                    >
+                      ✅ 已報到
+                    </button>
+                  )}
+                  {r.status !== "completed" && (
+                    <button
+                      type="button"
+                      onClick={() => updateStatus(r.id, "completed")}
+                      className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                    >
+                      💵 已結帳
+                    </button>
+                  )}
+                  {r.status !== "cancelled" && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const ok = window.confirm("確定要將此訂位標記為取消嗎？");
+                        if (!ok) return;
+                        await updateStatus(r.id, "cancelled");
+                      }}
+                      className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100"
+                    >
+                      ❌ 取消
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => openEdit(r)}
