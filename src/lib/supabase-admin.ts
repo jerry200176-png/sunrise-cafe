@@ -1,9 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/types/supabase";
 
 // Force Update: Restore all missing functions + image_url fix
 const supabaseAdmin = () =>
-  createClient<Database>(
+  createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
