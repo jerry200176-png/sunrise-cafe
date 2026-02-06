@@ -30,6 +30,7 @@ export default function BookPage() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [lineId, setLineId] = useState("");
   const [guestCount, setGuestCount] = useState<number | "">("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -197,7 +198,7 @@ export default function BookPage() {
           end_time: end.toISOString(),
           total_price: getTotalPrice(),
           guest_count: guestCount === "" ? null : Number(guestCount),
-          notes: null,
+          notes: lineId.trim() ? `LINE ID: ${lineId.trim()}` : null,
         }),
       });
       const data = await res.json();
@@ -607,6 +608,17 @@ export default function BookPage() {
                   className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
                   placeholder="選填"
                 />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">LINE ID</label>
+                <input
+                  type="text"
+                  value={lineId}
+                  onChange={(e) => setLineId(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
+                  placeholder="選填，例如：sunrise_cafe"
+                />
+                <p className="mt-1 text-xs text-gray-500">填寫 LINE ID 方便聯絡通知。</p>
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">人數</label>
