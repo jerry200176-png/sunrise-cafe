@@ -127,19 +127,26 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
     }
   }, [branchId, fetchReservations]);
 
+  const toTaiwanParts = (iso: string) => {
+    const d = new Date(iso);
+    const tw = new Date(d.getTime() + 8 * 60 * 60 * 1000);
+    return {
+      date: tw.toISOString().slice(0, 10),
+      time: `${String(tw.getUTCHours()).padStart(2, "0")}:${String(tw.getUTCMinutes()).padStart(2, "0")}`,
+      ms: d.getTime(),
+    };
+  };
+
   const openEdit = (r: Reservation) => {
     setEditing(r);
     setEditName(r.customer_name);
     setEditPhone(r.phone);
-    const start = new Date(r.start_time);
-    const end = new Date(r.end_time);
-    setEditDate(
-      `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}`
-    );
-    setEditTime(
-      `${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`
-    );
-    setEditDuration(Math.round((end.getTime() - start.getTime()) / (60 * 60 * 1000)) || 1);
+    const startParts = toTaiwanParts(r.start_time);
+    const endParts = toTaiwanParts(r.end_time);
+    setEditDate(startParts.date);
+    setEditTime(startParts.time);
+    const diffHours = (endParts.ms - startParts.ms) / (60 * 60 * 1000);
+    setEditDuration(diffHours > 0 ? Math.round(diffHours * 2) / 2 : 1);
     setEditTotalPrice(r.total_price != null ? Number(r.total_price) : "");
     setEditGuestCount(r.guest_count ?? "");
     setEditNotes(r.notes ?? "");
@@ -158,7 +165,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
     setEditSubmitting(true);
     setEditError(null);
     try {
-      const start = new Date(`${editDate}T${editTime}:00`);
+      const start = new Date(`${editDate}T${editTime}:00+08:00`);
       const end = new Date(start.getTime() + editDuration * 60 * 60 * 1000);
       const totalPrice =
         editTotalPrice === "" ? null : Number(editTotalPrice);
@@ -369,43 +376,47 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
             const r = row.item;
             const roomName = roomNameMap.get(r.room_id) ?? "—";
             return (
-            <li
-              key={r.id}
-              className="flex flex-wrap items-center gap-x-4 gap-y-2 p-4 hover:bg-gray-50/80"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="font-medium text-gray-900">{r.customer_name}</p>
-                <p className="text-sm text-gray-500">{r.phone}</p>
-                <p className="mt-0.5 flex items-center gap-1 text-sm text-gray-600">
-                  <DoorOpen className="h-3.5 w-3.5" />
+            <li key={r.id} className="space-y-2 p-4 hover:bg-gray-50/80">
+              {/* Row 1: Name · Phone · Status */}
+              <div className="flex items-center gap-3">
+                <span className="text-base font-semibold text-gray-900">{r.customer_name}</span>
+                <span className="text-sm text-gray-500">{r.phone}</span>
+                <span
+                  className={`ml-auto shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                    STATUS_STYLES[r.status] ?? "bg-gray-100 text-gray-700"
+                  }`}
+                >
+                  {STATUS_LABELS[r.status] ?? r.status}
+                </span>
+              </div>
+
+              {/* Row 2: Room · Code · Guest count · Date · Time · Price */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-600">
+                <span className="flex items-center gap-1">
+                  <DoorOpen className="h-3.5 w-3.5 text-gray-400" />
                   {roomName}
-                </p>
+                </span>
                 {r.booking_code && (
-                  <p className="mt-0.5 text-xs text-gray-500">代號：<span className="font-mono">{r.booking_code}</span></p>
+                  <span className="text-xs text-gray-500">
+                    代號：<span className="font-mono">{r.booking_code}</span>
+                  </span>
                 )}
                 {r.guest_count != null && (
-                  <p className="mt-0.5 flex items-center gap-1 text-sm text-gray-600">
-                    <Users className="h-3.5 w-3.5" />
+                  <span className="flex items-center gap-1">
+                    <Users className="h-3.5 w-3.5 text-gray-400" />
                     {r.guest_count} 人
-                  </p>
+                  </span>
                 )}
-                {r.notes && (
-                  <p className="mt-0.5 text-sm text-gray-500 italic">備註：{r.notes}</p>
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-3 text-sm text-gray-600">
                 <span className="flex items-center gap-1">
-                  <Calendar className="h-4 w-4" />
-                  {format(parseISO(r.start_time), "yyyy/MM/dd (EEE)", {
-                    locale: zhTW,
-                  })}
+                  <Calendar className="h-3.5 w-3.5 text-gray-400" />
+                  {format(parseISO(r.start_time), "yyyy/MM/dd (EEE)", { locale: zhTW })}
                 </span>
                 <span className="flex items-center gap-1">
-                  <Clock className="h-4 w-4" />
+                  <Clock className="h-3.5 w-3.5 text-gray-400" />
                   {format(parseISO(r.start_time), "HH:mm")}–{format(parseISO(r.end_time), "HH:mm")}
                 </span>
                 {r.total_price != null && (
-                  <span>${Number(r.total_price)}</span>
+                  <span className="font-medium text-gray-800">${Number(r.total_price)}</span>
                 )}
                 {isWeekend(r.start_time.slice(0, 10)) && (
                   <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
@@ -413,19 +424,19 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                   </span>
                 )}
               </div>
-              <span
-                className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                  STATUS_STYLES[r.status] ?? "bg-gray-100 text-gray-700"
-                }`}
-              >
-                {STATUS_LABELS[r.status] ?? r.status}
-              </span>
+
+              {/* Row 3: Notes (if any) */}
+              {r.notes && (
+                <p className="text-sm text-gray-500 italic">備註：{r.notes}</p>
+              )}
+
+              {/* Row 4: Actions */}
               {activeTab === "pending" ? (
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 pt-1">
                   <button
                     type="button"
                     onClick={() => updateStatus(r.id, "confirmed")}
-                    className="shrink-0 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
                   >
                     ✅ 確認
                   </button>
@@ -436,7 +447,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                       if (!ok) return;
                       await updateStatus(r.id, "cancelled");
                     }}
-                    className="shrink-0 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100"
+                    className="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100"
                   >
                     ❌ 拒絕
                   </button>
@@ -474,14 +485,14 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                           alert("複製失敗，請手動複製。");
                         }
                       }}
-                      className="shrink-0 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
+                      className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
                     >
                       📋 複製匯款通知
                     </button>
                   )}
                 </div>
               ) : activeTab === "upcoming" ? (
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 pt-1">
                   {r.status !== "checked_in" && r.status !== "completed" && (
                     <button
                       type="button"
@@ -516,7 +527,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                   <button
                     type="button"
                     onClick={() => openEdit(r)}
-                    className="shrink-0 rounded-lg border border-gray-300 p-2 text-gray-600 hover:bg-gray-100"
+                    className="rounded-lg border border-gray-300 p-2 text-gray-600 hover:bg-gray-100"
                     aria-label="編輯訂位"
                   >
                     <Pencil className="h-4 w-4" />
@@ -533,20 +544,22 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                         // ignore
                       }
                     }}
-                    className="shrink-0 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+                    className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
                   >
                     🗑️ 刪除
                   </button>
                 </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => openEdit(r)}
-                  className="shrink-0 rounded-lg border border-gray-300 p-2 text-gray-600 hover:bg-gray-100"
-                  aria-label="檢視/編輯訂位"
-                >
-                  <Pencil className="h-4 w-4" />
-                </button>
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => openEdit(r)}
+                    className="rounded-lg border border-gray-300 p-2 text-gray-600 hover:bg-gray-100"
+                    aria-label="檢視/編輯訂位"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                </div>
               )}
             </li>
           );
@@ -629,7 +642,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                   onChange={(e) => setEditDuration(Number(e.target.value))}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
                 >
-                  {[1, 2, 3, 4].map((h) => (
+                  {Array.from({ length: 19 }, (_, i) => 1 + i * 0.5).map((h) => (
                     <option key={h} value={h}>{h} 小時</option>
                   ))}
                 </select>

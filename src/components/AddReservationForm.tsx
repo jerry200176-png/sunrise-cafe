@@ -172,7 +172,7 @@ export function AddReservationForm({
 
       } else {
         // --- 單次預約 ---
-        const start = new Date(`${date}T${time}:00`);
+        const start = new Date(`${date}T${time}:00+08:00`);
         const end = new Date(start.getTime() + duration * 60 * 60 * 1000);
         const start_time = start.toISOString();
         const end_time = end.toISOString();

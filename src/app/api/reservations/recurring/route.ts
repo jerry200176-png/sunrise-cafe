@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
       d.setDate(d.getDate() + week * 7);
       const dateStr = d.toISOString().slice(0, 10);
       const [h, m] = startTime.split(":").map(Number);
-      const start = new Date(`${dateStr}T${String(h ?? 0).padStart(2, "0")}:${String(m ?? 0).padStart(2, "0")}:00`);
+      const start = new Date(`${dateStr}T${String(h ?? 0).padStart(2, "0")}:${String(m ?? 0).padStart(2, "0")}:00+08:00`);
       const end = new Date(start.getTime() + duration * 60 * 60 * 1000);
       const start_time = start.toISOString();
       const end_time = end.toISOString();

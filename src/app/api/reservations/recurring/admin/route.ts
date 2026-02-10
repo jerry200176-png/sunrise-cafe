@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import type { Database } from "@/types/supabase";
 import { isAdminConfigured } from "@/lib/supabase-admin";
 
 // Vercel Build Fix: Strict typing
-const supabaseAdmin = createClient(
+const supabaseAdmin = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
         const d = String(current.getDate()).padStart(2, "0");
         const dateStr = `${y}-${m}-${d}`;
 
-        const startDt = new Date(`${dateStr}T${String(sh).padStart(2,"0")}:${String(sm).padStart(2,"0")}:00`);
+        const startDt = new Date(`${dateStr}T${String(sh).padStart(2,"0")}:${String(sm).padStart(2,"0")}:00+08:00`);
         const endDt = new Date(startDt.getTime() + Number(duration_hours) * 60 * 60 * 1000);
         
         candidates.push({
