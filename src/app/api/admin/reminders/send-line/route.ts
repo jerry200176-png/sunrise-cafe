@@ -33,8 +33,9 @@ async function handleSendLine() {
 
         // 2. 篩選出「大安店」的訂位
         // allRows 的每一筆資料現在應該有 room: { name: '...', branch: { name: '...' } }
-        const daanRows = allRows.filter((r: Record<string, any>) => {
-            const branchName = r.room?.branch?.name || "—";
+        const daanRows = allRows.filter((r: Record<string, unknown>) => {
+            const room = r.room as { branch?: { name?: string } } | undefined;
+            const branchName = room?.branch?.name || "—";
             return branchName === "大安店";
         });
 
@@ -45,16 +46,19 @@ async function handleSendLine() {
         }
 
         // 4. 格式化資料
-        const enriched = daanRows.map((r: Record<string, any>) => ({
-            booking_code: r.booking_code,
-            room_name: r.room?.name ?? "—",
-            branch_name: r.room?.branch?.name ?? "—",
-            start_time: r.start_time,
-            end_time: r.end_time,
-            customer_name: r.customer_name,
-            phone: r.phone,
-            guest_count: r.guest_count as number | null | undefined,
-        }));
+        const enriched = daanRows.map((r: Record<string, unknown>) => {
+            const room = r.room as { name?: string; branch?: { name?: string } } | undefined;
+            return {
+                booking_code: r.booking_code as string,
+                room_name: room?.name ?? "—",
+                branch_name: room?.branch?.name ?? "—",
+                start_time: r.start_time as string,
+                end_time: r.end_time as string,
+                customer_name: r.customer_name as string,
+                phone: r.phone as string,
+                guest_count: r.guest_count as number | null | undefined,
+            };
+        });
 
         // 5. 轉換文字並發送
         const text = formatReminderMessage(enriched);
@@ -62,7 +66,7 @@ async function handleSendLine() {
 
         // 6. 標記為已通知
         await Promise.all(
-            daanRows.map((r: Record<string, any>) => updateReservationAdmin(r.id, { is_notified: true }))
+            daanRows.map((r: Record<string, unknown>) => updateReservationAdmin(r.id as string, { is_notified: true }))
         );
 
         return NextResponse.json({ ok: true, sent: daanRows.length });
