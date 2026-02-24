@@ -31,6 +31,7 @@ interface ReminderItem {
   customer_name: string;
   phone: string;
   email: string | null;
+  is_notified: boolean;
 }
 
 interface TimelineRoom {
@@ -433,21 +434,28 @@ export default function AdminDashboardPage() {
                             </button>
                             <button
                               type="button"
-                              disabled={remindersUpdating === r.id}
+                              disabled={r.is_notified || remindersUpdating === r.id}
                               onClick={async () => {
                                 setRemindersUpdating(r.id);
                                 try {
                                   await fetch(`/api/admin/reminders/${r.id}`, { method: "PATCH" });
-                                  setReminders((prev) => prev.filter((item) => item.id !== r.id));
+                                  setReminders((prev) =>
+                                    prev.map((item) =>
+                                      item.id === r.id ? { ...item, is_notified: true } : item
+                                    )
+                                  );
                                 } catch {
                                   // ignore
                                 } finally {
                                   setRemindersUpdating(null);
                                 }
                               }}
-                              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                              className={`rounded-lg px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60 ${r.is_notified
+                                  ? "bg-gray-400 cursor-not-allowed"
+                                  : "bg-emerald-600 hover:bg-emerald-700"
+                                }`}
                             >
-                              標記已通知
+                              {r.is_notified ? "已通知" : "標記已通知"}
                             </button>
                           </div>
                         </div>

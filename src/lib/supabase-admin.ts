@@ -261,9 +261,52 @@ export async function fetchReservationsByPhone(phone: string) {
   return data;
 }
 
-// ✅ 補回遺失的函式：fetchReservationsForReminder
+// ✅ 取得明天所有的訂位（不論是否已發送通知），供儀表板顯示
+export async function fetchTomorrowsReservations() {
+  const nowTW = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "Asia/Taipei" })
+  );
+  const tomorrow = new Date(nowTW);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  const y = tomorrow.getFullYear();
+  const m = String(tomorrow.getMonth() + 1).padStart(2, "0");
+  const d = String(tomorrow.getDate()).padStart(2, "0");
+  const startRange = `${y}-${m}-${d}T00:00:00+08:00`;
+  const endRange = `${y}-${m}-${d}T23:59:59.999+08:00`;
+
+  const { data, error } = await supabaseAdmin()
+    .from("reservations")
+    .select(`
+      id,
+      booking_code,
+      room_id,
+      start_time,
+      end_time,
+      customer_name,
+      phone,
+      email,
+      guest_count,
+      is_notified,
+      status,
+      room:rooms (
+        name,
+        branch:branches (
+          name
+        )
+      )
+    `)
+    .gte("start_time", startRange)
+    .lte("start_time", endRange)
+    .neq("status", "cancelled")
+    .order("start_time", { ascending: true });
+
+  if (error) throw error;
+  return data;
+}
+
+// ✅ 補回遺失的函式：fetchReservationsForReminder (專供 LINE 自動提醒使用，只抓 is_notified = false)
 export async function fetchReservationsForReminder() {
-  // 使用台灣時區計算「明天」
   const nowTW = new Date(
     new Date().toLocaleString("en-US", { timeZone: "Asia/Taipei" })
   );
