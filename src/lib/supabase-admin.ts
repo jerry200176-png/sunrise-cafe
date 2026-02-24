@@ -278,7 +278,25 @@ export async function fetchReservationsForReminder() {
 
   const { data, error } = await supabaseAdmin()
     .from("reservations")
-    .select("id,booking_code,room_id,start_time,end_time,customer_name,phone,email,guest_count,is_notified,status")
+    .select(`
+      id,
+      booking_code,
+      room_id,
+      start_time,
+      end_time,
+      customer_name,
+      phone,
+      email,
+      guest_count,
+      is_notified,
+      status,
+      room:rooms (
+        name,
+        branch:branches (
+          name
+        )
+      )
+    `)
     .gte("start_time", startRange)
     .lte("start_time", endRange)
     .eq("is_notified", false)

@@ -3,8 +3,6 @@ import {
     fetchReservationsForReminder,
     updateReservationAdmin,
     isAdminConfigured,
-    fetchRoom,
-    fetchBranch,
 } from "@/lib/supabase-admin";
 import {
     sendLineMessage,
@@ -30,44 +28,44 @@ async function handleSendLine() {
     }
 
     try {
-        // 1. 取得明日待通知訂位
-        const rows = await fetchReservationsForReminder();
+        // 1. 取得明日待通知訂位 (含 room 與 branch 關聯資料)
+        const allRows = await fetchReservationsForReminder();
 
-        if (rows.length === 0) {
-            await sendLineMessage("📋 明日無訂位，不需準備包廂。");
-            return NextResponse.json({ ok: true, sent: 0, message: "明日無訂位" });
+        // 2. 篩選出「大安店」的訂位
+        // allRows 的每一筆資料現在應該有 room: { name: '...', branch: { name: '...' } }
+        const daanRows = allRows.filter((r: Record<string, any>) => {
+            const branchName = r.room?.branch?.name || "—";
+            return branchName === "大安店";
+        });
+
+        // 3. 避免 Vercel 逾時重試導致「連發兩次」：若無大安店新訂位，安靜略過
+        if (daanRows.length === 0) {
+            console.log("[send-line] 明日大安店無新訂位，略過發送。");
+            return NextResponse.json({ ok: true, sent: 0, message: "大安店明日無訂位" });
         }
 
-        // 2. 補上 room / branch 名稱
-        const enriched = await Promise.all(
-            rows.map(async (r) => {
-                const room = await fetchRoom(r.room_id);
-                const branch = room?.branch_id
-                    ? await fetchBranch(room.branch_id)
-                    : null;
-                return {
-                    booking_code: r.booking_code,
-                    room_name: room?.name ?? "—",
-                    branch_name: branch?.name ?? "—",
-                    start_time: r.start_time,
-                    end_time: r.end_time,
-                    customer_name: r.customer_name,
-                    phone: r.phone,
-                    guest_count: (r as Record<string, unknown>).guest_count as number | null | undefined,
-                };
-            })
-        );
+        // 4. 格式化資料
+        const enriched = daanRows.map((r: Record<string, any>) => ({
+            booking_code: r.booking_code,
+            room_name: r.room?.name ?? "—",
+            branch_name: r.room?.branch?.name ?? "—",
+            start_time: r.start_time,
+            end_time: r.end_time,
+            customer_name: r.customer_name,
+            phone: r.phone,
+            guest_count: r.guest_count as number | null | undefined,
+        }));
 
-        // 3. 格式化並發送
+        // 5. 轉換文字並發送
         const text = formatReminderMessage(enriched);
         await sendLineMessage(text);
 
-        // 4. 標記已通知
+        // 6. 標記為已通知
         await Promise.all(
-            rows.map((r) => updateReservationAdmin(r.id, { is_notified: true }))
+            daanRows.map((r: Record<string, any>) => updateReservationAdmin(r.id, { is_notified: true }))
         );
 
-        return NextResponse.json({ ok: true, sent: rows.length });
+        return NextResponse.json({ ok: true, sent: daanRows.length });
     } catch (err) {
         const message = err instanceof Error ? err.message : "LINE 發送失敗";
         console.error("[send-line] Error:", message);
