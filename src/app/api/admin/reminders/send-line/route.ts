@@ -36,7 +36,7 @@ async function handleSendLine() {
         const daanRows = allRows.filter((r: Record<string, unknown>) => {
             const room = r.room as { branch?: { name?: string } } | undefined;
             const branchName = room?.branch?.name || "—";
-            return branchName === "大安店";
+            return branchName.includes("大安店");
         });
 
         // 3. 避免 Vercel 逾時重試導致「連發兩次」：若無大安店新訂位，安靜略過
