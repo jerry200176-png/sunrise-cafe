@@ -87,7 +87,6 @@ export function formatReminderMessage(
 
     lines.push(
       ``,
-      `🔖 ${r.booking_code}`,
       `👤 ${r.customer_name}｜📞 ${r.phone}`,
       `🏠 ${r.branch_name} — ${r.room_name}`,
       `🕐 ${fmt(start)} ~ ${fmt(end)}`,
