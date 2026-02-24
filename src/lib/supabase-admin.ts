@@ -89,12 +89,12 @@ export async function fetchRooms(branchId: string): Promise<{ id: string; name: 
  * 取得某分店所有房間 (詳細版)
  */
 export async function fetchRoomsWithDetails(branchId: string): Promise<
-  { 
-    id: string; 
-    name: string; 
-    capacity: number; 
-    price_weekday: number; 
-    price_weekend: number; 
+  {
+    id: string;
+    name: string;
+    capacity: number;
+    price_weekday: number;
+    price_weekend: number;
     image_url: string | null;
   }[]
 > {
@@ -168,7 +168,7 @@ export async function fetchReservationsAdmin(branchId: string): Promise<unknown[
     { method: "GET", headers: headersAdmin(), cache: "no-store" }
   );
   if (!roomsRes.ok) throw new Error("Supabase rooms error: " + (await roomsRes.text()));
-  
+
   const rooms = (await roomsRes.json()) as { id: string }[];
   if (rooms.length === 0) return [];
 
@@ -263,19 +263,22 @@ export async function fetchReservationsByPhone(phone: string) {
 
 // ✅ 補回遺失的函式：fetchReservationsForReminder
 export async function fetchReservationsForReminder() {
-  const now = new Date();
-  const tomorrow = new Date(now);
+  // 使用台灣時區計算「明天」
+  const nowTW = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "Asia/Taipei" })
+  );
+  const tomorrow = new Date(nowTW);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
   const y = tomorrow.getFullYear();
   const m = String(tomorrow.getMonth() + 1).padStart(2, "0");
   const d = String(tomorrow.getDate()).padStart(2, "0");
-  const startRange = `${y}-${m}-${d}T00:00:00`;
-  const endRange = `${y}-${m}-${d}T23:59:59.999`;
+  const startRange = `${y}-${m}-${d}T00:00:00+08:00`;
+  const endRange = `${y}-${m}-${d}T23:59:59.999+08:00`;
 
   const { data, error } = await supabaseAdmin()
     .from("reservations")
-    .select("id,booking_code,room_id,start_time,end_time,customer_name,phone,email,is_notified,status")
+    .select("id,booking_code,room_id,start_time,end_time,customer_name,phone,email,guest_count,is_notified,status")
     .gte("start_time", startRange)
     .lte("start_time", endRange)
     .eq("is_notified", false)
