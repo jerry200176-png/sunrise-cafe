@@ -138,7 +138,7 @@ export default function BookQueryPage() {
 
         <ul className="space-y-4">
           {list.map((item) => {
-            const depositPaid = item.status === "confirmed" || item.status === "checked_in";
+            const isConfirmed = item.status === "confirmed" || item.status === "checked_in";
             return (
               <li
                 key={item.id}
@@ -171,34 +171,35 @@ export default function BookQueryPage() {
                     className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
                       item.status === "cancelled"
                         ? "bg-gray-100 text-gray-600"
-                        : "bg-amber-100 text-amber-800"
+                        : item.status === "pending"
+                          ? "bg-yellow-100 text-yellow-800"
+                          : "bg-amber-100 text-amber-800"
                     }`}
                   >
                     {STATUS_LABELS[item.status] ?? item.status}
                   </span>
                 </div>
 
-                {/* 訂金資訊區塊 */}
-                {item.deposit_required && item.status !== "cancelled" && (
-                  <div className={`mt-3 rounded-lg border p-3 text-sm ${
-                    depositPaid
-                      ? "border-green-200 bg-green-50"
-                      : "border-amber-200 bg-amber-50"
-                  }`}>
-                    <p className="font-semibold text-gray-800">
-                      💰 訂金資訊
+                {/* 待審核提示 — pending 且需收訂金時顯示 */}
+                {item.status === "pending" && item.deposit_required && (
+                  <div className="mt-3 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm">
+                    <p className="font-semibold text-yellow-800">⏳ 待審核</p>
+                    <p className="mt-1 text-yellow-700">
+                      您的預約正在審核中，確認後將提供繳費資訊，請留意通知。
                     </p>
+                  </div>
+                )}
+
+                {/* 訂金繳費資訊 — 管理員確認後才顯示 */}
+                {item.deposit_required && isConfirmed && item.status !== "cancelled" && (
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
+                    <p className="font-semibold text-gray-800">💰 訂金資訊</p>
                     <div className="mt-1.5 space-y-1 text-gray-700">
-                      <p>
-                        訂金狀態：
-                        <span className={`font-medium ${depositPaid ? "text-green-700" : "text-amber-700"}`}>
-                          {depositPaid ? "已繳納" : "待繳納"}
-                        </span>
-                      </p>
                       {item.deposit_amount != null && (
                         <p>
                           訂金金額：
                           <span className="font-semibold">NT$ {item.deposit_amount}</span>
+                          <span className="text-xs text-gray-500 ml-1">（總價的 50%）</span>
                         </p>
                       )}
                       <p className="text-xs text-gray-500">
@@ -206,25 +207,30 @@ export default function BookQueryPage() {
                       </p>
                     </div>
 
-                    {/* 未繳納時顯示匯款資訊 */}
-                    {!depositPaid && (
-                      <div className="mt-3 rounded-md border border-gray-200 bg-white p-2.5 text-xs text-gray-700">
-                        <p className="font-semibold text-gray-800 mb-1">繳費帳戶</p>
-                        <p>銀行：台北富邦銀行 (012)</p>
-                        <p>帳號：8212-0000-8489-6</p>
-                        <p>戶名：昇昇咖啡張文霞</p>
-                        <div className="mt-2 pt-2 border-t border-gray-100">
-                          <a
-                            href={LINE_PAY_URL}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
-                          >
-                            使用 LINE Pay 付款 →
-                          </a>
-                        </div>
+                    {/* 匯款帳戶 + LINE Pay */}
+                    <div className="mt-3 rounded-md border border-gray-200 bg-white p-2.5 text-xs text-gray-700">
+                      <p className="font-semibold text-gray-800 mb-1">繳費帳戶</p>
+                      <p>銀行：台北富邦銀行 (012)</p>
+                      <p>帳號：8212-0000-8489-6</p>
+                      <p>戶名：昇昇咖啡張文霞</p>
+                      <div className="mt-2 pt-2 border-t border-gray-100">
+                        <a
+                          href={LINE_PAY_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
+                        >
+                          使用 LINE Pay 付款 →
+                        </a>
                       </div>
-                    )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 注意事項提醒 — 所有已確認的訂位都顯示 */}
+                {isConfirmed && (
+                  <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-2.5 text-xs text-gray-500">
+                    📌 帶外食沒關係，離場時請將垃圾自行帶走；若未帶走，將酌收清潔費 300 元。
                   </div>
                 )}
 

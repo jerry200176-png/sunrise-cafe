@@ -671,20 +671,56 @@ export default function BookPage() {
               </div>
 
               <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                <h3 className="font-bold mb-2 text-amber-800">包廂租借說明：</h3>
-                <ul className="list-disc pl-5 space-y-1 mb-4 text-amber-800">
-                  <li>包廂租借費用不折抵消費，亦無低消限制。</li>
-                  <li>可攜帶外食。</li>
-                  <li>離場時請將垃圾自行帶走；若未帶走，將酌收清潔費。</li>
-                </ul>
-                <label className="flex items-start gap-2 cursor-pointer pt-2 border-t border-amber-200/50">
+                <h3 className="font-bold mb-3 text-amber-800 text-base">📋 包廂租借注意事項</h3>
+
+                <div className="space-y-3 text-amber-800">
+                  {/* 費用說明 */}
+                  <div>
+                    <p className="font-semibold mb-1">💰 費用說明</p>
+                    <ul className="list-disc pl-5 space-y-0.5">
+                      <li>包廂租借費用不折抵消費，亦無低消限制。</li>
+                      <li>週末及國定假日訂位，需預付<strong>總金額 50%</strong> 作為訂金。</li>
+                      <li>訂金將於確認訂位後通知繳納方式（匯款或 LINE Pay）。</li>
+                    </ul>
+                  </div>
+
+                  {/* 外食與清潔 */}
+                  <div>
+                    <p className="font-semibold mb-1">🧹 外食與清潔</p>
+                    <ul className="list-disc pl-5 space-y-0.5">
+                      <li>可自行攜帶外食，無額外收費。</li>
+                      <li>離場時請將垃圾自行帶走；若未帶走，將<strong>酌收清潔費 300 元</strong>。</li>
+                    </ul>
+                  </div>
+
+                  {/* 取消與變更 */}
+                  <div>
+                    <p className="font-semibold mb-1">📅 取消與變更</p>
+                    <ul className="list-disc pl-5 space-y-0.5">
+                      <li>預約時間 <strong>24 小時前</strong>可自行線上取消。</li>
+                      <li>24 小時內如需取消或變更，請直接聯繫店家。</li>
+                    </ul>
+                  </div>
+
+                  {/* 使用規範 */}
+                  <div>
+                    <p className="font-semibold mb-1">📌 使用規範</p>
+                    <ul className="list-disc pl-5 space-y-0.5">
+                      <li>請於預約時段內使用，超時將依時段費率加收費用。</li>
+                      <li>請愛惜包廂設備，如有損壞須照價賠償。</li>
+                      <li>請勿大聲喧嘩影響其他客人。</li>
+                    </ul>
+                  </div>
+                </div>
+
+                <label className="flex items-start gap-2 cursor-pointer pt-3 mt-3 border-t border-amber-200/50">
                   <input
                     type="checkbox"
                     checked={agreeToTerms}
                     onChange={(e) => setAgreeToTerms(e.target.checked)}
-                    className="mt-1 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                    className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
                   />
-                  <span className="font-medium">我已詳細閱讀並同意上述包廂租借說明</span>
+                  <span className="font-medium">我已詳細閱讀並同意上述包廂租借注意事項</span>
                 </label>
               </div>
 
