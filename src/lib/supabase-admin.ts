@@ -305,8 +305,8 @@ export async function fetchTomorrowsReservations() {
   return data;
 }
 
-// ✅ 補回遺失的函式：fetchReservationsForReminder (專供 LINE 自動提醒使用，只抓 is_notified = false)
-export async function fetchReservationsForReminder() {
+// ✅ 補回遺失的函式：fetchReservationsForReminder (專供 LINE 自動提醒使用，預設只抓 is_notified = false，可透過 force=true 略過此限制)
+export async function fetchReservationsForReminder(force: boolean = false) {
   const nowTW = new Date(
     new Date().toLocaleString("en-US", { timeZone: "Asia/Taipei" })
   );
@@ -319,7 +319,7 @@ export async function fetchReservationsForReminder() {
   const startRange = `${y}-${m}-${d}T00:00:00+08:00`;
   const endRange = `${y}-${m}-${d}T23:59:59.999+08:00`;
 
-  const { data, error } = await supabaseAdmin()
+  let query = supabaseAdmin()
     .from("reservations")
     .select(`
       id,
@@ -343,9 +343,14 @@ export async function fetchReservationsForReminder() {
     `)
     .gte("start_time", startRange)
     .lte("start_time", endRange)
-    .eq("is_notified", false)
     .neq("status", "cancelled")
     .order("start_time", { ascending: true });
+
+  if (!force) {
+    query = query.eq("is_notified", false);
+  }
+
+  const { data, error } = await query;
 
   if (error) throw error;
   return data;

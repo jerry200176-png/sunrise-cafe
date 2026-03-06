@@ -12,8 +12,9 @@ import {
 
 /**
  * 共用邏輯：查詢明日訂位 → 格式化 → 發送到 LINE 群組 → 標記已通知
+ * @param force 如果為 true，則無視 is_notified 狀態全部發送 (用於手動觸發)
  */
-async function handleSendLine() {
+async function handleSendLine(force: boolean = false) {
     if (!isAdminConfigured()) {
         return NextResponse.json(
             { error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY" },
@@ -29,7 +30,7 @@ async function handleSendLine() {
 
     try {
         // 1. 取得明日待通知訂位 (含 room 與 branch 關聯資料)
-        const allRows = await fetchReservationsForReminder();
+        const allRows = await fetchReservationsForReminder(force);
 
         // 2. 篩選出「大安店」的訂位
         // allRows 的每一筆資料現在應該有 room: { name: '...', branch: { name: '...' } }
@@ -95,5 +96,5 @@ export async function GET(request: NextRequest) {
 
 /** POST: 手動觸發（後台按鈕或 curl） */
 export async function POST() {
-    return handleSendLine();
+    return handleSendLine(true);
 }
