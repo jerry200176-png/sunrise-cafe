@@ -32,6 +32,7 @@ export default function BookPage() {
   const [email, setEmail] = useState("");
   const [lineId, setLineId] = useState("");
   const [guestCount, setGuestCount] = useState<number | "">("");
+  const [agreeToTerms, setAgreeToTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -205,6 +206,12 @@ export default function BookPage() {
           return;
         }
       }
+    }
+
+    if (!agreeToTerms) {
+      setError("請閱讀並同意包廂租借說明");
+      setSubmitting(false);
+      return;
     }
 
     try {
@@ -654,23 +661,33 @@ export default function BookPage() {
                   placeholder="選填"
                 />
               </div>
+
+              <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                <h3 className="font-bold mb-2 text-amber-800">包廂租借說明：</h3>
+                <ul className="list-disc pl-5 space-y-1 mb-4 text-amber-800">
+                  <li>包廂租借費用不折抵消費，亦無低消限制。</li>
+                  <li>可攜帶外食。</li>
+                  <li>離場時請將垃圾自行帶走；若未帶走，將酌收清潔費。</li>
+                </ul>
+                <label className="flex items-start gap-2 cursor-pointer pt-2 border-t border-amber-200/50">
+                  <input
+                    type="checkbox"
+                    checked={agreeToTerms}
+                    onChange={(e) => setAgreeToTerms(e.target.checked)}
+                    className="mt-1 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                  />
+                  <span className="font-medium">我已詳細閱讀並同意上述包廂租借說明</span>
+                </label>
+              </div>
+
               <button
                 type="submit"
-                disabled={submitting}
+                disabled={submitting || !agreeToTerms}
                 className="w-full rounded-lg bg-amber-600 py-3 text-white hover:bg-amber-700 disabled:opacity-50"
               >
                 {submitting ? "送出中…" : "確認預約"}
               </button>
             </form>
-
-            <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-              <h3 className="font-bold mb-2">包廂租借說明：</h3>
-              <ul className="list-disc pl-5 space-y-1">
-                <li>包廂租借費用不折抵消費，亦無低消限制。</li>
-                <li>可攜帶外食。</li>
-                <li>離場時請將垃圾自行帶走；若未帶走，將酌收清潔費。</li>
-              </ul>
-            </div>
           </>
         )}
       </div>
