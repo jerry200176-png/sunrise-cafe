@@ -38,6 +38,7 @@ export interface Reservation {
   notes: string | null;
   booking_code?: string;
   is_notified?: boolean;
+  is_deposit_paid?: boolean;
   room_with_branch?: {
     id: string;
     name: string;

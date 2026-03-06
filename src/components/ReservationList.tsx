@@ -212,6 +212,19 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
     }
   };
 
+  const updateDepositStatus = async (id: string, is_deposit_paid: boolean) => {
+    try {
+      await fetch(`${RESERVATIONS_API}/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_deposit_paid }),
+      });
+      fetchReservations();
+    } catch {
+      // ignore
+    }
+  };
+
   const handleSendLine = async () => {
     if (!window.confirm("確定要手動發送明日訂位提醒到 LINE 群組嗎？")) return;
     setSendingLine(true);
@@ -442,9 +455,15 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                     <span className="font-medium text-gray-800">${Number(r.total_price)}</span>
                   )}
                   {isDepositRequired(r.start_time.slice(0, 10)) && (
-                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
-                      💰 需收訂金
-                    </span>
+                    r.is_deposit_paid ? (
+                      <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-800 border border-green-200">
+                        ✅ 已付訂金
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 border border-amber-200">
+                        💰 需收訂金
+                      </span>
+                    )
                   )}
                 </div>
 
@@ -474,6 +493,15 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                     >
                       ❌ 拒絕
                     </button>
+                    {isDepositRequired(r.start_time.slice(0, 10)) && !r.is_deposit_paid && (
+                      <button
+                        type="button"
+                        onClick={() => updateDepositStatus(r.id, true)}
+                        className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
+                      >
+                        ✅ 標記已付訂金
+                      </button>
+                    )}
                     {isDepositRequired(r.start_time.slice(0, 10)) && r.total_price != null && (
                       <button
                         type="button"
@@ -532,6 +560,15 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                         className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
                       >
                         💵 已結帳
+                      </button>
+                    )}
+                    {isDepositRequired(r.start_time.slice(0, 10)) && !r.is_deposit_paid && (
+                      <button
+                        type="button"
+                        onClick={() => updateDepositStatus(r.id, true)}
+                        className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
+                      >
+                        ✅ 標記訂金
                       </button>
                     )}
                     {r.status !== "cancelled" && (

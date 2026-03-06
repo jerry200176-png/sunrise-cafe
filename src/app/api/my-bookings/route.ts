@@ -44,6 +44,7 @@ export async function GET(request: NextRequest) {
           deposit_amount: depositRequired && r.total_price != null
             ? getDepositAmount(Number(r.total_price))
             : null,
+          is_deposit_paid: r.is_deposit_paid,
         };
       })
     );

@@ -19,6 +19,7 @@ interface BookingItem {
   customer_name: string;
   deposit_required: boolean;
   deposit_amount: number | null;
+  is_deposit_paid?: boolean;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -194,56 +195,94 @@ export default function BookQueryPage() {
 
                 {/* 訂金繳費資訊 — 管理員確認後才顯示 */}
                 {item.deposit_required && isConfirmed && item.status !== "cancelled" && (
-                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
-                    <p className="font-semibold text-gray-800">💰 訂金資訊</p>
-                    <div className="mt-1.5 space-y-1 text-gray-700">
-                      {item.deposit_amount != null && (
-                        <p>
-                          訂金金額：
-                          <span className="font-semibold">NT$ {item.deposit_amount}</span>
-                          <span className="text-xs text-gray-500 ml-1">（總價的 50%）</span>
-                        </p>
-                      )}
-                      <p className="text-xs text-gray-500">
-                        此預訂日期為週末／國定假日，需繳納訂金以完成確認
-                      </p>
-                    </div>
-
-                    {/* 匯款帳戶 + LINE Pay + 官方 LINE */}
-                    <div className="mt-3 rounded-md border border-gray-200 bg-white p-2.5 text-xs text-gray-700">
-                      <p className="font-semibold text-gray-800 mb-2">📥 繳費步驟</p>
-                      
-                      <div className="mb-3 pl-2 border-l-2 border-amber-400">
-                        <p className="font-medium text-amber-800 mb-1">【 第 1 步：選擇以下方式完成付款 】</p>
-                        <p>🏦 銀行轉帳：<br/>台北富邦銀行 (012) / 8212-0000-8489-6 / 昇昇咖啡張文霞</p>
-                        <div className="mt-2 text-gray-400">或</div>
-                        <div className="mt-1">
-                          <a
-                            href={LINE_PAY_URL}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
-                          >
-                            使用 LINE Pay 付款
-                          </a>
+                  <div className="mt-4 rounded-xl border-2 border-amber-300 bg-amber-50 p-4 sm:p-5 text-base shadow-sm">
+                    {item.is_deposit_paid ? (
+                      <div className="flex items-center gap-3 text-emerald-800">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 shrink-0">
+                          <span className="text-xl">✅</span>
+                        </div>
+                        <div>
+                          <p className="font-bold text-lg">訂金已確認收取！</p>
+                          <p className="text-sm mt-0.5 opacity-90">感謝您，期待您的光臨</p>
                         </div>
                       </div>
-
-                      <div className="pl-2 border-l-2 border-green-500">
-                        <p className="font-medium text-green-700 mb-1">【 第 2 步：務必加官方 LINE 回傳截圖 】</p>
-                        <p className="mb-2 text-gray-600">
-                          付款完成後，請點擊下方按鈕加入官方 LINE，並回傳您的<strong>「付款截圖」</strong>或<strong>「匯款帳號後五碼」</strong>，管理員對帳無誤後才會正式保留您的包廂。
+                    ) : (
+                      <>
+                        <p className="font-bold text-lg text-amber-900 border-b border-amber-200 pb-2 mb-3">
+                          💰 需繳納訂金以完成保留
                         </p>
-                        <a
-                          href={OFFICIAL_LINE_URL}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 rounded-md border border-green-600 px-3 py-1.5 text-xs font-medium text-green-700 hover:bg-green-50"
-                        >
-                          💬 加官方 LINE 回傳截圖
-                        </a>
-                      </div>
-                    </div>
+                        <div className="space-y-2 text-gray-800 text-base">
+                          {item.deposit_amount != null && (
+                            <p className="flex items-center gap-2">
+                              總金額的一半：
+                              <span className="font-bold text-lg text-amber-700 font-mono tracking-wide">
+                                NT$ {item.deposit_amount}
+                              </span>
+                            </p>
+                          )}
+                          <p className="text-sm text-amber-700 bg-amber-100 inline-block px-2 py-1 rounded">
+                            此預訂日期為週末／國定假日，需繳納訂金才算預約成功
+                          </p>
+                        </div>
+
+                        {/* 匯款帳戶 + LINE Pay + 官方 LINE */}
+                        <div className="mt-5 rounded-lg border-2 border-gray-200 bg-white p-4 text-base text-gray-800 shadow-sm">
+                          <p className="font-bold text-xl text-gray-900 mb-3 border-b-2 border-gray-100 pb-2">
+                            📥 兩步驟完成繳費
+                          </p>
+                          
+                          <div className="mb-5 pl-3 border-l-4 border-amber-400 bg-gray-50 p-3 rounded-r-lg">
+                            <p className="font-bold text-lg text-amber-800 mb-2">
+                              【 第 1 步：選擇以下任一方式付款 】
+                            </p>
+                            <div className="bg-white p-3 rounded border border-gray-200 shadow-sm mb-3">
+                              <p className="font-bold text-gray-700 flex items-center gap-1.5 mb-1">
+                                <span className="text-xl">🏦</span> 銀行轉帳
+                              </p>
+                              <p className="font-mono text-lg tracking-wide select-all">台北富邦銀行 (012)</p>
+                              <p className="font-mono text-xl font-bold tracking-wider select-all text-blue-700 my-1">8212-0000-8489-6</p>
+                              <p className="text-base font-semibold">戶名：昇昇咖啡張文霞</p>
+                            </div>
+                            
+                            <div className="flex items-center gap-3 my-2 opacity-60">
+                              <div className="h-px flex-1 bg-gray-300"></div>
+                              <span className="font-medium text-sm">或者</span>
+                              <div className="h-px flex-1 bg-gray-300"></div>
+                            </div>
+                            
+                            <div className="mt-2 text-center">
+                              <a
+                                href={LINE_PAY_URL}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex w-full sm:w-auto justify-center items-center gap-2 rounded-lg bg-[#06C755] px-6 py-3 text-base font-bold text-white shadow hover:bg-[#05b34c] transition"
+                              >
+                                <span className="bg-white text-[#06C755] p-1 rounded font-black text-xs">LINE Pay</span>
+                                點此開啟 LINE Pay 付款
+                              </a>
+                            </div>
+                          </div>
+
+                          <div className="pl-3 border-l-4 border-[#06C755] bg-green-50/50 p-3 rounded-r-lg">
+                            <p className="font-bold text-lg text-[#06C755] mb-2">
+                              【 第 2 步：務必加官方 LINE 回傳 】
+                            </p>
+                            <p className="mb-4 text-gray-700 leading-relaxed text-base">
+                              付款完成後，請點擊下方按鈕加入官方 LINE，拍下您的<strong>「付款截圖」</strong>或告訴我們您的<strong>「帳號後五碼」</strong>，我們確認收到錢後，位子才算真正為您保留喔！
+                            </p>
+                            <a
+                              href={OFFICIAL_LINE_URL}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex w-full sm:w-auto justify-center items-center gap-2 rounded-lg border-2 border-[#06C755] bg-white px-6 py-3 text-base font-bold text-[#06C755] shadow-sm hover:bg-green-50 transition"
+                            >
+                              <span className="text-xl">💬</span>
+                              加官方 LINE 傳截圖
+                            </a>
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
 

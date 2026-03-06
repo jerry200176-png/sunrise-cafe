@@ -192,6 +192,7 @@ export async function updateReservationAdmin(
   updates: {
     status?: string;
     is_notified?: boolean;
+    is_deposit_paid?: boolean;
     notes?: string | null;
     customer_name?: string;
     phone?: string;
