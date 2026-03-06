@@ -30,6 +30,7 @@ export default function AdminBranchesRoomsPage() {
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
   const [roomName, setRoomName] = useState("");
   const [roomType, setRoomType] = useState("");
+  const [roomMinCapacity, setRoomMinCapacity] = useState(1);
   const [roomCapacity, setRoomCapacity] = useState(4);
   const [roomPriceWeekday, setRoomPriceWeekday] = useState(0);
   const [roomPriceWeekend, setRoomPriceWeekend] = useState(0);
@@ -85,7 +86,7 @@ export default function AdminBranchesRoomsPage() {
         const id = (d as { current_branch_id?: string | null })?.current_branch_id;
         if (id) setReservationBranchId(id);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   const openAddBranch = () => {
@@ -162,6 +163,7 @@ export default function AdminBranchesRoomsPage() {
     setEditingRoom(null);
     setRoomName("");
     setRoomType("");
+    setRoomMinCapacity(1);
     setRoomCapacity(4);
     setRoomPriceWeekday(0);
     setRoomPriceWeekend(0);
@@ -172,6 +174,7 @@ export default function AdminBranchesRoomsPage() {
     setEditingRoom(r);
     setRoomName(r.name);
     setRoomType(r.type ?? "");
+    setRoomMinCapacity(r.min_capacity ?? 1);
     setRoomCapacity(r.capacity);
     setRoomPriceWeekday(Number(r.price_weekday));
     setRoomPriceWeekend(Number(r.price_weekend));
@@ -186,7 +189,7 @@ export default function AdminBranchesRoomsPage() {
         const res = await fetch(`/api/rooms/${editingRoom.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: roomName.trim(), type: roomType.trim() || null, capacity: roomCapacity, price_weekday: roomPriceWeekday, price_weekend: roomPriceWeekend }),
+          body: JSON.stringify({ name: roomName.trim(), type: roomType.trim() || null, min_capacity: roomMinCapacity, capacity: roomCapacity, price_weekday: roomPriceWeekday, price_weekend: roomPriceWeekend }),
         });
         if (!res.ok) throw new Error((await res.json()).error ?? "更新失敗");
       } else {
@@ -197,6 +200,7 @@ export default function AdminBranchesRoomsPage() {
             branch_id: selectedBranchId,
             name: roomName.trim(),
             type: roomType.trim() || null,
+            min_capacity: roomMinCapacity,
             capacity: roomCapacity,
             price_weekday: roomPriceWeekday,
             price_weekend: roomPriceWeekend,
@@ -357,7 +361,7 @@ export default function AdminBranchesRoomsPage() {
                     <tr key={r.id} className="border-b border-gray-100">
                       <td className="py-2 pr-2 font-medium">{r.name}</td>
                       <td className="py-2 pr-2">{r.type || "—"}</td>
-                      <td className="py-2 pr-2">{r.capacity} 人</td>
+                      <td className="py-2 pr-2">{r.min_capacity && r.min_capacity < r.capacity ? `${r.min_capacity}-${r.capacity}` : r.capacity} 人</td>
                       <td className="py-2 pr-2">${Number(r.price_weekday)} / ${Number(r.price_weekend)}</td>
                       <td className="py-2 flex gap-1">
                         <button type="button" onClick={() => openEditRoom(r)} className="rounded border border-gray-300 p-1 text-gray-600 hover:bg-gray-50">
@@ -388,7 +392,7 @@ export default function AdminBranchesRoomsPage() {
                     method: "PATCH",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ current_branch_id: id }),
-                  }).catch(() => {});
+                  }).catch(() => { });
                 }}
                 disabled={loading}
               />
@@ -463,9 +467,15 @@ export default function AdminBranchesRoomsPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">類型</label>
                 <input type="text" value={roomType} onChange={(e) => setRoomType(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" placeholder="例：會議室、一般包廂" />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">容納人數 *</label>
-                <input type="number" min={1} required value={roomCapacity} onChange={(e) => setRoomCapacity(Number(e.target.value) || 1)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">最少人數 *</label>
+                  <input type="number" min={1} required value={roomMinCapacity} onChange={(e) => setRoomMinCapacity(Number(e.target.value) || 1)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">最大人數 *</label>
+                  <input type="number" min={1} required value={roomCapacity} onChange={(e) => setRoomCapacity(Number(e.target.value) || 1)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>

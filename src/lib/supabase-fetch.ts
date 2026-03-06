@@ -130,6 +130,7 @@ export async function insertRoom(body: {
   branch_id: string;
   name: string;
   type?: string | null;
+  min_capacity?: number;
   capacity: number;
   price_weekday: number;
   price_weekend: number;
@@ -148,7 +149,7 @@ export async function insertRoom(body: {
 
 export async function updateRoom(
   id: string,
-  body: Partial<{ name: string; type: string | null; capacity: number; price_weekday: number; price_weekend: number }>
+  body: Partial<{ name: string; type: string | null; min_capacity: number; capacity: number; price_weekday: number; price_weekend: number }>
 ): Promise<void> {
   const { url: baseUrl } = base();
   const res = await fetch(`${baseUrl}/rest/v1/rooms?id=eq.${encodeURIComponent(id)}`, {

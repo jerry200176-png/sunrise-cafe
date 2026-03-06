@@ -8,9 +8,10 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   if (!id) return NextResponse.json({ error: "缺少 id" }, { status: 400 });
   try {
     const body = await request.json();
-    const { name, type, capacity, price_weekday, price_weekend } = body as Partial<{
+    const { name, type, min_capacity, capacity, price_weekday, price_weekend } = body as Partial<{
       name: string;
       type: string | null;
+      min_capacity: number;
       capacity: number;
       price_weekday: number;
       price_weekend: number;
@@ -18,6 +19,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     const patch: Parameters<typeof updateRoom>[1] = {};
     if (name !== undefined) patch.name = name;
     if (type !== undefined) patch.type = type;
+    if (min_capacity !== undefined) patch.min_capacity = Number(min_capacity);
     if (capacity !== undefined) patch.capacity = Number(capacity);
     if (price_weekday !== undefined) patch.price_weekday = Number(price_weekday);
     if (price_weekend !== undefined) patch.price_weekend = Number(price_weekend);

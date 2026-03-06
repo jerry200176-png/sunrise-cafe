@@ -15,6 +15,7 @@ type BlockedSlot = { room_id: string; start_time: string; end_time: string };
 type RoomDetails = {
   id: string;
   name: string;
+  min_capacity?: number;
   capacity: number;
   price_weekday: number;
   price_weekend: number;
@@ -121,15 +122,16 @@ export async function GET(request: NextRequest) {
       const close = parseTime(branch.close_time, DEFAULT_CLOSE);
       const roomBlocked = blocked.filter((b) => b.room_id === roomId);
       const slots = buildSlotsForRoom(date, open, close, roomBlocked, isToday);
-      
+
       return NextResponse.json({
         slots,
         roomName: room.name,
+        min_capacity: room.min_capacity,
         branchName: branch.name,
         openTime: branch.open_time,
         closeTime: branch.close_time,
         // ✅ 修正：現在 fetchRoom 已經有正確型別，不需要 as any
-        image_url: room.image_url, 
+        image_url: room.image_url,
       });
     }
     const [branch, roomsRaw, blockedRaw] = await Promise.all([
@@ -151,6 +153,7 @@ export async function GET(request: NextRequest) {
       return {
         roomId: room.id,
         roomName: room.name,
+        min_capacity: room.min_capacity,
         capacity: room.capacity,
         price_weekday: room.price_weekday,
         price_weekend: room.price_weekend,

@@ -18,10 +18,11 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { branch_id, name, type, capacity, price_weekday, price_weekend } = body as {
+    const { branch_id, name, type, min_capacity, capacity, price_weekday, price_weekend } = body as {
       branch_id: string;
       name: string;
       type?: string | null;
+      min_capacity?: number;
       capacity: number;
       price_weekday: number;
       price_weekend: number;
@@ -38,7 +39,15 @@ export async function POST(request: NextRequest) {
     if (Number.isNaN(pw) || pw < 0 || Number.isNaN(pwe) || pwe < 0) {
       return NextResponse.json({ error: "平日/假日每小時價格不可為負" }, { status: 400 });
     }
-    await insertRoom({ branch_id, name: name.trim(), type: type ?? null, capacity: cap, price_weekday: pw, price_weekend: pwe });
+    // Only add min_capacity if it's provided and valid
+    const payload: Parameters<typeof insertRoom>[0] = { branch_id, name: name.trim(), type: type ?? null, capacity: cap, price_weekday: pw, price_weekend: pwe };
+    if (min_capacity !== undefined) {
+      const mc = Number(min_capacity);
+      if (!Number.isNaN(mc) && mc >= 1) {
+        payload.min_capacity = mc;
+      }
+    }
+    await insertRoom(payload);
     return NextResponse.json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法新增包廂";

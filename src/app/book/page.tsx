@@ -35,17 +35,18 @@ export default function BookPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  
+
   // 這裡確保介面包含 image_url
   const [branchRoomsAvailability, setBranchRoomsAvailability] = useState<{
     rooms: {
       roomId: string;
       roomName: string;
+      min_capacity?: number;
       capacity: number;
       price_weekday: number;
       price_weekend: number;
       slots: SlotItem[];
-      image_url?: string | null; 
+      image_url?: string | null;
     }[];
     branchName: string;
   } | null>(null);
@@ -98,12 +99,14 @@ export default function BookPage() {
               (r: {
                 roomId: string;
                 roomName: string;
+                min_capacity?: number;
                 capacity: number;
                 price_weekday: number;
                 price_weekend: number;
               }) => ({
                 id: r.roomId,
                 name: r.roomName,
+                min_capacity: r.min_capacity,
                 capacity: r.capacity,
                 price_weekday: r.price_weekday,
                 price_weekend: r.price_weekend,
@@ -169,7 +172,7 @@ export default function BookPage() {
     if (!selectedStart || !date) return null;
     const start = new Date(selectedStart);
     const end = new Date(start.getTime() + duration * 60 * 60 * 1000);
-    
+
     // 簡單格式化
     const dateLabel = new Date(date).toLocaleDateString("zh-TW", { month: "numeric", day: "numeric", weekday: "short" });
     const startLabel = start.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
@@ -185,6 +188,25 @@ export default function BookPage() {
     const end = new Date(start.getTime() + duration * 60 * 60 * 1000);
     setSubmitting(true);
     setError(null);
+
+    // Validate guest count against room capacity
+    if (guestCount !== "") {
+      const gC = Number(guestCount);
+      const rm = rooms.find((r) => r.id === roomId);
+      if (rm) {
+        if (rm.min_capacity && gC < rm.min_capacity) {
+          setError(`此包廂最少需要 ${rm.min_capacity} 人`);
+          setSubmitting(false);
+          return;
+        }
+        if (gC > rm.capacity) {
+          setError(`此包廂最多容納 ${rm.capacity} 人`);
+          setSubmitting(false);
+          return;
+        }
+      }
+    }
+
     try {
       const res = await fetch("/api/reservations", {
         method: "POST",
@@ -401,7 +423,7 @@ export default function BookPage() {
 
                         <span className="font-medium text-gray-900">{r.roomName}</span>
                         <p className="mt-0.5 text-sm text-gray-500">
-                          {r.capacity} 人 · 平日 ${r.price_weekday}/時 · 假日 ${r.price_weekend}/時
+                          {r.min_capacity && r.min_capacity < r.capacity ? `${r.min_capacity}-${r.capacity}` : r.capacity} 人 · 平日 ${r.price_weekday}/時 · 假日 ${r.price_weekend}/時
                         </p>
                         <p className="mt-1.5 text-xs text-gray-600">
                           {freeCount > 0 ? (
@@ -481,7 +503,7 @@ export default function BookPage() {
                 {/* 步驟 1：時數 */}
                 <div className="mb-4">
                   <div className="mb-2 flex items-center justify-between">
-                     <h3 className="text-sm font-bold text-gray-800">步驟 1：選擇租借時數</h3>
+                    <h3 className="text-sm font-bold text-gray-800">步驟 1：選擇租借時數</h3>
                   </div>
                   <select
                     value={duration}
@@ -510,31 +532,30 @@ export default function BookPage() {
 
                 {/* 步驟 2：時段 */}
                 <div>
-                   <h3 className="mb-2 text-sm font-bold text-gray-800">
-                     步驟 2：選擇開始時間 <span className="text-xs font-normal text-gray-500">(綠色可預約)</span>
-                   </h3>
-                   <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                     {slots.map((s) => {
-                       const available = duration === 1 ? s.available : canSelectDuration(s.start);
-                       return (
-                         <button
-                           key={s.start}
-                           type="button"
-                           disabled={!available}
-                           onClick={() => setSelectedStart(s.start)}
-                           className={`rounded-lg border py-3 text-sm font-medium ${
-                             selectedStart === s.start
-                               ? "border-amber-600 bg-amber-600 text-white"
-                               : available
-                               ? "border-green-300 bg-green-50 text-green-800 hover:bg-green-100"
-                               : "cursor-not-allowed border border-rose-200 bg-rose-50 text-rose-600"
-                           }`}
-                         >
-                           {formatSlotTime(s.start)}
-                         </button>
-                       );
-                     })}
-                   </div>
+                  <h3 className="mb-2 text-sm font-bold text-gray-800">
+                    步驟 2：選擇開始時間 <span className="text-xs font-normal text-gray-500">(綠色可預約)</span>
+                  </h3>
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                    {slots.map((s) => {
+                      const available = duration === 1 ? s.available : canSelectDuration(s.start);
+                      return (
+                        <button
+                          key={s.start}
+                          type="button"
+                          disabled={!available}
+                          onClick={() => setSelectedStart(s.start)}
+                          className={`rounded-lg border py-3 text-sm font-medium ${selectedStart === s.start
+                            ? "border-amber-600 bg-amber-600 text-white"
+                            : available
+                              ? "border-green-300 bg-green-50 text-green-800 hover:bg-green-100"
+                              : "cursor-not-allowed border border-rose-200 bg-rose-50 text-rose-600"
+                            }`}
+                        >
+                          {formatSlotTime(s.start)}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Summary Bar: 預約摘要 */}
@@ -593,7 +614,7 @@ export default function BookPage() {
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
-                  placeholder="0912345678 (請填寫正確手機)" 
+                  placeholder="0912345678 (請填寫正確手機)"
                 />
                 <p className="mt-1 text-xs text-gray-500">
                   假日訂位將透過簡訊/LINE通知匯款，請務必填寫正確。
@@ -641,6 +662,15 @@ export default function BookPage() {
                 {submitting ? "送出中…" : "確認預約"}
               </button>
             </form>
+
+            <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              <h3 className="font-bold mb-2">包廂租借說明：</h3>
+              <ul className="list-disc pl-5 space-y-1">
+                <li>包廂租借費用不折抵消費，亦無低消限制。</li>
+                <li>可攜帶外食。</li>
+                <li>離場時請將垃圾自行帶走；若未帶走，將酌收清潔費。</li>
+              </ul>
+            </div>
           </>
         )}
       </div>

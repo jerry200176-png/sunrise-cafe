@@ -15,6 +15,7 @@ export interface Room {
   branch_id: string;
   name: string;
   type: string | null;
+  min_capacity?: number;
   capacity: number;
   price_weekday: number;
   price_weekend: number;
