@@ -5,6 +5,7 @@ import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { Calendar, Clock, DoorOpen, Pencil, Users, X, Send } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { isDepositRequired } from "@/lib/booking-utils";
 import type { Reservation, ReservationStatus, Room } from "@/types";
 
 function isWeekend(dateStr: string): boolean {
@@ -440,7 +441,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                   {r.total_price != null && (
                     <span className="font-medium text-gray-800">${Number(r.total_price)}</span>
                   )}
-                  {isWeekend(r.start_time.slice(0, 10)) && (
+                  {isDepositRequired(r.start_time.slice(0, 10)) && (
                     <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
                       💰 需收訂金
                     </span>
@@ -473,7 +474,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                     >
                       ❌ 拒絕
                     </button>
-                    {isWeekend(r.start_time.slice(0, 10)) && r.total_price != null && (
+                    {isDepositRequired(r.start_time.slice(0, 10)) && r.total_price != null && (
                       <button
                         type="button"
                         onClick={async () => {

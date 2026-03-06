@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchReservationsByPhone, isAdminConfigured } from "@/lib/supabase-admin";
 import { fetchRoom, fetchBranch } from "@/lib/supabase-admin";
+import { isDepositRequired, getDepositAmount } from "@/lib/booking-utils";
 
 export async function GET(request: NextRequest) {
   const phone = request.nextUrl.searchParams.get("phone");
@@ -26,6 +27,8 @@ export async function GET(request: NextRequest) {
       active.map(async (r) => {
         const room = await fetchRoom(r.room_id);
         const branch = room?.branch_id ? await fetchBranch(room.branch_id) : null;
+        const dateStr = r.start_time.slice(0, 10);
+        const depositRequired = isDepositRequired(dateStr);
         return {
           id: r.id,
           booking_code: r.booking_code,
@@ -37,6 +40,10 @@ export async function GET(request: NextRequest) {
           total_price: r.total_price,
           guest_count: r.guest_count,
           customer_name: r.customer_name,
+          deposit_required: depositRequired,
+          deposit_amount: depositRequired && r.total_price != null
+            ? getDepositAmount(Number(r.total_price))
+            : null,
         };
       })
     );

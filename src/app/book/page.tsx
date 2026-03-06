@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import type { Branch, Room } from "@/types";
-import { getDurationOptions } from "@/lib/booking-utils";
+import { getDurationOptions, isDepositRequired, getDepositAmount } from "@/lib/booking-utils";
 
 type Step = "branch" | "room" | "date" | "slot" | "form";
 
@@ -341,13 +341,7 @@ export default function BookPage() {
               onChange={(e) => {
                 const next = e.target.value;
                 setDate(next);
-                if (next) {
-                  const d = new Date(next + "T12:00:00");
-                  const day = d.getDay();
-                  setIsHoliday(day === 0 || day === 6);
-                } else {
-                  setIsHoliday(false);
-                }
+                setIsHoliday(next ? isDepositRequired(next) : false);
               }}
               className="w-full rounded-xl border border-gray-300 px-4 py-3 text-base"
             />
@@ -502,9 +496,15 @@ export default function BookPage() {
                   </p>
                 )}
                 {isHoliday && (
-                  <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                    ⚠️ 假日訂位需預付 總金額 50% 作為訂金。請先送出申請，待管理員確認有位後，將透過 LINE/簡訊通知您匯款。
-                  </p>
+                  <div className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 space-y-1">
+                    <p>⚠️ 此日期為週末／國定假日，訂位需預付<strong>總金額 50%</strong> 作為訂金。</p>
+                    {getTotalPrice() != null && (
+                      <p className="font-semibold">
+                        預估訂金：NT$ {getDepositAmount(getTotalPrice()!)}
+                      </p>
+                    )}
+                    <p>請先送出申請，待管理員確認有位後，將透過 LINE/簡訊通知您匯款。</p>
+                  </div>
                 )}
                 <div className="mb-3 flex items-center gap-4 text-xs text-gray-600">
                   <span className="flex items-center gap-1">
