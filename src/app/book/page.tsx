@@ -697,8 +697,9 @@ export default function BookPage() {
                   <div>
                     <p className="font-semibold mb-1">📅 取消與變更</p>
                     <ul className="list-disc pl-5 space-y-0.5">
-                      <li>預約時間 <strong>24 小時前</strong>可自行線上取消。</li>
-                      <li>24 小時內如需取消或變更，請直接聯繫店家。</li>
+                      <li>預約時間 <strong>24 小時前</strong>可自行線上取消，24 小時內如需變更請聯繫店家。</li>
+                      <li><strong>訂金退還標準：</strong>預約時間 <strong>48 小時前</strong>取消，訂金全額退回；<strong>48 小時內</strong>取消恕不退還。</li>
+                      <li>若遇不可抗力因素（如颱風發布陸上警報等天災），可全額退回或延期。</li>
                     </ul>
                   </div>
 
