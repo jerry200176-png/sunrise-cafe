@@ -333,6 +333,7 @@ export async function fetchReservationsForReminder() {
       guest_count,
       is_notified,
       status,
+      notes,
       room:rooms (
         name,
         branch:branches (
