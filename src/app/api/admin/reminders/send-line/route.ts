@@ -57,6 +57,7 @@ async function handleSendLine() {
                 customer_name: r.customer_name as string,
                 phone: r.phone as string,
                 guest_count: r.guest_count as number | null | undefined,
+                notes: r.notes as string | null | undefined,
             };
         });
 

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
-import { Calendar, Clock, DoorOpen, Pencil, Users, X } from "lucide-react";
+import { Calendar, Clock, DoorOpen, Pencil, Users, X, Send } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import type { Reservation, ReservationStatus, Room } from "@/types";
 
@@ -77,6 +77,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   const [sortBy, setSortBy] = useState<"time_desc" | "time_asc" | "price_desc" | "price_asc">(
     "time_asc"
   );
+  const [sendingLine, setSendingLine] = useState(false);
 
   const fetchReservations = useCallback(async () => {
     if (!branchId) {
@@ -210,6 +211,22 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
     }
   };
 
+  const handleSendLine = async () => {
+    if (!window.confirm("確定要手動發送明日訂位提醒到 LINE 群組嗎？")) return;
+    setSendingLine(true);
+    try {
+      const res = await fetch("/api/admin/reminders/send-line", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "發送失敗");
+      alert(data.message || `成功發送，共 ${data.sent} 筆`);
+      fetchReservations();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "發生未知錯誤");
+    } finally {
+      setSendingLine(false);
+    }
+  };
+
   if (!branchId) {
     return (
       <div className="rounded-xl border border-gray-200 bg-gray-50/50 p-8 text-center text-gray-500">
@@ -306,11 +323,10 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
         <button
           type="button"
           onClick={() => setActiveTab("pending")}
-          className={`rounded-full px-3 py-1 text-xs font-medium ${
-            activeTab === "pending"
+          className={`rounded-full px-3 py-1 text-xs font-medium ${activeTab === "pending"
               ? "bg-amber-600 text-white"
               : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-          }`}
+            }`}
         >
           待審核
           {pendingCount > 0 && (
@@ -322,24 +338,31 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
         <button
           type="button"
           onClick={() => setActiveTab("upcoming")}
-          className={`rounded-full px-3 py-1 text-xs font-medium ${
-            activeTab === "upcoming"
+          className={`rounded-full px-3 py-1 text-xs font-medium ${activeTab === "upcoming"
               ? "bg-amber-600 text-white"
               : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-          }`}
+            }`}
         >
           訂位管理
         </button>
         <button
           type="button"
           onClick={() => setActiveTab("history")}
-          className={`rounded-full px-3 py-1 text-xs font-medium ${
-            activeTab === "history"
+          className={`rounded-full px-3 py-1 text-xs font-medium ${activeTab === "history"
               ? "bg-amber-600 text-white"
               : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-          }`}
+            }`}
         >
           歷史紀錄
+        </button>
+        <button
+          type="button"
+          onClick={handleSendLine}
+          disabled={sendingLine}
+          className="ml-auto flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1 text-xs font-semibold text-white hover:bg-green-700 disabled:opacity-50"
+        >
+          <Send className="h-3.5 w-3.5" />
+          {sendingLine ? "發送中..." : "發送 LINE 明日提醒"}
         </button>
       </div>
       <div className="mb-3 flex flex-wrap items-center gap-2 px-4">
@@ -376,193 +399,192 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
             const r = row.item;
             const roomName = roomNameMap.get(r.room_id) ?? "—";
             return (
-            <li key={r.id} className="space-y-2 p-4 hover:bg-gray-50/80">
-              {/* Row 1: Name · Phone · Status */}
-              <div className="flex items-center gap-3">
-                <span className="text-base font-semibold text-gray-900">{r.customer_name}</span>
-                <span className="text-sm text-gray-500">{r.phone}</span>
-                <span
-                  className={`ml-auto shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                    STATUS_STYLES[r.status] ?? "bg-gray-100 text-gray-700"
-                  }`}
-                >
-                  {STATUS_LABELS[r.status] ?? r.status}
-                </span>
-              </div>
-
-              {/* Row 2: Room · Code · Guest count · Date · Time · Price */}
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-600">
-                <span className="flex items-center gap-1">
-                  <DoorOpen className="h-3.5 w-3.5 text-gray-400" />
-                  {roomName}
-                </span>
-                {r.booking_code && (
-                  <span className="text-xs text-gray-500">
-                    代號：<span className="font-mono">{r.booking_code}</span>
+              <li key={r.id} className="space-y-2 p-4 hover:bg-gray-50/80">
+                {/* Row 1: Name · Phone · Status */}
+                <div className="flex items-center gap-3">
+                  <span className="text-base font-semibold text-gray-900">{r.customer_name}</span>
+                  <span className="text-sm text-gray-500">{r.phone}</span>
+                  <span
+                    className={`ml-auto shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLES[r.status] ?? "bg-gray-100 text-gray-700"
+                      }`}
+                  >
+                    {STATUS_LABELS[r.status] ?? r.status}
                   </span>
-                )}
-                {r.guest_count != null && (
+                </div>
+
+                {/* Row 2: Room · Code · Guest count · Date · Time · Price */}
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-600">
                   <span className="flex items-center gap-1">
-                    <Users className="h-3.5 w-3.5 text-gray-400" />
-                    {r.guest_count} 人
+                    <DoorOpen className="h-3.5 w-3.5 text-gray-400" />
+                    {roomName}
                   </span>
-                )}
-                <span className="flex items-center gap-1">
-                  <Calendar className="h-3.5 w-3.5 text-gray-400" />
-                  {format(parseISO(r.start_time), "yyyy/MM/dd (EEE)", { locale: zhTW })}
-                </span>
-                <span className="flex items-center gap-1">
-                  <Clock className="h-3.5 w-3.5 text-gray-400" />
-                  {format(parseISO(r.start_time), "HH:mm")}–{format(parseISO(r.end_time), "HH:mm")}
-                </span>
-                {r.total_price != null && (
-                  <span className="font-medium text-gray-800">${Number(r.total_price)}</span>
-                )}
-                {isWeekend(r.start_time.slice(0, 10)) && (
-                  <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
-                    💰 需收訂金
+                  {r.booking_code && (
+                    <span className="text-xs text-gray-500">
+                      代號：<span className="font-mono">{r.booking_code}</span>
+                    </span>
+                  )}
+                  {r.guest_count != null && (
+                    <span className="flex items-center gap-1">
+                      <Users className="h-3.5 w-3.5 text-gray-400" />
+                      {r.guest_count} 人
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1">
+                    <Calendar className="h-3.5 w-3.5 text-gray-400" />
+                    {format(parseISO(r.start_time), "yyyy/MM/dd (EEE)", { locale: zhTW })}
                   </span>
-                )}
-              </div>
-
-              {/* Row 3: Notes (if any) */}
-              {r.notes && (
-                <p className="text-sm text-gray-500 italic">備註：{r.notes}</p>
-              )}
-
-              {/* Row 4: Actions */}
-              {activeTab === "pending" ? (
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => updateStatus(r.id, "confirmed")}
-                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
-                  >
-                    ✅ 確認
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const ok = window.confirm("確定要將此訂位標記為取消/拒絕嗎？");
-                      if (!ok) return;
-                      await updateStatus(r.id, "cancelled");
-                    }}
-                    className="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100"
-                  >
-                    ❌ 拒絕
-                  </button>
-                  {isWeekend(r.start_time.slice(0, 10)) && r.total_price != null && (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const startDate = parseISO(r.start_time);
-                        const endDate = parseISO(r.end_time);
-                        const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", {
-                          locale: zhTW,
-                        });
-                        const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
-                        const deposit = Math.ceil(Number(r.total_price) / 2);
-                        const branchName = r.room_with_branch?.branch?.name ?? "";
-                        const isDaan = branchName.includes("大安");
-                        const linePayUrl =
-                          "https://qrcodepay.line.me/qr/payment/%252BmF6rR41PSp3R8NMydLA%252BRt1IvAFgPchBvtrJoR20aoZKY4Hr1qrbfaYSoPDUyu0";
-                        const text = isDaan
-                          ? `您好，這裡是昇昇咖啡 (大安店)。\n\n收到您 ${formattedDate} ${timeRange} 的預約申請（${r.customer_name}）。\n確認該時段有空位，本筆訂單總金額為 $${r.total_price}，請於今日內匯款訂金 $${deposit} (總額一半) 以保留座位。\n\n【匯款資訊】\n銀行：台北富邦銀行 (012)\n帳號：8212-0000-8489-6\n戶名：昇昇咖啡張文霞\n\n或者您可以使用 LINE Pay 付款：\n${linePayUrl}\n\n匯款後請回傳「末五碼」或「截圖」告知，謝謝！`
-                          : `您好，這裡是昇昇咖啡。\n\n收到您 ${formattedDate} ${timeRange} 的預約申請（${r.customer_name}）。\n確認該時段有空位，本筆訂單總金額為 $${r.total_price}，請於今日內匯款訂金 $${deposit} (總額一半) 以保留座位。\n\n請依照官網或現場指示完成付款，並回傳證明，謝謝！`;
-                        try {
-                          if (navigator.clipboard?.writeText) {
-                            await navigator.clipboard.writeText(text);
-                          } else {
-                            const textarea = document.createElement("textarea");
-                            textarea.value = text;
-                            document.body.appendChild(textarea);
-                            textarea.select();
-                            document.execCommand("copy");
-                            document.body.removeChild(textarea);
-                          }
-                          alert("已複製通知內容");
-                        } catch {
-                          alert("複製失敗，請手動複製。");
-                        }
-                      }}
-                      className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
-                    >
-                      📋 複製匯款通知
-                    </button>
+                  <span className="flex items-center gap-1">
+                    <Clock className="h-3.5 w-3.5 text-gray-400" />
+                    {format(parseISO(r.start_time), "HH:mm")}–{format(parseISO(r.end_time), "HH:mm")}
+                  </span>
+                  {r.total_price != null && (
+                    <span className="font-medium text-gray-800">${Number(r.total_price)}</span>
+                  )}
+                  {isWeekend(r.start_time.slice(0, 10)) && (
+                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                      💰 需收訂金
+                    </span>
                   )}
                 </div>
-              ) : activeTab === "upcoming" ? (
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  {r.status !== "checked_in" && r.status !== "completed" && (
+
+                {/* Row 3: Notes (if any) */}
+                {r.notes && (
+                  <p className="text-sm text-gray-500 italic">備註：{r.notes}</p>
+                )}
+
+                {/* Row 4: Actions */}
+                {activeTab === "pending" ? (
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
                     <button
                       type="button"
-                      onClick={() => updateStatus(r.id, "checked_in")}
-                      className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+                      onClick={() => updateStatus(r.id, "confirmed")}
+                      className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
                     >
-                      ✅ 已報到
+                      ✅ 確認
                     </button>
-                  )}
-                  {r.status !== "completed" && (
-                    <button
-                      type="button"
-                      onClick={() => updateStatus(r.id, "completed")}
-                      className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
-                    >
-                      💵 已結帳
-                    </button>
-                  )}
-                  {r.status !== "cancelled" && (
                     <button
                       type="button"
                       onClick={async () => {
-                        const ok = window.confirm("確定要將此訂位標記為取消嗎？");
+                        const ok = window.confirm("確定要將此訂位標記為取消/拒絕嗎？");
                         if (!ok) return;
                         await updateStatus(r.id, "cancelled");
                       }}
-                      className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100"
+                      className="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100"
                     >
-                      ❌ 取消
+                      ❌ 拒絕
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => openEdit(r)}
-                    className="rounded-lg border border-gray-300 p-2 text-gray-600 hover:bg-gray-100"
-                    aria-label="編輯訂位"
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const ok = window.confirm("確定要永久刪除此訂位嗎？此動作無法復原！");
-                      if (!ok) return;
-                      try {
-                        await fetch(`${RESERVATIONS_API}/${r.id}`, { method: "DELETE" });
-                        fetchReservations();
-                      } catch {
-                        // ignore
-                      }
-                    }}
-                    className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
-                  >
-                    🗑️ 刪除
-                  </button>
-                </div>
-              ) : (
-                <div className="pt-1">
-                  <button
-                    type="button"
-                    onClick={() => openEdit(r)}
-                    className="rounded-lg border border-gray-300 p-2 text-gray-600 hover:bg-gray-100"
-                    aria-label="檢視/編輯訂位"
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </button>
-                </div>
-              )}
-            </li>
-          );
+                    {isWeekend(r.start_time.slice(0, 10)) && r.total_price != null && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const startDate = parseISO(r.start_time);
+                          const endDate = parseISO(r.end_time);
+                          const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", {
+                            locale: zhTW,
+                          });
+                          const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
+                          const deposit = Math.ceil(Number(r.total_price) / 2);
+                          const branchName = r.room_with_branch?.branch?.name ?? "";
+                          const isDaan = branchName.includes("大安");
+                          const linePayUrl =
+                            "https://qrcodepay.line.me/qr/payment/%252BmF6rR41PSp3R8NMydLA%252BRt1IvAFgPchBvtrJoR20aoZKY4Hr1qrbfaYSoPDUyu0";
+                          const text = isDaan
+                            ? `您好，這裡是昇昇咖啡 (大安店)。\n\n收到您 ${formattedDate} ${timeRange} 的預約申請（${r.customer_name}）。\n確認該時段有空位，本筆訂單總金額為 $${r.total_price}，請於今日內匯款訂金 $${deposit} (總額一半) 以保留座位。\n\n【匯款資訊】\n銀行：台北富邦銀行 (012)\n帳號：8212-0000-8489-6\n戶名：昇昇咖啡張文霞\n\n或者您可以使用 LINE Pay 付款：\n${linePayUrl}\n\n匯款後請回傳「末五碼」或「截圖」告知，謝謝！`
+                            : `您好，這裡是昇昇咖啡。\n\n收到您 ${formattedDate} ${timeRange} 的預約申請（${r.customer_name}）。\n確認該時段有空位，本筆訂單總金額為 $${r.total_price}，請於今日內匯款訂金 $${deposit} (總額一半) 以保留座位。\n\n請依照官網或現場指示完成付款，並回傳證明，謝謝！`;
+                          try {
+                            if (navigator.clipboard?.writeText) {
+                              await navigator.clipboard.writeText(text);
+                            } else {
+                              const textarea = document.createElement("textarea");
+                              textarea.value = text;
+                              document.body.appendChild(textarea);
+                              textarea.select();
+                              document.execCommand("copy");
+                              document.body.removeChild(textarea);
+                            }
+                            alert("已複製通知內容");
+                          } catch {
+                            alert("複製失敗，請手動複製。");
+                          }
+                        }}
+                        className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
+                      >
+                        📋 複製匯款通知
+                      </button>
+                    )}
+                  </div>
+                ) : activeTab === "upcoming" ? (
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    {r.status !== "checked_in" && r.status !== "completed" && (
+                      <button
+                        type="button"
+                        onClick={() => updateStatus(r.id, "checked_in")}
+                        className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+                      >
+                        ✅ 已報到
+                      </button>
+                    )}
+                    {r.status !== "completed" && (
+                      <button
+                        type="button"
+                        onClick={() => updateStatus(r.id, "completed")}
+                        className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                      >
+                        💵 已結帳
+                      </button>
+                    )}
+                    {r.status !== "cancelled" && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const ok = window.confirm("確定要將此訂位標記為取消嗎？");
+                          if (!ok) return;
+                          await updateStatus(r.id, "cancelled");
+                        }}
+                        className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100"
+                      >
+                        ❌ 取消
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => openEdit(r)}
+                      className="rounded-lg border border-gray-300 p-2 text-gray-600 hover:bg-gray-100"
+                      aria-label="編輯訂位"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const ok = window.confirm("確定要永久刪除此訂位嗎？此動作無法復原！");
+                        if (!ok) return;
+                        try {
+                          await fetch(`${RESERVATIONS_API}/${r.id}`, { method: "DELETE" });
+                          fetchReservations();
+                        } catch {
+                          // ignore
+                        }
+                      }}
+                      className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+                    >
+                      🗑️ 刪除
+                    </button>
+                  </div>
+                ) : (
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={() => openEdit(r)}
+                      className="rounded-lg border border-gray-300 p-2 text-gray-600 hover:bg-gray-100"
+                      aria-label="檢視/編輯訂位"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
+              </li>
+            );
           })}
         </ul>
       </div>
@@ -590,121 +612,121 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
             </div>
             <form onSubmit={submitEdit} className="flex min-h-0 flex-1 flex-col">
               <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
-              {editError && (
-                <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{editError}</p>
-              )}
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">姓名 *</label>
-                <input
-                  type="text"
-                  required
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">電話 *</label>
-                <input
-                  type="tel"
-                  required
-                  value={editPhone}
-                  onChange={(e) => setEditPhone(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
+                {editError && (
+                  <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{editError}</p>
+                )}
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">日期 *</label>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">姓名 *</label>
                   <input
-                    type="date"
+                    type="text"
                     required
-                    value={editDate}
-                    onChange={(e) => setEditDate(e.target.value)}
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">開始時間 *</label>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">電話 *</label>
                   <input
-                    type="time"
+                    type="tel"
                     required
-                    value={editTime}
-                    onChange={(e) => setEditTime(e.target.value)}
+                    value={editPhone}
+                    onChange={(e) => setEditPhone(e.target.value)}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
                   />
                 </div>
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">時數 *</label>
-                <select
-                  value={editDuration}
-                  onChange={(e) => setEditDuration(Number(e.target.value))}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
-                >
-                  {Array.from({ length: 19 }, (_, i) => 1 + i * 0.5).map((h) => (
-                    <option key={h} value={h}>{h} 小時</option>
-                  ))}
-                </select>
-              </div>
-              {editing && (() => {
-                const room = rooms.find((ro) => ro.id === editing.room_id);
-                if (!room || !editDate) return null;
-                const pricePerHour = getPricePerHour(room, editDate);
-                const estimated = Math.round(pricePerHour * editDuration);
-                const kind = isWeekend(editDate) ? "假日" : "平日";
-                return (
-                  <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                    預估總價：<strong>${estimated}</strong>（{kind} ${pricePerHour}/時 × {editDuration} 小時）
-                  </p>
-                );
-              })()}
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">總價</label>
-                <input
-                  type="number"
-                  min={0}
-                  value={editTotalPrice === "" ? "" : editTotalPrice}
-                  onChange={(e) =>
-                    setEditTotalPrice(e.target.value === "" ? "" : Number(e.target.value))
-                  }
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
-                  placeholder="可依上方預估填寫"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">人數</label>
-                <input
-                  type="number"
-                  min={1}
-                  value={editGuestCount === "" ? "" : editGuestCount}
-                  onChange={(e) => setEditGuestCount(e.target.value === "" ? "" : Number(e.target.value))}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
-                  placeholder="選填"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">備註</label>
-                <textarea
-                  rows={2}
-                  value={editNotes}
-                  onChange={(e) => setEditNotes(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
-                  placeholder="選填"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">狀態</label>
-                <select
-                  value={editStatus}
-                  onChange={(e) => setEditStatus(e.target.value as ReservationStatus)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
-                >
-                  {STATUS_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700">日期 *</label>
+                    <input
+                      type="date"
+                      required
+                      value={editDate}
+                      onChange={(e) => setEditDate(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700">開始時間 *</label>
+                    <input
+                      type="time"
+                      required
+                      value={editTime}
+                      onChange={(e) => setEditTime(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">時數 *</label>
+                  <select
+                    value={editDuration}
+                    onChange={(e) => setEditDuration(Number(e.target.value))}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
+                  >
+                    {Array.from({ length: 19 }, (_, i) => 1 + i * 0.5).map((h) => (
+                      <option key={h} value={h}>{h} 小時</option>
+                    ))}
+                  </select>
+                </div>
+                {editing && (() => {
+                  const room = rooms.find((ro) => ro.id === editing.room_id);
+                  if (!room || !editDate) return null;
+                  const pricePerHour = getPricePerHour(room, editDate);
+                  const estimated = Math.round(pricePerHour * editDuration);
+                  const kind = isWeekend(editDate) ? "假日" : "平日";
+                  return (
+                    <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                      預估總價：<strong>${estimated}</strong>（{kind} ${pricePerHour}/時 × {editDuration} 小時）
+                    </p>
+                  );
+                })()}
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">總價</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={editTotalPrice === "" ? "" : editTotalPrice}
+                    onChange={(e) =>
+                      setEditTotalPrice(e.target.value === "" ? "" : Number(e.target.value))
+                    }
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
+                    placeholder="可依上方預估填寫"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">人數</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={editGuestCount === "" ? "" : editGuestCount}
+                    onChange={(e) => setEditGuestCount(e.target.value === "" ? "" : Number(e.target.value))}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
+                    placeholder="選填"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">備註</label>
+                  <textarea
+                    rows={2}
+                    value={editNotes}
+                    onChange={(e) => setEditNotes(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
+                    placeholder="選填"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">狀態</label>
+                  <select
+                    value={editStatus}
+                    onChange={(e) => setEditStatus(e.target.value as ReservationStatus)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
+                  >
+                    {STATUS_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
               <div className="flex shrink-0 gap-2 border-t border-gray-200 bg-white px-4 py-3">
                 <button

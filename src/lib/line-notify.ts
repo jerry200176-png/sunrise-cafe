@@ -55,6 +55,7 @@ export function formatReminderMessage(
     customer_name: string;
     phone: string;
     guest_count?: number | null;
+    notes?: string | null;
   }[]
 ): string {
   if (reservations.length === 0) {
@@ -90,7 +91,8 @@ export function formatReminderMessage(
       `👤 ${r.customer_name}｜📞 ${r.phone}`,
       `🏠 ${r.branch_name} — ${r.room_name}`,
       `🕐 ${fmt(start)} ~ ${fmt(end)}`,
-      ...(r.guest_count ? [`👥 ${r.guest_count} 人`] : [])
+      ...(r.guest_count ? [`👥 ${r.guest_count} 人`] : []),
+      ...(r.notes ? [`📝 備註：${r.notes}`] : [])
     );
   }
 
