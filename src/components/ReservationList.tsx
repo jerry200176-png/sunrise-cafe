@@ -324,8 +324,8 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
           type="button"
           onClick={() => setActiveTab("pending")}
           className={`rounded-full px-3 py-1 text-xs font-medium ${activeTab === "pending"
-              ? "bg-amber-600 text-white"
-              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            ? "bg-amber-600 text-white"
+            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
             }`}
         >
           待審核
@@ -339,8 +339,8 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
           type="button"
           onClick={() => setActiveTab("upcoming")}
           className={`rounded-full px-3 py-1 text-xs font-medium ${activeTab === "upcoming"
-              ? "bg-amber-600 text-white"
-              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            ? "bg-amber-600 text-white"
+            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
             }`}
         >
           訂位管理
@@ -349,8 +349,8 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
           type="button"
           onClick={() => setActiveTab("history")}
           className={`rounded-full px-3 py-1 text-xs font-medium ${activeTab === "history"
-              ? "bg-amber-600 text-white"
-              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            ? "bg-amber-600 text-white"
+            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
             }`}
         >
           歷史紀錄
@@ -572,7 +572,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                     </button>
                   </div>
                 ) : (
-                  <div className="pt-1">
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
                     <button
                       type="button"
                       onClick={() => openEdit(r)}
@@ -580,6 +580,22 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                       aria-label="檢視/編輯訂位"
                     >
                       <Pencil className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const ok = window.confirm("確定要永久刪除此訂位歷史嗎？此動作無法復原！");
+                        if (!ok) return;
+                        try {
+                          await fetch(`${RESERVATIONS_API}/${r.id}`, { method: "DELETE" });
+                          fetchReservations();
+                        } catch {
+                          // ignore
+                        }
+                      }}
+                      className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+                    >
+                      🗑️ 刪除
                     </button>
                   </div>
                 )}

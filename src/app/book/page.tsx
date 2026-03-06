@@ -62,8 +62,16 @@ export default function BookPage() {
   useEffect(() => {
     fetch("/api/branches")
       .then((r) => r.json())
-      .then((d) => setBranches(Array.isArray(d) ? d : []))
+      .then((d) => {
+        const branchesData = Array.isArray(d) ? d : [];
+        setBranches(branchesData);
+        if (branchesData.length === 1 && !branchId) {
+          setBranchId(branchesData[0].id);
+          setStep("date");
+        }
+      })
       .catch(() => setBranches([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
