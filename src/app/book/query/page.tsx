@@ -32,6 +32,8 @@ const STATUS_LABELS: Record<string, string> = {
 const LINE_PAY_URL =
   "https://qrcodepay.line.me/qr/payment/%252BmF6rR41PSp3R8NMydLA%252BRt1IvAFgPchBvtrJoR20aoZKY4Hr1qrbfaYSoPDUyu0";
 
+const OFFICIAL_LINE_URL = "https://lin.ee/cxcV0lo";
+
 export default function BookQueryPage() {
   const [phone, setPhone] = useState("");
   const [list, setList] = useState<BookingItem[]>([]);
@@ -207,20 +209,38 @@ export default function BookQueryPage() {
                       </p>
                     </div>
 
-                    {/* 匯款帳戶 + LINE Pay */}
+                    {/* 匯款帳戶 + LINE Pay + 官方 LINE */}
                     <div className="mt-3 rounded-md border border-gray-200 bg-white p-2.5 text-xs text-gray-700">
-                      <p className="font-semibold text-gray-800 mb-1">繳費帳戶</p>
-                      <p>銀行：台北富邦銀行 (012)</p>
-                      <p>帳號：8212-0000-8489-6</p>
-                      <p>戶名：昇昇咖啡張文霞</p>
-                      <div className="mt-2 pt-2 border-t border-gray-100">
+                      <p className="font-semibold text-gray-800 mb-2">📥 繳費步驟</p>
+                      
+                      <div className="mb-3 pl-2 border-l-2 border-amber-400">
+                        <p className="font-medium text-amber-800 mb-1">【 第 1 步：選擇以下方式完成付款 】</p>
+                        <p>🏦 銀行轉帳：<br/>台北富邦銀行 (012) / 8212-0000-8489-6 / 昇昇咖啡張文霞</p>
+                        <div className="mt-2 text-gray-400">或</div>
+                        <div className="mt-1">
+                          <a
+                            href={LINE_PAY_URL}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
+                          >
+                            使用 LINE Pay 付款
+                          </a>
+                        </div>
+                      </div>
+
+                      <div className="pl-2 border-l-2 border-green-500">
+                        <p className="font-medium text-green-700 mb-1">【 第 2 步：務必加官方 LINE 回傳截圖 】</p>
+                        <p className="mb-2 text-gray-600">
+                          付款完成後，請點擊下方按鈕加入官方 LINE，並回傳您的<strong>「付款截圖」</strong>或<strong>「匯款帳號後五碼」</strong>，管理員對帳無誤後才會正式保留您的包廂。
+                        </p>
                         <a
-                          href={LINE_PAY_URL}
+                          href={OFFICIAL_LINE_URL}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
+                          className="inline-flex items-center gap-1 rounded-md border border-green-600 px-3 py-1.5 text-xs font-medium text-green-700 hover:bg-green-50"
                         >
-                          使用 LINE Pay 付款 →
+                          💬 加官方 LINE 回傳截圖
                         </a>
                       </div>
                     </div>
