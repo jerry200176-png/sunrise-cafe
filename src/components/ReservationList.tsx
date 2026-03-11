@@ -80,28 +80,29 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   );
   const [sendingLine, setSendingLine] = useState(false);
 
-  const fetchReservations = useCallback(async () => {
+  const fetchReservations = useCallback(async (showLoading = true) => {
     if (!branchId) {
       setReservations([]);
       setLoading(false);
       return;
     }
-    setLoading(true);
+    if (showLoading) setLoading(true);
     setError(null);
     try {
       const res = await fetch(`${RESERVATIONS_API}?branchId=${encodeURIComponent(branchId)}`);
       const data = await res.json();
       if (!res.ok) {
         setError((data as { error?: string })?.error ?? "無法載入訂位");
-        setReservations([]);
+        if (showLoading) setReservations([]);
       } else {
         setReservations((data as Reservation[]) ?? []);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "連線失敗");
-      setReservations([]);
+      if (showLoading) setReservations([]);
+    } finally {
+      if (showLoading) setLoading(false);
     }
-    setLoading(false);
   }, [branchId]);
 
   useEffect(() => {
@@ -117,7 +118,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
           "postgres_changes",
           { event: "*", schema: "public", table: "reservations" },
           () => {
-            fetchReservations();
+            fetchReservations(false);
           }
         )
         .subscribe();
@@ -192,7 +193,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
         return;
       }
       closeEdit();
-      fetchReservations();
+      fetchReservations(false);
     } catch (e) {
       setEditSubmitting(false);
       setEditError(e instanceof Error ? e.message : "連線失敗");
@@ -200,28 +201,34 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   };
 
   const updateStatus = async (id: string, status: ReservationStatus) => {
+    setReservations((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, status } : r))
+    );
     try {
       await fetch(`${RESERVATIONS_API}/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
-      fetchReservations();
+      fetchReservations(false);
     } catch {
-      // ignore
+      fetchReservations(false);
     }
   };
 
   const updateDepositStatus = async (id: string, is_deposit_paid: boolean) => {
+    setReservations((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, is_deposit_paid } : r))
+    );
     try {
       await fetch(`${RESERVATIONS_API}/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ is_deposit_paid }),
       });
-      fetchReservations();
+      fetchReservations(false);
     } catch {
-      // ignore
+      fetchReservations(false);
     }
   };
 
@@ -233,7 +240,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "發送失敗");
       alert(data.message || `成功發送，共 ${data.sent} 筆`);
-      fetchReservations();
+      fetchReservations(false);
     } catch (err) {
       alert(err instanceof Error ? err.message : "發生未知錯誤");
     } finally {
@@ -599,7 +606,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                         if (!ok) return;
                         try {
                           await fetch(`${RESERVATIONS_API}/${r.id}`, { method: "DELETE" });
-                          fetchReservations();
+                          fetchReservations(false);
                         } catch {
                           // ignore
                         }
@@ -626,7 +633,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                         if (!ok) return;
                         try {
                           await fetch(`${RESERVATIONS_API}/${r.id}`, { method: "DELETE" });
-                          fetchReservations();
+                          fetchReservations(false);
                         } catch {
                           // ignore
                         }
