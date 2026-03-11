@@ -111,6 +111,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
 
   useEffect(() => {
     if (!branchId) return;
+    let timeoutId: NodeJS.Timeout;
     try {
       const channel = supabase
         .channel("reservations-changes")
@@ -118,11 +119,15 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
           "postgres_changes",
           { event: "*", schema: "public", table: "reservations" },
           () => {
-            fetchReservations(false);
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => {
+              fetchReservations(false);
+            }, 500);
           }
         )
         .subscribe();
       return () => {
+        clearTimeout(timeoutId);
         supabase.removeChannel(channel);
       };
     } catch {
