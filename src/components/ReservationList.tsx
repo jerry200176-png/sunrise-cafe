@@ -89,7 +89,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
     if (showLoading) setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${RESERVATIONS_API}?branchId=${encodeURIComponent(branchId)}`);
+      const res = await fetch(`${RESERVATIONS_API}?branchId=${encodeURIComponent(branchId)}&_t=${Date.now()}`);
       const data = await res.json();
       if (!res.ok) {
         setError((data as { error?: string })?.error ?? "無法載入訂位");
