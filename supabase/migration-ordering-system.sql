@@ -123,5 +123,13 @@ CREATE POLICY "service_all_menu_item_options" ON menu_item_options FOR ALL TO se
 CREATE POLICY "service_all_orders" ON orders FOR ALL TO service_role USING (true) WITH CHECK (true);
 CREATE POLICY "service_all_order_items" ON order_items FOR ALL TO service_role USING (true) WITH CHECK (true);
 
--- 8. Realtime：訂單即時推播
-ALTER PUBLICATION supabase_realtime ADD TABLE orders;
+-- 8. Realtime：訂單即時推播（已加入則跳過）
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'orders'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE orders;
+  END IF;
+END $$;
