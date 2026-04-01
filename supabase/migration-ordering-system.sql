@@ -89,6 +89,22 @@ ALTER TABLE menu_item_options ENABLE ROW LEVEL SECURITY;
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
 
+-- 先刪除舊 policy（避免重複執行報錯）
+DROP POLICY IF EXISTS "anon_read_tables" ON tables;
+DROP POLICY IF EXISTS "anon_read_menu_categories" ON menu_categories;
+DROP POLICY IF EXISTS "anon_read_menu_items" ON menu_items;
+DROP POLICY IF EXISTS "anon_read_menu_item_options" ON menu_item_options;
+DROP POLICY IF EXISTS "anon_insert_orders" ON orders;
+DROP POLICY IF EXISTS "anon_insert_order_items" ON order_items;
+DROP POLICY IF EXISTS "anon_read_orders" ON orders;
+DROP POLICY IF EXISTS "anon_read_order_items" ON order_items;
+DROP POLICY IF EXISTS "service_all_tables" ON tables;
+DROP POLICY IF EXISTS "service_all_menu_categories" ON menu_categories;
+DROP POLICY IF EXISTS "service_all_menu_items" ON menu_items;
+DROP POLICY IF EXISTS "service_all_menu_item_options" ON menu_item_options;
+DROP POLICY IF EXISTS "service_all_orders" ON orders;
+DROP POLICY IF EXISTS "service_all_order_items" ON order_items;
+
 -- 顧客可讀取（anon）
 CREATE POLICY "anon_read_tables" ON tables FOR SELECT TO anon USING (true);
 CREATE POLICY "anon_read_menu_categories" ON menu_categories FOR SELECT TO anon USING (true);

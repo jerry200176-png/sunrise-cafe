@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Plus, Pencil, Trash2, MapPin, LogOut } from "lucide-react";
+import { ArrowLeft, Plus, Pencil, Trash2, MapPin, LogOut, ChefHat, UtensilsCrossed, QrCode, Printer } from "lucide-react";
 import type { Branch, Room } from "@/types";
 import { BranchSwitcher } from "@/components/BranchSwitcher";
 import { ReservationList } from "@/components/ReservationList";
@@ -268,6 +268,24 @@ export default function AdminBranchesRoomsPage() {
       </header>
 
       <div className="mx-auto max-w-4xl px-4 py-6 space-y-8">
+        {/* 點餐系統快速入口 */}
+        <section className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <h2 className="text-sm font-semibold text-amber-800 mb-3">自助點餐系統</h2>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Link href="/admin/orders" className="flex flex-col items-center gap-1.5 rounded-lg bg-white border border-amber-200 p-3 text-sm font-medium text-gray-800 hover:bg-amber-100">
+              <ChefHat className="h-6 w-6 text-amber-600" />即時訂單
+            </Link>
+            <Link href="/admin/menu" className="flex flex-col items-center gap-1.5 rounded-lg bg-white border border-amber-200 p-3 text-sm font-medium text-gray-800 hover:bg-amber-100">
+              <UtensilsCrossed className="h-6 w-6 text-amber-600" />菜單管理
+            </Link>
+            <Link href="/admin/tables" className="flex flex-col items-center gap-1.5 rounded-lg bg-white border border-amber-200 p-3 text-sm font-medium text-gray-800 hover:bg-amber-100">
+              <QrCode className="h-6 w-6 text-amber-600" />桌位 QR
+            </Link>
+            <Link href="/admin/print-station" className="flex flex-col items-center gap-1.5 rounded-lg bg-white border border-amber-200 p-3 text-sm font-medium text-gray-800 hover:bg-amber-100">
+              <Printer className="h-6 w-6 text-amber-600" />列印站
+            </Link>
+          </div>
+        </section>
         {error && (
           <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800">
             {error}
