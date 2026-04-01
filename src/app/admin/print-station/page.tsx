@@ -25,11 +25,6 @@ const STAR_URL = `http://localhost:${STAR_PORT}/StarWebPRNT/SendMessage`;
 const LINE = "==============================";
 const THIN = "------------------------------";
 
-function pad(str: string, width: number): string {
-  const len = [...str].reduce((n, c) => n + (c.charCodeAt(0) > 127 ? 2 : 1), 0);
-  return str + " ".repeat(Math.max(0, width - len));
-}
-
 function buildXml(order: Order): string {
   const shortId = order.id.slice(0, 8).toUpperCase();
   const tableNum = order.table?.number ?? "—";
