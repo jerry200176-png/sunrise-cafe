@@ -62,3 +62,85 @@ export interface Settings {
   current_branch_id: string | null;
   updated_at: string;
 }
+
+// ── 自助點餐模組 ──────────────────────────────────────────
+
+export interface Table {
+  id: string;
+  branch_id: string;
+  number: string;
+  qr_token: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface MenuCategory {
+  id: string;
+  branch_id: string;
+  name: string;
+  display_order: number;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface MenuItem {
+  id: string;
+  branch_id: string;
+  category_id: string | null;
+  name: string;
+  description: string | null;
+  price: number;
+  image_url: string | null;
+  is_available: boolean;
+  display_order: number;
+  created_at: string;
+  options?: MenuItemOption[];
+}
+
+export interface MenuItemOption {
+  id: string;
+  item_id: string;
+  option_group: string;
+  option_name: string;
+  price_delta: number;
+  display_order: number;
+}
+
+export interface SelectedOption {
+  group: string;
+  name: string;
+  delta: number;
+}
+
+export interface CartItem {
+  menuItem: MenuItem;
+  quantity: number;
+  selectedOptions: SelectedOption[];
+  specialNotes: string;
+}
+
+export interface Order {
+  id: string;
+  branch_id: string;
+  table_id: string | null;
+  status: OrderStatus;
+  total_amount: number;
+  notes: string | null;
+  is_printed: boolean;
+  created_at: string;
+  table?: Table | null;
+  order_items?: OrderItem[];
+}
+
+export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'completed' | 'cancelled';
+
+export interface OrderItem {
+  id: string;
+  order_id: string;
+  menu_item_id: string | null;
+  item_name: string;
+  quantity: number;
+  unit_price: number;
+  selected_options: SelectedOption[] | null;
+  special_notes: string | null;
+}

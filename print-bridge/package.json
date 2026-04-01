@@ -1,0 +1,14 @@
+{
+  "name": "print-bridge",
+  "version": "1.0.0",
+  "description": "監聽 Supabase 新訂單並自動送出 ESC/POS 到 Star TSP100III USB 印表機",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.47.0",
+    "escpos": "^3.0.0-alpha.6",
+    "escpos-usb": "^3.0.0-alpha.4"
+  }
+}
