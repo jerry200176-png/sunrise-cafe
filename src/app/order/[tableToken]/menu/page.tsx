@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ShoppingCart, X, Plus, Minus } from "lucide-react";
 import type { MenuCategory, MenuItem, CartItem, SelectedOption } from "@/types";
@@ -11,7 +11,6 @@ export default function MenuPage() {
 
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [items, setItems] = useState<MenuItem[]>([]);
-  const [branchId, setBranchId] = useState<string | null>(null);
   const [activeCat, setActiveCat] = useState<string>("all");
   const [cart, setCart] = useState<CartItem[]>([]);
 
@@ -27,7 +26,6 @@ export default function MenuPage() {
       .then(r => r.json())
       .then(d => {
         if (d.branch_id) {
-          setBranchId(d.branch_id);
           return fetch(`/api/menu?branchId=${encodeURIComponent(d.branch_id)}`);
         }
         throw new Error("無效桌位");

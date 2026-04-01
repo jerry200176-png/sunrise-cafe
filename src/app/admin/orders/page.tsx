@@ -8,30 +8,6 @@ import { zhTW } from "date-fns/locale";
 import { supabase } from "@/lib/supabase";
 import type { Branch, Order, OrderStatus } from "@/types";
 
-const STATUS_LABEL: Record<OrderStatus, string> = {
-  pending: "待處理",
-  preparing: "準備中",
-  ready: "完成",
-  completed: "已結帳",
-  cancelled: "已取消",
-};
-
-const STATUS_COLOR: Record<OrderStatus, string> = {
-  pending: "bg-yellow-50 border-yellow-300",
-  preparing: "bg-blue-50 border-blue-300",
-  ready: "bg-green-50 border-green-300",
-  completed: "bg-gray-50 border-gray-200",
-  cancelled: "bg-red-50 border-red-200",
-};
-
-const STATUS_BADGE: Record<OrderStatus, string> = {
-  pending: "bg-yellow-100 text-yellow-800",
-  preparing: "bg-blue-100 text-blue-800",
-  ready: "bg-green-100 text-green-800",
-  completed: "bg-gray-100 text-gray-600",
-  cancelled: "bg-red-100 text-red-700",
-};
-
 const ACTIVE_STATUSES: OrderStatus[] = ["pending", "preparing", "ready"];
 
 export default function AdminOrdersPage() {
@@ -90,7 +66,6 @@ export default function AdminOrdersPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [branchId]);
 
   // 偵測新訂單 → 播放音效
