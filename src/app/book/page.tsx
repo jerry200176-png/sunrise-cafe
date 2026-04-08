@@ -265,6 +265,11 @@ export default function BookPage() {
     new Date(iso).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" });
 
   const today = new Date().toISOString().slice(0, 10);
+  const maxDate = (() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + 1);
+    return d.toISOString().slice(0, 10);
+  })();
   const summary = getSelectedSummary(); // 取得當前選擇摘要
 
   return (
@@ -337,6 +342,7 @@ export default function BookPage() {
             <input
               type="date"
               min={today}
+              max={maxDate}
               value={date}
               onChange={(e) => {
                 const next = e.target.value;

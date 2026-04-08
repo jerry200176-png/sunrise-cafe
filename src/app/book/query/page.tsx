@@ -240,7 +240,7 @@ export default function BookQueryPage() {
                                 <span className="text-xl">🏦</span> 銀行轉帳
                               </p>
                               <p className="font-mono text-lg tracking-wide select-all">台北富邦銀行 (012)</p>
-                              <p className="font-mono text-xl font-bold tracking-wider select-all text-blue-700 my-1">8212-0000-8489-6</p>
+                              <p className="font-mono text-xl font-bold tracking-wider select-all text-blue-700 my-1">8212-00000-8489-6</p>
                               <p className="text-base font-semibold">戶名：昇昇咖啡張文霞</p>
                             </div>
                             
