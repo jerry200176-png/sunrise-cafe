@@ -26,7 +26,6 @@ export default function BookPage() {
   const [branchName, setBranchName] = useState("");
   const [selectedStart, setSelectedStart] = useState("");
   const [duration, setDuration] = useState(1);
-  const [isHoliday, setIsHoliday] = useState(false);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -347,7 +346,6 @@ export default function BookPage() {
               onChange={(e) => {
                 const next = e.target.value;
                 setDate(next);
-                setIsHoliday(next ? isDepositRequired(next) : false);
               }}
               className="w-full rounded-xl border border-gray-300 px-4 py-3 text-base"
             />

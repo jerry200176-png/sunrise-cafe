@@ -1,5 +1,3 @@
-import { isTaiwanHoliday } from "./taiwan-holidays";
-
 // Force update: Enable 0.5 hour intervals
 export function getDurationOptions() {
   const options = [];
