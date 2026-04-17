@@ -250,7 +250,7 @@ export default function BookPage() {
       }
       const code = (data as { booking_code?: string })?.booking_code;
       if (code) {
-        const weekendFlag = isHoliday ? "1" : "0";
+        const weekendFlag = "1";
         window.location.href = `/book/success?code=${encodeURIComponent(code)}&weekend=${weekendFlag}`;
       } else {
         setError("預約成功，但未取得訂位代號");
@@ -501,14 +501,12 @@ export default function BookPage() {
                     本日共 {slots.length} 個時段，{slots.filter((s) => s.available).length} 個可預約
                   </p>
                 )}
-                {isHoliday && (
+                {getTotalPrice() != null && (
                   <div className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 space-y-1">
-                    <p>⚠️ 此日期為週末／國定假日，訂位需預付<strong>總金額 50%</strong> 作為訂金。</p>
-                    {getTotalPrice() != null && (
-                      <p className="font-semibold">
-                        預估訂金：NT$ {getDepositAmount(getTotalPrice()!)}
-                      </p>
-                    )}
+                    <p>⚠️ 訂位需預付<strong>總金額 50%</strong> 作為訂金。</p>
+                    <p className="font-semibold">
+                      預估訂金：NT$ {getDepositAmount(getTotalPrice()!)}
+                    </p>
                     <p>請先送出申請，待管理員確認有位後，將透過 LINE/簡訊通知您匯款。</p>
                   </div>
                 )}
@@ -685,7 +683,7 @@ export default function BookPage() {
                     <p className="font-semibold mb-1">💰 費用說明</p>
                     <ul className="list-disc pl-5 space-y-0.5">
                       <li>包廂租借費用不折抵消費，亦無低消限制。</li>
-                      <li>週末及國定假日訂位，需預付<strong>總金額 50%</strong> 作為訂金。</li>
+                      <li>所有訂位均需預付<strong>總金額 50%</strong> 作為訂金。</li>
                       <li>訂金將於確認訂位後通知繳納方式（匯款或 LINE Pay）。</li>
                     </ul>
                   </div>

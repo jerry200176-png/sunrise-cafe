@@ -11,17 +11,11 @@ export function getDurationOptions() {
 
 /**
  * 判斷指定日期是否需收取訂金
- * 條件：週六、週日、或台灣國定假日
+ * 條件：所有日期均需收取訂金
  * @param dateStr 格式 YYYY-MM-DD
  */
 export function isDepositRequired(dateStr: string): boolean {
-  if (!dateStr) return false;
-  const d = new Date(dateStr + "T12:00:00");
-  const day = d.getDay();
-  // 週六(6) 或 週日(0)
-  if (day === 0 || day === 6) return true;
-  // 國定假日
-  return isTaiwanHoliday(dateStr);
+  return !!dateStr;
 }
 
 /**
