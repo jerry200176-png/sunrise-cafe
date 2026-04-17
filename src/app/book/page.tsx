@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import type { Branch, Room } from "@/types";
-import { getDurationOptions, isDepositRequired, getDepositAmount } from "@/lib/booking-utils";
+import { getDurationOptions, getDepositAmount } from "@/lib/booking-utils";
 
 type Step = "branch" | "room" | "date" | "slot" | "form";
 
