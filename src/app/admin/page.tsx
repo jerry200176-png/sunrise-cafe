@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Plus, Pencil, Trash2, MapPin, LogOut, ChefHat, UtensilsCrossed, QrCode, Printer } from "lucide-react";
-import type { Branch, Room } from "@/types";
+import type { Branch, Room, RentalNoteSection } from "@/types";
 import { BranchSwitcher } from "@/components/BranchSwitcher";
 import { ReservationList } from "@/components/ReservationList";
 import { AddReservationForm } from "@/components/AddReservationForm";
@@ -34,6 +34,10 @@ export default function AdminBranchesRoomsPage() {
   const [roomCapacity, setRoomCapacity] = useState(4);
   const [roomPriceWeekday, setRoomPriceWeekday] = useState(0);
   const [roomPriceWeekend, setRoomPriceWeekend] = useState(0);
+
+  const [rentalNotes, setRentalNotes] = useState<RentalNoteSection[]>([]);
+  const [notesSaving, setNotesSaving] = useState(false);
+  const [notesSaved, setNotesSaved] = useState(false);
 
   const loadBranches = async () => {
     const res = await fetch("/api/branches");
@@ -83,8 +87,9 @@ export default function AdminBranchesRoomsPage() {
     fetch("/api/settings")
       .then((r) => r.json())
       .then((d) => {
-        const id = (d as { current_branch_id?: string | null })?.current_branch_id;
-        if (id) setReservationBranchId(id);
+        const data = d as { current_branch_id?: string | null; rental_notes?: RentalNoteSection[] };
+        if (data?.current_branch_id) setReservationBranchId(data.current_branch_id);
+        if (Array.isArray(data?.rental_notes)) setRentalNotes(data.rental_notes);
       })
       .catch(() => { });
   }, []);
@@ -227,6 +232,49 @@ export default function AdminBranchesRoomsPage() {
   };
 
   const formatTime = (t: string | null) => (t ? String(t).slice(0, 5) : "—");
+
+  const saveRentalNotes = async () => {
+    setNotesSaving(true);
+    setNotesSaved(false);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rental_notes: rentalNotes }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "儲存失敗");
+      setNotesSaved(true);
+      setTimeout(() => setNotesSaved(false), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "儲存失敗");
+    } finally {
+      setNotesSaving(false);
+    }
+  };
+
+  const updateSectionTitle = (si: number, title: string) =>
+    setRentalNotes((prev) => prev.map((s, i) => i === si ? { ...s, title } : s));
+
+  const updateSectionItem = (si: number, ii: number, value: string) =>
+    setRentalNotes((prev) => prev.map((s, i) =>
+      i === si ? { ...s, items: s.items.map((item, j) => j === ii ? value : item) } : s
+    ));
+
+  const addSectionItem = (si: number) =>
+    setRentalNotes((prev) => prev.map((s, i) =>
+      i === si ? { ...s, items: [...s.items, ""] } : s
+    ));
+
+  const removeSectionItem = (si: number, ii: number) =>
+    setRentalNotes((prev) => prev.map((s, i) =>
+      i === si ? { ...s, items: s.items.filter((_, j) => j !== ii) } : s
+    ));
+
+  const addSection = () =>
+    setRentalNotes((prev) => [...prev, { title: "", items: [""] }]);
+
+  const removeSection = (si: number) =>
+    setRentalNotes((prev) => prev.filter((_, i) => i !== si));
 
   if (loading) {
     return (
@@ -393,6 +441,85 @@ export default function AdminBranchesRoomsPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
+            <h2 className="text-lg font-semibold text-gray-900">📋 包廂租借注意事項</h2>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={addSection}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <Plus className="h-3.5 w-3.5" /> 新增段落
+              </button>
+              <button
+                type="button"
+                onClick={saveRentalNotes}
+                disabled={notesSaving}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {notesSaving ? "儲存中…" : notesSaved ? "已儲存 ✓" : "儲存"}
+              </button>
+            </div>
+          </div>
+          {rentalNotes.length === 0 ? (
+            <p className="text-sm text-gray-400">尚無注意事項。點擊「新增段落」開始編輯。</p>
+          ) : (
+            <div className="space-y-4">
+              {rentalNotes.map((section, si) => (
+                <div key={si} className="rounded-lg border border-gray-200 p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <input
+                      type="text"
+                      value={section.title}
+                      onChange={(e) => updateSectionTitle(si, e.target.value)}
+                      placeholder="段落標題（例：💰 費用說明）"
+                      className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm font-medium"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeSection(si)}
+                      className="rounded border border-red-200 p-1.5 text-red-600 hover:bg-red-50"
+                      title="刪除此段落"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <div className="space-y-1.5 pl-1">
+                    {section.items.map((item, ii) => (
+                      <div key={ii} className="flex items-center gap-2">
+                        <span className="text-gray-400 text-sm">•</span>
+                        <input
+                          type="text"
+                          value={item}
+                          onChange={(e) => updateSectionItem(si, ii, e.target.value)}
+                          placeholder="條目內容"
+                          className="flex-1 rounded border border-gray-200 px-2 py-1 text-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeSectionItem(si, ii)}
+                          className="rounded border border-red-100 p-1 text-red-400 hover:bg-red-50"
+                          title="刪除此條目"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => addSectionItem(si)}
+                      className="mt-1 text-xs text-amber-600 hover:text-amber-800"
+                    >
+                      + 新增條目
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </section>

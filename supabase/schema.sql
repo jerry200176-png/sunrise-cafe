@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS settings (
   current_branch_id UUID REFERENCES branches(id) ON DELETE SET NULL,
   updated_at TIMESTAMPTZ DEFAULT now()
 );
+ALTER TABLE settings ADD COLUMN IF NOT EXISTS rental_notes JSONB DEFAULT '[]'::jsonb;
 INSERT INTO settings (id, current_branch_id) VALUES ('app', NULL)
 ON CONFLICT (id) DO NOTHING;
 

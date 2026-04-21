@@ -14,8 +14,11 @@ export async function GET() {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
-    const { current_branch_id } = body as { current_branch_id?: string | null };
-    await updateSettings(current_branch_id ?? null);
+    const { current_branch_id, rental_notes } = body as {
+      current_branch_id?: string | null;
+      rental_notes?: import("@/types").RentalNoteSection[];
+    };
+    await updateSettings(current_branch_id ?? null, rental_notes);
     return NextResponse.json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法更新設定";

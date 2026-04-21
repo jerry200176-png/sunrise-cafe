@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import type { Branch, Room } from "@/types";
+import type { Branch, Room, RentalNoteSection } from "@/types";
 import { getDurationOptions, getDepositAmount } from "@/lib/booking-utils";
 
 type Step = "branch" | "room" | "date" | "slot" | "form";
@@ -35,6 +35,7 @@ export default function BookPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [rentalNotes, setRentalNotes] = useState<RentalNoteSection[]>([]);
 
   // 這裡確保介面包含 image_url
   const [branchRoomsAvailability, setBranchRoomsAvailability] = useState<{
@@ -70,6 +71,12 @@ export default function BookPage() {
         }
       })
       .catch(() => setBranches([]));
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d?.rental_notes)) setRentalNotes(d.rental_notes);
+      })
+      .catch(() => { });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -672,64 +679,38 @@ export default function BookPage() {
                 />
               </div>
 
-              <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                <h3 className="font-bold mb-3 text-amber-800 text-base">📋 包廂租借注意事項</h3>
+              {rentalNotes.length > 0 && (
+                <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                  <h3 className="font-bold mb-3 text-amber-800 text-base">📋 包廂租借注意事項</h3>
 
-                <div className="space-y-3 text-amber-800">
-                  {/* 費用說明 */}
-                  <div>
-                    <p className="font-semibold mb-1">💰 費用說明</p>
-                    <ul className="list-disc pl-5 space-y-0.5">
-                      <li>包廂租借費用不折抵消費，亦無低消限制。</li>
-                      <li>所有訂位均需預付<strong>總金額 50%</strong> 作為訂金。</li>
-                      <li>訂金將於確認訂位後通知繳納方式（匯款或 LINE Pay）。</li>
-                    </ul>
+                  <div className="space-y-3 text-amber-800">
+                    {rentalNotes.map((section, i) => (
+                      <div key={i}>
+                        <p className="font-semibold mb-1">{section.title}</p>
+                        <ul className="list-disc pl-5 space-y-0.5">
+                          {section.items.map((item, j) => (
+                            <li key={j}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
                   </div>
 
-                  {/* 外食與清潔 */}
-                  <div>
-                    <p className="font-semibold mb-1">🧹 外食與清潔</p>
-                    <ul className="list-disc pl-5 space-y-0.5">
-                      <li>可自行攜帶外食，無額外收費。</li>
-                      <li>離場時請將垃圾自行帶走；若未帶走，將<strong>酌收清潔費 300 元</strong>。</li>
-                    </ul>
-                  </div>
-
-                  {/* 取消與變更 */}
-                  <div>
-                    <p className="font-semibold mb-1">📅 取消與變更</p>
-                    <ul className="list-disc pl-5 space-y-0.5">
-                      <li>預約時間 <strong>24 小時前</strong>可自行線上取消，24 小時內如需變更請聯繫店家。</li>
-                      <li><strong>訂金退還標準：</strong>預約時間 <strong>48 小時前</strong>取消，訂金全額退回；<strong>48 小時內</strong>取消恕不退還。</li>
-                      <li>若遇不可抗力因素（如颱風發布陸上警報等天災），可全額退回或延期。</li>
-                    </ul>
-                  </div>
-
-                  {/* 使用規範 */}
-                  <div>
-                    <p className="font-semibold mb-1">📌 使用規範</p>
-                    <ul className="list-disc pl-5 space-y-0.5">
-                      <li>請於預約時段內使用，超時將依時段費率加收費用。</li>
-                      <li>請愛惜包廂設備，如有損壞須照價賠償。</li>
-                      <li>請勿大聲喧嘩影響其他客人。</li>
-                    </ul>
-                  </div>
+                  <label className="flex items-start gap-2 cursor-pointer pt-3 mt-3 border-t border-amber-200/50">
+                    <input
+                      type="checkbox"
+                      checked={agreeToTerms}
+                      onChange={(e) => setAgreeToTerms(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                    />
+                    <span className="font-medium">我已詳細閱讀並同意上述包廂租借注意事項</span>
+                  </label>
                 </div>
-
-                <label className="flex items-start gap-2 cursor-pointer pt-3 mt-3 border-t border-amber-200/50">
-                  <input
-                    type="checkbox"
-                    checked={agreeToTerms}
-                    onChange={(e) => setAgreeToTerms(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
-                  />
-                  <span className="font-medium">我已詳細閱讀並同意上述包廂租借注意事項</span>
-                </label>
-              </div>
+              )}
 
               <button
                 type="submit"
-                disabled={submitting || !agreeToTerms}
+                disabled={submitting || (rentalNotes.length > 0 && !agreeToTerms)}
                 className="w-full rounded-lg bg-amber-600 py-3 text-white hover:bg-amber-700 disabled:opacity-50"
               >
                 {submitting ? "送出中…" : "確認預約"}

@@ -81,10 +81,10 @@ export async function deleteBranch(id: string): Promise<void> {
   }
 }
 
-export async function fetchSettings(): Promise<{ current_branch_id: string | null }> {
+export async function fetchSettings(): Promise<{ current_branch_id: string | null; rental_notes: import("@/types").RentalNoteSection[] }> {
   const { url: baseUrl } = base();
   const res = await fetch(
-    `${baseUrl}/rest/v1/settings?id=eq.app&select=current_branch_id`,
+    `${baseUrl}/rest/v1/settings?id=eq.app&select=current_branch_id,rental_notes`,
     { method: "GET", headers: headers(), cache: "no-store" }
   );
   if (!res.ok) {
@@ -93,18 +93,26 @@ export async function fetchSettings(): Promise<{ current_branch_id: string | nul
   }
   const arr = await res.json();
   const row = Array.isArray(arr) ? arr[0] : null;
-  return { current_branch_id: row?.current_branch_id ?? null };
+  return {
+    current_branch_id: row?.current_branch_id ?? null,
+    rental_notes: row?.rental_notes ?? [],
+  };
 }
 
-export async function updateSettings(current_branch_id: string | null): Promise<void> {
+export async function updateSettings(
+  current_branch_id: string | null,
+  rental_notes?: import("@/types").RentalNoteSection[]
+): Promise<void> {
   const { url: baseUrl } = base();
+  const body: Record<string, unknown> = {
+    current_branch_id,
+    updated_at: new Date().toISOString(),
+  };
+  if (rental_notes !== undefined) body.rental_notes = rental_notes;
   const res = await fetch(`${baseUrl}/rest/v1/settings?id=eq.app`, {
     method: "PATCH",
     headers: headers({ Prefer: "return=minimal" }),
-    body: JSON.stringify({
-      current_branch_id,
-      updated_at: new Date().toISOString(),
-    }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const text = await res.text();

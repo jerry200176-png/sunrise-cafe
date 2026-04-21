@@ -63,6 +63,11 @@ export interface Settings {
   updated_at: string;
 }
 
+export interface RentalNoteSection {
+  title: string;
+  items: string[];
+}
+
 // ── 自助點餐模組 ──────────────────────────────────────────
 
 export interface Table {
