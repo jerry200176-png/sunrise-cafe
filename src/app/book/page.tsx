@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import Image from "next/image";
 import type { Branch, Room, RentalNoteSection } from "@/types";
 import { getDurationOptions, getDepositAmount } from "@/lib/booking-utils";
 
@@ -279,17 +280,22 @@ export default function BookPage() {
   const summary = getSelectedSummary(); // 取得當前選擇摘要
 
   return (
-    <main className="min-h-screen bg-gray-50">
-      <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
+    <main className="min-h-screen bg-gradient-to-b from-amber-50/40 to-white">
+      <header className="sticky top-0 z-10 border-b border-amber-100/60 bg-white/95 backdrop-blur-sm">
         <div className="mx-auto flex max-w-lg items-center gap-3 px-4 py-3">
           <Link
             href="/"
-            className="flex items-center justify-center rounded-lg p-2 text-gray-600 hover:bg-gray-100"
+            className="flex items-center justify-center rounded-lg p-2 text-stone-500 hover:bg-amber-50"
             aria-label="返回"
           >
             <ArrowLeft className="h-5 w-5" />
           </Link>
-          <h1 className="text-lg font-semibold text-gray-900">我要訂位</h1>
+          <div className="flex items-center gap-2">
+            <div className="relative h-7 w-7">
+              <Image src="/logo.webp" alt="" fill className="object-contain" />
+            </div>
+            <h1 className="text-base font-medium tracking-wide text-stone-800">我要訂位</h1>
+          </div>
         </div>
       </header>
 

@@ -2,8 +2,13 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "昇咖啡 訂位管理",
-  description: "昇咖啡訂位管理系統",
+  title: "昇咖啡 包廂訂位",
+  description: "昇咖啡包廂租借訂位系統",
+  appleWebApp: {
+    capable: true,
+    title: "昇咖啡",
+    statusBarStyle: "default",
+  },
 };
 
 export const viewport: Viewport = {
