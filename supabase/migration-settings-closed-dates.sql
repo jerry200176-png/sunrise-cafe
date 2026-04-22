@@ -1,0 +1,1 @@
+ALTER TABLE settings ADD COLUMN IF NOT EXISTS closed_dates JSONB DEFAULT '[]';

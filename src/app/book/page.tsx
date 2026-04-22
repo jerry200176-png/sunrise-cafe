@@ -104,6 +104,11 @@ export default function BookPage() {
     )
       .then((r) => r.json())
       .then((d) => {
+        if (d.closed) {
+          setError("本日公休，無法進行訂位，請選擇其他日期。");
+          setStep("date");
+          return;
+        }
         if (d.error) throw new Error(d.error);
         setBranchRoomsAvailability({
           rooms: d.rooms ?? [],

@@ -81,10 +81,10 @@ export async function deleteBranch(id: string): Promise<void> {
   }
 }
 
-export async function fetchSettings(): Promise<{ current_branch_id: string | null; rental_notes: import("@/types").RentalNoteSection[] }> {
+export async function fetchSettings(): Promise<{ current_branch_id: string | null; rental_notes: import("@/types").RentalNoteSection[]; closed_dates: string[] }> {
   const { url: baseUrl } = base();
   const res = await fetch(
-    `${baseUrl}/rest/v1/settings?id=eq.app&select=current_branch_id,rental_notes`,
+    `${baseUrl}/rest/v1/settings?id=eq.app&select=current_branch_id,rental_notes,closed_dates`,
     { method: "GET", headers: headers(), cache: "no-store" }
   );
   if (!res.ok) {
@@ -96,12 +96,14 @@ export async function fetchSettings(): Promise<{ current_branch_id: string | nul
   return {
     current_branch_id: row?.current_branch_id ?? null,
     rental_notes: row?.rental_notes ?? [],
+    closed_dates: row?.closed_dates ?? [],
   };
 }
 
 export async function updateSettings(
   current_branch_id: string | null,
-  rental_notes?: import("@/types").RentalNoteSection[]
+  rental_notes?: import("@/types").RentalNoteSection[],
+  closed_dates?: string[]
 ): Promise<void> {
   const { url: baseUrl } = base();
   const body: Record<string, unknown> = {
@@ -109,6 +111,7 @@ export async function updateSettings(
     updated_at: new Date().toISOString(),
   };
   if (rental_notes !== undefined) body.rental_notes = rental_notes;
+  if (closed_dates !== undefined) body.closed_dates = closed_dates;
   const res = await fetch(`${baseUrl}/rest/v1/settings?id=eq.app`, {
     method: "PATCH",
     headers: headers({ Prefer: "return=minimal" }),

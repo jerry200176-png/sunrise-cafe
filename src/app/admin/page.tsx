@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { ArrowLeft, Plus, Pencil, Trash2, MapPin, LogOut, ChefHat, UtensilsCrossed, QrCode, Printer, Building2, LayoutGrid, ClipboardList, CalendarDays } from "lucide-react";
+import { ArrowLeft, Plus, Pencil, Trash2, MapPin, LogOut, ChefHat, UtensilsCrossed, QrCode, Printer, Building2, LayoutGrid, ClipboardList, CalendarDays, CalendarX } from "lucide-react";
 import type { Branch, Room, RentalNoteSection } from "@/types";
 import { BranchSwitcher } from "@/components/BranchSwitcher";
 import { ReservationList } from "@/components/ReservationList";
@@ -39,6 +39,11 @@ export default function AdminBranchesRoomsPage() {
   const [rentalNotes, setRentalNotes] = useState<RentalNoteSection[]>([]);
   const [notesSaving, setNotesSaving] = useState(false);
   const [notesSaved, setNotesSaved] = useState(false);
+
+  const [closedDates, setClosedDates] = useState<string[]>([]);
+  const [closedDateInput, setClosedDateInput] = useState("");
+  const [closedDatesSaving, setClosedDatesSaving] = useState(false);
+  const [closedDatesSaved, setClosedDatesSaved] = useState(false);
 
   const loadBranches = async () => {
     const res = await fetch("/api/branches");
@@ -88,9 +93,10 @@ export default function AdminBranchesRoomsPage() {
     fetch("/api/settings")
       .then((r) => r.json())
       .then((d) => {
-        const data = d as { current_branch_id?: string | null; rental_notes?: RentalNoteSection[] };
+        const data = d as { current_branch_id?: string | null; rental_notes?: RentalNoteSection[]; closed_dates?: string[] };
         if (data?.current_branch_id) setReservationBranchId(data.current_branch_id);
         if (Array.isArray(data?.rental_notes)) setRentalNotes(data.rental_notes);
+        if (Array.isArray(data?.closed_dates)) setClosedDates(data.closed_dates);
       })
       .catch(() => { });
   }, []);
@@ -276,6 +282,33 @@ export default function AdminBranchesRoomsPage() {
 
   const removeSection = (si: number) =>
     setRentalNotes((prev) => prev.filter((_, i) => i !== si));
+
+  const addClosedDate = () => {
+    if (!closedDateInput || closedDates.includes(closedDateInput)) return;
+    setClosedDates((prev) => [...prev, closedDateInput].sort());
+    setClosedDateInput("");
+  };
+
+  const removeClosedDate = (d: string) =>
+    setClosedDates((prev) => prev.filter((x) => x !== d));
+
+  const saveClosedDates = async () => {
+    setClosedDatesSaving(true);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ closed_dates: closedDates }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "儲存失敗");
+      setClosedDatesSaved(true);
+      setTimeout(() => setClosedDatesSaved(false), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "儲存失敗");
+    } finally {
+      setClosedDatesSaving(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -534,6 +567,50 @@ export default function AdminBranchesRoomsPage() {
               ))}
             </div>
           )}
+          </div>
+        </section>
+
+        {/* 公休日設定 */}
+        <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 bg-stone-50/50 px-5 py-3.5">
+            <div className="flex items-center gap-2">
+              <CalendarX className="h-4 w-4 text-red-400" />
+              <h2 className="text-sm font-semibold tracking-wide text-stone-700">公休日設定</h2>
+            </div>
+            <button type="button" onClick={saveClosedDates} disabled={closedDatesSaving}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50 transition-colors">
+              {closedDatesSaving ? "儲存中…" : closedDatesSaved ? "✓ 已儲存" : "儲存"}
+            </button>
+          </div>
+          <div className="p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={closedDateInput}
+                onChange={(e) => setClosedDateInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addClosedDate()}
+                className="rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none"
+              />
+              <button type="button" onClick={addClosedDate} disabled={!closedDateInput}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-stone-200 px-3 py-2 text-sm text-stone-600 hover:bg-stone-50 disabled:opacity-40 transition-colors">
+                <Plus className="h-3.5 w-3.5" /> 新增
+              </button>
+            </div>
+            {closedDates.length === 0 ? (
+              <p className="text-sm text-stone-400">尚無公休日設定。</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {closedDates.map((d) => (
+                  <span key={d} className="inline-flex items-center gap-1.5 rounded-full bg-red-50 border border-red-100 px-3 py-1 text-sm text-red-700">
+                    {d}
+                    <button type="button" onClick={() => removeClosedDate(d)}
+                      className="rounded-full p-0.5 hover:bg-red-100 transition-colors" aria-label="移除">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </section>
 

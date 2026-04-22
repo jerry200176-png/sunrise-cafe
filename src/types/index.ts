@@ -61,6 +61,7 @@ export interface Settings {
   id: string;
   current_branch_id: string | null;
   updated_at: string;
+  closed_dates: string[];
 }
 
 export interface RentalNoteSection {

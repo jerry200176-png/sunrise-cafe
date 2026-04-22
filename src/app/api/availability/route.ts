@@ -6,6 +6,7 @@ import {
   fetchRoomsWithDetails,
   isAdminConfigured,
 } from "@/lib/supabase-admin";
+import { fetchSettings } from "@/lib/supabase-fetch";
 
 // Vercel Build Fix: Updated types
 const TAIWAN_OFFSET_HOURS = 8;
@@ -108,6 +109,11 @@ export async function GET(request: NextRequest) {
   const isToday = date === taiwanTodayStr;
 
   try {
+    const settings = await fetchSettings();
+    if ((settings.closed_dates ?? []).includes(date)) {
+      return NextResponse.json({ closed: true });
+    }
+
     if (roomId) {
       const [branch, room, blockedRaw] = await Promise.all([
         fetchBranch(branchId),
