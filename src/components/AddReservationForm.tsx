@@ -28,9 +28,9 @@ const WEEKDAYS = [
   { value: 0, label: "日" },
 ];
 
-// 產生 1~10 小時，間隔 0.5
+// 產生 2~10 小時，間隔 0.5
 const DURATION_OPTIONS: number[] = [];
-for (let i = 1; i <= 10; i += 0.5) {
+for (let i = 2; i <= 10; i += 0.5) {
   DURATION_OPTIONS.push(i);
 }
 
@@ -60,7 +60,7 @@ export function AddReservationForm({
   // Time State
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
-  const [duration, setDuration] = useState(1);
+  const [duration, setDuration] = useState(2);
   
   // Recurring State
   const [repeatEnabled, setRepeatEnabled] = useState(false);

@@ -73,6 +73,12 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    if (durationHours < 2) {
+      return NextResponse.json(
+        { error: "包廂最少需預約 2 小時" },
+        { status: 400 }
+      );
+    }
     if (durationHours > 8) {
       return NextResponse.json(
         { error: "單次預約時長不得超過 8 小時" },

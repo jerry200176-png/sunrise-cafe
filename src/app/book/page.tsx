@@ -26,7 +26,7 @@ export default function BookPage() {
   const [roomName, setRoomName] = useState("");
   const [branchName, setBranchName] = useState("");
   const [selectedStart, setSelectedStart] = useState("");
-  const [duration, setDuration] = useState(1);
+  const [duration, setDuration] = useState(2);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -549,14 +549,9 @@ export default function BookPage() {
                   </select>
                 </div>
 
-                {duration === 1 && !slots.some((s) => s.available) && slots.length > 0 && (
+                {!slots.some((s) => canSelectDuration(s.start)) && slots.length > 0 && (
                   <p className="mb-3 text-sm text-amber-700">
-                    本日此時段已滿，請點擊上方「重選包廂」或返回重選日期選擇其他日期。
-                  </p>
-                )}
-                {duration > 1 && !slots.some((s) => canSelectDuration(s.start)) && slots.length > 0 && (
-                  <p className="mb-3 text-sm text-amber-700">
-                    目前沒有連續 {duration} 小時的空檔。請改選 1 小時，或點擊上方「重選包廂」/重選日期選擇其他日期。
+                    目前沒有連續 {duration} 小時的空檔。請點擊上方「重選包廂」或返回重選日期選擇其他日期。
                   </p>
                 )}
 
