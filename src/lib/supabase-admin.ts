@@ -195,6 +195,7 @@ export async function updateReservationAdmin(
     status?: string;
     is_notified?: boolean;
     is_deposit_paid?: boolean;
+    deposit_payment_note?: string | null;
     notes?: string | null;
     customer_name?: string;
     phone?: string;
@@ -203,6 +204,7 @@ export async function updateReservationAdmin(
     end_time?: string;
     total_price?: number | null;
     guest_count?: number | null;
+    line_user_id?: string | null;
   }
 ) {
   const { error } = await supabaseAdmin()

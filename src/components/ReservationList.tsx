@@ -221,15 +221,15 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
     }
   };
 
-  const updateDepositStatus = async (id: string, is_deposit_paid: boolean) => {
+  const updateDepositStatus = async (id: string, is_deposit_paid: boolean, note?: string | null) => {
     setReservations((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, is_deposit_paid } : r))
+      prev.map((r) => (r.id === id ? { ...r, is_deposit_paid, deposit_payment_note: note ?? r.deposit_payment_note } : r))
     );
     try {
       await fetch(`${RESERVATIONS_API}/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ is_deposit_paid }),
+        body: JSON.stringify({ is_deposit_paid, deposit_payment_note: note ?? null }),
       });
       fetchReservations(false);
     } catch {
@@ -469,7 +469,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                   {isDepositRequired(r.start_time.slice(0, 10)) && (
                     r.is_deposit_paid ? (
                       <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-800 border border-green-200">
-                        ✅ 已付訂金
+                        ✅ 已付訂金{r.deposit_payment_note ? `（${r.deposit_payment_note}）` : ""}
                       </span>
                     ) : (
                       <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 border border-amber-200">
@@ -508,7 +508,13 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                     {isDepositRequired(r.start_time.slice(0, 10)) && !r.is_deposit_paid && (
                       <button
                         type="button"
-                        onClick={() => updateDepositStatus(r.id, true)}
+                        onClick={() => {
+                          const note = window.prompt(
+                            "請輸入付款備註（選填）\n例如：末五碼 12345、LINE Pay 截圖已收"
+                          );
+                          if (note === null) return;
+                          updateDepositStatus(r.id, true, note || null);
+                        }}
                         className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
                       >
                         ✅ 標記已付訂金
@@ -577,7 +583,13 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                     {isDepositRequired(r.start_time.slice(0, 10)) && !r.is_deposit_paid && (
                       <button
                         type="button"
-                        onClick={() => updateDepositStatus(r.id, true)}
+                        onClick={() => {
+                          const note = window.prompt(
+                            "請輸入付款備註（選填）\n例如：末五碼 12345、LINE Pay 截圖已收"
+                          );
+                          if (note === null) return;
+                          updateDepositStatus(r.id, true, note || null);
+                        }}
                         className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
                       >
                         ✅ 標記訂金

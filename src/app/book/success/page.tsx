@@ -44,18 +44,25 @@ function SuccessContent() {
             </p>
           </div>
 
-          <div className="mt-4 rounded-xl border border-stone-100 bg-stone-50 p-4 text-center">
-            <p className="text-xs text-stone-500 mb-2">有訂位相關疑問？</p>
-            <a
-              href={OFFICIAL_LINE_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-lg border border-stone-200 bg-white px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-100 transition"
-            >
-              <span className="text-[#06C755]">💬</span>
-              加官方 LINE 詢問
-            </a>
-          </div>
+          {code && (
+            <div className="mt-4 rounded-xl border border-green-100 bg-green-50 p-4">
+              <p className="text-sm font-semibold text-green-800 mb-1">📲 想用 LINE 接收確認通知？</p>
+              <p className="text-xs text-green-700 leading-relaxed mb-3">
+                加入官方帳號後，傳送您的訂位代號
+                <span className="mx-1 font-mono font-bold">{code}</span>
+                給我們，店家確認後將自動通知您！
+              </p>
+              <a
+                href={OFFICIAL_LINE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-lg bg-[#06C755] px-4 py-2 text-sm font-semibold text-white hover:bg-green-600 transition"
+              >
+                <span>💬</span>
+                加入官方 LINE
+              </a>
+            </div>
+          )}
 
           <div className="mt-4 space-y-3">
             <Link
