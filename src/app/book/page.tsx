@@ -706,7 +706,7 @@ export default function BookPage() {
 
               {depositInfo && (
                 <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-                  <p className="font-bold mb-1">💳 訂金支付方式</p>
+                  <p className="font-bold mb-1">💳 訂金收取方式（確認訂位後店家將通知繳納）</p>
                   <p className="whitespace-pre-line">{depositInfo}</p>
                 </div>
               )}
