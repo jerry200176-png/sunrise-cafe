@@ -120,12 +120,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (!reservation) {
-      if (replyToken) {
-        await replyMessage(
-          replyToken,
-          "您好！請先傳送您的訂位代號（6碼英數字）給我們，完成綁定後即可回報付款。"
-        );
-      }
+      // 一般客人傳訊息，沒有綁定訂位，靜默略過不回覆
       continue;
     }
 
