@@ -36,6 +36,7 @@ export default function BookPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [rentalNotes, setRentalNotes] = useState<RentalNoteSection[]>([]);
+  const [depositInfo, setDepositInfo] = useState<string | null>(null);
 
   // 這裡確保介面包含 image_url
   const [branchRoomsAvailability, setBranchRoomsAvailability] = useState<{
@@ -75,6 +76,7 @@ export default function BookPage() {
       .then((r) => r.json())
       .then((d) => {
         if (Array.isArray(d?.rental_notes)) setRentalNotes(d.rental_notes);
+        if (d?.deposit_info) setDepositInfo(d.deposit_info);
       })
       .catch(() => { });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -699,6 +701,13 @@ export default function BookPage() {
                     />
                     <span className="font-medium">我已詳細閱讀並同意上述包廂租借注意事項</span>
                   </label>
+                </div>
+              )}
+
+              {depositInfo && (
+                <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+                  <p className="font-bold mb-1">💳 訂金支付方式</p>
+                  <p className="whitespace-pre-line">{depositInfo}</p>
                 </div>
               )}
 

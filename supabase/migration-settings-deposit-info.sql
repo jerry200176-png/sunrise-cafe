@@ -1,0 +1,1 @@
+ALTER TABLE settings ADD COLUMN IF NOT EXISTS deposit_info TEXT;

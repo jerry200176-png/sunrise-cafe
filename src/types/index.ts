@@ -62,6 +62,7 @@ export interface Settings {
   current_branch_id: string | null;
   updated_at: string;
   closed_dates: string[];
+  deposit_info: string | null;
 }
 
 export interface RentalNoteSection {

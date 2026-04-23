@@ -4,9 +4,7 @@ import {
   insertReservationAdmin,
   hasSlotConflict,
   isAdminConfigured,
-  fetchRoom,
 } from "@/lib/supabase-admin";
-import { sendBookingConfirmation } from "@/lib/email";
 
 export async function GET(request: NextRequest) {
   const branchId = request.nextUrl.searchParams.get("branchId");
@@ -111,40 +109,6 @@ export async function POST(request: NextRequest) {
       guest_count: guestCount ?? null,
       notes: notes?.trim() || null,
     });
-
-    // 發送 email 確認通知（選填，失敗不影響訂位）
-    if (email?.trim()) {
-      try {
-        const room = await fetchRoom(roomId);
-        const fmt = (iso: string) =>
-          new Intl.DateTimeFormat("zh-TW", {
-            timeZone: "Asia/Taipei",
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: false,
-          }).format(new Date(iso));
-        const dateLabel = new Intl.DateTimeFormat("zh-TW", {
-          timeZone: "Asia/Taipei",
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-          weekday: "short",
-        }).format(new Date(startTime));
-
-        await sendBookingConfirmation({
-          to: email.trim(),
-          customerName: customerName.trim(),
-          bookingCode: booking_code,
-          roomName: room?.name ?? "包廂",
-          dateLabel,
-          startLabel: fmt(startTime),
-          endLabel: fmt(endTime),
-          totalPrice: totalPrice ?? null,
-        });
-      } catch {
-        // email 發送失敗不影響訂位成功回應
-      }
-    }
 
     return NextResponse.json({ ok: true, id, booking_code });
   } catch (err) {

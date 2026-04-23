@@ -45,6 +45,10 @@ export default function AdminBranchesRoomsPage() {
   const [closedDatesSaving, setClosedDatesSaving] = useState(false);
   const [closedDatesSaved, setClosedDatesSaved] = useState(false);
 
+  const [depositInfo, setDepositInfo] = useState("");
+  const [depositInfoSaving, setDepositInfoSaving] = useState(false);
+  const [depositInfoSaved, setDepositInfoSaved] = useState(false);
+
   const loadBranches = async () => {
     const res = await fetch("/api/branches");
     const data = await res.json();
@@ -93,10 +97,11 @@ export default function AdminBranchesRoomsPage() {
     fetch("/api/settings")
       .then((r) => r.json())
       .then((d) => {
-        const data = d as { current_branch_id?: string | null; rental_notes?: RentalNoteSection[]; closed_dates?: string[] };
+        const data = d as { current_branch_id?: string | null; rental_notes?: RentalNoteSection[]; closed_dates?: string[]; deposit_info?: string | null };
         if (data?.current_branch_id) setReservationBranchId(data.current_branch_id);
         if (Array.isArray(data?.rental_notes)) setRentalNotes(data.rental_notes);
         if (Array.isArray(data?.closed_dates)) setClosedDates(data.closed_dates);
+        if (data?.deposit_info) setDepositInfo(data.deposit_info);
       })
       .catch(() => { });
   }, []);
@@ -307,6 +312,24 @@ export default function AdminBranchesRoomsPage() {
       setError(err instanceof Error ? err.message : "儲存失敗");
     } finally {
       setClosedDatesSaving(false);
+    }
+  };
+
+  const saveDepositInfo = async () => {
+    setDepositInfoSaving(true);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deposit_info: depositInfo || null }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "儲存失敗");
+      setDepositInfoSaved(true);
+      setTimeout(() => setDepositInfoSaved(false), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "儲存失敗");
+    } finally {
+      setDepositInfoSaving(false);
     }
   };
 
@@ -567,6 +590,30 @@ export default function AdminBranchesRoomsPage() {
               ))}
             </div>
           )}
+          </div>
+        </section>
+
+        {/* 訂金支付方式 */}
+        <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 bg-stone-50/50 px-5 py-3.5">
+            <div className="flex items-center gap-2">
+              <CalendarDays className="h-4 w-4 text-blue-400" />
+              <h2 className="text-sm font-semibold tracking-wide text-stone-700">訂金支付方式</h2>
+            </div>
+            <button type="button" onClick={saveDepositInfo} disabled={depositInfoSaving}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50 transition-colors">
+              {depositInfoSaving ? "儲存中…" : depositInfoSaved ? "✓ 已儲存" : "儲存"}
+            </button>
+          </div>
+          <div className="p-4">
+            <p className="mb-2 text-xs text-stone-400">設定後會顯示在客人填寫訂位表單的最下方，例如：匯款銀行、帳號、戶名等。</p>
+            <textarea
+              value={depositInfo}
+              onChange={(e) => setDepositInfo(e.target.value)}
+              rows={4}
+              placeholder={"例如：\n訂金請於確認後 3 天內匯款至\n銀行：台灣銀行（004）\n帳號：123-456-789012\n戶名：昇咖啡有限公司"}
+              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none resize-none"
+            />
           </div>
         </section>
 
