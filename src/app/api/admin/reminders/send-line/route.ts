@@ -9,6 +9,9 @@ import {
     formatReminderMessage,
     isLineConfigured,
 } from "@/lib/line-notify";
+import { sendLineMessage as sendLineMessageToUser } from "@/lib/line";
+import { format, parseISO } from "date-fns";
+import { zhTW } from "date-fns/locale";
 
 /**
  * 共用邏輯：查詢明日訂位 → 格式化 → 發送到 LINE 群組 → 標記已通知
@@ -70,6 +73,26 @@ async function handleSendLine(force: boolean = false) {
         await Promise.all(
             daanRows.map((r: Record<string, unknown>) => updateReservationAdmin(r.id as string, { is_notified: true }))
         );
+
+        // 7. 個別傳提醒給有綁定 LINE 的客人（不限大安店，所有明日訂位）
+        for (const r of allRows) {
+            const lineUserId = (r as Record<string, unknown>).line_user_id as string | null;
+            if (!lineUserId) continue;
+            try {
+                const startDate = parseISO((r as Record<string, unknown>).start_time as string);
+                const endDate = parseISO((r as Record<string, unknown>).end_time as string);
+                const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
+                const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
+                const personalText =
+                    `您好，這裡是昇昇咖啡！\n\n` +
+                    `提醒您明日有訂位：\n` +
+                    `📅 ${formattedDate} ${timeRange}\n\n` +
+                    `期待您的光臨，如有異動請提早告知，謝謝！`;
+                await sendLineMessageToUser(lineUserId, personalText);
+            } catch {
+                // 個別發送失敗不影響其他人
+            }
+        }
 
         return NextResponse.json({ ok: true, sent: daanRows.length });
     } catch (err) {

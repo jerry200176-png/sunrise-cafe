@@ -341,6 +341,7 @@ export async function fetchReservationsForReminder(force: boolean = false) {
       is_notified,
       status,
       notes,
+      line_user_id,
       room:rooms (
         name,
         branch:branches (

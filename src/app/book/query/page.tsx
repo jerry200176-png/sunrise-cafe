@@ -66,8 +66,11 @@ export default function BookQueryPage() {
     }
   };
 
-  const cancel = async (id: string) => {
-    if (!confirm("確定要取消此訂位嗎？")) return;
+  const cancel = async (id: string, item: BookingItem) => {
+    const msg = item.is_deposit_paid
+      ? "確定要取消此訂位嗎？\n\n⚠️ 注意：您已繳納訂金，取消後訂金不予退還，請確認後再操作。"
+      : "確定要取消此訂位嗎？";
+    if (!confirm(msg)) return;
     setCancellingId(id);
     setError(null);
     try {
@@ -89,11 +92,22 @@ export default function BookQueryPage() {
     }
   };
 
+  const CANCEL_WINDOW_MS = 24 * 60 * 60 * 1000;
+
   const canCancel = (item: BookingItem) => {
     if (item.status === "cancelled") return false;
     const start = new Date(item.start_time).getTime();
-    const now = Date.now();
-    return start - now >= 24 * 60 * 60 * 1000;
+    return Date.now() + CANCEL_WINDOW_MS <= start;
+  };
+
+  const cancelDeadline = (item: BookingItem) => {
+    const d = new Date(new Date(item.start_time).getTime() - CANCEL_WINDOW_MS);
+    return format(d, "yyyy/MM/dd (EEE) HH:mm", { locale: zhTW });
+  };
+
+  const canReschedule = (item: BookingItem) => {
+    if (!["pending", "confirmed"].includes(item.status)) return false;
+    return canCancel(item);
   };
 
   return (
@@ -300,18 +314,35 @@ export default function BookQueryPage() {
                 )}
 
                 {canCancel(item) && (
-                  <button
-                    type="button"
-                    disabled={cancellingId === item.id}
-                    onClick={() => cancel(item.id)}
-                    className="mt-3 w-full rounded-lg border border-red-200 py-2 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"
-                  >
-                    {cancellingId === item.id ? "取消中…" : "取消訂位"}
-                  </button>
+                  <div className="mt-3 space-y-2">
+                    <p className="text-xs text-gray-400">
+                      最晚取消時間：{cancelDeadline(item)} 前
+                    </p>
+                    <div className="flex gap-2">
+                      {canReschedule(item) && (
+                        <a
+                          href={`https://line.me/R/oaMessage/@413pvgwz/?text=${encodeURIComponent(`我想申請改期，訂位代號：${item.booking_code}`)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 rounded-lg border border-amber-300 py-2 text-center text-sm text-amber-700 hover:bg-amber-50"
+                        >
+                          申請改期
+                        </a>
+                      )}
+                      <button
+                        type="button"
+                        disabled={cancellingId === item.id}
+                        onClick={() => cancel(item.id, item)}
+                        className="flex-1 rounded-lg border border-red-200 py-2 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        {cancellingId === item.id ? "取消中…" : "取消訂位"}
+                      </button>
+                    </div>
+                  </div>
                 )}
                 {item.status !== "cancelled" && !canCancel(item) && (
                   <p className="mt-2 text-xs text-gray-500">
-                    預約時間 24 小時內不可自行取消，如需變更請來電店家
+                    已超過取消截止時間（{cancelDeadline(item)}），如需協助請聯繫店家
                   </p>
                 )}
               </li>
