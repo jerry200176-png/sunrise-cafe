@@ -24,22 +24,29 @@ function supabaseAdmin() {
 async function replyMessage(replyToken: string, text: string) {
   const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
   if (!token) return;
-  await fetch(REPLY_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      replyToken,
-      messages: [{ type: "text", text }],
-    }),
-  });
+  try {
+    await fetch(REPLY_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        replyToken,
+        messages: [{ type: "text", text }],
+      }),
+    });
+  } catch (err) {
+    console.error("[webhook] replyMessage failed:", err);
+  }
 }
 
 function verifySignature(body: string, signature: string): boolean {
   const secret = process.env.LINE_CHANNEL_SECRET;
-  if (!secret) return false;
+  if (!secret) {
+    console.error("[webhook] LINE_CHANNEL_SECRET is not set");
+    return false;
+  }
   const hash = crypto
     .createHmac("sha256", secret)
     .update(body)
@@ -47,11 +54,84 @@ function verifySignature(body: string, signature: string): boolean {
   return hash === signature;
 }
 
+async function handleBookingCode(userId: string, upperText: string, replyToken?: string) {
+  const { data: reservation, error } = await supabaseAdmin()
+    .from("reservations")
+    .select("id, status, phone")
+    .eq("booking_code", upperText)
+    .single();
+
+  if (error || !reservation) {
+    console.log(`[webhook] booking code not found: ${upperText}`);
+    if (replyToken) {
+      await replyMessage(replyToken, "查無此訂位代號，請確認代號是否正確（請輸入6碼大寫英數字）。");
+    }
+    return;
+  }
+
+  // 更新同電話所有未取消訂位的 line_user_id
+  if (reservation.phone) {
+    const { error: updateErr } = await supabaseAdmin()
+      .from("reservations")
+      .update({ line_user_id: userId })
+      .eq("phone", reservation.phone)
+      .neq("status", "cancelled");
+    if (updateErr) console.error("[webhook] update line_user_id failed:", updateErr);
+    else console.log(`[webhook] bound line_user_id for phone ${reservation.phone}`);
+  }
+
+  const statusMsg =
+    reservation.status === "confirmed"
+      ? "您的訂位已確認，繳款通知請查看稍早訊息。"
+      : "已收到您的訂位代號！店家確認後將自動傳送繳費通知給您，請稍候。";
+
+  if (replyToken) await replyMessage(replyToken, statusMsg);
+}
+
+async function handlePaymentReport(userId: string, rawText: string, replyToken?: string) {
+  const { data: reservation } = await supabaseAdmin()
+    .from("reservations")
+    .select("id, booking_code, customer_name, start_time, end_time")
+    .eq("line_user_id", userId)
+    .in("status", ["confirmed", "pending"])
+    .order("start_time", { ascending: true })
+    .limit(1)
+    .single();
+
+  if (!reservation) return; // 一般客人，靜默略過
+
+  if (!isPaymentMessage(rawText)) return; // 一般聊天，靜默略過
+
+  const groupId = process.env.LINE_GROUP_ID;
+  if (groupId) {
+    try {
+      const startDate = parseISO(reservation.start_time);
+      const endDate = parseISO(reservation.end_time);
+      const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
+      const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
+      const groupText =
+        `💰 客人回報付款\n` +
+        `姓名：${reservation.customer_name}\n` +
+        `代號：${reservation.booking_code}\n` +
+        `時間：${formattedDate} ${timeRange}\n` +
+        `客人傳來：「${rawText}」`;
+      await sendLineMessage(groupId, groupText);
+    } catch (err) {
+      console.error("[webhook] group notify failed:", err);
+    }
+  }
+
+  if (replyToken) {
+    await replyMessage(replyToken, "已收到您的付款通知，我們將盡快確認並更新訂位狀態，謝謝！");
+  }
+}
+
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
   const signature = request.headers.get("x-line-signature") ?? "";
 
   if (!verifySignature(rawBody, signature)) {
+    console.error("[webhook] signature verification failed");
     return new NextResponse("Forbidden", { status: 403 });
   }
 
@@ -81,102 +161,15 @@ export async function POST(request: NextRequest) {
 
     if (!userId || !rawText) continue;
 
-    // 第一層：訂位代號綁定
-    if (BOOKING_CODE_RE.test(upperText)) {
-      const { data: reservation } = await supabaseAdmin()
-        .from("reservations")
-        .select("id, status")
-        .eq("booking_code", upperText)
-        .single();
-
-      if (!reservation) {
-        if (replyToken) {
-          await replyMessage(
-            replyToken,
-            "查無此訂位代號，請確認代號是否正確（請輸入6碼大寫英數字）。"
-          );
-        }
-        continue;
-      }
-
-      // 先拿電話號碼，再更新同電話所有訂位（含未來新訂位也能收到通知）
-      const { data: full } = await supabaseAdmin()
-        .from("reservations")
-        .select("id, phone, status")
-        .eq("booking_code", upperText)
-        .single();
-
-      if (full?.phone) {
-        await supabaseAdmin()
-          .from("reservations")
-          .update({ line_user_id: userId })
-          .eq("phone", full.phone)
-          .neq("status", "cancelled");
+    try {
+      if (BOOKING_CODE_RE.test(upperText)) {
+        await handleBookingCode(userId, upperText, replyToken);
       } else {
-        await supabaseAdmin()
-          .from("reservations")
-          .update({ line_user_id: userId })
-          .eq("id", reservation.id);
+        await handlePaymentReport(userId, rawText, replyToken);
       }
-
-      const statusMsg =
-        reservation.status === "confirmed"
-          ? "您的訂位已確認，繳款通知請查看稍早訊息。"
-          : "已收到您的訂位代號！店家確認後將自動傳送繳費通知給您，請稍候。";
-
-      if (replyToken) {
-        await replyMessage(replyToken, statusMsg);
-      }
-      continue;
-    }
-
-    // 第二層：付款回報通知
-    const { data: reservation } = await supabaseAdmin()
-      .from("reservations")
-      .select("id, booking_code, customer_name, start_time, end_time")
-      .eq("line_user_id", userId)
-      .in("status", ["confirmed", "pending"])
-      .order("start_time", { ascending: true })
-      .limit(1)
-      .single();
-
-    if (!reservation) {
-      // 一般客人傳訊息，沒有綁定訂位，靜默略過不回覆
-      continue;
-    }
-
-    // 非付款相關訊息（一般聊天）靜默略過
-    if (!isPaymentMessage(rawText)) {
-      continue;
-    }
-
-    // 轉發付款通知到 LINE 群組
-    const groupId = process.env.LINE_GROUP_ID;
-    if (groupId) {
-      const startDate = parseISO(reservation.start_time);
-      const endDate = parseISO(reservation.end_time);
-      const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
-      const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
-
-      const groupText =
-        `💰 客人回報付款\n` +
-        `姓名：${reservation.customer_name}\n` +
-        `代號：${reservation.booking_code}\n` +
-        `時間：${formattedDate} ${timeRange}\n` +
-        `客人傳來：「${rawText}」`;
-
-      try {
-        await sendLineMessage(groupId, groupText);
-      } catch {
-        // 群組通知失敗不影響回覆客人
-      }
-    }
-
-    if (replyToken) {
-      await replyMessage(
-        replyToken,
-        "已收到您的付款通知，我們將盡快確認並更新訂位狀態，謝謝！"
-      );
+    } catch (err) {
+      console.error("[webhook] event processing error:", err);
+      // 不讓單一事件的錯誤影響整體回應
     }
   }
 
