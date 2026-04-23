@@ -46,20 +46,18 @@ function SuccessContent() {
 
           {code && (
             <div className="mt-4 rounded-xl border border-green-100 bg-green-50 p-4">
-              <p className="text-sm font-semibold text-green-800 mb-1">📲 想用 LINE 接收確認通知？</p>
+              <p className="text-sm font-semibold text-green-800 mb-1">📲 用 LINE 接收訂位確認通知</p>
               <p className="text-xs text-green-700 leading-relaxed mb-3">
-                加入官方帳號後，傳送您的訂位代號
-                <span className="mx-1 font-mono font-bold">{code}</span>
-                給我們，店家確認後將自動通知您！
+                點下方按鈕，開啟 LINE 後直接按送出，店家確認後將自動通知您！
               </p>
               <a
-                href={OFFICIAL_LINE_URL}
+                href={`https://line.me/R/oaMessage/@413pvgwz/?text=${encodeURIComponent(code)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 rounded-lg bg-[#06C755] px-4 py-2 text-sm font-semibold text-white hover:bg-green-600 transition"
               >
                 <span>💬</span>
-                加入官方 LINE
+                一鍵傳送訂位代號
               </a>
             </div>
           )}
