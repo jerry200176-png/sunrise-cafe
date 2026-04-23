@@ -132,10 +132,11 @@ export async function insertReservationAdmin(payload: {
   email: string | null;
   start_time: string;
   end_time: string;
-  status?: string; // Optional
+  status?: string;
   total_price: number | null;
   guest_count: number | null;
   notes: string | null;
+  line_user_id?: string | null;
 }) {
   const bookingCode = Math.random().toString(36).substring(2, 8).toUpperCase();
   const statusToUse = payload.status ?? "pending";
@@ -154,6 +155,7 @@ export async function insertReservationAdmin(payload: {
       guest_count: payload.guest_count,
       notes: payload.notes,
       booking_code: bookingCode,
+      line_user_id: payload.line_user_id ?? null,
     })
     .select("id, booking_code")
     .single();

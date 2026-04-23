@@ -30,7 +30,7 @@ export default function BookPage() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  const [lineId, setLineId] = useState("");
+  const [lineUserId, setLineUserId] = useState("");
   const [guestCount, setGuestCount] = useState<number | "">("");
   const [agreeToTerms, setAgreeToTerms] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -79,6 +79,44 @@ export default function BookPage() {
       })
       .catch(() => { });
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 處理 LINE Login callback：讀取 URL 參數並還原 sessionStorage state
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const uid = params.get("line_user_id");
+    const lineError = params.get("line_error");
+    window.history.replaceState({}, "", "/book");
+
+    if (lineError) {
+      setError("LINE 連結失敗，請重試。");
+      return;
+    }
+    if (!uid) return;
+
+    setLineUserId(uid);
+    const saved = sessionStorage.getItem("bookingState");
+    if (saved) {
+      try {
+        const s = JSON.parse(saved) as {
+          step?: Step; branchId?: string; roomId?: string; date?: string;
+          selectedStart?: string; duration?: number; name?: string;
+          phone?: string; email?: string; guestCount?: number | "";
+        };
+        if (s.step) setStep(s.step);
+        if (s.branchId) setBranchId(s.branchId);
+        if (s.roomId) setRoomId(s.roomId);
+        if (s.date) setDate(s.date);
+        if (s.selectedStart) setSelectedStart(s.selectedStart);
+        if (s.duration) setDuration(s.duration);
+        if (s.name) setName(s.name);
+        if (s.phone) setPhone(s.phone);
+        if (s.email) setEmail(s.email);
+        if (s.guestCount !== undefined) setGuestCount(s.guestCount);
+      } catch { /* ignore malformed state */ }
+      sessionStorage.removeItem("bookingState");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -202,6 +240,17 @@ export default function BookPage() {
     return { dateLabel, startLabel, endLabel };
   };
 
+  const handleLineLogin = () => {
+    sessionStorage.setItem("bookingState", JSON.stringify({
+      step, branchId, roomId, date, selectedStart, duration,
+      name, phone, email, guestCount,
+    }));
+    const channelId = process.env.NEXT_PUBLIC_LINE_LOGIN_CHANNEL_ID;
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? window.location.origin;
+    const redirectUri = encodeURIComponent(`${baseUrl}/api/auth/line/callback`);
+    window.location.href = `https://access.line.me/oauth2/v2.1/authorize?response_type=code&client_id=${channelId}&redirect_uri=${redirectUri}&state=booking&scope=profile%20openid`;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedStart || !name.trim() || !phone.trim()) return;
@@ -247,7 +296,7 @@ export default function BookPage() {
           end_time: end.toISOString(),
           total_price: getTotalPrice(),
           guest_count: guestCount === "" ? null : Number(guestCount),
-          notes: lineId.trim() ? `LINE ID: ${lineId.trim()}` : null,
+          line_user_id: lineUserId || null,
         }),
       });
       const data = await res.json();
@@ -661,15 +710,20 @@ export default function BookPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">LINE ID</label>
-                <input
-                  type="text"
-                  value={lineId}
-                  onChange={(e) => setLineId(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
-                  placeholder="選填，例如：sunrise_cafe"
-                />
-                <p className="mt-1 text-xs text-gray-500">填寫 LINE ID 方便聯絡通知。</p>
+                <label className="mb-1 block text-sm font-medium text-gray-700">LINE 訂位通知（選填）</label>
+                {lineUserId ? (
+                  <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2.5">
+                    <span className="text-green-600 text-sm font-medium">✓ LINE 已連結，訂位完成後將自動通知</span>
+                    <button type="button" onClick={() => setLineUserId("")}
+                      className="ml-auto text-xs text-gray-400 hover:text-gray-600">取消連結</button>
+                  </div>
+                ) : (
+                  <button type="button" onClick={handleLineLogin}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-green-400 bg-[#06C755] px-3 py-2.5 text-sm font-medium text-white hover:bg-green-600 transition-colors">
+                    <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current"><path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.627-.63h2.386c.349 0 .63.285.63.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.27.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.627-.63.349 0 .631.285.631.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.281.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314"/></svg>
+                    用 LINE 接收訂位確認通知
+                  </button>
+                )}
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">人數</label>
