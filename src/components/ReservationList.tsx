@@ -79,6 +79,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
     "time_asc"
   );
   const [sendingLine, setSendingLine] = useState(false);
+  const [sendingLinePaymentTo, setSendingLinePaymentTo] = useState<string | null>(null);
 
   const fetchReservations = useCallback(async (showLoading = true) => {
     if (!branchId) {
@@ -559,6 +560,32 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                         📋 複製繳費通知
                       </button>
                     )}
+                    {isDepositRequired(r.start_time.slice(0, 10)) && r.total_price != null && (
+                      <button
+                        type="button"
+                        disabled={sendingLinePaymentTo === r.id}
+                        onClick={async () => {
+                          setSendingLinePaymentTo(r.id);
+                          try {
+                            const res = await fetch("/api/reservations/send-line", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ id: r.id }),
+                            });
+                            const data = await res.json();
+                            if (!res.ok) alert(`傳送失敗：${(data as { error?: string }).error}`);
+                            else alert("✅ 已成功傳送繳費通知給客人 LINE！");
+                          } catch {
+                            alert("傳送失敗，請確認網路連線");
+                          } finally {
+                            setSendingLinePaymentTo(null);
+                          }
+                        }}
+                        className="rounded-lg border border-green-300 bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 hover:bg-green-100 disabled:opacity-50"
+                      >
+                        {sendingLinePaymentTo === r.id ? "傳送中…" : "💬 傳 LINE 給客人"}
+                      </button>
+                    )}
                   </div>
                 ) : activeTab === "upcoming" ? (
                   <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -593,6 +620,32 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                         className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
                       >
                         ✅ 標記訂金
+                      </button>
+                    )}
+                    {isDepositRequired(r.start_time.slice(0, 10)) && r.total_price != null && !r.is_deposit_paid && (
+                      <button
+                        type="button"
+                        disabled={sendingLinePaymentTo === r.id}
+                        onClick={async () => {
+                          setSendingLinePaymentTo(r.id);
+                          try {
+                            const res = await fetch("/api/reservations/send-line", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ id: r.id }),
+                            });
+                            const data = await res.json();
+                            if (!res.ok) alert(`傳送失敗：${(data as { error?: string }).error}`);
+                            else alert("✅ 已成功傳送繳費通知給客人 LINE！");
+                          } catch {
+                            alert("傳送失敗，請確認網路連線");
+                          } finally {
+                            setSendingLinePaymentTo(null);
+                          }
+                        }}
+                        className="rounded-lg border border-green-300 bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 hover:bg-green-100 disabled:opacity-50"
+                      >
+                        {sendingLinePaymentTo === r.id ? "傳送中…" : "💬 傳 LINE 給客人"}
                       </button>
                     )}
                     {r.status !== "cancelled" && (
