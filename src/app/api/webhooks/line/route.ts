@@ -99,10 +99,25 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      await supabaseAdmin()
+      // 先拿電話號碼，再更新同電話所有訂位（含未來新訂位也能收到通知）
+      const { data: full } = await supabaseAdmin()
         .from("reservations")
-        .update({ line_user_id: userId })
-        .eq("id", reservation.id);
+        .select("id, phone, status")
+        .eq("booking_code", upperText)
+        .single();
+
+      if (full?.phone) {
+        await supabaseAdmin()
+          .from("reservations")
+          .update({ line_user_id: userId })
+          .eq("phone", full.phone)
+          .neq("status", "cancelled");
+      } else {
+        await supabaseAdmin()
+          .from("reservations")
+          .update({ line_user_id: userId })
+          .eq("id", reservation.id);
+      }
 
       const statusMsg =
         reservation.status === "confirmed"
