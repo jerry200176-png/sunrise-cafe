@@ -7,6 +7,12 @@ import { zhTW } from "date-fns/locale";
 
 const REPLY_URL = "https://api.line.me/v2/bot/message/reply";
 const BOOKING_CODE_RE = /^[A-Z0-9]{6}$/;
+const PAYMENT_KEYWORDS = ["末五碼", "五碼", "匯款", "付款", "已付", "已轉", "轉帳", "line pay", "linepay", "截圖", "收款", "轉過去", "付過去"];
+
+function isPaymentMessage(text: string): boolean {
+  const lower = text.toLowerCase();
+  return PAYMENT_KEYWORDS.some((kw) => lower.includes(kw));
+}
 
 function supabaseAdmin() {
   return createClient(
@@ -121,6 +127,11 @@ export async function POST(request: NextRequest) {
 
     if (!reservation) {
       // 一般客人傳訊息，沒有綁定訂位，靜默略過不回覆
+      continue;
+    }
+
+    // 非付款相關訊息（一般聊天）靜默略過
+    if (!isPaymentMessage(rawText)) {
       continue;
     }
 
