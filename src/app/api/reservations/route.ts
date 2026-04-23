@@ -5,6 +5,9 @@ import {
   hasSlotConflict,
   isAdminConfigured,
 } from "@/lib/supabase-admin";
+import { sendLineMessage } from "@/lib/line";
+import { format, parseISO } from "date-fns";
+import { zhTW } from "date-fns/locale";
 
 export async function GET(request: NextRequest) {
   const branchId = request.nextUrl.searchParams.get("branchId");
@@ -109,6 +112,30 @@ export async function POST(request: NextRequest) {
       guest_count: guestCount ?? null,
       notes: notes?.trim() || null,
     });
+
+    // 傳群組通知（失敗不影響主流程）
+    const groupId = process.env.LINE_GROUP_ID;
+    if (groupId) {
+      try {
+        const startDate = parseISO(startTime);
+        const endDate = parseISO(endTime);
+        const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
+        const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
+        const guestStr = guestCount ? `${guestCount} 人` : "未填";
+        const notesStr = notes?.trim() ? `\n備註：${notes.trim()}` : "";
+        const groupText =
+          `📩 新訂位申請\n` +
+          `姓名：${customerName.trim()}\n` +
+          `電話：${phone.trim()}\n` +
+          `代號：${booking_code}\n` +
+          `時間：${formattedDate} ${timeRange}\n` +
+          `人數：${guestStr}` +
+          notesStr;
+        await sendLineMessage(groupId, groupText);
+      } catch {
+        // 群組通知失敗不影響訂位建立
+      }
+    }
 
     return NextResponse.json({ ok: true, id, booking_code });
   } catch (err) {
