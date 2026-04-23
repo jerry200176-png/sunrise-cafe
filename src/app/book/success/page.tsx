@@ -5,7 +5,6 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle2, ArrowLeft, Clock } from "lucide-react";
 
-const OFFICIAL_LINE_URL = "https://lin.ee/cxcV0lo";
 
 function SuccessContent() {
   const searchParams = useSearchParams();
