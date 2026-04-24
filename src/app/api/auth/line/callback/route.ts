@@ -1,17 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+function supabaseAdmin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? "";
+  const bookingCode = request.nextUrl.searchParams.get("state");
+  const origin = request.nextUrl.origin;
+  const redirectUri = `${origin}/api/auth/line/callback`;
 
-  if (!code) {
-    return NextResponse.redirect(`${baseUrl}/book?line_error=1`);
-  }
+  const errorDest = bookingCode
+    ? `${origin}/book/success?code=${bookingCode}&line_error=1`
+    : `${origin}/book?line_error=1`;
+
+  if (!code) return NextResponse.redirect(errorDest);
 
   try {
-    const redirectUri = `${baseUrl}/api/auth/line/callback`;
-
-    // 換取 access token
     const tokenRes = await fetch("https://api.line.me/oauth2/v2.1/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -24,25 +33,39 @@ export async function GET(request: NextRequest) {
       }),
     });
 
-    if (!tokenRes.ok) {
-      return NextResponse.redirect(`${baseUrl}/book?line_error=1`);
-    }
+    if (!tokenRes.ok) return NextResponse.redirect(errorDest);
 
     const { access_token } = await tokenRes.json() as { access_token: string };
 
-    // 取得 LINE 用戶資料
     const profileRes = await fetch("https://api.line.me/v2/profile", {
       headers: { Authorization: `Bearer ${access_token}` },
     });
 
-    if (!profileRes.ok) {
-      return NextResponse.redirect(`${baseUrl}/book?line_error=1`);
-    }
+    if (!profileRes.ok) return NextResponse.redirect(errorDest);
 
     const { userId } = await profileRes.json() as { userId: string };
 
-    return NextResponse.redirect(`${baseUrl}/book?line_user_id=${encodeURIComponent(userId)}`);
+    if (bookingCode) {
+      const db = supabaseAdmin();
+      const { data: reservation } = await db
+        .from("reservations")
+        .select("phone")
+        .eq("booking_code", bookingCode)
+        .single();
+
+      if (reservation?.phone) {
+        await db
+          .from("reservations")
+          .update({ line_user_id: userId })
+          .eq("phone", reservation.phone)
+          .neq("status", "cancelled");
+      }
+
+      return NextResponse.redirect(`${origin}/book/success?code=${bookingCode}&line_bound=1`);
+    }
+
+    return NextResponse.redirect(`${origin}/book?line_user_id=${encodeURIComponent(userId)}`);
   } catch {
-    return NextResponse.redirect(`${baseUrl}/book?line_error=1`);
+    return NextResponse.redirect(errorDest);
   }
 }

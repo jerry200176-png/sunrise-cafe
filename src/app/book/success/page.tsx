@@ -5,10 +5,22 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle2, ArrowLeft, Clock } from "lucide-react";
 
-
 function SuccessContent() {
   const searchParams = useSearchParams();
   const code = searchParams.get("code") ?? "";
+  const lineBound = searchParams.get("line_bound") === "1";
+  const lineError = searchParams.get("line_error") === "1";
+
+  function startLineLogin() {
+    const url =
+      `https://access.line.me/oauth2/v2.1/authorize` +
+      `?response_type=code` +
+      `&client_id=2009884734` +
+      `&redirect_uri=${encodeURIComponent(window.location.origin + "/api/auth/line/callback")}` +
+      `&state=${encodeURIComponent(code)}` +
+      `&scope=profile`;
+    window.location.href = url;
+  }
 
   return (
     <main className="min-h-screen bg-gray-50">
@@ -45,19 +57,33 @@ function SuccessContent() {
 
           {code && (
             <div className="mt-4 rounded-xl border border-green-100 bg-green-50 p-4">
-              <p className="text-sm font-semibold text-green-800 mb-1">📲 用 LINE 接收訂位確認通知</p>
-              <p className="text-xs text-green-700 leading-relaxed mb-3">
-                點下方按鈕，開啟 LINE 後直接按送出，店家確認後將自動通知您！
-              </p>
-              <a
-                href={`https://line.me/R/oaMessage/@334spfcw/?text=${encodeURIComponent(code)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-lg bg-[#06C755] px-4 py-2 text-sm font-semibold text-white hover:bg-green-600 transition"
-              >
-                <span>💬</span>
-                一鍵傳送訂位代號
-              </a>
+              {lineBound ? (
+                <div className="text-center">
+                  <p className="text-sm font-semibold text-green-800">✅ LINE 通知已綁定！</p>
+                  <p className="text-xs text-green-700 mt-1">
+                    店家確認後將自動傳送繳費通知與訂位提醒給您。
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm font-semibold text-green-800 mb-1">
+                    📲 用 LINE 接收訂位確認通知
+                  </p>
+                  <p className="text-xs text-green-700 leading-relaxed mb-3">
+                    點下方按鈕，授權後即可自動接收繳費通知與訂位提醒，無需手動操作。
+                  </p>
+                  <button
+                    onClick={startLineLogin}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#06C755] px-4 py-2 text-sm font-semibold text-white hover:bg-green-600 transition"
+                  >
+                    <span>💬</span>
+                    用 LINE 登入綁定通知
+                  </button>
+                  {lineError && (
+                    <p className="mt-2 text-xs text-red-600">LINE 登入失敗，請再試一次。</p>
+                  )}
+                </>
+              )}
             </div>
           )}
 
