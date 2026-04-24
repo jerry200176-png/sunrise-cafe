@@ -50,7 +50,7 @@ function SuccessContent() {
                 點下方按鈕，開啟 LINE 後直接按送出，店家確認後將自動通知您！
               </p>
               <a
-                href={`https://line.me/R/oaMessage/@413pvgwz/?text=${encodeURIComponent(code)}`}
+                href={`https://line.me/R/oaMessage/@334spfcw/?text=${encodeURIComponent(code)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 rounded-lg bg-[#06C755] px-4 py-2 text-sm font-semibold text-white hover:bg-green-600 transition"

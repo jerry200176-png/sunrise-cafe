@@ -321,7 +321,7 @@ export default function BookQueryPage() {
                     <div className="flex gap-2">
                       {canReschedule(item) && (
                         <a
-                          href={`https://line.me/R/oaMessage/@413pvgwz/?text=${encodeURIComponent(`我想申請改期，訂位代號：${item.booking_code}`)}`}
+                          href={`https://line.me/R/oaMessage/@334spfcw/?text=${encodeURIComponent(`我想申請改期，訂位代號：${item.booking_code}`)}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="flex-1 rounded-lg border border-amber-300 py-2 text-center text-sm text-amber-700 hover:bg-amber-50"
