@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateReservationAdmin, deleteReservationAdmin, isAdminConfigured } from "@/lib/supabase-admin";
-import { sendLineMessage } from "@/lib/line";
+import { sendLineMessage, buildPaymentMessage } from "@/lib/line";
 import { createClient } from "@supabase/supabase-js";
-import { format, parseISO } from "date-fns";
-import { zhTW } from "date-fns/locale";
-
 function supabaseAdmin() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,45 +10,6 @@ function supabaseAdmin() {
 }
 
 type RoomWithBranch = { name: string; branch: { name: string }[] }[];
-
-function buildPaymentText(r: {
-  customer_name: string;
-  start_time: string;
-  end_time: string;
-  total_price: number | null;
-  room_with_branch?: RoomWithBranch | null;
-}): string {
-  const startDate = parseISO(r.start_time);
-  const endDate = parseISO(r.end_time);
-  const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
-  const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
-  const total = Number(r.total_price ?? 0);
-  const deposit = Math.ceil(total / 2);
-  const roomInfo = (r.room_with_branch ?? [])[0];
-  const branchName = (roomInfo?.branch ?? [])[0]?.name ?? "";
-  const isDaan = branchName.includes("大安");
-  const linePayUrl =
-    "https://qrcodepay.line.me/qr/payment/%252BmF6rR41PSp3R8NMydLA%252BRt1IvAFgPchBvtrJoR20aoZKY4Hr1qrbfaYSoPDUyu0";
-
-  if (isDaan) {
-    return (
-      `您好，這裡是昇昇咖啡 (大安店)。\n\n` +
-      `收到您 ${formattedDate} ${timeRange} 的預約申請（${r.customer_name}）。\n` +
-      `確認該時段有空位，本筆訂單總金額為 $${total}，請於今日內匯款訂金 $${deposit}（總額一半）以保留座位。\n\n` +
-      `【匯款資訊】\n銀行：台北富邦銀行 (012)\n帳號：8212-00000-8489-6\n戶名：昇昇咖啡張文霞\n\n` +
-      `或者您可以使用 LINE Pay 付款：\n${linePayUrl}\n\n` +
-      `匯款後請回傳「末五碼」或「截圖」告知，謝謝！\n\n` +
-      `📌 帶外食沒關係，離場時請將垃圾自行帶走；若未帶走，將酌收清潔費 300 元。`
-    );
-  }
-  return (
-    `您好，這裡是昇昇咖啡。\n\n` +
-    `收到您 ${formattedDate} ${timeRange} 的預約申請（${r.customer_name}）。\n` +
-    `確認該時段有空位，本筆訂單總金額為 $${total}，請於今日內匯款訂金 $${deposit}（總額一半）以保留座位。\n\n` +
-    `請依照官網或現場指示完成付款，並回傳證明，謝謝！\n\n` +
-    `📌 帶外食沒關係，離場時請將垃圾自行帶走；若未帶走，將酌收清潔費 300 元。`
-  );
-}
 
 export async function PATCH(
   request: NextRequest,
@@ -105,12 +63,14 @@ export async function PATCH(
           .single();
 
         if (r?.line_user_id && r.total_price != null) {
-          const text = buildPaymentText({
-            customer_name: r.customer_name,
-            start_time: r.start_time,
-            end_time: r.end_time,
-            total_price: r.total_price,
-            room_with_branch: r.room_with_branch as RoomWithBranch | null,
+          const roomInfo = (r.room_with_branch as RoomWithBranch | null)?.[0];
+          const branchName = (roomInfo?.branch ?? [])[0]?.name ?? "";
+          const text = buildPaymentMessage({
+            customerName: r.customer_name,
+            startTime: r.start_time,
+            endTime: r.end_time,
+            total: Number(r.total_price),
+            branchName,
           });
           await sendLineMessage(r.line_user_id, text);
         }

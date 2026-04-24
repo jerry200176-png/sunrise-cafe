@@ -107,17 +107,23 @@ async function handlePaymentReport(userId: string, rawText: string, replyToken?:
     .limit(1)
     .single();
 
-  if (!reservation) return; // 一般客人，靜默略過
+  if (!reservation) return;
+  if (!isPaymentMessage(rawText)) return;
 
-  if (!isPaymentMessage(rawText)) return; // 一般聊天，靜默略過
+  // 自動標記已付訂金
+  await supabaseAdmin()
+    .from("reservations")
+    .update({ is_deposit_paid: true, deposit_payment_note: rawText })
+    .eq("id", reservation.id);
 
+  // 通知群組
   try {
     const startDate = parseISO(reservation.start_time);
     const endDate = parseISO(reservation.end_time);
     const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
     const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
     const groupText =
-      `💰 客人回報付款\n` +
+      `💰 客人已付訂金（系統自動標記）\n` +
       `姓名：${reservation.customer_name}\n` +
       `代號：${reservation.booking_code}\n` +
       `時間：${formattedDate} ${timeRange}\n` +
@@ -128,7 +134,7 @@ async function handlePaymentReport(userId: string, rawText: string, replyToken?:
   }
 
   if (replyToken) {
-    await replyMessage(replyToken, "已收到您的付款通知，我們將盡快確認並更新訂位狀態，謝謝！");
+    await replyMessage(replyToken, "已收到您的付款通知，系統已自動記錄，感謝您！");
   }
 }
 
