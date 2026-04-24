@@ -164,15 +164,25 @@ export async function POST(request: NextRequest) {
 
   for (const event of payload.events ?? []) {
     if (event.type !== "message") continue;
-    if (event.message?.type !== "text") continue;
 
     const userId = event.source.userId;
-    const rawText = event.message.text?.trim() ?? "";
     const replyToken = event.replyToken;
-
-    if (!userId || !rawText) continue;
+    if (!userId) continue;
 
     try {
+      const msgType = event.message?.type;
+
+      // 客人傳圖片 → 視為付款截圖
+      if (msgType === "image") {
+        await handlePaymentReport(userId, "【付款截圖】", replyToken);
+        continue;
+      }
+
+      if (msgType !== "text") continue;
+
+      const rawText = event.message.text?.trim() ?? "";
+      if (!rawText) continue;
+
       const bookingCode = extractBookingCode(rawText);
       if (bookingCode) {
         await handleBookingCode(userId, bookingCode, replyToken);
