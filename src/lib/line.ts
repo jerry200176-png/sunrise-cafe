@@ -1,8 +1,8 @@
 const PUSH_URL = "https://api.line.me/v2/bot/message/push";
 
 export async function sendLineMessage(lineUserId: string, text: string): Promise<void> {
-  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-  if (!token) throw new Error("LINE_CHANNEL_ACCESS_TOKEN 未設定");
+  const token = process.env.LINE_CUSTOMER_ACCESS_TOKEN;
+  if (!token) throw new Error("LINE_CUSTOMER_ACCESS_TOKEN 未設定");
 
   const res = await fetch(PUSH_URL, {
     method: "POST",

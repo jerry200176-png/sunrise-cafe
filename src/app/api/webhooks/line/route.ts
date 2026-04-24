@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { sendLineMessage } from "@/lib/line";
+import { sendLineMessage as sendLineGroupMessage } from "@/lib/line-notify";
 import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
 
@@ -22,7 +22,7 @@ function supabaseAdmin() {
 }
 
 async function replyMessage(replyToken: string, text: string) {
-  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  const token = process.env.LINE_CUSTOMER_ACCESS_TOKEN;
   if (!token) return;
   try {
     await fetch(REPLY_URL, {
@@ -102,23 +102,20 @@ async function handlePaymentReport(userId: string, rawText: string, replyToken?:
 
   if (!isPaymentMessage(rawText)) return; // 一般聊天，靜默略過
 
-  const groupId = process.env.LINE_GROUP_ID;
-  if (groupId) {
-    try {
-      const startDate = parseISO(reservation.start_time);
-      const endDate = parseISO(reservation.end_time);
-      const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
-      const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
-      const groupText =
-        `💰 客人回報付款\n` +
-        `姓名：${reservation.customer_name}\n` +
-        `代號：${reservation.booking_code}\n` +
-        `時間：${formattedDate} ${timeRange}\n` +
-        `客人傳來：「${rawText}」`;
-      await sendLineMessage(groupId, groupText);
-    } catch (err) {
-      console.error("[webhook] group notify failed:", err);
-    }
+  try {
+    const startDate = parseISO(reservation.start_time);
+    const endDate = parseISO(reservation.end_time);
+    const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
+    const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
+    const groupText =
+      `💰 客人回報付款\n` +
+      `姓名：${reservation.customer_name}\n` +
+      `代號：${reservation.booking_code}\n` +
+      `時間：${formattedDate} ${timeRange}\n` +
+      `客人傳來：「${rawText}」`;
+    await sendLineGroupMessage(groupText);
+  } catch (err) {
+    console.error("[webhook] group notify failed:", err);
   }
 
   if (replyToken) {
