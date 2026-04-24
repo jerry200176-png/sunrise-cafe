@@ -59,27 +59,43 @@ export async function PATCH(
             start_time,
             end_time,
             total_price,
-            room_with_branch:rooms(name, branch:branches(name))
+            room_with_branch:rooms(name, price_weekday, price_weekend, branch:branches(name))
           `)
           .eq("id", id)
           .single();
 
         if (!r?.line_user_id) {
           lineResult = "no_line_id";
-        } else if (r.total_price == null) {
-          lineResult = "no_price";
         } else {
           const roomInfo = (r.room_with_branch as RoomWithBranch | null)?.[0];
           const branchName = (roomInfo?.branch ?? [])[0]?.name ?? "";
-          const text = buildPaymentMessage({
-            customerName: r.customer_name,
-            startTime: r.start_time,
-            endTime: r.end_time,
-            total: Number(r.total_price),
-            branchName,
-          });
-          await sendLineMessage(r.line_user_id, text);
-          lineResult = "sent";
+
+          // 若無金額，從房間定價自動計算
+          let total = r.total_price != null ? Number(r.total_price) : null;
+          if (total == null && roomInfo) {
+            const start = new Date(r.start_time);
+            const isWeekend = [0, 6].includes(start.getDay());
+            const pricePerHour = isWeekend
+              ? Number((roomInfo as Record<string, unknown>).price_weekend ?? 0)
+              : Number((roomInfo as Record<string, unknown>).price_weekday ?? 0);
+            const hours = (new Date(r.end_time).getTime() - start.getTime()) / 3_600_000;
+            total = Math.round(pricePerHour * hours);
+            await supabaseAdmin().from("reservations").update({ total_price: total }).eq("id", id);
+          }
+
+          if (total == null || total === 0) {
+            lineResult = "no_price";
+          } else {
+            const text = buildPaymentMessage({
+              customerName: r.customer_name,
+              startTime: r.start_time,
+              endTime: r.end_time,
+              total,
+              branchName,
+            });
+            await sendLineMessage(r.line_user_id, text);
+            lineResult = "sent";
+          }
         }
       } catch (err) {
         lineResult = `error: ${err instanceof Error ? err.message : String(err)}`;
