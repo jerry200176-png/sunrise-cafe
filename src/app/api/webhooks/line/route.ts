@@ -7,6 +7,15 @@ import { zhTW } from "date-fns/locale";
 
 const REPLY_URL = "https://api.line.me/v2/bot/message/reply";
 const BOOKING_CODE_RE = /^[A-Z0-9]{6}$/;
+
+function extractBookingCode(text: string): string | null {
+  const upper = text.toUpperCase().trim();
+  if (BOOKING_CODE_RE.test(upper)) return upper;
+  // 處理客人傳來 URL 或 text=代號 的格式
+  const match = upper.match(/[?&]TEXT=([A-Z0-9]{6})(?:&|$|\s)/);
+  if (match) return match[1];
+  return null;
+}
 const PAYMENT_KEYWORDS = ["末五碼", "五碼", "匯款", "付款", "已付", "已轉", "轉帳", "line pay", "linepay", "截圖", "收款", "轉過去", "付過去"];
 
 function isPaymentMessage(text: string): boolean {
@@ -153,14 +162,14 @@ export async function POST(request: NextRequest) {
 
     const userId = event.source.userId;
     const rawText = event.message.text?.trim() ?? "";
-    const upperText = rawText.toUpperCase();
     const replyToken = event.replyToken;
 
     if (!userId || !rawText) continue;
 
     try {
-      if (BOOKING_CODE_RE.test(upperText)) {
-        await handleBookingCode(userId, upperText, replyToken);
+      const bookingCode = extractBookingCode(rawText);
+      if (bookingCode) {
+        await handleBookingCode(userId, bookingCode, replyToken);
       } else {
         await handlePaymentReport(userId, rawText, replyToken);
       }
