@@ -180,7 +180,7 @@ export async function POST(request: NextRequest) {
 
       if (msgType !== "text") continue;
 
-      const rawText = event.message.text?.trim() ?? "";
+      const rawText = event.message?.text?.trim() ?? "";
       if (!rawText) continue;
 
       const bookingCode = extractBookingCode(rawText);

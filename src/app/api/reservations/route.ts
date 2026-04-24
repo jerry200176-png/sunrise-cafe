@@ -6,8 +6,16 @@ import {
   isAdminConfigured,
 } from "@/lib/supabase-admin";
 import { sendLineMessage } from "@/lib/line-notify";
+import { createClient } from "@supabase/supabase-js";
 import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
+
+function supabaseAdmin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
 
 export async function GET(request: NextRequest) {
   const branchId = request.nextUrl.searchParams.get("branchId");
@@ -112,6 +120,24 @@ export async function POST(request: NextRequest) {
       guest_count: guestCount ?? null,
       notes: notes?.trim() || null,
     });
+
+    // 若電話已有綁定的 line_user_id，複製到新訂位
+    try {
+      const { data: bound } = await supabaseAdmin()
+        .from("reservations")
+        .select("line_user_id")
+        .eq("phone", phone.trim())
+        .not("line_user_id", "is", null)
+        .neq("id", id)
+        .limit(1)
+        .single();
+      if (bound?.line_user_id) {
+        await supabaseAdmin()
+          .from("reservations")
+          .update({ line_user_id: bound.line_user_id })
+          .eq("id", id);
+      }
+    } catch { /* 查無舊綁定，略過 */ }
 
     // 傳群組通知（失敗不影響主流程）
     try {
