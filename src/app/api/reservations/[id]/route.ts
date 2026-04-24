@@ -47,6 +47,7 @@ export async function PATCH(
     await updateReservationAdmin(id, patch);
 
     // 若狀態改為 confirmed，嘗試自動傳 LINE 繳費通知
+    let lineResult: string | null = null;
     if (patch.status === "confirmed") {
       try {
         const { data: r } = await supabaseAdmin()
@@ -62,7 +63,11 @@ export async function PATCH(
           .eq("id", id)
           .single();
 
-        if (r?.line_user_id && r.total_price != null) {
+        if (!r?.line_user_id) {
+          lineResult = "no_line_id";
+        } else if (r.total_price == null) {
+          lineResult = "no_price";
+        } else {
           const roomInfo = (r.room_with_branch as RoomWithBranch | null)?.[0];
           const branchName = (roomInfo?.branch ?? [])[0]?.name ?? "";
           const text = buildPaymentMessage({
@@ -73,13 +78,15 @@ export async function PATCH(
             branchName,
           });
           await sendLineMessage(r.line_user_id, text);
+          lineResult = "sent";
         }
-      } catch {
-        // LINE 推播失敗不影響主流程，後台仍可手動複製
+      } catch (err) {
+        lineResult = `error: ${err instanceof Error ? err.message : String(err)}`;
+        console.error("[confirm] LINE 推播失敗:", err);
       }
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, lineResult });
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法更新訂位";
     return NextResponse.json({ error: message }, { status: 500 });
