@@ -130,8 +130,8 @@ export async function POST(request: NextRequest) {
         `人數：${guestStr}` +
         notesStr;
       await sendLineMessage(groupText);
-    } catch {
-      // 群組通知失敗不影響訂位建立
+    } catch (err) {
+      console.error("[reservations] 群組通知失敗:", err);
     }
 
     return NextResponse.json({ ok: true, id, booking_code });
