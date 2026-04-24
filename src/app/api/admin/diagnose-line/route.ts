@@ -47,6 +47,37 @@ export async function GET(request: NextRequest) {
   const groupToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
   const groupId = process.env.LINE_GROUP_ID;
   let groupTest: { ok: boolean; status: number; body: string } | null = null;
+  let groupBotInfo: { name?: string; basicId?: string; error?: string } = {};
+
+  if (groupToken) {
+    // 查這個 token 屬於哪個帳號
+    const infoRes = await fetch("https://api.line.me/v2/bot/info", {
+      headers: { Authorization: `Bearer ${groupToken}` },
+    });
+    if (infoRes.ok) {
+      const info = await infoRes.json() as { displayName?: string; basicId?: string };
+      groupBotInfo = { name: info.displayName, basicId: info.basicId };
+    } else {
+      groupBotInfo = { error: `token 無效 (${infoRes.status})` };
+    }
+
+    // 查本月用量
+    const quotaRes = await fetch("https://api.line.me/v2/bot/message/quota/consumption", {
+      headers: { Authorization: `Bearer ${groupToken}` },
+    });
+    const quotaBody = quotaRes.ok ? await quotaRes.json() as { totalUsage?: number } : null;
+    const limitRes = await fetch("https://api.line.me/v2/bot/message/quota", {
+      headers: { Authorization: `Bearer ${groupToken}` },
+    });
+    const limitBody = limitRes.ok ? await limitRes.json() as { value?: number; type?: string } : null;
+    if (quotaBody || limitBody) {
+      groupBotInfo = {
+        ...groupBotInfo,
+        ...({ used: quotaBody?.totalUsage, limit: limitBody?.value, planType: limitBody?.type } as object),
+      };
+    }
+  }
+
   if (groupToken && groupId) {
     const res = await fetch("https://api.line.me/v2/bot/message/push", {
       method: "POST",
@@ -82,6 +113,7 @@ export async function GET(request: NextRequest) {
           : "✅ 條件齊全，可以發送",
     },
     lineTest,
+    groupBotInfo,
     groupTest,
   });
 }
