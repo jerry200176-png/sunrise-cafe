@@ -46,9 +46,10 @@ export async function PATCH(
     }
     await updateReservationAdmin(id, patch);
 
-    // 若狀態改為 confirmed，嘗試自動傳 LINE 繳費通知
+    // 確認訂位 or 填金額時，只要兩個條件都齊就自動傳 LINE 繳費通知
+    const triggerLine = patch.status === "confirmed" || patch.total_price !== undefined;
     let lineResult: string | null = null;
-    if (patch.status === "confirmed") {
+    if (triggerLine) {
       try {
         const { data: r } = await supabaseAdmin()
           .from("reservations")
