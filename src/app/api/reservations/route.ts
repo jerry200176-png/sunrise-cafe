@@ -57,6 +57,7 @@ export async function POST(request: NextRequest) {
       guest_count: guestCount,
       notes,
       status,
+      line_user_id: lineUserId,
     } = body as {
       room_id: string;
       customer_name: string;
@@ -68,6 +69,7 @@ export async function POST(request: NextRequest) {
       guest_count?: number | null;
       notes?: string | null;
       status?: string;
+      line_user_id?: string | null;
     };
 
     if (!roomId || !customerName?.trim() || !phone?.trim() || !startTime || !endTime) {
@@ -108,6 +110,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 若客人已在表單中綁定 LINE，優先使用；否則嘗試從舊訂位複製
+    let finalLineUserId: string | null = lineUserId ?? null;
+    if (!finalLineUserId) {
+      try {
+        const { data: bound } = await supabaseAdmin()
+          .from("reservations")
+          .select("line_user_id")
+          .eq("phone", phone.trim())
+          .not("line_user_id", "is", null)
+          .limit(1)
+          .single();
+        finalLineUserId = bound?.line_user_id ?? null;
+      } catch { /* 查無舊綁定，略過 */ }
+    }
+
     const { id, booking_code } = await insertReservationAdmin({
       room_id: roomId,
       customer_name: customerName.trim(),
@@ -119,25 +136,8 @@ export async function POST(request: NextRequest) {
       total_price: totalPrice ?? null,
       guest_count: guestCount ?? null,
       notes: notes?.trim() || null,
+      line_user_id: finalLineUserId,
     });
-
-    // 若電話已有綁定的 line_user_id，複製到新訂位
-    try {
-      const { data: bound } = await supabaseAdmin()
-        .from("reservations")
-        .select("line_user_id")
-        .eq("phone", phone.trim())
-        .not("line_user_id", "is", null)
-        .neq("id", id)
-        .limit(1)
-        .single();
-      if (bound?.line_user_id) {
-        await supabaseAdmin()
-          .from("reservations")
-          .update({ line_user_id: bound.line_user_id })
-          .eq("id", id);
-      }
-    } catch { /* 查無舊綁定，略過 */ }
 
     // 傳群組通知（失敗不影響主流程）
     try {

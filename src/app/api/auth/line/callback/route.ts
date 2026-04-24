@@ -45,6 +45,12 @@ export async function GET(request: NextRequest) {
 
     const { userId } = await profileRes.json() as { userId: string };
 
+    if (bookingCode === "prebooking") {
+      return NextResponse.redirect(
+        `${origin}/book?line_user_id=${encodeURIComponent(userId)}`
+      );
+    }
+
     if (bookingCode) {
       const db = supabaseAdmin();
       const { data: reservation } = await db

@@ -37,6 +37,7 @@ export default function BookPage() {
   const [submitting, setSubmitting] = useState(false);
   const [rentalNotes, setRentalNotes] = useState<RentalNoteSection[]>([]);
   const [depositInfo, setDepositInfo] = useState<string | null>(null);
+  const [lineUserId, setLineUserId] = useState<string | null>(null);
 
   // 這裡確保介面包含 image_url
   const [branchRoomsAvailability, setBranchRoomsAvailability] = useState<{
@@ -168,6 +169,37 @@ export default function BookPage() {
       .finally(() => setLoading(false));
   }, [step, branchId, roomId, date]);
 
+  // LINE OAuth 回調：從 URL param 取得 user_id，並從 localStorage 還原表單
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const uid = params.get("line_user_id");
+    if (!uid) return;
+    setLineUserId(uid);
+    const saved = localStorage.getItem("booking_form_state");
+    if (saved) {
+      try {
+        const s = JSON.parse(saved) as {
+          branchId?: string; roomId?: string; date?: string;
+          selectedStart?: string; duration?: number;
+          name?: string; phone?: string; email?: string;
+          guestCount?: number | ""; step?: Step;
+        };
+        if (s.branchId) setBranchId(s.branchId);
+        if (s.roomId) setRoomId(s.roomId);
+        if (s.date) setDate(s.date);
+        if (s.selectedStart) setSelectedStart(s.selectedStart);
+        if (s.duration) setDuration(s.duration);
+        if (s.name) setName(s.name);
+        if (s.phone) setPhone(s.phone);
+        if (s.email !== undefined) setEmail(s.email);
+        if (s.guestCount !== undefined) setGuestCount(s.guestCount);
+        if (s.step) setStep(s.step);
+        localStorage.removeItem("booking_form_state");
+      } catch { /* 略過 */ }
+    }
+    window.history.replaceState({}, "", "/book");
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const canSelectDuration = (slotStart: string): boolean => {
     const startIdx = slots.findIndex((s) => s.start === slotStart);
     if (startIdx < 0) return false;
@@ -249,6 +281,7 @@ export default function BookPage() {
           total_price: getTotalPrice(),
           guest_count: guestCount === "" ? null : Number(guestCount),
           notes: null,
+          line_user_id: lineUserId || null,
         }),
       });
       const data = await res.json();
@@ -264,7 +297,7 @@ export default function BookPage() {
       const code = (data as { booking_code?: string })?.booking_code;
       if (code) {
         const weekendFlag = "1";
-        window.location.href = `/book/success?code=${encodeURIComponent(code)}&weekend=${weekendFlag}`;
+        window.location.href = `/book/success?code=${encodeURIComponent(code)}&weekend=${weekendFlag}${lineUserId ? "&line_bound=1" : ""}`;
       } else {
         setError("預約成功，但未取得訂位代號");
       }
@@ -272,6 +305,21 @@ export default function BookPage() {
       setSubmitting(false);
       setError(e instanceof Error ? e.message : "連線失敗");
     }
+  };
+
+  const handleLineLogin = () => {
+    localStorage.setItem(
+      "booking_form_state",
+      JSON.stringify({ branchId, roomId, date, selectedStart, duration, name, phone, email, guestCount, step })
+    );
+    const qs = new URLSearchParams({
+      response_type: "code",
+      client_id: "2009884734",
+      redirect_uri: `${window.location.origin}/api/auth/line/callback`,
+      scope: "profile",
+      state: "prebooking",
+    });
+    window.location.href = `https://access.line.me/oauth2/v2.1/authorize?${qs}`;
   };
 
   const formatSlotTime = (iso: string) =>
@@ -710,6 +758,22 @@ export default function BookPage() {
                   <p className="whitespace-pre-line">{depositInfo}</p>
                 </div>
               )}
+
+              <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+                <p className="mb-2 text-sm font-medium text-gray-700">📱 綁定 LINE 以接收訂位通知（選填）</p>
+                {lineUserId ? (
+                  <p className="text-sm text-green-700">✅ LINE 已連結，訂位確認後將自動通知您</p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleLineLogin}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#06C755] px-4 py-2 text-sm font-semibold text-white hover:bg-green-600 transition"
+                  >
+                    <span>💬</span>
+                    用 LINE 登入接收訂位通知
+                  </button>
+                )}
+              </div>
 
               <button
                 type="submit"
