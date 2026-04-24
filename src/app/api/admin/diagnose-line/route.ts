@@ -43,6 +43,27 @@ export async function GET(request: NextRequest) {
     lineTest = { ok: res.ok, status: res.status, body: await res.text() };
   }
 
+  // 測試群組通知 token（LINE_CHANNEL_ACCESS_TOKEN）
+  const groupToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  const groupId = process.env.LINE_GROUP_ID;
+  let groupTest: { ok: boolean; status: number; body: string } | null = null;
+  if (groupToken && groupId) {
+    const res = await fetch("https://api.line.me/v2/bot/message/push", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${groupToken}`,
+      },
+      body: JSON.stringify({
+        to: groupId,
+        messages: [{ type: "text", text: "🔧 群組通知測試（系統自動發送，請忽略）" }],
+      }),
+    });
+    groupTest = { ok: res.ok, status: res.status, body: await res.text() };
+  } else {
+    groupTest = { ok: false, status: 0, body: "缺少 LINE_CHANNEL_ACCESS_TOKEN 或 LINE_GROUP_ID" };
+  }
+
   return NextResponse.json({
     booking: {
       id: r.id,
@@ -61,5 +82,6 @@ export async function GET(request: NextRequest) {
           : "✅ 條件齊全，可以發送",
     },
     lineTest,
+    groupTest,
   });
 }
