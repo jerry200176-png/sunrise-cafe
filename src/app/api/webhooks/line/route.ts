@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendLineMessage as sendLineGroupMessage } from "@/lib/line-notify";
-import { format, parseISO } from "date-fns";
+import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
 
 const REPLY_URL = "https://api.line.me/v2/bot/message/reply";

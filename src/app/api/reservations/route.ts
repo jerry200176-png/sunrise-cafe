@@ -7,7 +7,7 @@ import {
 } from "@/lib/supabase-admin";
 import { sendLineMessage } from "@/lib/line-notify";
 import { createClient } from "@supabase/supabase-js";
-import { format, parseISO } from "date-fns";
+import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
 
 function supabaseAdmin() {
