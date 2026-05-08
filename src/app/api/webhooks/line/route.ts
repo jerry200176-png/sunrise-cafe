@@ -118,8 +118,11 @@ async function handlePaymentReport(userId: string, rawText: string, replyToken?:
 
   // 通知群組
   try {
-    const startDate = parseISO(reservation.start_time);
-    const endDate = parseISO(reservation.end_time);
+    // 轉成台灣時區再格式化，避免 Vercel 伺服器以 UTC 顯示時間
+    const toTaipei = (s: string) =>
+      new Date(new Date(s).toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
+    const startDate = toTaipei(reservation.start_time);
+    const endDate = toTaipei(reservation.end_time);
     const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
     const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
     const groupText =

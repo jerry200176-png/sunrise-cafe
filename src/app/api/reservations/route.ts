@@ -141,8 +141,11 @@ export async function POST(request: NextRequest) {
 
     // 傳群組通知（失敗不影響主流程）
     try {
-      const startDate = parseISO(startTime);
-      const endDate = parseISO(endTime);
+      // 轉成台灣時區再格式化，避免 Vercel 伺服器以 UTC 顯示時間
+      const toTaipei = (s: string) =>
+        new Date(new Date(s).toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
+      const startDate = toTaipei(startTime);
+      const endDate = toTaipei(endTime);
       const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
       const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
       const guestStr = guestCount ? `${guestCount} 人` : "未填";
