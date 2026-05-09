@@ -16,11 +16,36 @@ function extractBookingCode(text: string): string | null {
   if (match) return match[1];
   return null;
 }
-const PAYMENT_KEYWORDS = ["末五碼", "五碼", "匯款", "付款", "已付", "已轉", "轉帳", "line pay", "linepay", "截圖", "收款", "轉過去", "付過去"];
+const DEFAULT_PAYMENT_KEYWORDS = ["末五碼", "五碼", "匯款", "付款", "已付", "已轉", "轉帳", "line pay", "linepay", "截圖", "收款", "轉過去", "付過去"];
 
-function isPaymentMessage(text: string): boolean {
+// 排除問句：含問號或問句用語，視為詢問而非付款通知
+const QUESTION_PATTERNS = ["？", "?", "嗎", "呢", "如何", "怎麼", "怎樣", "多少", "幾點", "哪裡", "什麼時候", "要怎", "方式", "請問"];
+
+async function fetchPaymentKeywords(): Promise<string[]> {
+  try {
+    const res = await fetch(
+      `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/settings?id=eq.app&select=payment_keywords`,
+      {
+        headers: {
+          apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+          Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY!}`,
+        },
+        cache: "no-store",
+      }
+    );
+    if (!res.ok) return DEFAULT_PAYMENT_KEYWORDS;
+    const arr = await res.json();
+    const kws = Array.isArray(arr) ? arr[0]?.payment_keywords : null;
+    return Array.isArray(kws) && kws.length > 0 ? kws : DEFAULT_PAYMENT_KEYWORDS;
+  } catch {
+    return DEFAULT_PAYMENT_KEYWORDS;
+  }
+}
+
+function isPaymentMessage(text: string, keywords: string[]): boolean {
   const lower = text.toLowerCase();
-  return PAYMENT_KEYWORDS.some((kw) => lower.includes(kw));
+  if (QUESTION_PATTERNS.some((q) => lower.includes(q))) return false;
+  return keywords.some((kw) => lower.includes(kw.toLowerCase()));
 }
 
 function supabaseAdmin() {
@@ -97,7 +122,7 @@ async function handleBookingCode(userId: string, upperText: string, replyToken?:
   if (replyToken) await replyMessage(replyToken, statusMsg);
 }
 
-async function handlePaymentReport(userId: string, rawText: string, replyToken?: string) {
+async function handlePaymentReport(userId: string, rawText: string, replyToken?: string, keywords: string[] = DEFAULT_PAYMENT_KEYWORDS) {
   const { data: reservation } = await supabaseAdmin()
     .from("reservations")
     .select("id, booking_code, customer_name, start_time, end_time")
@@ -108,7 +133,7 @@ async function handlePaymentReport(userId: string, rawText: string, replyToken?:
     .single();
 
   if (!reservation) return;
-  if (!isPaymentMessage(rawText)) return;
+  if (!isPaymentMessage(rawText, keywords)) return;
 
   // 自動標記已付訂金
   await supabaseAdmin()
@@ -165,6 +190,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  const paymentKeywords = await fetchPaymentKeywords();
+
   for (const event of payload.events ?? []) {
     if (event.type !== "message") continue;
 
@@ -177,7 +204,7 @@ export async function POST(request: NextRequest) {
 
       // 客人傳圖片 → 視為付款截圖
       if (msgType === "image") {
-        await handlePaymentReport(userId, "【付款截圖】", replyToken);
+        await handlePaymentReport(userId, "【付款截圖】", replyToken, paymentKeywords);
         continue;
       }
 
@@ -190,7 +217,7 @@ export async function POST(request: NextRequest) {
       if (bookingCode) {
         await handleBookingCode(userId, bookingCode, replyToken);
       } else {
-        await handlePaymentReport(userId, rawText, replyToken);
+        await handlePaymentReport(userId, rawText, replyToken, paymentKeywords);
       }
     } catch (err) {
       console.error("[webhook] event processing error:", err);
