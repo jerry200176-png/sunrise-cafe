@@ -1,4 +1,4 @@
-import { format, parseISO } from "date-fns";
+import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
 
 const PUSH_URL = "https://api.line.me/v2/bot/message/push";
@@ -40,8 +40,10 @@ export function buildPaymentMessage({
   total: number;
   branchName: string;
 }): string {
-  const startDate = parseISO(startTime);
-  const endDate = parseISO(endTime);
+  const toTaipei = (s: string) =>
+    new Date(new Date(s).toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
+  const startDate = toTaipei(startTime);
+  const endDate = toTaipei(endTime);
   const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
   const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
   const deposit = Math.ceil(total / 2);
