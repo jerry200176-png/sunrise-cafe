@@ -49,6 +49,11 @@ export default function AdminBranchesRoomsPage() {
   const [depositInfoSaving, setDepositInfoSaving] = useState(false);
   const [depositInfoSaved, setDepositInfoSaved] = useState(false);
 
+  const [paymentKeywords, setPaymentKeywords] = useState<string[]>([]);
+  const [keywordInput, setKeywordInput] = useState("");
+  const [keywordsSaving, setKeywordsSaving] = useState(false);
+  const [keywordsSaved, setKeywordsSaved] = useState(false);
+
   const loadBranches = async () => {
     const res = await fetch("/api/branches");
     const data = await res.json();
@@ -97,11 +102,12 @@ export default function AdminBranchesRoomsPage() {
     fetch("/api/settings")
       .then((r) => r.json())
       .then((d) => {
-        const data = d as { current_branch_id?: string | null; rental_notes?: RentalNoteSection[]; closed_dates?: string[]; deposit_info?: string | null };
+        const data = d as { current_branch_id?: string | null; rental_notes?: RentalNoteSection[]; closed_dates?: string[]; deposit_info?: string | null; payment_keywords?: string[] };
         if (data?.current_branch_id) setReservationBranchId(data.current_branch_id);
         if (Array.isArray(data?.rental_notes)) setRentalNotes(data.rental_notes);
         if (Array.isArray(data?.closed_dates)) setClosedDates(data.closed_dates);
         if (data?.deposit_info) setDepositInfo(data.deposit_info);
+        if (Array.isArray(data?.payment_keywords)) setPaymentKeywords(data.payment_keywords);
       })
       .catch(() => { });
   }, []);
@@ -330,6 +336,33 @@ export default function AdminBranchesRoomsPage() {
       setError(err instanceof Error ? err.message : "儲存失敗");
     } finally {
       setDepositInfoSaving(false);
+    }
+  };
+
+  const addKeyword = () => {
+    const kw = keywordInput.trim();
+    if (!kw || paymentKeywords.includes(kw)) return;
+    setPaymentKeywords((prev) => [...prev, kw]);
+    setKeywordInput("");
+  };
+
+  const removeKeyword = (kw: string) => setPaymentKeywords((prev) => prev.filter((k) => k !== kw));
+
+  const saveKeywords = async () => {
+    setKeywordsSaving(true);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ payment_keywords: paymentKeywords }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "儲存失敗");
+      setKeywordsSaved(true);
+      setTimeout(() => setKeywordsSaved(false), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "儲存失敗");
+    } finally {
+      setKeywordsSaving(false);
     }
   };
 
@@ -652,6 +685,52 @@ export default function AdminBranchesRoomsPage() {
                     {d}
                     <button type="button" onClick={() => removeClosedDate(d)}
                       className="rounded-full p-0.5 hover:bg-red-100 transition-colors" aria-label="移除">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* 付款關鍵字設定 */}
+        <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 bg-stone-50/50 px-5 py-3.5">
+            <div className="flex items-center gap-2">
+              <CalendarDays className="h-4 w-4 text-green-500" />
+              <h2 className="text-sm font-semibold tracking-wide text-stone-700">付款關鍵字設定</h2>
+            </div>
+            <button type="button" onClick={saveKeywords} disabled={keywordsSaving}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50 transition-colors">
+              {keywordsSaving ? "儲存中…" : keywordsSaved ? "✓ 已儲存" : "儲存"}
+            </button>
+          </div>
+          <div className="p-4 space-y-3">
+            <p className="text-xs text-stone-400">客人傳送的訊息包含以下任一關鍵字（且非問句），系統會自動標記已付訂金。</p>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={keywordInput}
+                onChange={(e) => setKeywordInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addKeyword()}
+                placeholder="輸入關鍵字後按 Enter 或點新增"
+                className="flex-1 rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none"
+              />
+              <button type="button" onClick={addKeyword} disabled={!keywordInput.trim()}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-stone-200 px-3 py-2 text-sm text-stone-600 hover:bg-stone-50 disabled:opacity-40 transition-colors">
+                <Plus className="h-3.5 w-3.5" /> 新增
+              </button>
+            </div>
+            {paymentKeywords.length === 0 ? (
+              <p className="text-sm text-stone-400">尚無關鍵字設定。</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {paymentKeywords.map((kw) => (
+                  <span key={kw} className="inline-flex items-center gap-1.5 rounded-full bg-green-50 border border-green-100 px-3 py-1 text-sm text-green-700">
+                    {kw}
+                    <button type="button" onClick={() => removeKeyword(kw)}
+                      className="rounded-full p-0.5 hover:bg-green-100 transition-colors" aria-label="移除">
                       <Trash2 className="h-3 w-3" />
                     </button>
                   </span>

@@ -81,10 +81,10 @@ export async function deleteBranch(id: string): Promise<void> {
   }
 }
 
-export async function fetchSettings(): Promise<{ current_branch_id: string | null; rental_notes: import("@/types").RentalNoteSection[]; closed_dates: string[]; deposit_info: string | null }> {
+export async function fetchSettings(): Promise<{ current_branch_id: string | null; rental_notes: import("@/types").RentalNoteSection[]; closed_dates: string[]; deposit_info: string | null; payment_keywords: string[] }> {
   const { url: baseUrl } = base();
   const res = await fetch(
-    `${baseUrl}/rest/v1/settings?id=eq.app&select=current_branch_id,rental_notes,closed_dates,deposit_info`,
+    `${baseUrl}/rest/v1/settings?id=eq.app&select=current_branch_id,rental_notes,closed_dates,deposit_info,payment_keywords`,
     { method: "GET", headers: headers(), cache: "no-store" }
   );
   if (!res.ok) {
@@ -98,6 +98,7 @@ export async function fetchSettings(): Promise<{ current_branch_id: string | nul
     rental_notes: row?.rental_notes ?? [],
     closed_dates: row?.closed_dates ?? [],
     deposit_info: row?.deposit_info ?? null,
+    payment_keywords: row?.payment_keywords ?? ["末五碼", "五碼", "匯款", "付款", "已付", "已轉", "轉帳", "line pay", "linepay", "截圖", "收款", "轉過去", "付過去"],
   };
 }
 
@@ -105,7 +106,8 @@ export async function updateSettings(
   current_branch_id: string | null,
   rental_notes?: import("@/types").RentalNoteSection[],
   closed_dates?: string[],
-  deposit_info?: string | null
+  deposit_info?: string | null,
+  payment_keywords?: string[]
 ): Promise<void> {
   const { url: baseUrl } = base();
   const body: Record<string, unknown> = {
@@ -115,6 +117,7 @@ export async function updateSettings(
   if (rental_notes !== undefined) body.rental_notes = rental_notes;
   if (closed_dates !== undefined) body.closed_dates = closed_dates;
   if (deposit_info !== undefined) body.deposit_info = deposit_info;
+  if (payment_keywords !== undefined) body.payment_keywords = payment_keywords;
   const res = await fetch(`${baseUrl}/rest/v1/settings?id=eq.app`, {
     method: "PATCH",
     headers: headers({ Prefer: "return=minimal" }),
