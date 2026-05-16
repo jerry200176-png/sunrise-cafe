@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  lint-and-build:
+    name: Lint & Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+        env:
+          # 提供 build 所需的 placeholder 環境變數
+          # 不含真實密鑰：API routes 在 runtime 才執行，build 階段不需要真實值
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder_anon_key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder_service_role_key
+          ADMIN_PASSWORD: placeholder_password
+          # Sentry/Upstash 未設定時自動停用，不影響 build
