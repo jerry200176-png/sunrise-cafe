@@ -4,6 +4,7 @@ import {
   fetchReservationsByPhone,
   isAdminConfigured,
 } from "@/lib/supabase-admin";
+import { notifyWaitlist } from "@/lib/waitlist";
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
@@ -47,6 +48,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "此訂位已取消" }, { status: 400 });
     }
     await updateReservationAdmin(match.id, { status: "cancelled" });
+
+    // 非同步通知等位清單，不影響取消回應速度
+    notifyWaitlist(match.room_id, match.start_time, match.end_time).catch((err) =>
+      console.error("[cancel-booking] waitlist notify failed:", err)
+    );
+
     return NextResponse.json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法取消";
