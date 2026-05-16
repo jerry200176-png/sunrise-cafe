@@ -1,0 +1,3 @@
+-- D-7 客人提醒旗標
+ALTER TABLE reservations
+  ADD COLUMN IF NOT EXISTS is_reminded_7d BOOLEAN NOT NULL DEFAULT FALSE;

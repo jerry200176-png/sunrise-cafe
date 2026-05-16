@@ -194,6 +194,7 @@ export async function updateReservationAdmin(
   updates: {
     status?: string;
     is_notified?: boolean;
+    is_reminded_7d?: boolean;
     is_deposit_paid?: boolean;
     deposit_payment_note?: string | null;
     notes?: string | null;
@@ -359,6 +360,34 @@ export async function fetchReservationsForReminder(force: boolean = false) {
   }
 
   const { data, error } = await query;
+
+  if (error) throw error;
+  return data;
+}
+
+// 取得 7 天後有訂位、已綁定 LINE、尚未發送 D-7 提醒的客人
+export async function fetchReservationsIn7Days() {
+  const nowTW = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "Asia/Taipei" })
+  );
+  const target = new Date(nowTW);
+  target.setDate(target.getDate() + 7);
+
+  const y = target.getFullYear();
+  const m = String(target.getMonth() + 1).padStart(2, "0");
+  const d = String(target.getDate()).padStart(2, "0");
+  const startRange = `${y}-${m}-${d}T00:00:00+08:00`;
+  const endRange = `${y}-${m}-${d}T23:59:59.999+08:00`;
+
+  const { data, error } = await supabaseAdmin()
+    .from("reservations")
+    .select("id, customer_name, start_time, end_time, line_user_id, room:rooms(name, branch:branches(name))")
+    .gte("start_time", startRange)
+    .lte("start_time", endRange)
+    .neq("status", "cancelled")
+    .eq("is_reminded_7d", false)
+    .not("line_user_id", "is", null)
+    .order("start_time", { ascending: true });
 
   if (error) throw error;
   return data;
