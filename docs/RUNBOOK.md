@@ -1,17 +1,30 @@
 # Runbook — 操作手冊
 
-## 日常部署
+## 開發與部署流程（Standard Workflow）
+
+`main` 分支已啟用保護規則，CI 通過才能合併。
 
 ```bash
-# 本機改完後
-git add <檔案>
-git commit -m "feat/fix/chore: 說明"
-git push
+# 1. 從 main 開新分支
+git checkout main && git pull
+git checkout -b feat/your-feature   # 或 fix/、chore/
 
-# Vercel 自動觸發重新 build（約 1-2 分鐘）
-# 或手動用 CLI
-vercel --prod
+# 2. 開發、commit
+git add <檔案>
+git commit -m "feat: 說明"
+git push -u origin feat/your-feature
+
+# 3. 開 PR → CI 自動跑 Lint + Build
+#    Vercel 自動產生 Preview URL，可先在 Preview 測試
+gh pr create --title "feat: ..." --body "..."
+
+# 4. CI 通過、功能確認後合併 PR
+gh pr merge <PR號> --squash
+
+# 5. main 合併後 Vercel 自動部署正式環境
 ```
+
+**每個 PR 都有專屬 Preview URL**（格式：`https://sunrise-cafe-xxxxx.vercel.app`），可在正式部署前完整測試。
 
 ## 更新環境變數
 
