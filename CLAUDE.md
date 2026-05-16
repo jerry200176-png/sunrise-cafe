@@ -98,9 +98,40 @@ print-bridge/             # 本地列印服務（獨立部署，非 Vercel）
 
 ---
 
+## 關鍵檔案位置（更新）
+
+```
+src/
+  lib/
+    rate-limit.ts           # Upstash Rate Limiting（未設定時 fail-open）
+    waitlist.ts             # 等位清單通知邏輯
+  app/
+    api/
+      admin/reports/        # 營收報表 API
+      waitlist/             # 等位 CRUD API
+    admin/reports/          # 報表頁面（Recharts）
+    book/waitlist/          # 等位表單頁面
+instrumentation.ts          # Sentry server/edge 初始化
+instrumentation-client.ts   # Sentry client 初始化
+sentry.*.config.ts          # Sentry 設定（三個 runtime）
+.github/workflows/ci.yml    # GitHub Actions CI（Lint + Build）
+```
+
+## 多分店 LINE 推播
+
+分店可在後台設定 `line_group_id`（branches 表）。Cron 會自動對所有有設定的分店各自推播。若無分店設定，fallback 到 `LINE_GROUP_ID` 環境變數（向下相容）。
+
+## 等位清單觸發點
+
+取消訂位的兩個地方都會觸發等位通知：
+- `src/app/api/cancel-booking/route.ts`（客人自行取消）
+- `src/app/api/reservations/[id]/route.ts`（後台取消）
+
 ## 常見地雷
 
 - **Supabase 免費方案**：閒置 7 天會暫停，需手動到 Dashboard 恢復
 - **Vercel 環境變數更新後**需 Redeploy 才生效
 - `LINE_CHANNEL_SECRET` 同時用於 webhook 簽章驗證，換群組 Bot 後需確認 webhook URL 設定在新 channel
 - `print-bridge/` 是本機 Node.js 服務，不部署到 Vercel，需在店內電腦獨立執行
+- **Rate Limiting**：Upstash 未設定時自動停用（fail-open），設定後立即生效
+- **Sentry**：`NEXT_PUBLIC_SENTRY_DSN` 未設定時靜默，不影響系統運作
