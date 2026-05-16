@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateReservationAdmin, deleteReservationAdmin, isAdminConfigured } from "@/lib/supabase-admin";
 import { sendLineMessage, buildPaymentMessage } from "@/lib/line";
+import { notifyWaitlist } from "@/lib/waitlist";
 import { createClient } from "@supabase/supabase-js";
 function supabaseAdmin() {
   return createClient(
@@ -45,6 +46,20 @@ export async function PATCH(
       return NextResponse.json({ error: "未提供可更新欄位" }, { status: 400 });
     }
     await updateReservationAdmin(id, patch);
+
+    // 後台取消時，通知等位清單
+    if (patch.status === "cancelled") {
+      const { data: cancelled } = await supabaseAdmin()
+        .from("reservations")
+        .select("room_id, start_time, end_time")
+        .eq("id", id)
+        .single();
+      if (cancelled) {
+        notifyWaitlist(cancelled.room_id, cancelled.start_time, cancelled.end_time).catch(
+          (err) => console.error("[reservations/id] waitlist notify failed:", err)
+        );
+      }
+    }
 
     // 確認訂位 or 填金額時，只要兩個條件都齊就自動傳 LINE 繳費通知
     const triggerLine = patch.status === "confirmed" || patch.total_price !== undefined;
