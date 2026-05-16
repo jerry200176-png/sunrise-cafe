@@ -14,17 +14,18 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, address, phone, open_time, close_time } = body as {
+    const { name, address, phone, open_time, close_time, line_group_id } = body as {
       name: string;
       address?: string | null;
       phone?: string | null;
       open_time?: string | null;
       close_time?: string | null;
+      line_group_id?: string | null;
     };
     if (!name?.trim()) {
       return NextResponse.json({ error: "名稱為必填" }, { status: 400 });
     }
-    await insertBranch({ name: name.trim(), address: address ?? null, phone: phone ?? null, open_time: open_time ?? null, close_time: close_time ?? null });
+    await insertBranch({ name: name.trim(), address: address ?? null, phone: phone ?? null, open_time: open_time ?? null, close_time: close_time ?? null, line_group_id: line_group_id ?? null });
     return NextResponse.json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法新增分店";
