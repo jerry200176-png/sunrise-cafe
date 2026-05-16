@@ -8,14 +8,15 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   if (!id) return NextResponse.json({ error: "缺少 id" }, { status: 400 });
   try {
     const body = await request.json();
-    const { name, address, phone, open_time, close_time } = body as Partial<{
+    const { name, address, phone, open_time, close_time, line_group_id } = body as Partial<{
       name: string;
       address: string | null;
       phone: string | null;
       open_time: string | null;
       close_time: string | null;
+      line_group_id: string | null;
     }>;
-    await updateBranch(id, { name, address, phone, open_time, close_time });
+    await updateBranch(id, { name, address, phone, open_time, close_time, line_group_id });
     return NextResponse.json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法更新分店";

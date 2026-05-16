@@ -26,6 +26,7 @@ export default function AdminBranchesRoomsPage() {
   const [branchPhone, setBranchPhone] = useState("");
   const [branchOpenTime, setBranchOpenTime] = useState("09:00");
   const [branchCloseTime, setBranchCloseTime] = useState("21:00");
+  const [branchLineGroupId, setBranchLineGroupId] = useState("");
 
   const [roomFormOpen, setRoomFormOpen] = useState(false);
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
@@ -119,6 +120,7 @@ export default function AdminBranchesRoomsPage() {
     setBranchPhone("");
     setBranchOpenTime("09:00");
     setBranchCloseTime("21:00");
+    setBranchLineGroupId("");
     setBranchFormOpen(true);
   };
 
@@ -129,6 +131,7 @@ export default function AdminBranchesRoomsPage() {
     setBranchPhone(b.phone ?? "");
     setBranchOpenTime(b.open_time ?? "09:00");
     setBranchCloseTime(b.close_time ?? "21:00");
+    setBranchLineGroupId(((b as unknown) as Record<string, unknown>).line_group_id as string ?? "");
     setBranchFormOpen(true);
   };
 
@@ -145,6 +148,7 @@ export default function AdminBranchesRoomsPage() {
             phone: branchPhone.trim() || null,
             open_time: branchOpenTime || null,
             close_time: branchCloseTime || null,
+            line_group_id: branchLineGroupId.trim() || null,
           }),
         });
         if (!res.ok) throw new Error((await res.json()).error ?? "更新失敗");
@@ -158,6 +162,7 @@ export default function AdminBranchesRoomsPage() {
             phone: branchPhone.trim() || null,
             open_time: branchOpenTime || null,
             close_time: branchCloseTime || null,
+            line_group_id: branchLineGroupId.trim() || null,
           }),
         });
         if (!res.ok) throw new Error((await res.json()).error ?? "新增失敗");
@@ -801,6 +806,11 @@ export default function AdminBranchesRoomsPage() {
               <div>
                 <label className="block text-xs font-medium text-stone-500 mb-1.5 uppercase tracking-wide">電話</label>
                 <input type="text" value={branchPhone} onChange={(e) => setBranchPhone(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" placeholder="例：05-1234567" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-stone-500 mb-1.5 uppercase tracking-wide">LINE 群組 ID</label>
+                <input type="text" value={branchLineGroupId} onChange={(e) => setBranchLineGroupId(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" placeholder="例：C6aa66403137e743c789ef1388..." />
+                <p className="mt-1 text-xs text-stone-400">設定後 Cron 自動推播明日提醒到此群組</p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>

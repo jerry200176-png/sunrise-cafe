@@ -17,7 +17,23 @@ export function isLineConfigured(): boolean {
   return Boolean(token && groupId);
 }
 
-/** 發送文字訊息到 LINE 群組 */
+/** 發送文字訊息到指定 LINE 群組（明確傳入 groupId） */
+export async function sendLineMessageToGroup(text: string, groupId: string): Promise<void> {
+  const { token } = getLineConfig();
+  if (!token) throw new Error("缺少 LINE_CHANNEL_ACCESS_TOKEN");
+
+  const res = await fetch(LINE_API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ to: groupId, messages: [{ type: "text", text }] }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`LINE API 錯誤 (${res.status}): ${body}`);
+  }
+}
+
+/** 發送文字訊息到 LINE 群組（使用 LINE_GROUP_ID 環境變數，向下相容） */
 export async function sendLineMessage(text: string): Promise<void> {
   const { token, groupId } = getLineConfig();
   if (!token || !groupId) {
@@ -25,23 +41,7 @@ export async function sendLineMessage(text: string): Promise<void> {
       "缺少 LINE 設定：請在 .env.local 填入 LINE_CHANNEL_ACCESS_TOKEN 和 LINE_GROUP_ID"
     );
   }
-
-  const res = await fetch(LINE_API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      to: groupId,
-      messages: [{ type: "text", text }],
-    }),
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`LINE API 錯誤 (${res.status}): ${body}`);
-  }
+  return sendLineMessageToGroup(text, groupId);
 }
 
 /** 格式化明日訂位提醒訊息 */
