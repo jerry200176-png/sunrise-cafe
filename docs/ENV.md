@@ -49,6 +49,16 @@
 | `LINE_LOGIN_CHANNEL_ID` | LINE Login Channel ID | LINE Developers → LINE Login |
 | `LINE_LOGIN_CHANNEL_SECRET` | LINE Login Channel Secret | 同上 |
 
+## Upstash Redis（Rate Limiting）
+
+| 變數 | 說明 | 取得位置 |
+|------|------|----------|
+| `UPSTASH_REDIS_REST_URL` | Upstash Redis REST URL | console.upstash.com → 資料庫 → REST API |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis REST Token | 同上 |
+
+> 未設定時 Rate Limiting 自動停用，系統照常運作。  
+> 設定步驟：[console.upstash.com](https://console.upstash.com) 免費建立 Redis → 複製 REST URL 和 Token → 加入 Vercel 環境變數。
+
 ## Sentry（Error Monitoring）
 
 | 變數 | 說明 | 取得位置 |

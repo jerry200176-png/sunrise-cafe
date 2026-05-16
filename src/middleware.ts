@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 
 const COOKIE_NAME = "admin_session";
 
@@ -25,11 +26,7 @@ async function verifySession(value: string, secret: string): Promise<boolean> {
     false,
     ["sign"]
   );
-  const sigBuffer = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(encoded)
-  );
+  const sigBuffer = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(encoded));
   const ourSig = arrayBufferToBase64Url(sigBuffer);
   if (ourSig !== sigFromCookie) return false;
 
@@ -43,27 +40,49 @@ async function verifySession(value: string, secret: string): Promise<boolean> {
   }
 }
 
+function tooManyRequests(reset: number) {
+  return NextResponse.json(
+    { error: "Too Many Requests" },
+    {
+      status: 429,
+      headers: { "Retry-After": String(Math.ceil((reset - Date.now()) / 1000)) },
+    }
+  );
+}
+
 export async function middleware(request: NextRequest) {
-  const path = request.nextUrl.pathname;
-  if (path === "/admin/login") {
-    return NextResponse.next();
+  const { pathname } = request.nextUrl;
+  const ip = getClientIp(request);
+
+  // ── Rate Limiting ──────────────────────────────────────────────────
+  if (pathname === "/api/admin/login" && request.method === "POST") {
+    const { success, reset } = await rateLimit(ip, "login");
+    if (!success) return tooManyRequests(reset);
+  } else if (pathname === "/api/reservations" && request.method === "POST") {
+    const { success, reset } = await rateLimit(ip, "booking");
+    if (!success) return tooManyRequests(reset);
+  } else if (pathname === "/api/availability") {
+    const { success, reset } = await rateLimit(ip, "availability");
+    if (!success) return tooManyRequests(reset);
+  } else if (pathname.startsWith("/api/") && !pathname.startsWith("/api/webhooks/")) {
+    // webhooks 已有 LINE 簽章驗證，不需額外限流
+    const { success, reset } = await rateLimit(ip, "api");
+    if (!success) return tooManyRequests(reset);
   }
-  if (!path.startsWith("/admin")) {
-    return NextResponse.next();
-  }
+
+  // ── Admin Session 驗證 ─────────────────────────────────────────────
+  if (pathname === "/admin/login") return NextResponse.next();
+  if (!pathname.startsWith("/admin")) return NextResponse.next();
 
   const secret = process.env.ADMIN_PASSWORD;
-  if (!secret) {
-    return NextResponse.next();
-  }
+  if (!secret) return NextResponse.next();
 
   const cookie = request.cookies.get(COOKIE_NAME);
-  const value = cookie?.value;
-  if (!value) {
+  if (!cookie?.value) {
     return NextResponse.redirect(new URL("/admin/login", request.url));
   }
 
-  const ok = await verifySession(value, secret);
+  const ok = await verifySession(cookie.value, secret);
   if (!ok) {
     const res = NextResponse.redirect(new URL("/admin/login", request.url));
     res.cookies.set(COOKIE_NAME, "", { path: "/", maxAge: 0 });
@@ -74,5 +93,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin", "/admin/:path*"],
+  matcher: ["/admin", "/admin/:path*", "/api/:path*"],
 };
