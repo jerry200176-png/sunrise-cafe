@@ -49,6 +49,17 @@
 | `LINE_LOGIN_CHANNEL_ID` | LINE Login Channel ID | LINE Developers → LINE Login |
 | `LINE_LOGIN_CHANNEL_SECRET` | LINE Login Channel Secret | 同上 |
 
+## Sentry（Error Monitoring）
+
+| 變數 | 說明 | 取得位置 |
+|------|------|----------|
+| `NEXT_PUBLIC_SENTRY_DSN` | Sentry 專案 DSN（前後端共用） | sentry.io → 專案 → Settings → Client Keys |
+| `SENTRY_ORG` | Sentry 組織 slug | sentry.io → 組織設定 |
+| `SENTRY_PROJECT` | Sentry 專案 slug | sentry.io → 專案設定 |
+| `SENTRY_AUTH_TOKEN` | Build 時上傳 source maps 用（選填） | sentry.io → Settings → Auth Tokens |
+
+> DSN 未設定時 Sentry 靜默不啟動，不影響系統正常運作。
+
 ## Cron（選填）
 
 | 變數 | 說明 |
