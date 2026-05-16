@@ -4,6 +4,26 @@
 
 ---
 
+## [1.1.0] — 2026-05-16
+
+### Added
+- **Sentry Error Monitoring**：自動捕捉 server/client 錯誤，Session Replay，global-error 友善錯誤頁
+- **API Rate Limiting**：Upstash Redis sliding window，分層限流（登入 5/min、訂位 5/min、查詢 30/min）
+- **GitHub Actions CI**：PR 自動跑 Lint + Build，main 分支保護規則
+- **D-7 客人提醒**：有綁定 LINE 的客人，訂位 7 天前自動收到個人提醒
+- **等位清單（Waitlist）**：時段滿時可加入等位，有人取消自動 LINE 通知第一位等位者
+- **後台營收報表**：月份趨勢圖（Recharts）、包廂使用率、熱門時段、一鍵匯出 CSV
+- **分店 LINE 群組 ID 資料庫設定**：移除硬編碼「大安店」，各分店獨立設定群組 ID，支援多分店
+
+### Fixed
+- Supabase 手動備份腳本（PowerShell）+ 每週自動排程設定說明
+
+### Infrastructure
+- 完整文件套件：CLAUDE.md、CHANGELOG、ARCHITECTURE、DECISIONS、ENV、GLOSSARY、LINE、RUNBOOK
+- PR Template（.github/PULL_REQUEST_TEMPLATE.md）
+
+---
+
 ## [1.0.0] — 2026-05-09
 
 ### Added
