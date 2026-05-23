@@ -13,7 +13,7 @@ import {
     isLineConfigured,
 } from "@/lib/line-notify";
 import { sendLineMessage as sendLineMessageToUser } from "@/lib/line";
-import { format, parseISO } from "date-fns";
+import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
 
 const CAT_MESSAGES = [
@@ -105,8 +105,10 @@ async function handleSendLine(force: boolean = false, sendCatOnEmpty: boolean = 
             const lineUserId = r.line_user_id as string | null;
             if (!lineUserId) continue;
             try {
-                const startDate = parseISO(r.start_time as string);
-                const endDate = parseISO(r.end_time as string);
+                const toTaipei = (s: string) =>
+                    new Date(new Date(s).toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
+                const startDate = toTaipei(r.start_time as string);
+                const endDate = toTaipei(r.end_time as string);
                 const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
                 const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
                 await sendLineMessageToUser(
