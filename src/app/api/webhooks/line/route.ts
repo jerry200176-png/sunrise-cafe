@@ -2,24 +2,16 @@ import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendLineMessage as sendLineGroupMessage } from "@/lib/line-notify";
+import { toTaipei } from "@/lib/datetime";
+import {
+  DEFAULT_PAYMENT_KEYWORDS,
+  isPaymentMessage,
+  extractBookingCode,
+} from "@/lib/payment-keywords";
 import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
 
 const REPLY_URL = "https://api.line.me/v2/bot/message/reply";
-const BOOKING_CODE_RE = /^[A-Z0-9]{6}$/;
-
-function extractBookingCode(text: string): string | null {
-  const upper = text.toUpperCase().trim();
-  if (BOOKING_CODE_RE.test(upper)) return upper;
-  // 處理客人傳來 URL 或 text=代號 的格式
-  const match = upper.match(/[?&]TEXT=([A-Z0-9]{6})(?:&|$|\s)/);
-  if (match) return match[1];
-  return null;
-}
-const DEFAULT_PAYMENT_KEYWORDS = ["末五碼", "五碼", "匯款", "付款", "已付", "已轉", "轉帳", "line pay", "linepay", "截圖", "收款", "轉過去", "付過去"];
-
-// 排除問句：含問號或問句用語，視為詢問而非付款通知
-const QUESTION_PATTERNS = ["？", "?", "嗎", "呢", "如何", "怎麼", "怎樣", "多少", "幾點", "哪裡", "什麼時候", "要怎", "方式", "請問"];
 
 async function fetchPaymentKeywords(): Promise<string[]> {
   try {
@@ -40,12 +32,6 @@ async function fetchPaymentKeywords(): Promise<string[]> {
   } catch {
     return DEFAULT_PAYMENT_KEYWORDS;
   }
-}
-
-function isPaymentMessage(text: string, keywords: string[]): boolean {
-  const lower = text.toLowerCase();
-  if (QUESTION_PATTERNS.some((q) => lower.includes(q))) return false;
-  return keywords.some((kw) => lower.includes(kw.toLowerCase()));
 }
 
 function supabaseAdmin() {
@@ -144,8 +130,6 @@ async function handlePaymentReport(userId: string, rawText: string, replyToken?:
   // 通知群組
   try {
     // 轉成台灣時區再格式化，避免 Vercel 伺服器以 UTC 顯示時間
-    const toTaipei = (s: string) =>
-      new Date(new Date(s).toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
     const startDate = toTaipei(reservation.start_time);
     const endDate = toTaipei(reservation.end_time);
     const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
