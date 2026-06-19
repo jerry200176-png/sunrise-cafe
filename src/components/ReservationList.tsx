@@ -6,6 +6,7 @@ import { zhTW } from "date-fns/locale";
 import { Calendar, Clock, DoorOpen, Pencil, Users, X, Send } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { isDepositRequired } from "@/lib/booking-utils";
+import { buildPaymentMessage, type BranchPaymentConfig } from "@/lib/payment-message";
 import type { Reservation, ReservationStatus, Room } from "@/types";
 
 function isWeekend(dateStr: string): boolean {
@@ -80,6 +81,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   );
   const [sendingLine, setSendingLine] = useState(false);
   const [sendingLinePaymentTo, setSendingLinePaymentTo] = useState<string | null>(null);
+  const [branchConfig, setBranchConfig] = useState<BranchPaymentConfig | null>(null);
 
   const fetchReservations = useCallback(async (showLoading = true) => {
     if (!branchId) {
@@ -109,6 +111,32 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   useEffect(() => {
     fetchReservations();
   }, [fetchReservations]);
+
+  // 載入目前分店的付款設定（店名 / 匯款資訊 / LINE Pay），供繳費通知話術使用
+  useEffect(() => {
+    if (!branchId) {
+      setBranchConfig(null);
+      return;
+    }
+    let active = true;
+    fetch(`/api/branches`)
+      .then((res) => res.json())
+      .then((list: unknown) => {
+        if (!active) return;
+        const found = Array.isArray(list)
+          ? (list as BranchPaymentConfig & { id?: string }[]).find(
+              (b) => (b as { id?: string }).id === branchId
+            )
+          : null;
+        setBranchConfig((found as BranchPaymentConfig) ?? null);
+      })
+      .catch(() => {
+        if (active) setBranchConfig(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [branchId]);
 
   useEffect(() => {
     if (!branchId) return;
@@ -525,20 +553,15 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                       <button
                         type="button"
                         onClick={async () => {
-                          const startDate = parseISO(r.start_time);
-                          const endDate = parseISO(r.end_time);
-                          const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", {
-                            locale: zhTW,
-                          });
-                          const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
-                          const deposit = Math.ceil(Number(r.total_price) / 2);
                           const branchName = r.room_with_branch?.branch?.name ?? "";
-                          const isDaan = branchName.includes("大安");
-                          const linePayUrl =
-                            "https://qrcodepay.line.me/qr/payment/%252BmF6rR41PSp3R8NMydLA%252BRt1IvAFgPchBvtrJoR20aoZKY4Hr1qrbfaYSoPDUyu0";
-                          const text = isDaan
-                            ? `您好，這裡是昇昇咖啡 (大安店)。\n\n收到您 ${formattedDate} ${timeRange} 的預約申請（${r.customer_name}）。\n確認該時段有空位，本筆訂單總金額為 $${r.total_price}，請於今日內匯款訂金 $${deposit}（總額一半）以保留座位。\n\n【匯款資訊】\n銀行：台北富邦銀行 (012)\n帳號：8212-00000-8489-6\n戶名：昇昇咖啡張文霞\n\n或者您可以使用 LINE Pay 付款：\n${linePayUrl}\n\n匯款後請回傳「末五碼」或「截圖」告知，謝謝！\n\n📌 帶外食沒關係，離場時請將垃圾自行帶走；若未帶走，將酌收清潔費 300 元。`
-                            : `您好，這裡是昇昇咖啡。\n\n收到您 ${formattedDate} ${timeRange} 的預約申請（${r.customer_name}）。\n確認該時段有空位，本筆訂單總金額為 $${r.total_price}，請於今日內匯款訂金 $${deposit}（總額一半）以保留座位。\n\n請依照官網或現場指示完成付款，並回傳證明，謝謝！\n\n📌 帶外食沒關係，離場時請將垃圾自行帶走；若未帶走，將酌收清潔費 300 元。`;
+                          // 話術由分店設定驅動，與伺服器推播共用同一產生器，確保內容一致
+                          const text = buildPaymentMessage({
+                            customerName: r.customer_name,
+                            startTime: r.start_time,
+                            endTime: r.end_time,
+                            total: Number(r.total_price),
+                            branch: branchConfig ?? { name: branchName },
+                          });
                           try {
                             if (navigator.clipboard?.writeText) {
                               await navigator.clipboard.writeText(text);

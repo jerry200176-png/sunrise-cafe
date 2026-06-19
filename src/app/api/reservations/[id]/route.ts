@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateReservationAdmin, deleteReservationAdmin, isAdminConfigured } from "@/lib/supabase-admin";
-import { sendLineMessage, buildPaymentMessage } from "@/lib/line";
+import { sendLineMessage } from "@/lib/line";
+import { buildPaymentMessage, type BranchPaymentConfig } from "@/lib/payment-message";
 import { notifyWaitlist } from "@/lib/waitlist";
 import { createClient } from "@supabase/supabase-js";
 function supabaseAdmin() {
@@ -10,7 +11,7 @@ function supabaseAdmin() {
   );
 }
 
-type RoomWithBranch = { name: string; branch: { name: string }[] }[];
+type RoomWithBranch = { name: string; branch: { id: string; name: string }[] }[];
 
 export async function PATCH(
   request: NextRequest,
@@ -74,7 +75,7 @@ export async function PATCH(
             start_time,
             end_time,
             total_price,
-            room_with_branch:rooms(name, price_weekday, price_weekend, branch:branches(name))
+            room_with_branch:rooms(name, price_weekday, price_weekend, branch:branches(id, name))
           `)
           .eq("id", id)
           .single();
@@ -83,7 +84,7 @@ export async function PATCH(
           lineResult = "no_line_id";
         } else {
           const roomInfo = (r.room_with_branch as RoomWithBranch | null)?.[0];
-          const branchName = (roomInfo?.branch ?? [])[0]?.name ?? "";
+          const branchRef = (roomInfo?.branch ?? [])[0];
 
           // 若無金額，從房間定價自動計算
           let total = r.total_price != null ? Number(r.total_price) : null;
@@ -101,12 +102,22 @@ export async function PATCH(
           if (total == null || total === 0) {
             lineResult = "no_price";
           } else {
+            // 以 select=* 取分店付款設定（容錯：欄位未建立時降級為通用話術）
+            let branch: BranchPaymentConfig = { name: branchRef?.name ?? null };
+            if (branchRef?.id) {
+              const { data: b } = await supabaseAdmin()
+                .from("branches")
+                .select("*")
+                .eq("id", branchRef.id)
+                .single();
+              if (b) branch = b as BranchPaymentConfig;
+            }
             const text = buildPaymentMessage({
               customerName: r.customer_name,
               startTime: r.start_time,
               endTime: r.end_time,
               total,
-              branchName,
+              branch,
             });
             await sendLineMessage(r.line_user_id, text);
             lineResult = "sent";

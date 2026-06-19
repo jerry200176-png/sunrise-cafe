@@ -14,18 +14,21 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, address, phone, open_time, close_time, line_group_id } = body as {
+    const { name, address, phone, open_time, close_time, line_group_id, display_name, payment_info, line_pay_url } = body as {
       name: string;
       address?: string | null;
       phone?: string | null;
       open_time?: string | null;
       close_time?: string | null;
       line_group_id?: string | null;
+      display_name?: string | null;
+      payment_info?: string | null;
+      line_pay_url?: string | null;
     };
     if (!name?.trim()) {
       return NextResponse.json({ error: "名稱為必填" }, { status: 400 });
     }
-    await insertBranch({ name: name.trim(), address: address ?? null, phone: phone ?? null, open_time: open_time ?? null, close_time: close_time ?? null, line_group_id: line_group_id ?? null });
+    await insertBranch({ name: name.trim(), address: address ?? null, phone: phone ?? null, open_time: open_time ?? null, close_time: close_time ?? null, line_group_id: line_group_id ?? null, display_name: display_name ?? null, payment_info: payment_info ?? null, line_pay_url: line_pay_url ?? null });
     return NextResponse.json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法新增分店";

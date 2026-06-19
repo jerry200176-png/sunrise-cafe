@@ -56,9 +56,13 @@ const toTaipei = (s: string) =>
 
 `vercel.json` 設定 `"0 12 * * *"` = UTC 12:00 = **台灣時間 20:00**，每日自動推播明日訂位提醒到群組。
 
-### 目前只推大安店
+### 群組提醒為多分店
 
-`/api/admin/reminders/send-line` 只篩 `branch.name.includes("大安店")` 的訂位發到群組。
+`/api/admin/reminders/send-line` 會對所有設定了 `line_group_id` 的分店各自推播；無任何分店設定時 fallback 到 `LINE_GROUP_ID` 環境變數（向下相容）。不再以分店名稱硬編碼篩選。
+
+### 繳費通知話術為資料庫驅動
+
+對客店名、匯款資訊、LINE Pay 連結存在 `branches` 表的 `display_name` / `payment_info` / `line_pay_url` 欄位，由後台「分店管理」編輯。話術產生器為 `src/lib/payment-message.ts`（後台複製按鈕與伺服器推播共用）。未設定時降級為通用話術，不含任何寫死的分店帳號。
 
 ---
 
