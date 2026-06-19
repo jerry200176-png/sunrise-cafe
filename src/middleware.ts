@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
+import { getSessionSecret } from "@/lib/admin-auth";
 
 const COOKIE_NAME = "admin_session";
 
@@ -80,10 +81,11 @@ export async function middleware(request: NextRequest) {
       return NextResponse.next();
     }
     // 其餘一律需有效 admin session（未設定密碼時維持與頁面一致的不擋行為）
-    const secret = process.env.ADMIN_PASSWORD;
-    if (secret) {
+    // 是否啟用驗證以 ADMIN_PASSWORD 為準；簽章驗證金鑰用 SESSION_SECRET
+    if (process.env.ADMIN_PASSWORD) {
+      const signingKey = getSessionSecret()!;
       const cookie = request.cookies.get(COOKIE_NAME);
-      const ok = cookie?.value ? await verifySession(cookie.value, secret) : false;
+      const ok = cookie?.value ? await verifySession(cookie.value, signingKey) : false;
       if (!ok) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
       }
@@ -95,15 +97,15 @@ export async function middleware(request: NextRequest) {
   if (pathname === "/admin/login") return NextResponse.next();
   if (!pathname.startsWith("/admin")) return NextResponse.next();
 
-  const secret = process.env.ADMIN_PASSWORD;
-  if (!secret) return NextResponse.next();
+  if (!process.env.ADMIN_PASSWORD) return NextResponse.next();
+  const signingKey = getSessionSecret()!;
 
   const cookie = request.cookies.get(COOKIE_NAME);
   if (!cookie?.value) {
     return NextResponse.redirect(new URL("/admin/login", request.url));
   }
 
-  const ok = await verifySession(cookie.value, secret);
+  const ok = await verifySession(cookie.value, signingKey);
   if (!ok) {
     const res = NextResponse.redirect(new URL("/admin/login", request.url));
     res.cookies.set(COOKIE_NAME, "", { path: "/", maxAge: 0 });

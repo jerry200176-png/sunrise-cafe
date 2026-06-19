@@ -135,3 +135,4 @@ sentry.*.config.ts          # Sentry 設定（三個 runtime）
 - `print-bridge/` 是本機 Node.js 服務，不部署到 Vercel，需在店內電腦獨立執行
 - **Rate Limiting**：Upstash 未設定時自動停用（fail-open），設定後立即生效
 - **Sentry**：`NEXT_PUBLIC_SENTRY_DSN` 未設定時靜默，不影響系統運作
+- **後台驗證金鑰**：`ADMIN_PASSWORD` 為登入密碼；`SESSION_SECRET`（選填）為 session 簽章金鑰，未設定時向下相容沿用密碼。建議在 Vercel 設定獨立的 `SESSION_SECRET`，更換密碼才不會讓既有 session 失效
