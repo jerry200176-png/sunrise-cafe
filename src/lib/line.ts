@@ -1,5 +1,6 @@
 import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
+import { toTaipei } from "@/lib/datetime";
 
 const PUSH_URL = "https://api.line.me/v2/bot/message/push";
 const LINE_PAY_URL =
@@ -40,8 +41,6 @@ export function buildPaymentMessage({
   total: number;
   branchName: string;
 }): string {
-  const toTaipei = (s: string) =>
-    new Date(new Date(s).toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
   const startDate = toTaipei(startTime);
   const endDate = toTaipei(endTime);
   const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
