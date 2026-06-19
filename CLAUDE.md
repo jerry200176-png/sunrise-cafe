@@ -96,6 +96,14 @@ print-bridge/             # 本地列印服務（獨立部署，非 Vercel）
 
 付款關鍵字排除問句（含「嗎」「？」「如何」等），避免誤判。
 
+### 訂金到期自動釋放（`src/lib/deposit-deadline.ts`）
+
+`/api/admin/reminders/deposit-deadline`（每日 Cron + 可手動觸發）：
+
+- 期限 = `min(建立訂位時間 +24hr, 訂位開始時間)`
+- 期限前 24 小時內且未提醒過 → 推播客人提醒一次（寫入 `deposit_reminder_sent_at`）
+- 超過期限仍未付訂金 → 自動將 `status` 改為 `cancelled`，通知客人與群組，並觸發等位通知
+
 ---
 
 ## 關鍵檔案位置（更新）

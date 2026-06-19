@@ -7,6 +7,10 @@
         {
             "path": "/api/admin/reminders/send-line-7d",
             "schedule": "0 12 * * *"
+        },
+        {
+            "path": "/api/admin/reminders/deposit-deadline",
+            "schedule": "0 12 * * *"
         }
     ]
 }
