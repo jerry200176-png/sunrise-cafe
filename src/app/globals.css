@@ -1,3 +1,86 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ───────────────────────────────────────────────────────────
+   昇咖啡 Design System — "Warm Artisan Editorial"
+   一間沐浴在晨光裡的精品咖啡館：奶油紙感、濃縮咖啡墨、焦糖光。
+   完整設計規範見 DESIGN.md
+   ─────────────────────────────────────────────────────────── */
+:root {
+  /* 紙感底色 */
+  --paper: #faf6ef;
+  --paper-deep: #f1e9da;
+  --latte: #e9dcc6;
+
+  /* 墨色（濃縮咖啡） */
+  --ink: #2b2018;
+  --ink-soft: #5c4a3a;
+  --ink-faint: #9a8975;
+
+  /* 焦糖／琥珀 accent */
+  --amber: #c0832f;
+  --amber-deep: #9d6519;
+  --amber-glow: #f0c27a;
+
+  --line: rgba(43, 32, 24, 0.12);
+}
+
+@layer base {
+  body {
+    background-color: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-sans), system-ui, sans-serif;
+    /* 晨光：右上角灑下的暖色光暈 + 左下淡焦糖 */
+    background-image:
+      radial-gradient(120% 80% at 85% -10%, rgba(240, 194, 122, 0.35) 0%, rgba(240, 194, 122, 0) 55%),
+      radial-gradient(90% 70% at 10% 110%, rgba(192, 131, 47, 0.1) 0%, rgba(192, 131, 47, 0) 50%);
+    background-attachment: fixed;
+  }
+
+  /* 標題用襯線 */
+  h1, h2, h3 {
+    font-family: var(--font-serif), var(--font-display), serif;
+  }
+}
+
+/* 細微顆粒紙紋 overlay（疊在最上層，不擋互動） */
+.grain::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 240 240' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* 拉丁顯示字（品牌字、英文） */
+.font-display {
+  font-family: var(--font-display), var(--font-serif), serif;
+}
+.font-serif-tc {
+  font-family: var(--font-serif), serif;
+}
+
+/* 進場：由下淡入，可用 animation-delay 做交錯 */
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.rise {
+  opacity: 0;
+  animation: rise-in 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* 晨曦光暈緩緩呼吸 */
+@keyframes sun-breathe {
+  0%, 100% { opacity: 0.7; transform: scale(1); }
+  50%      { opacity: 1; transform: scale(1.06); }
+}
+.sun-breathe { animation: sun-breathe 9s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rise { animation: none; opacity: 1; }
+  .sun-breathe { animation: none; }
+}
