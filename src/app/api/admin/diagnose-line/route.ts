@@ -14,6 +14,8 @@ export async function GET(request: NextRequest) {
   if (!code) {
     return NextResponse.json({ error: "請帶 ?code=訂位代號" }, { status: 400 });
   }
+  // 預設只做唯讀診斷，不主動發測試訊息給客人；需明確帶 ?send=1 才推播
+  const allowSend = request.nextUrl.searchParams.get("send") === "1";
 
   const { data: r } = await supabaseAdmin()
     .from("reservations")
@@ -28,7 +30,7 @@ export async function GET(request: NextRequest) {
   const customerToken = process.env.LINE_CUSTOMER_ACCESS_TOKEN;
   let lineTest: { ok: boolean; status: number; body: string } | null = null;
 
-  if (r.line_user_id && customerToken) {
+  if (allowSend && r.line_user_id && customerToken) {
     const res = await fetch("https://api.line.me/v2/bot/message/push", {
       method: "POST",
       headers: {
@@ -78,7 +80,7 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  if (groupToken && groupId) {
+  if (allowSend && groupToken && groupId) {
     const res = await fetch("https://api.line.me/v2/bot/message/push", {
       method: "POST",
       headers: {
@@ -91,8 +93,10 @@ export async function GET(request: NextRequest) {
       }),
     });
     groupTest = { ok: res.ok, status: res.status, body: await res.text() };
-  } else {
+  } else if (!groupToken || !groupId) {
     groupTest = { ok: false, status: 0, body: "缺少 LINE_CHANNEL_ACCESS_TOKEN 或 LINE_GROUP_ID" };
+  } else {
+    groupTest = { ok: false, status: 0, body: "唯讀診斷未發送（如需測試請帶 ?send=1）" };
   }
 
   return NextResponse.json({

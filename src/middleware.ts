@@ -70,7 +70,28 @@ export async function middleware(request: NextRequest) {
     if (!success) return tooManyRequests(reset);
   }
 
-  // ── Admin Session 驗證 ─────────────────────────────────────────────
+  // ── Admin API 驗證（/api/admin/*，排除登入端點）──────────────────────
+  // 注意：API 路徑開頭是 /api，不會進入下方 /admin 頁面驗證，需在此單獨防護。
+  if (pathname.startsWith("/api/admin") && pathname !== "/api/admin/login") {
+    // Vercel Cron 以 Bearer CRON_SECRET 呼叫，放行（對應路由內另有驗證）
+    const cronSecret = process.env.CRON_SECRET;
+    const authHeader = request.headers.get("authorization");
+    if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
+      return NextResponse.next();
+    }
+    // 其餘一律需有效 admin session（未設定密碼時維持與頁面一致的不擋行為）
+    const secret = process.env.ADMIN_PASSWORD;
+    if (secret) {
+      const cookie = request.cookies.get(COOKIE_NAME);
+      const ok = cookie?.value ? await verifySession(cookie.value, secret) : false;
+      if (!ok) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+    }
+    return NextResponse.next();
+  }
+
+  // ── Admin 頁面 Session 驗證 ─────────────────────────────────────────
   if (pathname === "/admin/login") return NextResponse.next();
   if (!pathname.startsWith("/admin")) return NextResponse.next();
 
