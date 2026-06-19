@@ -35,3 +35,11 @@ next-env.d.ts
 
 # database backups
 /backups/
+
+# claude code / supabase local
+.claude/
+/supabase/.temp/
+
+# misc local artifacts (not part of the app)
+OIP.*
+*.rar
