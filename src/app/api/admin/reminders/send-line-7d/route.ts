@@ -1,12 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchReservationsIn7Days, updateReservationAdmin, isAdminConfigured } from "@/lib/supabase-admin";
-import { sendLineMessage as sendLineMessageToUser } from "@/lib/line";
-import { format } from "date-fns";
-import { zhTW } from "date-fns/locale";
-
-function toTaipei(s: string) {
-  return new Date(new Date(s).toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
-}
+import { sendLineFlexMessage, buildReminderFlex } from "@/lib/line";
 
 async function handleSend() {
   if (!isAdminConfigured()) {
@@ -22,21 +16,16 @@ async function handleSend() {
   for (const r of rows) {
     const lineUserId = r.line_user_id as string;
     try {
-      const startDate = toTaipei(r.start_time as string);
-      const endDate = toTaipei(r.end_time as string);
-      const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
-      const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
       const room = r.room as { name?: string; branch?: { name?: string } } | undefined;
-      const branchName = room?.branch?.name ?? "昇昇咖啡";
+      const flex = buildReminderFlex({
+        leadLabel: "7 天後",
+        branchName: room?.branch?.name ?? "昇昇咖啡",
+        roomName: room?.name ?? null,
+        startTime: r.start_time as string,
+        endTime: r.end_time as string,
+      });
 
-      const text =
-        `您好，這裡是${branchName}！\n\n` +
-        `提醒您 7 天後有包廂訂位：\n` +
-        `📅 ${formattedDate} ${timeRange}\n` +
-        `🏠 ${room?.name ?? ""}\n\n` +
-        `如需調整請提早告知，期待您的光臨！`;
-
-      await sendLineMessageToUser(lineUserId, text);
+      await sendLineFlexMessage(lineUserId, "7 天後訂位提醒", flex);
       await updateReservationAdmin(r.id as string, { is_reminded_7d: true });
       sent++;
     } catch (err) {
