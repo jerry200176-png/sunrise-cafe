@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { sendLineMessage, buildPaymentMessage } from "@/lib/line";
+import { sendLineMessage } from "@/lib/line";
+import { buildPaymentMessage, type BranchPaymentConfig } from "@/lib/payment-message";
 import { isAdminConfigured } from "@/lib/supabase-admin";
 
 function supabaseAdmin() {
@@ -20,7 +21,7 @@ export async function POST(request: NextRequest) {
 
   const { data: r, error: fetchErr } = await supabaseAdmin()
     .from("reservations")
-    .select("line_user_id, customer_name, start_time, end_time, total_price, rooms(name, branches(name))")
+    .select("line_user_id, customer_name, start_time, end_time, total_price, rooms(name, branches(id, name))")
     .eq("id", id)
     .single();
 
@@ -37,15 +38,25 @@ export async function POST(request: NextRequest) {
   }
 
   const room = Array.isArray(r.rooms) ? r.rooms[0] : r.rooms;
-  const branch = Array.isArray(room?.branches) ? room.branches[0] : room?.branches;
-  const branchName = branch?.name ?? "";
+  const branchRef = Array.isArray(room?.branches) ? room.branches[0] : room?.branches;
+
+  // 以 select=* 取分店付款設定（容錯：欄位未建立時回傳既有欄位，降級為通用話術）
+  let branch: BranchPaymentConfig = { name: branchRef?.name ?? null };
+  if (branchRef?.id) {
+    const { data: b } = await supabaseAdmin()
+      .from("branches")
+      .select("*")
+      .eq("id", branchRef.id)
+      .single();
+    if (b) branch = b as BranchPaymentConfig;
+  }
 
   const text = buildPaymentMessage({
     customerName: r.customer_name,
     startTime: r.start_time,
     endTime: r.end_time,
     total: Number(r.total_price),
-    branchName,
+    branch,
   });
 
   try {

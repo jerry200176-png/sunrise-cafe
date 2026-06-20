@@ -27,6 +27,9 @@ export default function AdminBranchesRoomsPage() {
   const [branchOpenTime, setBranchOpenTime] = useState("09:00");
   const [branchCloseTime, setBranchCloseTime] = useState("21:00");
   const [branchLineGroupId, setBranchLineGroupId] = useState("");
+  const [branchDisplayName, setBranchDisplayName] = useState("");
+  const [branchPaymentInfo, setBranchPaymentInfo] = useState("");
+  const [branchLinePayUrl, setBranchLinePayUrl] = useState("");
 
   const [roomFormOpen, setRoomFormOpen] = useState(false);
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
@@ -121,6 +124,9 @@ export default function AdminBranchesRoomsPage() {
     setBranchOpenTime("09:00");
     setBranchCloseTime("21:00");
     setBranchLineGroupId("");
+    setBranchDisplayName("");
+    setBranchPaymentInfo("");
+    setBranchLinePayUrl("");
     setBranchFormOpen(true);
   };
 
@@ -132,6 +138,10 @@ export default function AdminBranchesRoomsPage() {
     setBranchOpenTime(b.open_time ?? "09:00");
     setBranchCloseTime(b.close_time ?? "21:00");
     setBranchLineGroupId(((b as unknown) as Record<string, unknown>).line_group_id as string ?? "");
+    const rec = (b as unknown) as Record<string, unknown>;
+    setBranchDisplayName((rec.display_name as string) ?? "");
+    setBranchPaymentInfo((rec.payment_info as string) ?? "");
+    setBranchLinePayUrl((rec.line_pay_url as string) ?? "");
     setBranchFormOpen(true);
   };
 
@@ -149,6 +159,9 @@ export default function AdminBranchesRoomsPage() {
             open_time: branchOpenTime || null,
             close_time: branchCloseTime || null,
             line_group_id: branchLineGroupId.trim() || null,
+            display_name: branchDisplayName.trim() || null,
+            payment_info: branchPaymentInfo.trim() || null,
+            line_pay_url: branchLinePayUrl.trim() || null,
           }),
         });
         if (!res.ok) throw new Error((await res.json()).error ?? "更新失敗");
@@ -163,6 +176,9 @@ export default function AdminBranchesRoomsPage() {
             open_time: branchOpenTime || null,
             close_time: branchCloseTime || null,
             line_group_id: branchLineGroupId.trim() || null,
+            display_name: branchDisplayName.trim() || null,
+            payment_info: branchPaymentInfo.trim() || null,
+            line_pay_url: branchLinePayUrl.trim() || null,
           }),
         });
         if (!res.ok) throw new Error((await res.json()).error ?? "新增失敗");
@@ -811,6 +827,20 @@ export default function AdminBranchesRoomsPage() {
                 <label className="block text-xs font-medium text-stone-500 mb-1.5 uppercase tracking-wide">LINE 群組 ID</label>
                 <input type="text" value={branchLineGroupId} onChange={(e) => setBranchLineGroupId(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" placeholder="例：C6aa66403137e743c789ef1388..." />
                 <p className="mt-1 text-xs text-stone-400">設定後 Cron 自動推播明日提醒到此群組</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-stone-500 mb-1.5 uppercase tracking-wide">對客顯示店名</label>
+                <input type="text" value={branchDisplayName} onChange={(e) => setBranchDisplayName(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" placeholder="例：昇昇咖啡 (大安店)" />
+                <p className="mt-1 text-xs text-stone-400">繳費通知開頭顯示用；留空則自動以分店名稱組成</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-stone-500 mb-1.5 uppercase tracking-wide">匯款資訊</label>
+                <textarea value={branchPaymentInfo} onChange={(e) => setBranchPaymentInfo(e.target.value)} rows={4} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" placeholder={"【匯款資訊】\n銀行：台北富邦銀行 (012)\n帳號：8212-00000-8489-6\n戶名：..."} />
+                <p className="mt-1 text-xs text-stone-400">出現在繳費通知中的匯款帳號區塊；留空則改為「請依官網或現場指示付款」</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-stone-500 mb-1.5 uppercase tracking-wide">LINE Pay 連結</label>
+                <input type="text" value={branchLinePayUrl} onChange={(e) => setBranchLinePayUrl(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" placeholder="https://qrcodepay.line.me/..." />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
