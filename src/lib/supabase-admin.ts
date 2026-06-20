@@ -197,6 +197,7 @@ export async function updateReservationAdmin(
     is_reminded_7d?: boolean;
     is_deposit_paid?: boolean;
     deposit_payment_note?: string | null;
+    deposit_reminder_sent_at?: string | null;
     notes?: string | null;
     customer_name?: string;
     phone?: string;
@@ -387,6 +388,21 @@ export async function fetchReservationsIn7Days() {
     .neq("status", "cancelled")
     .eq("is_reminded_7d", false)
     .not("line_user_id", "is", null)
+    .order("start_time", { ascending: true });
+
+  if (error) throw error;
+  return data;
+}
+
+// 取得尚未付訂金、未取消的 pending 訂位（供自動釋放 / 到期提醒使用）
+export async function fetchUnpaidPendingReservations() {
+  const { data, error } = await supabaseAdmin()
+    .from("reservations")
+    .select(
+      "id, booking_code, customer_name, phone, start_time, end_time, created_at, line_user_id, deposit_reminder_sent_at, room:rooms(id, name, branch:branches(name))"
+    )
+    .eq("status", "pending")
+    .eq("is_deposit_paid", false)
     .order("start_time", { ascending: true });
 
   if (error) throw error;
