@@ -326,6 +326,13 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   const listForTab =
     activeTab === "pending" ? pendingList : activeTab === "upcoming" ? upcomingList : historyList;
 
+  const REGULAR_CUSTOMER_THRESHOLD = 3;
+  const phoneCounts = new Map<string, number>();
+  reservations.forEach((r) => {
+    if (r.status === "cancelled" || !r.phone) return;
+    phoneCounts.set(r.phone, (phoneCounts.get(r.phone) ?? 0) + 1);
+  });
+
   const roomNameMap = new Map(rooms.map((r) => [r.id, r.name]));
   const query = normalizeText(searchTerm.trim());
   const filteredList = listForTab.filter((r) => {
@@ -453,12 +460,21 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
             }
             const r = row.item;
             const roomName = roomNameMap.get(r.room_id) ?? "—";
+            const visitCount = phoneCounts.get(r.phone) ?? 0;
             return (
               <li key={r.id} className="space-y-2 p-4 hover:bg-gray-50/80">
                 {/* Row 1: Name · Phone · Status */}
                 <div className="flex items-center gap-3">
                   <span className="text-base font-semibold text-gray-900">{r.customer_name}</span>
                   <span className="text-sm text-gray-500">{r.phone}</span>
+                  {visitCount >= REGULAR_CUSTOMER_THRESHOLD && (
+                    <span
+                      className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 border border-amber-200"
+                      title={`此電話累積 ${visitCount} 筆未取消訂位`}
+                    >
+                      🌟 熟客 ×{visitCount}
+                    </span>
+                  )}
                   <span
                     className={`ml-auto shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLES[r.status] ?? "bg-gray-100 text-gray-700"
                       }`}

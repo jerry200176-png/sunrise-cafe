@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { ArrowLeft, Plus, Pencil, Trash2, MapPin, LogOut, ChefHat, UtensilsCrossed, QrCode, Printer, Building2, LayoutGrid, ClipboardList, CalendarDays, CalendarX, BarChart2 } from "lucide-react";
+import { ArrowLeft, Plus, Pencil, Trash2, MapPin, LogOut, ChefHat, UtensilsCrossed, QrCode, Printer, Building2, LayoutGrid, ClipboardList, CalendarDays, CalendarX, BarChart2, Star } from "lucide-react";
 import type { Branch, Room, RentalNoteSection } from "@/types";
 import { BranchSwitcher } from "@/components/BranchSwitcher";
 import { ReservationList } from "@/components/ReservationList";
@@ -52,6 +52,10 @@ export default function AdminBranchesRoomsPage() {
   const [depositInfo, setDepositInfo] = useState("");
   const [depositInfoSaving, setDepositInfoSaving] = useState(false);
   const [depositInfoSaved, setDepositInfoSaved] = useState(false);
+
+  const [googleReviewUrl, setGoogleReviewUrl] = useState("");
+  const [googleReviewUrlSaving, setGoogleReviewUrlSaving] = useState(false);
+  const [googleReviewUrlSaved, setGoogleReviewUrlSaved] = useState(false);
 
   const [paymentKeywords, setPaymentKeywords] = useState<string[]>([]);
   const [keywordInput, setKeywordInput] = useState("");
@@ -106,12 +110,13 @@ export default function AdminBranchesRoomsPage() {
     fetch("/api/settings")
       .then((r) => r.json())
       .then((d) => {
-        const data = d as { current_branch_id?: string | null; rental_notes?: RentalNoteSection[]; closed_dates?: string[]; deposit_info?: string | null; payment_keywords?: string[] };
+        const data = d as { current_branch_id?: string | null; rental_notes?: RentalNoteSection[]; closed_dates?: string[]; deposit_info?: string | null; payment_keywords?: string[]; google_review_url?: string | null };
         if (data?.current_branch_id) setReservationBranchId(data.current_branch_id);
         if (Array.isArray(data?.rental_notes)) setRentalNotes(data.rental_notes);
         if (Array.isArray(data?.closed_dates)) setClosedDates(data.closed_dates);
         if (data?.deposit_info) setDepositInfo(data.deposit_info);
         if (Array.isArray(data?.payment_keywords)) setPaymentKeywords(data.payment_keywords);
+        if (data?.google_review_url) setGoogleReviewUrl(data.google_review_url);
       })
       .catch(() => { });
   }, []);
@@ -357,6 +362,24 @@ export default function AdminBranchesRoomsPage() {
       setError(err instanceof Error ? err.message : "儲存失敗");
     } finally {
       setDepositInfoSaving(false);
+    }
+  };
+
+  const saveGoogleReviewUrl = async () => {
+    setGoogleReviewUrlSaving(true);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ google_review_url: googleReviewUrl || null }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "儲存失敗");
+      setGoogleReviewUrlSaved(true);
+      setTimeout(() => setGoogleReviewUrlSaved(false), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "儲存失敗");
+    } finally {
+      setGoogleReviewUrlSaving(false);
     }
   };
 
@@ -668,6 +691,32 @@ export default function AdminBranchesRoomsPage() {
               rows={4}
               placeholder={"例如：\n訂金請於確認後 3 天內匯款至\n銀行：台灣銀行（004）\n帳號：123-456-789012\n戶名：昇咖啡有限公司"}
               className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none resize-none"
+            />
+          </div>
+        </section>
+
+        {/* Google 評論邀請 */}
+        <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 bg-stone-50/50 px-5 py-3.5">
+            <div className="flex items-center gap-2">
+              <Star className="h-4 w-4 text-amber-400" />
+              <h2 className="text-sm font-semibold tracking-wide text-stone-700">Google 評論邀請</h2>
+            </div>
+            <button type="button" onClick={saveGoogleReviewUrl} disabled={googleReviewUrlSaving}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50 transition-colors">
+              {googleReviewUrlSaving ? "儲存中…" : googleReviewUrlSaved ? "✓ 已儲存" : "儲存"}
+            </button>
+          </div>
+          <div className="p-4">
+            <p className="mb-2 text-xs text-stone-400">
+              設定後，當訂位在「訂位管理」標記為「已結帳」，且客人已綁定 LINE，會自動發送一則感謝訊息附上此連結，邀請客人留下 Google 評論。留空則不會發送。
+            </p>
+            <input
+              type="url"
+              value={googleReviewUrl}
+              onChange={(e) => setGoogleReviewUrl(e.target.value)}
+              placeholder="https://g.page/r/xxxxxxxx/review"
+              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none"
             />
           </div>
         </section>

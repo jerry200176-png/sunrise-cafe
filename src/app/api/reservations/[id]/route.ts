@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateReservationAdmin, deleteReservationAdmin, isAdminConfigured } from "@/lib/supabase-admin";
-import { sendLineFlexMessage, buildPaymentFlex } from "@/lib/line";
+import { sendLineFlexMessage, buildPaymentFlex, sendLineMessage, buildReviewInviteMessage } from "@/lib/line";
 import { type BranchPaymentConfig } from "@/lib/payment-message";
 import { notifyWaitlist } from "@/lib/waitlist";
+import { fetchSettings } from "@/lib/supabase-fetch";
 import { createClient } from "@supabase/supabase-js";
 function supabaseAdmin() {
   return createClient(
@@ -126,6 +127,39 @@ export async function PATCH(
       } catch (err) {
         lineResult = `error: ${err instanceof Error ? err.message : String(err)}`;
         console.error("[confirm] LINE 推播失敗:", err);
+      }
+    }
+
+    // 結帳時，若客人已綁定 LINE 且尚未邀評過，自動發送 Google 評論邀請
+    if (patch.status === "completed") {
+      try {
+        const { data: r } = await supabaseAdmin()
+          .from("reservations")
+          .select(`
+            line_user_id,
+            customer_name,
+            review_invited_at,
+            room_with_branch:rooms(branch:branches(name))
+          `)
+          .eq("id", id)
+          .single();
+
+        if (r?.line_user_id && !r.review_invited_at) {
+          const settings = await fetchSettings();
+          if (settings.google_review_url) {
+            const roomInfo = (r.room_with_branch as RoomWithBranch | null)?.[0];
+            const branchName = (roomInfo?.branch ?? [])[0]?.name ?? "";
+            const text = buildReviewInviteMessage({
+              customerName: r.customer_name,
+              branchName,
+              reviewUrl: settings.google_review_url,
+            });
+            await sendLineMessage(r.line_user_id, text);
+            await updateReservationAdmin(id, { review_invited_at: new Date().toISOString() });
+          }
+        }
+      } catch (err) {
+        console.error("[reservations/id] 評論邀請發送失敗:", err);
       }
     }
 
