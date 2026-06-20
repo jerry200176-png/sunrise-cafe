@@ -32,6 +32,8 @@ export async function GET(request: NextRequest) {
         return {
           id: r.id,
           booking_code: r.booking_code,
+          room_id: r.room_id,
+          branch_id: room?.branch_id ?? null,
           room_name: room?.name ?? "—",
           branch_name: branch?.name ?? "—",
           start_time: r.start_time,

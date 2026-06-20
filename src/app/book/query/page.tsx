@@ -10,6 +10,8 @@ import { zhTW } from "date-fns/locale";
 interface BookingItem {
   id: string;
   booking_code: string;
+  room_id: string;
+  branch_id: string | null;
   room_name: string;
   branch_name: string;
   start_time: string;
@@ -21,6 +23,12 @@ interface BookingItem {
   deposit_required: boolean;
   deposit_amount: number | null;
   is_deposit_paid?: boolean;
+}
+
+interface AvailabilitySlot {
+  start: string;
+  end: string;
+  available: boolean;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -42,6 +50,13 @@ export default function BookQueryPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [reschedulingItem, setReschedulingItem] = useState<BookingItem | null>(null);
+  const [rescheduleDate, setRescheduleDate] = useState("");
+  const [rescheduleSlots, setRescheduleSlots] = useState<AvailabilitySlot[]>([]);
+  const [rescheduleSlotsLoading, setRescheduleSlotsLoading] = useState(false);
+  const [rescheduleGuestCount, setRescheduleGuestCount] = useState<number | "">("");
+  const [rescheduleSubmitting, setRescheduleSubmitting] = useState(false);
+  const [rescheduleError, setRescheduleError] = useState<string | null>(null);
 
   const search = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,6 +123,103 @@ export default function BookQueryPage() {
   const canReschedule = (item: BookingItem) => {
     if (!["pending", "confirmed"].includes(item.status)) return false;
     return canCancel(item);
+  };
+
+  const durationHoursOf = (item: BookingItem) =>
+    Math.round(
+      (new Date(item.end_time).getTime() - new Date(item.start_time).getTime()) / (60 * 60 * 1000)
+    );
+
+  const openReschedule = (item: BookingItem) => {
+    setReschedulingItem(item);
+    setRescheduleDate("");
+    setRescheduleSlots([]);
+    setRescheduleGuestCount(item.guest_count ?? "");
+    setRescheduleError(null);
+  };
+
+  const closeReschedule = () => {
+    setReschedulingItem(null);
+    setRescheduleSlots([]);
+    setRescheduleError(null);
+  };
+
+  const fetchRescheduleSlots = async (date: string) => {
+    if (!reschedulingItem?.branch_id || !date) return;
+    setRescheduleDate(date);
+    setRescheduleSlotsLoading(true);
+    setRescheduleError(null);
+    setRescheduleSlots([]);
+    try {
+      const res = await fetch(
+        `/api/availability?branchId=${encodeURIComponent(reschedulingItem.branch_id)}&roomId=${encodeURIComponent(reschedulingItem.room_id)}&date=${encodeURIComponent(date)}`
+      );
+      const data = await res.json();
+      if (!res.ok || data?.closed) {
+        setRescheduleError(data?.error ?? "當日不開放預約");
+        return;
+      }
+      setRescheduleSlots(Array.isArray(data.slots) ? data.slots : []);
+    } catch (e) {
+      setRescheduleError(e instanceof Error ? e.message : "查詢時段失敗");
+    } finally {
+      setRescheduleSlotsLoading(false);
+    }
+  };
+
+  // 找出連續可用、長度等於原訂位時長的起始時段
+  const validRescheduleStarts = () => {
+    if (!reschedulingItem) return [];
+    const duration = durationHoursOf(reschedulingItem);
+    const options: { start: string; end: string }[] = [];
+    for (let i = 0; i + duration <= rescheduleSlots.length; i++) {
+      const window = rescheduleSlots.slice(i, i + duration);
+      if (window.every((s) => s.available)) {
+        options.push({ start: window[0].start, end: window[window.length - 1].end });
+      }
+    }
+    return options;
+  };
+
+  const confirmReschedule = async (start: string, end: string) => {
+    if (!reschedulingItem) return;
+    setRescheduleSubmitting(true);
+    setRescheduleError(null);
+    try {
+      const res = await fetch("/api/reschedule-booking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: reschedulingItem.id,
+          phone: phone.trim(),
+          start_time: start,
+          end_time: end,
+          guest_count: rescheduleGuestCount === "" ? null : Number(rescheduleGuestCount),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setRescheduleError((data as { error?: string })?.error ?? "改期失敗");
+        return;
+      }
+      setList((prev) =>
+        prev.map((r) =>
+          r.id === reschedulingItem.id
+            ? {
+                ...r,
+                start_time: start,
+                end_time: end,
+                guest_count: rescheduleGuestCount === "" ? r.guest_count : Number(rescheduleGuestCount),
+              }
+            : r
+        )
+      );
+      closeReschedule();
+    } catch (e) {
+      setRescheduleError(e instanceof Error ? e.message : "連線失敗");
+    } finally {
+      setRescheduleSubmitting(false);
+    }
   };
 
   return (
@@ -320,14 +432,15 @@ export default function BookQueryPage() {
                     </p>
                     <div className="flex gap-2">
                       {canReschedule(item) && (
-                        <a
-                          href={`https://line.me/R/oaMessage/@334spfcw/?text=${encodeURIComponent(`我想申請改期，訂位代號：${item.booking_code}`)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <button
+                          type="button"
+                          onClick={() =>
+                            reschedulingItem?.id === item.id ? closeReschedule() : openReschedule(item)
+                          }
                           className="flex-1 rounded-lg border border-amber-300 py-2 text-center text-sm text-amber-700 hover:bg-amber-50"
                         >
-                          申請改期
-                        </a>
+                          {reschedulingItem?.id === item.id ? "取消改期" : "自助改期"}
+                        </button>
                       )}
                       <button
                         type="button"
@@ -344,6 +457,63 @@ export default function BookQueryPage() {
                   <p className="mt-2 text-xs text-gray-500">
                     已超過取消截止時間（{cancelDeadline(item)}），如需協助請聯繫店家
                   </p>
+                )}
+
+                {reschedulingItem?.id === item.id && (
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-3">
+                    <p className="text-sm font-medium text-amber-900">
+                      選擇新日期（時長維持 {durationHoursOf(item)} 小時）
+                    </p>
+                    <input
+                      type="date"
+                      value={rescheduleDate}
+                      min={format(new Date(Date.now() + CANCEL_WINDOW_MS), "yyyy-MM-dd")}
+                      onChange={(e) => fetchRescheduleSlots(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    />
+
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">人數（可不填）</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={rescheduleGuestCount}
+                        onChange={(e) =>
+                          setRescheduleGuestCount(e.target.value === "" ? "" : Number(e.target.value))
+                        }
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                      />
+                    </div>
+
+                    {rescheduleSlotsLoading && (
+                      <p className="text-sm text-gray-500">查詢可預約時段中…</p>
+                    )}
+
+                    {rescheduleError && (
+                      <p className="text-sm text-red-700">{rescheduleError}</p>
+                    )}
+
+                    {!rescheduleSlotsLoading && rescheduleDate && !rescheduleError && (
+                      <div className="flex flex-wrap gap-2">
+                        {validRescheduleStarts().length === 0 ? (
+                          <p className="text-sm text-gray-500">該日無連續可預約的時段</p>
+                        ) : (
+                          validRescheduleStarts().map((opt) => (
+                            <button
+                              key={opt.start}
+                              type="button"
+                              disabled={rescheduleSubmitting}
+                              onClick={() => confirmReschedule(opt.start, opt.end)}
+                              className="rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-sm text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                            >
+                              {format(parseISO(opt.start), "HH:mm")}–
+                              {format(parseISO(opt.end), "HH:mm")}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
               </li>
             );
