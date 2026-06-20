@@ -85,8 +85,9 @@ export default function WaitlistPage() {
 
         <form onSubmit={submit} className="space-y-4 rounded-2xl bg-white p-6 shadow-sm">
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">分店</label>
+            <label htmlFor="waitlist-branch" className="mb-1 block text-sm font-medium text-gray-700">分店</label>
             <select
+              id="waitlist-branch"
               value={branchId}
               onChange={(e) => setBranchId(e.target.value)}
               className="w-full rounded-lg border border-gray-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
@@ -98,8 +99,9 @@ export default function WaitlistPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">包廂</label>
+            <label htmlFor="waitlist-room" className="mb-1 block text-sm font-medium text-gray-700">包廂</label>
             <select
+              id="waitlist-room"
               value={roomId}
               onChange={(e) => setRoomId(e.target.value)}
               disabled={!branchId}
@@ -112,8 +114,9 @@ export default function WaitlistPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">希望日期</label>
+            <label htmlFor="waitlist-date" className="mb-1 block text-sm font-medium text-gray-700">希望日期</label>
             <input
+              id="waitlist-date"
               type="date" value={date} min={today} max={maxDate}
               onChange={(e) => setDate(e.target.value)}
               className="w-full rounded-lg border border-gray-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
@@ -123,8 +126,9 @@ export default function WaitlistPage() {
 
           <div className="flex gap-3">
             <div className="flex-1">
-              <label className="mb-1 block text-sm font-medium text-gray-700">開始時間</label>
+              <label htmlFor="waitlist-start-time" className="mb-1 block text-sm font-medium text-gray-700">開始時間</label>
               <input
+                id="waitlist-start-time"
                 type="time" value={startTime} min="08:00" max="21:00" step="1800"
                 onChange={(e) => setStartTime(e.target.value)}
                 className="w-full rounded-lg border border-gray-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
@@ -132,8 +136,9 @@ export default function WaitlistPage() {
               />
             </div>
             <div className="flex-1">
-              <label className="mb-1 block text-sm font-medium text-gray-700">結束時間</label>
+              <label htmlFor="waitlist-end-time" className="mb-1 block text-sm font-medium text-gray-700">結束時間</label>
               <input
+                id="waitlist-end-time"
                 type="time" value={endTime} min="10:00" max="22:00" step="1800"
                 onChange={(e) => setEndTime(e.target.value)}
                 className="w-full rounded-lg border border-gray-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
@@ -143,8 +148,9 @@ export default function WaitlistPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">姓名</label>
+            <label htmlFor="waitlist-name" className="mb-1 block text-sm font-medium text-gray-700">姓名</label>
             <input
+              id="waitlist-name"
               type="text" value={name} placeholder="您的姓名"
               onChange={(e) => setName(e.target.value)}
               className="w-full rounded-lg border border-gray-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
@@ -153,8 +159,9 @@ export default function WaitlistPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">手機號碼</label>
+            <label htmlFor="waitlist-phone" className="mb-1 block text-sm font-medium text-gray-700">手機號碼</label>
             <input
+              id="waitlist-phone"
               type="tel" value={phone} placeholder="09xxxxxxxx"
               onChange={(e) => setPhone(e.target.value)}
               className="w-full rounded-lg border border-gray-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"

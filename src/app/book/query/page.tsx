@@ -244,7 +244,9 @@ export default function BookQueryPage() {
 
       <div className="mx-auto max-w-lg px-4 py-6">
         <form onSubmit={search} className="mb-6 flex gap-2">
+          <label htmlFor="query-phone" className="sr-only">輸入訂位電話</label>
           <input
+            id="query-phone"
             type="tel"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}

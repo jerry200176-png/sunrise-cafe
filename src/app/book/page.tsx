@@ -406,8 +406,9 @@ export default function BookPage() {
             >
               ← 重選分店
             </button>
-            <h2 className="mb-3 text-sm font-medium text-gray-700">選擇日期</h2>
+            <label htmlFor="booking-date" className="mb-3 block text-sm font-medium text-gray-700">選擇日期</label>
             <input
+              id="booking-date"
               type="date"
               min={today}
               max={maxDate}
@@ -480,22 +481,19 @@ export default function BookPage() {
                       >
                         {/* 圖片顯示區塊 */}
                         <div className="mb-2 overflow-hidden rounded-lg">
-                          <div className="aspect-video w-full overflow-hidden rounded-lg bg-gray-100 flex items-center justify-center text-xs text-gray-500">
+                          <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-gray-100 flex items-center justify-center text-xs text-gray-500">
                             {imageUrl ? (
-                              <>
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={imageUrl}
-                                  alt={r.roomName}
-                                  className="h-full w-full object-cover"
-                                  loading="lazy"
-                                  decoding="async"
-                                  onError={(e) => {
-                                    const img = e.currentTarget;
-                                    img.style.display = "none";
-                                  }}
-                                />
-                              </>
+                              <Image
+                                src={imageUrl}
+                                alt={r.roomName}
+                                fill
+                                sizes="(max-width: 640px) 100vw, 512px"
+                                className="object-cover"
+                                onError={(e) => {
+                                  const img = e.currentTarget;
+                                  img.style.display = "none";
+                                }}
+                              />
                             ) : (
                               // Fallback (若無圖片)
                               <span>無圖片</span>
@@ -684,8 +682,9 @@ export default function BookPage() {
             </p>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">姓名 *</label>
+                <label htmlFor="booking-name" className="mb-1 block text-sm font-medium text-gray-700">姓名 *</label>
                 <input
+                  id="booking-name"
                   type="text"
                   required
                   value={name}
@@ -695,8 +694,9 @@ export default function BookPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">手機號碼 *</label>
+                <label htmlFor="booking-phone" className="mb-1 block text-sm font-medium text-gray-700">手機號碼 *</label>
                 <input
+                  id="booking-phone"
                   type="tel"
                   required
                   value={phone}
@@ -709,8 +709,9 @@ export default function BookPage() {
                 </p>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Email</label>
+                <label htmlFor="booking-email" className="mb-1 block text-sm font-medium text-gray-700">Email</label>
                 <input
+                  id="booking-email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -719,8 +720,9 @@ export default function BookPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">人數</label>
+                <label htmlFor="booking-guest-count" className="mb-1 block text-sm font-medium text-gray-700">人數</label>
                 <input
+                  id="booking-guest-count"
                   type="number"
                   min={1}
                   value={guestCount === "" ? "" : guestCount}

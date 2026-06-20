@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Image from "next/image";
 import { ShoppingCart, X, Plus, Minus } from "lucide-react";
 import type { MenuCategory, MenuItem, CartItem, SelectedOption } from "@/types";
 
@@ -136,7 +137,9 @@ export default function MenuPage() {
         {visibleItems.map(item => (
           <div key={item.id} className="rounded-xl bg-white border border-gray-200 overflow-hidden flex">
             {item.image_url && (
-              <img src={item.image_url} alt={item.name} className="h-24 w-24 object-cover shrink-0" />
+              <div className="relative h-24 w-24 shrink-0">
+                <Image src={item.image_url} alt={item.name} fill sizes="96px" className="object-cover" />
+              </div>
             )}
             <div className="flex flex-1 items-center justify-between p-3">
               <div>
