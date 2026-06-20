@@ -1,14 +1,19 @@
+"use client";
+
 import Link from "next/link";
 import Image from "next/image";
 import { Calendar, Search, ArrowUpRight, Coffee, UtensilsCrossed, MessageCircleHeart } from "lucide-react";
-
-const features = [
-  { icon: Coffee, title: "包廂租借", desc: "獨立空間，自在聚會" },
-  { icon: UtensilsCrossed, title: "自助點餐", desc: "掃碼即點，現做上桌" },
-  { icon: MessageCircleHeart, title: "LINE 通知", desc: "預約確認即時提醒" },
-];
+import { useLocale } from "@/lib/i18n/LocaleContext";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 export default function Home() {
+  const { t } = useLocale();
+  const features = [
+    { icon: Coffee, title: t("home.feature.room"), desc: t("home.feature.roomDesc") },
+    { icon: UtensilsCrossed, title: t("home.feature.order"), desc: t("home.feature.orderDesc") },
+    { icon: MessageCircleHeart, title: t("home.feature.line"), desc: t("home.feature.lineDesc") },
+  ];
+
   return (
     <main className="grain relative min-h-screen overflow-hidden">
       {/* 晨曦：右上灑落的暖光 */}
@@ -19,6 +24,10 @@ export default function Home() {
       />
 
       <div className="relative mx-auto flex min-h-screen max-w-md flex-col px-6 pb-12 pt-14 md:max-w-xl md:pt-20">
+
+        <div className="flex justify-end">
+          <LanguageSwitcher />
+        </div>
 
         {/* ───── Hero ───── */}
         <header className="flex flex-col items-center text-center">
@@ -45,9 +54,9 @@ export default function Home() {
           </div>
 
           <p className="rise max-w-xs text-[0.95rem] font-light leading-relaxed tracking-wide text-ink-soft" style={{ animationDelay: "300ms" }}>
-            沐浴在晨光裡的精品咖啡館
+            {t("home.tagline1")}
             <br />
-            <span className="text-ink-faint">包廂租借 · 線上預約</span>
+            <span className="text-ink-faint">{t("home.tagline2")}</span>
           </p>
         </header>
 
@@ -62,8 +71,8 @@ export default function Home() {
               <Calendar className="h-5 w-5" />
             </span>
             <span className="flex-1">
-              <span className="block font-serif text-lg tracking-wide text-paper">我要訂位</span>
-              <span className="mt-0.5 block text-xs tracking-wide text-paper/70">選擇包廂、日期與時段</span>
+              <span className="block font-serif text-lg tracking-wide text-paper">{t("home.bookCta")}</span>
+              <span className="mt-0.5 block text-xs tracking-wide text-paper/70">{t("home.bookCtaDesc")}</span>
             </span>
             <ArrowUpRight className="h-5 w-5 text-paper/80 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
           </Link>
@@ -77,8 +86,8 @@ export default function Home() {
               <Search className="h-5 w-5" />
             </span>
             <span className="flex-1">
-              <span className="block font-serif text-lg tracking-wide text-ink">查詢我的訂位</span>
-              <span className="mt-0.5 block text-xs tracking-wide text-ink-faint">以電話查詢或取消預約</span>
+              <span className="block font-serif text-lg tracking-wide text-ink">{t("home.queryCta")}</span>
+              <span className="mt-0.5 block text-xs tracking-wide text-ink-faint">{t("home.queryCtaDesc")}</span>
             </span>
             <ArrowUpRight className="h-5 w-5 text-ink-faint transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
           </Link>

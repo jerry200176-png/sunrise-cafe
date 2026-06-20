@@ -3,11 +3,14 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ArrowLeft, Clock } from "lucide-react";
+import { useLocale } from "@/lib/i18n/LocaleContext";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 interface Branch { id: string; name: string; }
 interface Room { id: string; name: string; }
 
 export default function WaitlistPage() {
+  const { t } = useLocale();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [branchId, setBranchId] = useState("");
@@ -34,10 +37,10 @@ export default function WaitlistPage() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!roomId || !date || !name || !phone) {
-      setError("請填寫所有欄位"); return;
+      setError(t("waitlist.errorFillAll")); return;
     }
     if (startTime >= endTime) {
-      setError("結束時間需晚於開始時間"); return;
+      setError(t("waitlist.errorEndAfterStart")); return;
     }
     setSubmitting(true);
     setError(null);
@@ -54,10 +57,10 @@ export default function WaitlistPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.error ?? "無法加入等位"); return; }
+      if (!res.ok) { setError(data.error ?? t("waitlist.errorJoinFailed")); return; }
       window.location.href = "/book/waitlist/success";
     } catch {
-      setError("網路錯誤，請稍後再試");
+      setError(t("waitlist.errorNetwork"));
     } finally {
       setSubmitting(false);
     }
@@ -69,23 +72,26 @@ export default function WaitlistPage() {
   return (
     <div className="min-h-screen bg-amber-50 px-4 py-8">
       <div className="mx-auto max-w-md">
-        <Link href="/book" className="mb-6 flex items-center gap-2 text-sm text-amber-700 hover:text-amber-900">
-          <ArrowLeft size={16} /> 返回訂位
-        </Link>
+        <div className="mb-2 flex items-center justify-between">
+          <Link href="/book" className="flex items-center gap-2 text-sm text-amber-700 hover:text-amber-900">
+            <ArrowLeft size={16} /> {t("waitlist.backToBooking")}
+          </Link>
+          <LanguageSwitcher />
+        </div>
 
         <div className="mb-6 flex items-center gap-3">
           <div className="rounded-full bg-amber-100 p-2">
             <Clock size={20} className="text-amber-600" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-800">加入等位清單</h1>
-            <p className="text-sm text-gray-500">有人取消時將優先通知您</p>
+            <h1 className="text-xl font-bold text-gray-800">{t("waitlist.headerTitle")}</h1>
+            <p className="text-sm text-gray-500">{t("waitlist.headerDesc")}</p>
           </div>
         </div>
 
         <form onSubmit={submit} className="space-y-4 rounded-2xl bg-white p-6 shadow-sm">
           <div>
-            <label htmlFor="waitlist-branch" className="mb-1 block text-sm font-medium text-gray-700">分店</label>
+            <label htmlFor="waitlist-branch" className="mb-1 block text-sm font-medium text-gray-700">{t("waitlist.branch")}</label>
             <select
               id="waitlist-branch"
               value={branchId}
@@ -93,13 +99,13 @@ export default function WaitlistPage() {
               className="w-full rounded-lg border border-gray-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
               required
             >
-              <option value="">請選擇分店</option>
+              <option value="">{t("waitlist.branchPlaceholder")}</option>
               {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </div>
 
           <div>
-            <label htmlFor="waitlist-room" className="mb-1 block text-sm font-medium text-gray-700">包廂</label>
+            <label htmlFor="waitlist-room" className="mb-1 block text-sm font-medium text-gray-700">{t("waitlist.room")}</label>
             <select
               id="waitlist-room"
               value={roomId}
@@ -108,13 +114,13 @@ export default function WaitlistPage() {
               className="w-full rounded-lg border border-gray-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:bg-gray-50"
               required
             >
-              <option value="">請選擇包廂</option>
+              <option value="">{t("waitlist.roomPlaceholder")}</option>
               {rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           </div>
 
           <div>
-            <label htmlFor="waitlist-date" className="mb-1 block text-sm font-medium text-gray-700">希望日期</label>
+            <label htmlFor="waitlist-date" className="mb-1 block text-sm font-medium text-gray-700">{t("waitlist.date")}</label>
             <input
               id="waitlist-date"
               type="date" value={date} min={today} max={maxDate}
@@ -126,7 +132,7 @@ export default function WaitlistPage() {
 
           <div className="flex gap-3">
             <div className="flex-1">
-              <label htmlFor="waitlist-start-time" className="mb-1 block text-sm font-medium text-gray-700">開始時間</label>
+              <label htmlFor="waitlist-start-time" className="mb-1 block text-sm font-medium text-gray-700">{t("waitlist.startTime")}</label>
               <input
                 id="waitlist-start-time"
                 type="time" value={startTime} min="08:00" max="21:00" step="1800"
@@ -136,7 +142,7 @@ export default function WaitlistPage() {
               />
             </div>
             <div className="flex-1">
-              <label htmlFor="waitlist-end-time" className="mb-1 block text-sm font-medium text-gray-700">結束時間</label>
+              <label htmlFor="waitlist-end-time" className="mb-1 block text-sm font-medium text-gray-700">{t("waitlist.endTime")}</label>
               <input
                 id="waitlist-end-time"
                 type="time" value={endTime} min="10:00" max="22:00" step="1800"
@@ -148,10 +154,10 @@ export default function WaitlistPage() {
           </div>
 
           <div>
-            <label htmlFor="waitlist-name" className="mb-1 block text-sm font-medium text-gray-700">姓名</label>
+            <label htmlFor="waitlist-name" className="mb-1 block text-sm font-medium text-gray-700">{t("waitlist.name")}</label>
             <input
               id="waitlist-name"
-              type="text" value={name} placeholder="您的姓名"
+              type="text" value={name} placeholder={t("waitlist.namePlaceholder")}
               onChange={(e) => setName(e.target.value)}
               className="w-full rounded-lg border border-gray-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
               required
@@ -159,15 +165,15 @@ export default function WaitlistPage() {
           </div>
 
           <div>
-            <label htmlFor="waitlist-phone" className="mb-1 block text-sm font-medium text-gray-700">手機號碼</label>
+            <label htmlFor="waitlist-phone" className="mb-1 block text-sm font-medium text-gray-700">{t("waitlist.phone")}</label>
             <input
               id="waitlist-phone"
-              type="tel" value={phone} placeholder="09xxxxxxxx"
+              type="tel" value={phone} placeholder={t("waitlist.phonePlaceholder")}
               onChange={(e) => setPhone(e.target.value)}
               className="w-full rounded-lg border border-gray-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
               required
             />
-            <p className="mt-1 text-xs text-gray-400">若您曾使用 LINE 綁定訂位，有空位時將自動傳 LINE 通知給您</p>
+            <p className="mt-1 text-xs text-gray-400">{t("waitlist.phoneHint")}</p>
           </div>
 
           {error && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p>}
@@ -177,7 +183,7 @@ export default function WaitlistPage() {
             disabled={submitting}
             className="w-full rounded-xl bg-amber-500 py-3 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50"
           >
-            {submitting ? "送出中…" : "加入等位清單"}
+            {submitting ? t("waitlist.submitting") : t("waitlist.submit")}
           </button>
         </form>
       </div>

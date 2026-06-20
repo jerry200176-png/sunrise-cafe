@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Fraunces, Noto_Serif_TC, Noto_Sans_TC } from "next/font/google";
+import { LocaleProvider } from "@/lib/i18n/LocaleContext";
 import "./globals.css";
 
 // 顯示用襯線（拉丁）：柔潤、有溫度，適合手作咖啡的調性
@@ -51,7 +52,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-TW" className={`${fraunces.variable} ${notoSerifTC.variable} ${notoSansTC.variable}`}>
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <LocaleProvider>{children}</LocaleProvider>
+      </body>
     </html>
   );
 }
