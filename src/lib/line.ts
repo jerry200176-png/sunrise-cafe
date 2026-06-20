@@ -233,3 +233,21 @@ export function buildWaitlistFlex({
     footer: flexButtonFooter("立即確認訂位", confirmUrl, "#16A34A"),
   };
 }
+
+export function buildReviewInviteMessage({
+  customerName,
+  branchName,
+  reviewUrl,
+}: {
+  customerName: string;
+  branchName: string;
+  reviewUrl: string;
+}): string {
+  const storeName = branchName.includes("大安") ? "昇昇咖啡 (大安店)" : "昇昇咖啡";
+  return (
+    `${customerName} 您好，感謝您今天光臨${storeName}！\n\n` +
+    `若您喜歡這次的體驗，能否花 30 秒給我們一個 Google 評論？對小店真的很有幫助 🙏\n` +
+    `${reviewUrl}\n\n` +
+    `期待您下次再來！`
+  );
+}

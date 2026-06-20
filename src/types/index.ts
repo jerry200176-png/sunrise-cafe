@@ -41,6 +41,7 @@ export interface Reservation {
   is_deposit_paid?: boolean;
   line_user_id?: string | null;
   deposit_payment_note?: string | null;
+  review_invited_at?: string | null;
   room_with_branch?: {
     id: string;
     name: string;
@@ -65,6 +66,7 @@ export interface Settings {
   updated_at: string;
   closed_dates: string[];
   deposit_info: string | null;
+  google_review_url: string | null;
 }
 
 export interface RentalNoteSection {

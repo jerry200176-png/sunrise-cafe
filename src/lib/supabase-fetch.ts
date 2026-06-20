@@ -85,10 +85,10 @@ export async function deleteBranch(id: string): Promise<void> {
   }
 }
 
-export async function fetchSettings(): Promise<{ current_branch_id: string | null; rental_notes: import("@/types").RentalNoteSection[]; closed_dates: string[]; deposit_info: string | null; payment_keywords: string[] }> {
+export async function fetchSettings(): Promise<{ current_branch_id: string | null; rental_notes: import("@/types").RentalNoteSection[]; closed_dates: string[]; deposit_info: string | null; payment_keywords: string[]; google_review_url: string | null }> {
   const { url: baseUrl } = base();
   const res = await fetch(
-    `${baseUrl}/rest/v1/settings?id=eq.app&select=current_branch_id,rental_notes,closed_dates,deposit_info,payment_keywords`,
+    `${baseUrl}/rest/v1/settings?id=eq.app&select=current_branch_id,rental_notes,closed_dates,deposit_info,payment_keywords,google_review_url`,
     { method: "GET", headers: headers(), cache: "no-store" }
   );
   if (!res.ok) {
@@ -103,6 +103,7 @@ export async function fetchSettings(): Promise<{ current_branch_id: string | nul
     closed_dates: row?.closed_dates ?? [],
     deposit_info: row?.deposit_info ?? null,
     payment_keywords: row?.payment_keywords ?? ["末五碼", "五碼", "匯款", "付款", "已付", "已轉", "轉帳", "line pay", "linepay", "截圖", "收款", "轉過去", "付過去"],
+    google_review_url: row?.google_review_url ?? null,
   };
 }
 
@@ -111,7 +112,8 @@ export async function updateSettings(
   rental_notes?: import("@/types").RentalNoteSection[],
   closed_dates?: string[],
   deposit_info?: string | null,
-  payment_keywords?: string[]
+  payment_keywords?: string[],
+  google_review_url?: string | null
 ): Promise<void> {
   const { url: baseUrl } = base();
   const body: Record<string, unknown> = {
@@ -122,6 +124,7 @@ export async function updateSettings(
   if (closed_dates !== undefined) body.closed_dates = closed_dates;
   if (deposit_info !== undefined) body.deposit_info = deposit_info;
   if (payment_keywords !== undefined) body.payment_keywords = payment_keywords;
+  if (google_review_url !== undefined) body.google_review_url = google_review_url;
   const res = await fetch(`${baseUrl}/rest/v1/settings?id=eq.app`, {
     method: "PATCH",
     headers: headers({ Prefer: "return=minimal" }),
