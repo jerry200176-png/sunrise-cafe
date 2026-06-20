@@ -44,6 +44,7 @@ export default function BookPage() {
     rooms: {
       roomId: string;
       roomName: string;
+      roomType?: string | null;
       min_capacity?: number;
       capacity: number;
       price_weekday: number;
@@ -122,6 +123,7 @@ export default function BookPage() {
               (r: {
                 roomId: string;
                 roomName: string;
+                roomType?: string | null;
                 min_capacity?: number;
                 capacity: number;
                 price_weekday: number;
@@ -134,7 +136,7 @@ export default function BookPage() {
                 price_weekday: r.price_weekday,
                 price_weekend: r.price_weekend,
                 branch_id: branchId,
-                type: null,
+                type: r.roomType ?? null,
               })
             )
           );
@@ -501,7 +503,14 @@ export default function BookPage() {
                           </div>
                         </div>
 
-                        <span className="font-medium text-gray-900">{r.roomName}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-900">{r.roomName}</span>
+                          {r.roomType && (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                              {r.roomType}
+                            </span>
+                          )}
+                        </div>
                         <p className="mt-0.5 text-sm text-gray-500">
                           {r.min_capacity && r.min_capacity < r.capacity ? `${r.min_capacity}-${r.capacity}` : r.capacity} 人 · 平日 ${r.price_weekday}/時 · 假日 ${r.price_weekend}/時
                         </p>
