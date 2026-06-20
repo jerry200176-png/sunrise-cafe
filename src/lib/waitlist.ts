@@ -1,5 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
-import { sendLineFlexMessage, buildWaitlistFlex } from "@/lib/line";
+import { sendLineFlexMessage, buildWaitlistFlex, WAITLIST_CONFIRM_WINDOW_MINUTES } from "@/lib/line";
+
+export { WAITLIST_CONFIRM_WINDOW_MINUTES };
 
 function supabaseAdmin() {
   return createClient(
@@ -17,7 +19,7 @@ export async function notifyWaitlist(
   // 找出同包廂、時段重疊、尚在等位的第一筆
   const { data: entries } = await supabaseAdmin()
     .from("waitlist")
-    .select("id, customer_name, phone, start_time, end_time")
+    .select("id, customer_name, phone, start_time, end_time, confirm_token")
     .eq("room_id", roomId)
     .eq("status", "waiting")
     .lt("start_time", cancelledEnd)
@@ -40,7 +42,11 @@ export async function notifyWaitlist(
 
   if (lineUserId) {
     try {
-      const flex = buildWaitlistFlex({ startTime: entry.start_time, endTime: entry.end_time });
+      const flex = buildWaitlistFlex({
+        startTime: entry.start_time,
+        endTime: entry.end_time,
+        confirmToken: entry.confirm_token,
+      });
       await sendLineFlexMessage(lineUserId, "您等位的時段空出來了！", flex);
     } catch (err) {
       console.error("[waitlist] LINE 通知失敗:", err);

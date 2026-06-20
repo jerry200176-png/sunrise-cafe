@@ -192,18 +192,24 @@ export function buildReminderFlex({
   };
 }
 
-/** 建立「等位空出通知」卡片（傳給客人） */
+// 候補通知後，客人需在此時間內點擊一鍵確認連結，逾時連結失效
+export const WAITLIST_CONFIRM_WINDOW_MINUTES = 30;
+
+/** 建立「等位空出通知」卡片（傳給客人），含一鍵確認連結 */
 export function buildWaitlistFlex({
   startTime,
   endTime,
+  confirmToken,
 }: {
   startTime: string;
   endTime: string;
+  confirmToken: string;
 }): LineFlexContainer {
   const startDate = toTaipei(startTime);
   const endDate = toTaipei(endTime);
   const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
   const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
+  const confirmUrl = `https://sunrise-cafe-six.vercel.app/book/waitlist/confirm?token=${confirmToken}`;
 
   return {
     type: "bubble",
@@ -216,7 +222,7 @@ export function buildWaitlistFlex({
         flexRow("時間", `${formattedDate} ${timeRange}`),
         {
           type: "text",
-          text: "請盡快至官網完成訂位，時段不保留，先搶先贏！",
+          text: `請在 ${WAITLIST_CONFIRM_WINDOW_MINUTES} 分鐘內點擊下方按鈕一鍵確認訂位，逾時將釋出給下一位候補！`,
           size: "sm",
           color: "#3D2B1F",
           wrap: true,
@@ -224,6 +230,6 @@ export function buildWaitlistFlex({
         },
       ],
     },
-    footer: flexButtonFooter("立即訂位", "https://sunrise-cafe-six.vercel.app/book", "#16A34A"),
+    footer: flexButtonFooter("立即確認訂位", confirmUrl, "#16A34A"),
   };
 }
