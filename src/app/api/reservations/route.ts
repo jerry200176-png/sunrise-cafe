@@ -5,11 +5,8 @@ import {
   hasSlotConflict,
   isAdminConfigured,
 } from "@/lib/supabase-admin";
-import { sendLineMessage } from "@/lib/line-notify";
-import { toTaipei } from "@/lib/datetime";
+import { sendLineFlex, buildNewBookingFlex } from "@/lib/line-notify";
 import { createClient } from "@supabase/supabase-js";
-import { format } from "date-fns";
-import { zhTW } from "date-fns/locale";
 
 function supabaseAdmin() {
   return createClient(
@@ -142,22 +139,16 @@ export async function POST(request: NextRequest) {
 
     // 傳群組通知（失敗不影響主流程）
     try {
-      // 轉成台灣時區再格式化，避免 Vercel 伺服器以 UTC 顯示時間
-      const startDate = toTaipei(startTime);
-      const endDate = toTaipei(endTime);
-      const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
-      const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
-      const guestStr = guestCount ? `${guestCount} 人` : "未填";
-      const notesStr = notes?.trim() ? `\n備註：${notes.trim()}` : "";
-      const groupText =
-        `📩 新訂位申請\n` +
-        `姓名：${customerName.trim()}\n` +
-        `電話：${phone.trim()}\n` +
-        `代號：${booking_code}\n` +
-        `時間：${formattedDate} ${timeRange}\n` +
-        `人數：${guestStr}` +
-        notesStr;
-      await sendLineMessage(groupText);
+      const flex = buildNewBookingFlex({
+        customerName: customerName.trim(),
+        phone: phone.trim(),
+        bookingCode: booking_code,
+        startTime,
+        endTime,
+        guestCount,
+        notes,
+      });
+      await sendLineFlex(`📩 新訂位申請：${customerName.trim()}`, flex);
     } catch (err) {
       console.error("[reservations] 群組通知失敗:", err);
     }

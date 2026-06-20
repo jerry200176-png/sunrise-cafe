@@ -1,17 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
-import { sendLineMessage as sendLineMessageToUser } from "@/lib/line";
-import { format } from "date-fns";
-import { zhTW } from "date-fns/locale";
+import { sendLineFlexMessage, buildWaitlistFlex } from "@/lib/line";
 
 function supabaseAdmin() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
-}
-
-function toTaipei(s: string) {
-  return new Date(new Date(s).toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
 }
 
 // 取消訂位後，通知等位清單中第一位符合條件的客人
@@ -44,21 +38,10 @@ export async function notifyWaitlist(
 
   const lineUserId = reservations?.[0]?.line_user_id as string | null;
 
-  const startDate = toTaipei(entry.start_time);
-  const endDate = toTaipei(entry.end_time);
-  const dateStr = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
-  const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
-
   if (lineUserId) {
     try {
-      await sendLineMessageToUser(
-        lineUserId,
-        `您好，這裡是昇昇咖啡！\n\n` +
-        `您等位的時段有空位了！\n` +
-        `📅 ${dateStr} ${timeRange}\n\n` +
-        `請盡快至官網完成訂位，時段不保留，先搶先贏！\n` +
-        `https://sunrise-cafe-six.vercel.app/book`
-      );
+      const flex = buildWaitlistFlex({ startTime: entry.start_time, endTime: entry.end_time });
+      await sendLineFlexMessage(lineUserId, "您等位的時段空出來了！", flex);
     } catch (err) {
       console.error("[waitlist] LINE 通知失敗:", err);
     }

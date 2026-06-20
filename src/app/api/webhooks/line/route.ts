@@ -1,15 +1,12 @@
 import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { sendLineMessage as sendLineGroupMessage } from "@/lib/line-notify";
-import { toTaipei } from "@/lib/datetime";
+import { sendLineFlex, buildPaymentConfirmedFlex } from "@/lib/line-notify";
 import {
   DEFAULT_PAYMENT_KEYWORDS,
   isPaymentMessage,
   extractBookingCode,
 } from "@/lib/payment-keywords";
-import { format } from "date-fns";
-import { zhTW } from "date-fns/locale";
 
 const REPLY_URL = "https://api.line.me/v2/bot/message/reply";
 
@@ -129,18 +126,14 @@ async function handlePaymentReport(userId: string, rawText: string, replyToken?:
 
   // 通知群組
   try {
-    // 轉成台灣時區再格式化，避免 Vercel 伺服器以 UTC 顯示時間
-    const startDate = toTaipei(reservation.start_time);
-    const endDate = toTaipei(reservation.end_time);
-    const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
-    const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
-    const groupText =
-      `💰 客人已付訂金（系統自動標記）\n` +
-      `姓名：${reservation.customer_name}\n` +
-      `代號：${reservation.booking_code}\n` +
-      `時間：${formattedDate} ${timeRange}\n` +
-      `客人傳來：「${rawText}」`;
-    await sendLineGroupMessage(groupText);
+    const flex = buildPaymentConfirmedFlex({
+      customerName: reservation.customer_name,
+      bookingCode: reservation.booking_code,
+      startTime: reservation.start_time,
+      endTime: reservation.end_time,
+      rawText,
+    });
+    await sendLineFlex(`💰 客人已付訂金：${reservation.customer_name}`, flex);
   } catch (err) {
     console.error("[webhook] group notify failed:", err);
   }

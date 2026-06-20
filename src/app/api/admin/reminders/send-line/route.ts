@@ -9,13 +9,12 @@ import {
 import {
     sendLineMessageToGroup,
     sendLineMessage,
-    formatReminderMessage,
+    sendLineFlexToGroup,
+    sendLineFlex,
+    buildReminderDigestFlex,
     isLineConfigured,
 } from "@/lib/line-notify";
-import { sendLineMessage as sendLineMessageToUser } from "@/lib/line";
-import { toTaipei } from "@/lib/datetime";
-import { format } from "date-fns";
-import { zhTW } from "date-fns/locale";
+import { sendLineFlexMessage, buildReminderFlex } from "@/lib/line";
 
 const CAT_MESSAGES = [
     "喵～沒訂位！Ivy 妳備好零食了嗎？本喵五分鐘後到 🐱",
@@ -62,8 +61,8 @@ async function handleSendLine(force: boolean = false, sendCatOnEmpty: boolean = 
                 }
                 return NextResponse.json({ ok: true, sent: 0 });
             }
-            const text = formatReminderMessage(rows.map(toEnriched));
-            await sendLineMessage(text);
+            const flex = buildReminderDigestFlex(rows.map(toEnriched));
+            await sendLineFlex(`📅 明日訂位提醒，共 ${rows.length} 筆`, flex);
             await Promise.all(rows.map((r) => updateReservationAdmin(r.id as string, { is_notified: true })));
             totalSent = rows.length;
         } else {
@@ -92,8 +91,8 @@ async function handleSendLine(force: boolean = false, sendCatOnEmpty: boolean = 
                     continue;
                 }
 
-                const text = formatReminderMessage(branchRows.map(toEnriched));
-                await sendLineMessageToGroup(text, groupId);
+                const flex = buildReminderDigestFlex(branchRows.map(toEnriched));
+                await sendLineFlexToGroup(`📅 明日訂位提醒，共 ${branchRows.length} 筆`, flex, groupId);
                 await Promise.all(
                     branchRows.map((r) => updateReservationAdmin(r.id as string, { is_notified: true }))
                 );
@@ -106,14 +105,15 @@ async function handleSendLine(force: boolean = false, sendCatOnEmpty: boolean = 
             const lineUserId = r.line_user_id as string | null;
             if (!lineUserId) continue;
             try {
-                const startDate = toTaipei(r.start_time as string);
-                const endDate = toTaipei(r.end_time as string);
-                const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
-                const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
-                await sendLineMessageToUser(
-                    lineUserId,
-                    `您好，這裡是昇昇咖啡！\n\n提醒您明日有訂位：\n📅 ${formattedDate} ${timeRange}\n\n期待您的光臨，如有異動請提早告知，謝謝！`
-                );
+                const room = r.room as { name?: string; branch?: { name?: string } } | undefined;
+                const flex = buildReminderFlex({
+                    leadLabel: "明日",
+                    branchName: room?.branch?.name ?? "昇昇咖啡",
+                    roomName: room?.name ?? null,
+                    startTime: r.start_time as string,
+                    endTime: r.end_time as string,
+                });
+                await sendLineFlexMessage(lineUserId, "明日訂位提醒", flex);
             } catch {
                 // 個別發送失敗不影響其他人
             }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { sendLineMessage } from "@/lib/line";
-import { buildPaymentMessage, type BranchPaymentConfig } from "@/lib/payment-message";
+import { sendLineFlexMessage, buildPaymentFlex } from "@/lib/line";
+import { type BranchPaymentConfig } from "@/lib/payment-message";
 import { isAdminConfigured } from "@/lib/supabase-admin";
 
 function supabaseAdmin() {
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     if (b) branch = b as BranchPaymentConfig;
   }
 
-  const text = buildPaymentMessage({
+  const flex = buildPaymentFlex({
     customerName: r.customer_name,
     startTime: r.start_time,
     endTime: r.end_time,
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
   });
 
   try {
-    await sendLineMessage(r.line_user_id, text);
+    await sendLineFlexMessage(r.line_user_id, "訂金繳費通知", flex);
     return NextResponse.json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : "LINE 發送失敗";

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateReservationAdmin, deleteReservationAdmin, isAdminConfigured } from "@/lib/supabase-admin";
-import { sendLineMessage } from "@/lib/line";
-import { buildPaymentMessage, type BranchPaymentConfig } from "@/lib/payment-message";
+import { sendLineFlexMessage, buildPaymentFlex } from "@/lib/line";
+import { type BranchPaymentConfig } from "@/lib/payment-message";
 import { notifyWaitlist } from "@/lib/waitlist";
 import { createClient } from "@supabase/supabase-js";
 function supabaseAdmin() {
@@ -112,14 +112,14 @@ export async function PATCH(
                 .single();
               if (b) branch = b as BranchPaymentConfig;
             }
-            const text = buildPaymentMessage({
+            const flex = buildPaymentFlex({
               customerName: r.customer_name,
               startTime: r.start_time,
               endTime: r.end_time,
               total,
               branch,
             });
-            await sendLineMessage(r.line_user_id, text);
+            await sendLineFlexMessage(r.line_user_id, "訂金繳費通知", flex);
             lineResult = "sent";
           }
         }
