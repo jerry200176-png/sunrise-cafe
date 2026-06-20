@@ -56,6 +56,7 @@ export async function fetchRoom(roomId: string): Promise<{
   id: string;
   branch_id: string;
   name: string;
+  type: string | null;
   min_capacity?: number;
   capacity: number;
   price_weekday: number;
@@ -64,7 +65,7 @@ export async function fetchRoom(roomId: string): Promise<{
 } | null> {
   const { url: baseUrl } = baseAdmin();
   const res = await fetch(
-    `${baseUrl}/rest/v1/rooms?id=eq.${encodeURIComponent(roomId)}&select=id,branch_id,name,min_capacity,capacity,price_weekday,price_weekend,image_url`,
+    `${baseUrl}/rest/v1/rooms?id=eq.${encodeURIComponent(roomId)}&select=id,branch_id,name,type,min_capacity,capacity,price_weekday,price_weekend,image_url`,
     { method: "GET", headers: headersAdmin(), cache: "no-store" }
   );
 
@@ -93,6 +94,7 @@ export async function fetchRoomsWithDetails(branchId: string): Promise<
   {
     id: string;
     name: string;
+    type: string | null;
     min_capacity?: number;
     capacity: number;
     price_weekday: number;
@@ -102,7 +104,7 @@ export async function fetchRoomsWithDetails(branchId: string): Promise<
 > {
   const { url: baseUrl } = baseAdmin();
   const res = await fetch(
-    `${baseUrl}/rest/v1/rooms?branch_id=eq.${encodeURIComponent(branchId)}&select=id,name,min_capacity,capacity,price_weekday,price_weekend,image_url&order=name.asc`,
+    `${baseUrl}/rest/v1/rooms?branch_id=eq.${encodeURIComponent(branchId)}&select=id,name,type,min_capacity,capacity,price_weekday,price_weekend,image_url&order=name.asc`,
     { method: "GET", headers: headersAdmin(), cache: "no-store" }
   );
 

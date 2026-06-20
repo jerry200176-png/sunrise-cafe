@@ -16,6 +16,7 @@ type BlockedSlot = { room_id: string; start_time: string; end_time: string };
 type RoomDetails = {
   id: string;
   name: string;
+  type: string | null;
   min_capacity?: number;
   capacity: number;
   price_weekday: number;
@@ -132,6 +133,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         slots,
         roomName: room.name,
+        roomType: room.type,
         min_capacity: room.min_capacity,
         branchName: branch.name,
         openTime: branch.open_time,
@@ -159,6 +161,7 @@ export async function GET(request: NextRequest) {
       return {
         roomId: room.id,
         roomName: room.name,
+        roomType: room.type,
         min_capacity: room.min_capacity,
         capacity: room.capacity,
         price_weekday: room.price_weekday,
