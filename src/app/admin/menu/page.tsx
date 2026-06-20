@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { ArrowLeft, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, LogOut } from "lucide-react";
 import type { Branch, MenuItem, MenuCategory } from "@/types";
 
@@ -246,11 +247,15 @@ export default function AdminMenuPage() {
               {items.map((item) => (
                 <div key={item.id} className="flex items-center gap-3 py-3 first:pt-0">
                   {item.image_url && (
-                    <img
-                      src={item.image_url}
-                      alt={item.name}
-                      className="h-12 w-12 rounded-lg object-cover shrink-0"
-                    />
+                    <div className="relative h-12 w-12 rounded-lg shrink-0 overflow-hidden">
+                      <Image
+                        src={item.image_url}
+                        alt={item.name}
+                        fill
+                        sizes="48px"
+                        className="object-cover"
+                      />
+                    </div>
                   )}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">

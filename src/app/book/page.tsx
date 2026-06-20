@@ -6,6 +6,8 @@ import { ArrowLeft } from "lucide-react";
 import Image from "next/image";
 import type { Branch, Room, RentalNoteSection } from "@/types";
 import { getDurationOptions, getDepositAmount } from "@/lib/booking-utils";
+import { useLocale } from "@/lib/i18n/LocaleContext";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 type Step = "branch" | "room" | "date" | "slot" | "form";
 
@@ -16,6 +18,7 @@ interface SlotItem {
 }
 
 export default function BookPage() {
+  const { t } = useLocale();
   const [step, setStep] = useState<Step>("branch");
   const [branches, setBranches] = useState<Branch[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -108,7 +111,7 @@ export default function BookPage() {
       .then((r) => r.json())
       .then((d) => {
         if (d.closed) {
-          setError("本日公休，無法進行訂位，請選擇其他日期。");
+          setError(t("book.error.closedDay"));
           setStep("date");
           return;
         }
@@ -143,10 +146,11 @@ export default function BookPage() {
         }
       })
       .catch((e) => {
-        setError(e instanceof Error ? e.message : "無法載入空檔");
+        setError(e instanceof Error ? e.message : t("book.error.loadAvailabilityFailed"));
         setBranchRoomsAvailability(null);
       })
       .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, branchId, date]);
 
   useEffect(() => {
@@ -165,10 +169,11 @@ export default function BookPage() {
         setBranchName(d.branchName ?? "");
       })
       .catch((e) => {
-        setError(e instanceof Error ? e.message : "無法載入時段");
+        setError(e instanceof Error ? e.message : t("book.error.loadSlotsFailed"));
         setSlots([]);
       })
       .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, branchId, roomId, date]);
 
   // LINE OAuth 回調：從 URL param 取得 user_id，並從 localStorage 還原表單
@@ -251,12 +256,12 @@ export default function BookPage() {
       const rm = rooms.find((r) => r.id === roomId);
       if (rm) {
         if (rm.min_capacity && gC < rm.min_capacity) {
-          setError(`此包廂最少需要 ${rm.min_capacity} 人`);
+          setError(t("book.error.minCapacity", { min: rm.min_capacity }));
           setSubmitting(false);
           return;
         }
         if (gC > rm.capacity) {
-          setError(`此包廂最多容納 ${rm.capacity} 人`);
+          setError(t("book.error.maxCapacity", { max: rm.capacity }));
           setSubmitting(false);
           return;
         }
@@ -264,7 +269,7 @@ export default function BookPage() {
     }
 
     if (!agreeToTerms) {
-      setError("請閱讀並同意包廂租借說明");
+      setError(t("book.error.agreeRequired"));
       setSubmitting(false);
       return;
     }
@@ -289,11 +294,11 @@ export default function BookPage() {
       const data = await res.json();
       setSubmitting(false);
       if (res.status === 409) {
-        setError((data as { error?: string })?.error ?? "該時段已被預訂，請重新選擇");
+        setError((data as { error?: string })?.error ?? t("book.error.slotTaken"));
         return;
       }
       if (!res.ok) {
-        setError((data as { error?: string })?.error ?? "無法完成預約");
+        setError((data as { error?: string })?.error ?? t("book.error.bookingFailed"));
         return;
       }
       const code = (data as { booking_code?: string })?.booking_code;
@@ -301,11 +306,11 @@ export default function BookPage() {
         const weekendFlag = "1";
         window.location.href = `/book/success?code=${encodeURIComponent(code)}&weekend=${weekendFlag}${lineUserId ? "&line_bound=1" : ""}`;
       } else {
-        setError("預約成功，但未取得訂位代號");
+        setError(t("book.error.noBookingCode"));
       }
     } catch (e) {
       setSubmitting(false);
-      setError(e instanceof Error ? e.message : "連線失敗");
+      setError(e instanceof Error ? e.message : t("book.error.connectionFailed"));
     }
   };
 
@@ -338,20 +343,23 @@ export default function BookPage() {
   return (
     <main className="min-h-screen bg-gradient-to-b from-amber-50/40 to-white">
       <header className="sticky top-0 z-10 border-b border-amber-100/60 bg-white/95 backdrop-blur-sm">
-        <div className="mx-auto flex max-w-lg items-center gap-3 px-4 py-3">
-          <Link
-            href="/"
-            className="flex items-center justify-center rounded-lg p-2 text-stone-500 hover:bg-amber-50"
-            aria-label="返回"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-          <div className="flex items-center gap-2">
-            <div className="relative h-7 w-7">
-              <Image src="/logo.webp" alt="" fill className="object-contain" />
+        <div className="mx-auto flex max-w-lg items-center justify-between gap-3 px-4 py-3">
+          <div className="flex items-center gap-3">
+            <Link
+              href="/"
+              className="flex items-center justify-center rounded-lg p-2 text-stone-500 hover:bg-amber-50"
+              aria-label={t("common.back")}
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
+            <div className="flex items-center gap-2">
+              <div className="relative h-7 w-7">
+                <Image src="/logo.webp" alt="" fill className="object-contain" />
+              </div>
+              <h1 className="text-base font-medium tracking-wide text-stone-800">{t("book.headerTitle")}</h1>
             </div>
-            <h1 className="text-base font-medium tracking-wide text-stone-800">我要訂位</h1>
           </div>
+          <LanguageSwitcher />
         </div>
       </header>
 
@@ -371,7 +379,7 @@ export default function BookPage() {
 
         {step === "branch" && (
           <>
-            <h2 className="mb-3 text-sm font-medium text-gray-700">選擇分店</h2>
+            <h2 className="mb-3 text-sm font-medium text-gray-700">{t("book.branch.title")}</h2>
             <ul className="space-y-2">
               {branches.map((b) => (
                 <li key={b.id}>
@@ -392,7 +400,7 @@ export default function BookPage() {
               ))}
             </ul>
             {branches.length === 0 && !loading && (
-              <p className="text-sm text-gray-500">尚無分店資料</p>
+              <p className="text-sm text-gray-500">{t("book.branch.empty")}</p>
             )}
           </>
         )}
@@ -404,10 +412,11 @@ export default function BookPage() {
               onClick={() => setStep("branch")}
               className="mb-3 text-sm text-amber-700"
             >
-              ← 重選分店
+              {t("book.date.reselectBranch")}
             </button>
-            <h2 className="mb-3 text-sm font-medium text-gray-700">選擇日期</h2>
+            <label htmlFor="booking-date" className="mb-3 block text-sm font-medium text-gray-700">{t("book.date.title")}</label>
             <input
+              id="booking-date"
               type="date"
               min={today}
               max={maxDate}
@@ -425,7 +434,7 @@ export default function BookPage() {
                 onClick={() => setStep("room")}
                 className="rounded-lg bg-amber-600 px-4 py-2 text-white disabled:opacity-50"
               >
-                下一步
+                {t("book.date.next")}
               </button>
             </div>
           </>
@@ -438,14 +447,14 @@ export default function BookPage() {
               onClick={() => setStep("date")}
               className="mb-3 text-sm text-amber-700"
             >
-              ← 重選日期
+              {t("book.room.reselectDate")}
             </button>
-            <h2 className="mb-2 text-sm font-medium text-gray-700">選擇包廂</h2>
+            <h2 className="mb-2 text-sm font-medium text-gray-700">{t("book.room.title")}</h2>
             <p className="mb-3 text-xs text-gray-500">
-              {date} · 以下為各包廂當日空檔
+              {t("book.room.subtitle", { date })}
             </p>
             {loading ? (
-              <p className="py-4 text-center text-gray-500">載入中…</p>
+              <p className="py-4 text-center text-gray-500">{t("common.loading")}</p>
             ) : branchRoomsAvailability ? (
               <ul className="space-y-3">
                 {branchRoomsAvailability.rooms.map((r) => {
@@ -480,25 +489,22 @@ export default function BookPage() {
                       >
                         {/* 圖片顯示區塊 */}
                         <div className="mb-2 overflow-hidden rounded-lg">
-                          <div className="aspect-video w-full overflow-hidden rounded-lg bg-gray-100 flex items-center justify-center text-xs text-gray-500">
+                          <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-gray-100 flex items-center justify-center text-xs text-gray-500">
                             {imageUrl ? (
-                              <>
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={imageUrl}
-                                  alt={r.roomName}
-                                  className="h-full w-full object-cover"
-                                  loading="lazy"
-                                  decoding="async"
-                                  onError={(e) => {
-                                    const img = e.currentTarget;
-                                    img.style.display = "none";
-                                  }}
-                                />
-                              </>
+                              <Image
+                                src={imageUrl}
+                                alt={r.roomName}
+                                fill
+                                sizes="(max-width: 640px) 100vw, 512px"
+                                className="object-cover"
+                                onError={(e) => {
+                                  const img = e.currentTarget;
+                                  img.style.display = "none";
+                                }}
+                              />
                             ) : (
                               // Fallback (若無圖片)
-                              <span>無圖片</span>
+                              <span>{t("book.room.noImage")}</span>
                             )}
                           </div>
                         </div>
@@ -512,13 +518,13 @@ export default function BookPage() {
                           )}
                         </div>
                         <p className="mt-0.5 text-sm text-gray-500">
-                          {r.min_capacity && r.min_capacity < r.capacity ? `${r.min_capacity}-${r.capacity}` : r.capacity} 人 · 平日 ${r.price_weekday}/時 · 假日 ${r.price_weekend}/時
+                          {r.min_capacity && r.min_capacity < r.capacity ? `${r.min_capacity}-${r.capacity}` : r.capacity} {t("book.room.people")} · {t("book.room.weekday")} ${r.price_weekday}{t("book.room.perHour")} · {t("book.room.weekend")} ${r.price_weekend}{t("book.room.perHour")}
                         </p>
                         <p className="mt-1.5 text-xs text-gray-600">
                           {freeCount > 0 ? (
-                            <>可預約 {ranges.slice(0, 3).join("、")}{ranges.length > 3 ? " …" : ""}</>
+                            <>{t("book.room.availableRanges", { ranges: `${ranges.slice(0, 3).join("、")}${ranges.length > 3 ? " …" : ""}` })}</>
                           ) : (
-                            <span className="text-rose-600">本日已滿</span>
+                            <span className="text-rose-600">{t("book.room.full")}</span>
                           )}
                         </p>
                         <div className="mt-2 flex flex-wrap gap-0.5">
@@ -540,7 +546,7 @@ export default function BookPage() {
               </ul>
             ) : (
               <div className="space-y-2">
-                <p className="text-sm text-gray-500">無法載入包廂空檔，請重試或重選日期</p>
+                <p className="text-sm text-gray-500">{t("book.room.loadError")}</p>
                 <p className="text-xs text-gray-400">
                   若為線上網站，可開啟{" "}
                   <a href="/api/booking-health" target="_blank" rel="noopener noreferrer" className="underline">
@@ -560,43 +566,43 @@ export default function BookPage() {
               onClick={() => setStep("room")}
               className="mb-3 text-sm text-amber-700"
             >
-              ← 重選包廂
+              {t("book.slot.reselectRoom")}
             </button>
-            <h2 className="mb-2 text-sm font-medium text-gray-700">選擇時段</h2>
+            <h2 className="mb-2 text-sm font-medium text-gray-700">{t("book.slot.title")}</h2>
             <p className="mb-3 text-xs text-gray-500">
               {branchName} · {roomName} · {date}
             </p>
             {loading ? (
-              <p className="py-4 text-center text-gray-500">載入中…</p>
+              <p className="py-4 text-center text-gray-500">{t("common.loading")}</p>
             ) : (
               <>
                 {slots.length > 0 && (
                   <p className="mb-3 text-xs text-gray-600">
-                    本日共 {slots.length} 個時段，{slots.filter((s) => s.available).length} 個可預約
+                    {t("book.slot.totalSlots", { count: slots.length, free: slots.filter((s) => s.available).length })}
                   </p>
                 )}
                 {getTotalPrice() != null && (
                   <div className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 space-y-1">
-                    <p>⚠️ 訂位需預付<strong>總金額 50%</strong> 作為訂金。</p>
+                    <p>{t("book.slot.depositNotice")}</p>
                     <p className="font-semibold">
-                      預估訂金：NT$ {getDepositAmount(getTotalPrice()!)}
+                      {t("book.slot.depositEstimate", { amount: getDepositAmount(getTotalPrice()!) })}
                     </p>
-                    <p>請先送出申請，待管理員確認有位後，將透過 LINE/簡訊通知您匯款。</p>
+                    <p>{t("book.slot.depositInstruction")}</p>
                   </div>
                 )}
                 <div className="mb-3 flex items-center gap-4 text-xs text-gray-600">
                   <span className="flex items-center gap-1">
-                    <span className="inline-block h-4 w-4 rounded bg-green-200" /> 可預約
+                    <span className="inline-block h-4 w-4 rounded bg-green-200" /> {t("book.slot.legendAvailable")}
                   </span>
                   <span className="flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-rose-600">
-                    <span className="inline-block h-3 w-3 rounded bg-rose-200" /> 已額滿
+                    <span className="inline-block h-3 w-3 rounded bg-rose-200" /> {t("book.slot.legendFull")}
                   </span>
                 </div>
 
                 {/* 步驟 1：時數 */}
                 <div className="mb-4">
                   <div className="mb-2 flex items-center justify-between">
-                    <h3 className="text-sm font-bold text-gray-800">步驟 1：選擇租借時數</h3>
+                    <h3 className="text-sm font-bold text-gray-800">{t("book.slot.durationTitle")}</h3>
                   </div>
                   <select
                     value={duration}
@@ -607,21 +613,21 @@ export default function BookPage() {
                     className="w-full rounded-xl border border-gray-300 p-3"
                   >
                     {getDurationOptions().map((h) => (
-                      <option key={h} value={h}>{h} 小時</option>
+                      <option key={h} value={h}>{t("book.slot.hoursUnit", { h })}</option>
                     ))}
                   </select>
                 </div>
 
                 {!slots.some((s) => canSelectDuration(s.start)) && slots.length > 0 && (
                   <p className="mb-3 text-sm text-amber-700">
-                    目前沒有連續 {duration} 小時的空檔。請點擊上方「重選包廂」或返回重選日期選擇其他日期。
+                    {t("book.slot.noContiguous", { duration })}
                   </p>
                 )}
 
                 {/* 步驟 2：時段 */}
                 <div>
                   <h3 className="mb-2 text-sm font-bold text-gray-800">
-                    步驟 2：選擇開始時間 <span className="text-xs font-normal text-gray-500">(綠色可預約)</span>
+                    {t("book.slot.timeTitle")} <span className="text-xs font-normal text-gray-500">{t("book.slot.timeTitleHint")}</span>
                   </h3>
                   <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
                     {slots.map((s) => {
@@ -649,8 +655,8 @@ export default function BookPage() {
                 {/* Summary Bar: 預約摘要 */}
                 {summary && (
                   <div className="mt-4 mb-2 rounded-lg bg-emerald-50 border border-emerald-100 p-3 text-sm text-emerald-900 animate-in fade-in slide-in-from-bottom-2">
-                    <p className="font-bold">📅 您選擇的是：</p>
-                    <p>{summary.dateLabel} {summary.startLabel} ~ {summary.endLabel} (共 {duration} 小時)</p>
+                    <p className="font-bold">{t("book.slot.summaryLabel")}</p>
+                    <p>{summary.dateLabel} {summary.startLabel} ~ {summary.endLabel} {t("book.slot.summaryDuration", { duration })}</p>
                   </div>
                 )}
 
@@ -661,7 +667,7 @@ export default function BookPage() {
                     onClick={() => setStep("form")}
                     className="rounded-lg bg-amber-600 px-4 py-2 text-white disabled:opacity-50"
                   >
-                    下一步 · 填寫資料
+                    {t("book.slot.nextStep")}
                   </button>
                 </div>
               </>
@@ -676,51 +682,55 @@ export default function BookPage() {
               onClick={() => setStep("slot")}
               className="mb-3 text-sm text-amber-700"
             >
-              ← 重選時段
+              {t("book.form.reselectSlot")}
             </button>
             <p className="mb-4 text-sm text-gray-600">
               {branchName} · {roomName} · {date}{" "}
-              {selectedStart && formatSlotTime(selectedStart)} 起 {duration} 小時
+              {selectedStart && formatSlotTime(selectedStart)} {t("book.form.startFor", { duration })}
             </p>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">姓名 *</label>
+                <label htmlFor="booking-name" className="mb-1 block text-sm font-medium text-gray-700">{t("book.form.name")}</label>
                 <input
+                  id="booking-name"
                   type="text"
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
-                  placeholder="王小明"
+                  placeholder={t("book.form.namePlaceholder")}
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">手機號碼 *</label>
+                <label htmlFor="booking-phone" className="mb-1 block text-sm font-medium text-gray-700">{t("book.form.phone")}</label>
                 <input
+                  id="booking-phone"
                   type="tel"
                   required
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
-                  placeholder="0912345678 (請填寫正確手機)"
+                  placeholder={t("book.form.phonePlaceholder")}
                 />
                 <p className="mt-1 text-xs text-gray-500">
-                  請務必填寫正確，以便聯絡確認訂位事宜。
+                  {t("book.form.phoneHint")}
                 </p>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Email</label>
+                <label htmlFor="booking-email" className="mb-1 block text-sm font-medium text-gray-700">{t("book.form.email")}</label>
                 <input
+                  id="booking-email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
-                  placeholder="選填"
+                  placeholder={t("book.form.emailPlaceholder")}
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">人數</label>
+                <label htmlFor="booking-guest-count" className="mb-1 block text-sm font-medium text-gray-700">{t("book.form.guestCount")}</label>
                 <input
+                  id="booking-guest-count"
                   type="number"
                   min={1}
                   value={guestCount === "" ? "" : guestCount}
@@ -728,13 +738,13 @@ export default function BookPage() {
                     setGuestCount(e.target.value === "" ? "" : Number(e.target.value))
                   }
                   className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
-                  placeholder="選填"
+                  placeholder={t("book.form.guestCountPlaceholder")}
                 />
               </div>
 
               {rentalNotes.length > 0 && (
                 <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                  <h3 className="font-bold mb-3 text-amber-800 text-base">📋 包廂租借注意事項</h3>
+                  <h3 className="font-bold mb-3 text-amber-800 text-base">{t("book.form.rentalNotesTitle")}</h3>
 
                   <div className="space-y-3 text-amber-800">
                     {rentalNotes.map((section, i) => (
@@ -756,22 +766,22 @@ export default function BookPage() {
                       onChange={(e) => setAgreeToTerms(e.target.checked)}
                       className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
                     />
-                    <span className="font-medium">我已詳細閱讀並同意上述包廂租借注意事項</span>
+                    <span className="font-medium">{t("book.form.agreeNotes")}</span>
                   </label>
                 </div>
               )}
 
               {depositInfo && (
                 <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-                  <p className="font-bold mb-1">💳 訂金收取方式（確認訂位後店家將通知繳納）</p>
+                  <p className="font-bold mb-1">{t("book.form.depositInfoTitle")}</p>
                   <p className="whitespace-pre-line">{depositInfo}</p>
                 </div>
               )}
 
               <div className="rounded-lg border border-green-200 bg-green-50 p-4">
-                <p className="mb-2 text-sm font-medium text-gray-700">📱 綁定 LINE 以接收訂位通知（選填）</p>
+                <p className="mb-2 text-sm font-medium text-gray-700">{t("book.form.lineSectionTitle")}</p>
                 {lineUserId ? (
-                  <p className="text-sm text-green-700">✅ LINE 已連結，訂位確認後將自動通知您</p>
+                  <p className="text-sm text-green-700">{t("book.form.lineBound")}</p>
                 ) : (
                   <button
                     type="button"
@@ -779,7 +789,7 @@ export default function BookPage() {
                     className="inline-flex items-center gap-2 rounded-lg bg-[#06C755] px-4 py-2 text-sm font-semibold text-white hover:bg-green-600 transition"
                   >
                     <span>💬</span>
-                    用 LINE 登入接收訂位通知
+                    {t("book.form.lineLogin")}
                   </button>
                 )}
               </div>
@@ -789,7 +799,7 @@ export default function BookPage() {
                 disabled={submitting || (rentalNotes.length > 0 && !agreeToTerms)}
                 className="w-full rounded-lg bg-amber-600 py-3 text-white hover:bg-amber-700 disabled:opacity-50"
               >
-                {submitting ? "送出中…" : "確認預約"}
+                {submitting ? t("book.form.submitting") : t("book.form.submit")}
               </button>
             </form>
           </>
