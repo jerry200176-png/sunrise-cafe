@@ -1,12 +1,19 @@
 import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { sendLineFlex, buildPaymentConfirmedFlex } from "@/lib/line-notify";
+import { sendLineFlex, buildPaymentConfirmedFlex, sendLineMessage } from "@/lib/line-notify";
 import {
   DEFAULT_PAYMENT_KEYWORDS,
   isPaymentMessage,
   extractBookingCode,
 } from "@/lib/payment-keywords";
+import {
+  getPaymentSubmissionOutcome,
+  PAYMENT_IMAGE_PAYLOAD,
+  GUEST_REPLY_PAYMENT_PENDING_REVIEW,
+  GUEST_REPLY_PAYMENT_AUTO_RECORDED,
+  type PaymentEventSource,
+} from "@/lib/payment-events";
 
 const REPLY_URL = "https://api.line.me/v2/bot/message/reply";
 
@@ -105,26 +112,69 @@ async function handleBookingCode(userId: string, upperText: string, replyToken?:
   if (replyToken) await replyMessage(replyToken, statusMsg);
 }
 
-async function handlePaymentReport(userId: string, rawText: string, replyToken?: string, keywords: string[] = DEFAULT_PAYMENT_KEYWORDS) {
+async function handlePaymentReport(
+  userId: string,
+  rawText: string,
+  source: PaymentEventSource,
+  replyToken?: string,
+  keywords: string[] = DEFAULT_PAYMENT_KEYWORDS
+) {
   const { data: reservation } = await supabaseAdmin()
     .from("reservations")
     .select("id, booking_code, customer_name, start_time, end_time")
     .eq("line_user_id", userId)
     .in("status", ["confirmed", "pending"])
+    .eq("is_deposit_paid", false)
     .order("start_time", { ascending: true })
     .limit(1)
     .single();
 
   if (!reservation) return;
-  if (!isPaymentMessage(rawText, keywords)) return;
+  if (source === "line_text" && !isPaymentMessage(rawText, keywords)) return;
 
-  // 自動標記已付訂金
+  const outcome = getPaymentSubmissionOutcome(source);
+
+  if (outcome === "pending_review") {
+    const { error: eventErr } = await supabaseAdmin().from("payment_events").insert({
+      reservation_id: reservation.id,
+      source,
+      status: "pending_review",
+      raw_payload: rawText,
+    });
+    if (eventErr) {
+      console.error("[webhook] payment_events insert failed:", eventErr);
+      if (replyToken) {
+        await replyMessage(
+          replyToken,
+          "已收到您的訊息，但系統暫時無法記錄，請稍後再試或聯繫店家。"
+        );
+      }
+      return;
+    }
+
+    try {
+      await sendLineMessage(
+        `📷 付款截圖待確認\n` +
+          `姓名：${reservation.customer_name}\n` +
+          `代號：${reservation.booking_code}\n` +
+          `請至後台核對後標記已付訂金`
+      );
+    } catch (err) {
+      console.error("[webhook] group pending-review notify failed:", err);
+    }
+
+    if (replyToken) {
+      await replyMessage(replyToken, GUEST_REPLY_PAYMENT_PENDING_REVIEW);
+    }
+    return;
+  }
+
+  // 過渡期：文字關鍵字仍自動標記（ADR-008）
   await supabaseAdmin()
     .from("reservations")
     .update({ is_deposit_paid: true, deposit_payment_note: rawText })
     .eq("id", reservation.id);
 
-  // 通知群組
   try {
     const flex = buildPaymentConfirmedFlex({
       customerName: reservation.customer_name,
@@ -139,7 +189,7 @@ async function handlePaymentReport(userId: string, rawText: string, replyToken?:
   }
 
   if (replyToken) {
-    await replyMessage(replyToken, "已收到您的付款通知，系統已自動記錄，感謝您！");
+    await replyMessage(replyToken, GUEST_REPLY_PAYMENT_AUTO_RECORDED);
   }
 }
 
@@ -179,9 +229,9 @@ export async function POST(request: NextRequest) {
     try {
       const msgType = event.message?.type;
 
-      // 客人傳圖片 → 視為付款截圖
+      // 客人傳圖片 → 記錄待審核，不直接標記已付（ADR-008）
       if (msgType === "image") {
-        await handlePaymentReport(userId, "【付款截圖】", replyToken, paymentKeywords);
+        await handlePaymentReport(userId, PAYMENT_IMAGE_PAYLOAD, "line_image", replyToken, paymentKeywords);
         continue;
       }
 
@@ -194,7 +244,7 @@ export async function POST(request: NextRequest) {
       if (bookingCode) {
         await handleBookingCode(userId, bookingCode, replyToken);
       } else {
-        await handlePaymentReport(userId, rawText, replyToken, paymentKeywords);
+        await handlePaymentReport(userId, rawText, "line_text", replyToken, paymentKeywords);
       }
     } catch (err) {
       console.error("[webhook] event processing error:", err);

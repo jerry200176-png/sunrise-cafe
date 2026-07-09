@@ -64,6 +64,10 @@ const toTaipei = (s: string) =>
 
 對客店名、匯款資訊、LINE Pay 連結存在 `branches` 表的 `display_name` / `payment_info` / `line_pay_url` 欄位，由後台「分店管理」編輯。話術產生器為 `src/lib/payment-message.ts`（後台複製按鈕與伺服器推播共用）。未設定時降級為通用話術，不含任何寫死的分店帳號。
 
+### 付款審核（漸進式）
+
+LINE **截圖**回報寫入 `payment_events`（`pending_review`），不自動標 `is_deposit_paid`；文字關鍵字仍暫時自動標記。詳見 `docs/PAYMENT_STATE_MODEL.md`、ADR-008。Migration：`supabase/migration-payment-events.sql`（含 RLS，anon 無法存取）。
+
 ## 關鍵檔案位置
 
 ```

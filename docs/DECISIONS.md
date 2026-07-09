@@ -85,3 +85,19 @@ new Date(new Date(s).toLocaleString("en-US", { timeZone: "Asia/Taipei" }))
 
 **純函式**：`src/lib/deposit-deadline-eligibility.ts` 定義資格規則，供測試與文件化。
 
+---
+
+## ADR-008：付款截圖改為待審核，不直接標記已付（漸進式）
+
+**決策**：LINE 圖片付款回報寫入 `payment_events`（`pending_review`），不自動設 `is_deposit_paid`。文字關鍵字仍暫時自動標記（過渡期）。
+
+**背景**：任何圖片即標已付風險過高（誤傳、惡意標記）。目標架構見 [docs/PAYMENT_STATE_MODEL.md](./PAYMENT_STATE_MODEL.md)。
+
+**取捨**：
+- ✅ 截圖誤標風險消除
+- ✅ 稽核軌跡可追蹤
+- ⚠️ 店員需從後台確認（#56 待實作 UI）；過渡期可繼續用手動「標記已付」
+- ⚠️ 文字關鍵字仍保留自動標記，下一階段改為審核
+
+**資料庫**：`payment_events` 啟用 RLS，無 anon policy（與 `reservations` 相同）；僅 `service_role` 可讀寫。Migration：`supabase/migration-payment-events.sql`。
+
