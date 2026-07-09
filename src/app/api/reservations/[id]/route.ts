@@ -4,6 +4,8 @@ import { sendLineFlexMessage, buildPaymentFlex, sendLineMessage, buildReviewInvi
 import { type BranchPaymentConfig } from "@/lib/payment-message";
 import { notifyWaitlist } from "@/lib/waitlist";
 import { fetchSettings } from "@/lib/supabase-fetch";
+import { requireAdminApiAuth } from "@/lib/admin-api-auth";
+import { logDepositStatusChange } from "@/lib/payment-log";
 import { createClient } from "@supabase/supabase-js";
 function supabaseAdmin() {
   return createClient(
@@ -18,6 +20,9 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const denied = await requireAdminApiAuth(request);
+  if (denied) return denied;
+
   const id = (await params).id;
   if (!id) {
     return NextResponse.json({ error: "缺少訂位 id" }, { status: 400 });
@@ -47,7 +52,74 @@ export async function PATCH(
     if (Object.keys(patch).length === 0) {
       return NextResponse.json({ error: "未提供可更新欄位" }, { status: 400 });
     }
+
+    const touchesDeposit =
+      patch.is_deposit_paid !== undefined || patch.deposit_payment_note !== undefined;
+    let beforeRow: {
+      is_deposit_paid: boolean;
+      deposit_payment_note: string | null;
+      status: string;
+      booking_code: string;
+    } | null = null;
+
+    if (touchesDeposit) {
+      const { data } = await supabaseAdmin()
+        .from("reservations")
+        .select("is_deposit_paid, deposit_payment_note, status, booking_code")
+        .eq("id", id)
+        .single();
+      if (data) beforeRow = data;
+    }
+
     await updateReservationAdmin(id, patch);
+
+    if (beforeRow && touchesDeposit) {
+      const afterPaid =
+        patch.is_deposit_paid !== undefined
+          ? Boolean(patch.is_deposit_paid)
+          : beforeRow.is_deposit_paid;
+      const afterNote =
+        patch.deposit_payment_note !== undefined
+          ? patch.deposit_payment_note
+          : beforeRow.deposit_payment_note;
+
+      if (beforeRow.is_deposit_paid !== afterPaid) {
+        logDepositStatusChange({
+          action: afterPaid ? "deposit.marked_paid" : "deposit.marked_unpaid",
+          reservation_id: id,
+          booking_code: beforeRow.booking_code,
+          actor_type: "admin_session",
+          before: {
+            is_deposit_paid: beforeRow.is_deposit_paid,
+            deposit_payment_note: beforeRow.deposit_payment_note,
+            status: beforeRow.status,
+          },
+          after: {
+            is_deposit_paid: afterPaid,
+            deposit_payment_note: afterNote,
+            status: patch.status ?? beforeRow.status,
+          },
+        });
+      } else if (
+        patch.deposit_payment_note !== undefined &&
+        beforeRow.deposit_payment_note !== afterNote
+      ) {
+        logDepositStatusChange({
+          action: "deposit.note_updated",
+          reservation_id: id,
+          booking_code: beforeRow.booking_code,
+          actor_type: "admin_session",
+          before: {
+            is_deposit_paid: beforeRow.is_deposit_paid,
+            deposit_payment_note: beforeRow.deposit_payment_note,
+          },
+          after: {
+            is_deposit_paid: afterPaid,
+            deposit_payment_note: afterNote,
+          },
+        });
+      }
+    }
 
     // 後台取消時，通知等位清單
     if (patch.status === "cancelled") {
@@ -171,9 +243,12 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const denied = await requireAdminApiAuth(request);
+  if (denied) return denied;
+
   const id = (await params).id;
   if (!id) {
     return NextResponse.json({ error: "缺少訂位 id" }, { status: 400 });

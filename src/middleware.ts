@@ -1,44 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import { getSessionSecret } from "@/lib/admin-auth";
+import {
+  ADMIN_SESSION_COOKIE,
+  requireAdminApiAuth,
+  verifyAdminSession,
+  isReservationMutationPath,
+} from "@/lib/admin-api-auth";
 
-const COOKIE_NAME = "admin_session";
-
-function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
+const COOKIE_NAME = ADMIN_SESSION_COOKIE;
 
 async function verifySession(value: string, secret: string): Promise<boolean> {
-  const dot = value.indexOf(".");
-  if (dot === -1) return false;
-  const encoded = value.slice(0, dot);
-  const sigFromCookie = value.slice(dot + 1);
-  if (!encoded || !sigFromCookie) return false;
-
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const sigBuffer = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(encoded));
-  const ourSig = arrayBufferToBase64Url(sigBuffer);
-  if (ourSig !== sigFromCookie) return false;
-
-  try {
-    const json = atob(encoded.replace(/-/g, "+").replace(/_/g, "/"));
-    const payload = JSON.parse(json) as { exp?: number };
-    const now = Math.floor(Date.now() / 1000);
-    return typeof payload.exp === "number" && payload.exp > now;
-  } catch {
-    return false;
-  }
+  return verifyAdminSession(value, secret);
 }
 
 function tooManyRequests(reset: number) {
@@ -80,16 +53,15 @@ export async function middleware(request: NextRequest) {
     if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
       return NextResponse.next();
     }
-    // 其餘一律需有效 admin session（未設定密碼時維持與頁面一致的不擋行為）
-    // 是否啟用驗證以 ADMIN_PASSWORD 為準；簽章驗證金鑰用 SESSION_SECRET
-    if (process.env.ADMIN_PASSWORD) {
-      const signingKey = getSessionSecret()!;
-      const cookie = request.cookies.get(COOKIE_NAME);
-      const ok = cookie?.value ? await verifySession(cookie.value, signingKey) : false;
-      if (!ok) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
-    }
+    const denied = await requireAdminApiAuth(request);
+    if (denied) return denied;
+    return NextResponse.next();
+  }
+
+  // ── 訂位變更 API（PATCH/DELETE）需 admin session ───────────────────
+  if (isReservationMutationPath(pathname, request.method)) {
+    const denied = await requireAdminApiAuth(request);
+    if (denied) return denied;
     return NextResponse.next();
   }
 
