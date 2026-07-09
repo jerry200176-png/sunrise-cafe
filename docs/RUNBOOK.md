@@ -118,6 +118,61 @@ vercel rollback
 
 ---
 
+## payment_events Migration（Phase 0 — 部署必做）
+
+程式已部署但 **資料庫表需手動建立**。未執行前，LINE 截圖付款會 fail-safe（不會誤標已付）。
+
+### 執行步驟
+
+1. Supabase Dashboard → **SQL Editor**
+2. 貼上並執行整份 `supabase/migration-payment-events.sql`
+3. 驗證：
+
+```bash
+# 已登入後台 session 時
+curl -s https://sunrise-cafe-six.vercel.app/api/admin/payments/migration-status \
+  -H "Cookie: admin_session=..."
+# 預期：{"payment_events_ready":true,...}
+```
+
+或後台開啟 `/admin/payments`，頂部不應出現 migration 警告。
+
+### RLS 預期
+
+- `anon` / `authenticated`：**無** SELECT/INSERT 權限
+- `service_role`：完整存取（Webhook、後台 API）
+
+### 驗證截圖流程
+
+1. 客人 LINE 傳截圖 → `payment_events.status = pending_review`
+2. `reservations.is_deposit_paid` **仍為 false**
+3. 群組收到「📷 付款截圖待確認」
+4. 後台 `/admin/payments` 核准 → `is_deposit_paid = true`
+
+### #55 訂金 Cron 營運檢視
+
+`GET /api/admin/payments/reconcile`（GET 部分）列出 **未付訂金且可能被 Cron 釋放** 的訂位，**不會自動取消**。
+
+每日 20:00（台灣）Cron 會對 `pending` + `confirmed` 且未付訂金者執行到期釋放。部署 #55 前請先檢視此清單並手動處理歷史訂位。
+
+---
+
+## 付款審核後台（#56）
+
+路徑：`/admin/payments`
+
+| 動作 | API | 結果 |
+|------|-----|------|
+| 列表 | `GET /api/admin/payments/pending` | 待審核 `payment_events` |
+| 核准 | `POST /api/admin/payments/:id/approve` | `is_deposit_paid=true`、事件 `approved`、群組通知 |
+| 駁回 | `POST /api/admin/payments/:id/reject` | 事件 `rejected` + `review_note` |
+
+重複截圖：同一訂位已有 `pending_review` 時，Webhook 跳過重複 insert。
+
+結構化日誌：Vercel Logs 搜尋 `"domain":"payment"`。
+
+---
+
 ## 系統監控
 
 - **Vercel Logs**：Dashboard → 專案 → Logs（即時 serverless function log）

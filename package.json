@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.53.1",
@@ -30,6 +32,7 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@playwright/test": "^1.51.0",
     "cross-env": "^7.0.3",
     "dotenv": "^16.4.5",
     "eslint": "^9",

@@ -14,6 +14,8 @@ import {
   GUEST_REPLY_PAYMENT_AUTO_RECORDED,
   type PaymentEventSource,
 } from "@/lib/payment-events";
+import { countPendingPaymentEventsForReservation } from "@/lib/payment-events-admin";
+import { logPayment } from "@/lib/payment-log";
 
 const REPLY_URL = "https://api.line.me/v2/bot/message/reply";
 
@@ -135,6 +137,23 @@ async function handlePaymentReport(
   const outcome = getPaymentSubmissionOutcome(source);
 
   if (outcome === "pending_review") {
+    try {
+      const pending = await countPendingPaymentEventsForReservation(reservation.id);
+      if (pending > 0) {
+        logPayment("payment_event.duplicate_skipped", {
+          reservation_id: reservation.id,
+          booking_code: reservation.booking_code,
+          pending_count: pending,
+        });
+        if (replyToken) {
+          await replyMessage(replyToken, GUEST_REPLY_PAYMENT_PENDING_REVIEW);
+        }
+        return;
+      }
+    } catch (dupErr) {
+      console.error("[webhook] pending count check failed:", dupErr);
+    }
+
     const { error: eventErr } = await supabaseAdmin().from("payment_events").insert({
       reservation_id: reservation.id,
       source,
@@ -142,7 +161,10 @@ async function handlePaymentReport(
       raw_payload: rawText,
     });
     if (eventErr) {
-      console.error("[webhook] payment_events insert failed:", eventErr);
+      logPayment("payment_event.insert_failed", {
+        reservation_id: reservation.id,
+        error: eventErr.message,
+      });
       if (replyToken) {
         await replyMessage(
           replyToken,
@@ -152,12 +174,18 @@ async function handlePaymentReport(
       return;
     }
 
+    logPayment("payment_event.created", {
+      reservation_id: reservation.id,
+      booking_code: reservation.booking_code,
+      source,
+    });
+
     try {
       await sendLineMessage(
         `📷 付款截圖待確認\n` +
           `姓名：${reservation.customer_name}\n` +
           `代號：${reservation.booking_code}\n` +
-          `請至後台核對後標記已付訂金`
+          `請至後台「付款審核」核對`
       );
     } catch (err) {
       console.error("[webhook] group pending-review notify failed:", err);

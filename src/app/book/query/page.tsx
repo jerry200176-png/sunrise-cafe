@@ -16,6 +16,9 @@ interface BookingItem {
   branch_id: string | null;
   room_name: string;
   branch_name: string;
+  branch_display_name?: string | null;
+  payment_info?: string | null;
+  line_pay_url?: string | null;
   start_time: string;
   end_time: string;
   status: string;
@@ -32,9 +35,6 @@ interface AvailabilitySlot {
   end: string;
   available: boolean;
 }
-
-const LINE_PAY_URL =
-  "https://qrcodepay.line.me/qr/payment/%252BmF6rR41PSp3R8NMydLA%252BRt1IvAFgPchBvtrJoR20aoZKY4Hr1qrbfaYSoPDUyu0";
 
 const OFFICIAL_LINE_URL = "https://lin.ee/cxcV0lo";
 
@@ -374,32 +374,37 @@ export default function BookQueryPage() {
                             <p className="font-bold text-lg text-amber-800 mb-2">
                               {t("query.step1Title")}
                             </p>
-                            <div className="bg-white p-3 rounded border border-gray-200 shadow-sm mb-3">
-                              <p className="font-bold text-gray-700 flex items-center gap-1.5 mb-1">
-                                <span className="text-xl">🏦</span> {t("query.bankTransfer")}
+                            {item.payment_info?.trim() ? (
+                              <div className="bg-white p-3 rounded border border-gray-200 shadow-sm mb-3 whitespace-pre-line text-base">
+                                {item.payment_info.trim()}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded p-3 mb-3">
+                                付款資訊請參考 LINE 繳費通知，或聯繫店家確認匯款帳號。
                               </p>
-                              <p className="font-mono text-lg tracking-wide select-all">台北富邦銀行 (012)</p>
-                              <p className="font-mono text-xl font-bold tracking-wider select-all text-blue-700 my-1">8212-00000-8489-6</p>
-                              <p className="text-base font-semibold">{t("query.accountName")}</p>
-                            </div>
+                            )}
 
-                            <div className="flex items-center gap-3 my-2 opacity-60">
-                              <div className="h-px flex-1 bg-gray-300"></div>
-                              <span className="font-medium text-sm">{t("query.or")}</span>
-                              <div className="h-px flex-1 bg-gray-300"></div>
-                            </div>
+                            {item.line_pay_url?.trim() && (
+                              <>
+                                <div className="flex items-center gap-3 my-2 opacity-60">
+                                  <div className="h-px flex-1 bg-gray-300"></div>
+                                  <span className="font-medium text-sm">{t("query.or")}</span>
+                                  <div className="h-px flex-1 bg-gray-300"></div>
+                                </div>
 
-                            <div className="mt-2 text-center">
-                              <a
-                                href={LINE_PAY_URL}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex w-full sm:w-auto justify-center items-center gap-2 rounded-lg bg-[#06C755] px-6 py-3 text-base font-bold text-white shadow hover:bg-[#05b34c] transition"
-                              >
-                                <span className="bg-white text-[#06C755] p-1 rounded font-black text-xs">LINE Pay</span>
-                                {t("query.linePayButton")}
-                              </a>
-                            </div>
+                                <div className="mt-2 text-center">
+                                  <a
+                                    href={item.line_pay_url.trim()}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex w-full sm:w-auto justify-center items-center gap-2 rounded-lg bg-[#06C755] px-6 py-3 text-base font-bold text-white shadow hover:bg-[#05b34c] transition"
+                                  >
+                                    <span className="bg-white text-[#06C755] p-1 rounded font-black text-xs">LINE Pay</span>
+                                    {t("query.linePayButton")}
+                                  </a>
+                                </div>
+                              </>
+                            )}
                           </div>
 
                           <div className="pl-3 border-l-4 border-[#06C755] bg-green-50/50 p-3 rounded-r-lg">

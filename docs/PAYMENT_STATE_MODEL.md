@@ -54,10 +54,10 @@ reservations.deposit_payment_note: text | null
 | Phase | 內容 | 狀態 |
 |-------|------|------|
 | **0** | 修 #55 deposit deadline | ✅ |
-| **1a** | migration `payment_events` + 圖片 → `pending_review` | ✅ 本 PR |
-| **1b** | 後台待核對佇列 UI (#56) | 待做 |
+| **1a** | migration `payment_events` + 圖片 → `pending_review` | ✅ |
+| **1b** | 後台待核對佇列 UI (#56) | ✅ `/admin/payments` |
 | **2** | 文字關鍵字 → `pending_review`（需 booking_code+末五碼） | 待做 |
-| **3** | CSV 對帳 (#62) | 待做 |
+| **3** | CSV 對帳 (#62) | ✅ MVP（`/api/admin/payments/reconcile` POST） |
 | **4** | `PaymentProvider` 抽象 (#63) | 待做 |
 
 ## State Transition Rules
@@ -87,6 +87,10 @@ pending_review ──approve──▶ approved
 | 路徑 | 變更 |
 |------|------|
 | `POST /api/webhooks/line` | 圖片分支改寫入 event |
+| `GET /api/admin/payments/pending` | 待審核列表 (#56) |
+| `POST /api/admin/payments/:id/approve` | 核准並標記已付 |
+| `POST /api/admin/payments/:id/reject` | 駁回並記錄原因 |
+| `GET /api/my-bookings` | 回傳分店 `payment_info` / `line_pay_url` (#57) |
 | `PATCH /api/reservations/[id]` | 不變；手動標記仍有效 |
 | 新增 `GET/POST /api/admin/payments/*` | #56 |
 

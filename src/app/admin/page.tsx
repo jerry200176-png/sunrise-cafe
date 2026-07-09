@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { ArrowLeft, Plus, Pencil, Trash2, MapPin, LogOut, ChefHat, UtensilsCrossed, QrCode, Printer, Building2, LayoutGrid, ClipboardList, CalendarDays, CalendarX, BarChart2, Star } from "lucide-react";
+import { ArrowLeft, Plus, Pencil, Trash2, MapPin, LogOut, ChefHat, UtensilsCrossed, QrCode, Printer, Building2, LayoutGrid, ClipboardList, CalendarDays, CalendarX, BarChart2, Star, DollarSign } from "lucide-react";
 import type { Branch, Room, RentalNoteSection } from "@/types";
 import { BranchSwitcher } from "@/components/BranchSwitcher";
 import { ReservationList } from "@/components/ReservationList";
@@ -470,6 +470,7 @@ export default function AdminBranchesRoomsPage() {
               { href: "/admin/tables", icon: QrCode, label: "桌位 QR" },
               { href: "/admin/print-station", icon: Printer, label: "列印站" },
               { href: "/admin/reports", icon: BarChart2, label: "營收報表" },
+              { href: "/admin/payments", icon: DollarSign, label: "付款審核" },
             ].map(({ href, icon: Icon, label }) => (
               <Link key={href} href={href}
                 className="flex flex-col items-center gap-2 rounded-xl bg-white/80 border border-amber-100 p-3.5 text-sm font-medium text-stone-700 shadow-sm hover:border-amber-300 hover:bg-white hover:shadow-md transition-all"

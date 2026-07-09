@@ -11,6 +11,7 @@ import { notifyWaitlist } from "@/lib/waitlist";
 import { toTaipei } from "@/lib/datetime";
 import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
+import { logPayment } from "@/lib/payment-log";
 
 type Row = {
   id: string;
@@ -44,6 +45,8 @@ async function handleRun() {
   let released = 0;
   let reminded = 0;
 
+  logPayment("deposit_deadline.cron_run", { candidate_count: rows.length });
+
   for (const r of rows) {
     const deadline = computeDepositDeadline(r.created_at, r.start_time);
     const { formattedDate, timeRange, branchName } = describe(r);
@@ -74,6 +77,10 @@ async function handleRun() {
         );
 
         released++;
+        logPayment("deposit_deadline.released", {
+          reservation_id: r.id,
+          booking_code: r.booking_code,
+        });
       } catch (err) {
         console.error(`[deposit-deadline] 釋放失敗 id=${r.id}:`, err);
       }
@@ -90,6 +97,10 @@ async function handleRun() {
         );
         await updateReservationAdmin(r.id, { deposit_reminder_sent_at: now.toISOString() });
         reminded++;
+        logPayment("deposit_deadline.reminded", {
+          reservation_id: r.id,
+          booking_code: r.booking_code,
+        });
       } catch (err) {
         console.error(`[deposit-deadline] 提醒失敗 id=${r.id}:`, err);
       }
