@@ -4,6 +4,18 @@
 
 ---
 
+## [RC2-P2] — 2026-07-09
+
+### Security
+- Admin-only API paths: GET `/api/reservations`, POST `send-line`, POST `recurring/admin`, PATCH/DELETE `branches/[id]`, PATCH `/api/settings`
+- `isAdminOnlyApiPath()` middleware expansion
+
+### Operations
+- Post-merge `verify-production` GitHub Actions workflow
+- Release index, deploy-gap incident record, RUNBOOK recovery section
+
+---
+
 ## [RC2-P1] — 2026-07-09
 
 ### Security
