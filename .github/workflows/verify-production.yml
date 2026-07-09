@@ -35,6 +35,8 @@ jobs:
           exit 1
 
       - name: Smoke — auth on reservation PATCH
+        env:
+          PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
         run: |
           CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH \
             "$PRODUCTION_URL/api/reservations/00000000-0000-0000-0000-000000000099" \
