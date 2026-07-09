@@ -402,7 +402,7 @@ export async function fetchUnpaidDepositDueReservations() {
   const { data, error } = await supabaseAdmin()
     .from("reservations")
     .select(
-      "id, booking_code, customer_name, phone, start_time, end_time, created_at, line_user_id, deposit_reminder_sent_at, room:rooms(id, name, branch:branches(name))"
+      "id, booking_code, customer_name, phone, start_time, end_time, created_at, status, line_user_id, deposit_reminder_sent_at, room:rooms(id, name, branch:branches(name))"
     )
     .in("status", ["pending", "confirmed"])
     .eq("is_deposit_paid", false)

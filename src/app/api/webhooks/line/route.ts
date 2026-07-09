@@ -15,7 +15,7 @@ import {
   type PaymentEventSource,
 } from "@/lib/payment-events";
 import { countPendingPaymentEventsForReservation } from "@/lib/payment-events-admin";
-import { logPayment } from "@/lib/payment-log";
+import { logPayment, logDepositStatusChange } from "@/lib/payment-log";
 
 const REPLY_URL = "https://api.line.me/v2/bot/message/reply";
 
@@ -202,6 +202,15 @@ async function handlePaymentReport(
     .from("reservations")
     .update({ is_deposit_paid: true, deposit_payment_note: rawText })
     .eq("id", reservation.id);
+
+  logDepositStatusChange({
+    action: "deposit.marked_paid",
+    reservation_id: reservation.id,
+    booking_code: reservation.booking_code,
+    actor_type: "line_webhook_text",
+    before: { is_deposit_paid: false },
+    after: { is_deposit_paid: true, deposit_payment_note: rawText },
+  });
 
   try {
     const flex = buildPaymentConfirmedFlex({

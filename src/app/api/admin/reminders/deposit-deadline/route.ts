@@ -11,7 +11,7 @@ import { notifyWaitlist } from "@/lib/waitlist";
 import { toTaipei } from "@/lib/datetime";
 import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
-import { logPayment } from "@/lib/payment-log";
+import { logPayment, logDepositStatusChange } from "@/lib/payment-log";
 
 type Row = {
   id: string;
@@ -21,6 +21,7 @@ type Row = {
   start_time: string;
   end_time: string;
   created_at: string;
+  status: string;
   line_user_id: string | null;
   deposit_reminder_sent_at: string | null;
   room: { id: string; name: string; branch?: { name?: string } } | null;
@@ -80,6 +81,14 @@ async function handleRun() {
         logPayment("deposit_deadline.released", {
           reservation_id: r.id,
           booking_code: r.booking_code,
+        });
+        logDepositStatusChange({
+          action: "deposit.auto_released",
+          reservation_id: r.id,
+          booking_code: r.booking_code,
+          actor_type: "cron_deposit_deadline",
+          before: { is_deposit_paid: false, status: r.status },
+          after: { is_deposit_paid: false, status: "cancelled" },
         });
       } catch (err) {
         console.error(`[deposit-deadline] 釋放失敗 id=${r.id}:`, err);

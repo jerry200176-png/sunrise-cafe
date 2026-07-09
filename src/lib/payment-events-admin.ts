@@ -2,7 +2,7 @@
  * payment_events 後台審核（#56）
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { logPayment } from "@/lib/payment-log";
+import { logPayment, logDepositStatusChange } from "@/lib/payment-log";
 
 export type PaymentEventStatus = "pending_review" | "approved" | "rejected";
 
@@ -113,6 +113,13 @@ export async function approvePaymentEvent(
   if (event.status === "approved") return { already_processed: true };
   if (event.status !== "pending_review") throw new Error("此事件已駁回，無法核准");
 
+  const { data: beforeRes, error: beforeErr } = await admin()
+    .from("reservations")
+    .select("is_deposit_paid, deposit_payment_note, status, booking_code")
+    .eq("id", event.reservation_id)
+    .single();
+  if (beforeErr || !beforeRes) throw new Error("找不到訂位");
+
   const now = new Date().toISOString();
   const note =
     reviewNote?.trim() ||
@@ -146,6 +153,27 @@ export async function approvePaymentEvent(
     event_id: eventId,
     reservation_id: event.reservation_id,
   });
+
+  if (!beforeRes.is_deposit_paid) {
+    logDepositStatusChange({
+      action: "deposit.marked_paid",
+      reservation_id: event.reservation_id,
+      booking_code: beforeRes.booking_code,
+      actor_type: "admin_payment_review",
+      payment_event_id: eventId,
+      before: {
+        is_deposit_paid: beforeRes.is_deposit_paid,
+        deposit_payment_note: beforeRes.deposit_payment_note,
+        status: beforeRes.status,
+      },
+      after: {
+        is_deposit_paid: true,
+        deposit_payment_note: note,
+        status: beforeRes.status,
+      },
+    });
+  }
+
   return { already_processed: false };
 }
 
