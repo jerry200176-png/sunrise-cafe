@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  fetchUnpaidPendingReservations,
+  fetchUnpaidDepositDueReservations,
   updateReservationAdmin,
   isAdminConfigured,
 } from "@/lib/supabase-admin";
@@ -39,7 +39,7 @@ async function handleRun() {
     return NextResponse.json({ error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY" }, { status: 503 });
   }
 
-  const rows = (await fetchUnpaidPendingReservations()) as unknown as Row[];
+  const rows = (await fetchUnpaidDepositDueReservations()) as unknown as Row[];
   const now = new Date();
   let released = 0;
   let reminded = 0;

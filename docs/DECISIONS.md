@@ -72,3 +72,16 @@ new Date(new Date(s).toLocaleString("en-US", { timeZone: "Asia/Taipei" }))
 **背景**：熱感印表機需要 USB/網路連接，Vercel Serverless 無法存取本機裝置。
 
 **運作方式**：店內電腦執行 `print-bridge/index.js`，前台廚房列印站發送 HTTP 到本機 port，bridge 再轉給印表機。
+
+---
+
+## ADR-007：訂金到期 Cron 涵蓋 pending 與 confirmed 未付款
+
+**決策**：`fetchUnpaidDepositDueReservations()` 查詢 `status IN ('pending', 'confirmed') AND is_deposit_paid = false`。
+
+**背景**：正常流程為後台確認後變 `confirmed`，舊查詢僅 `pending` 導致已確認未付款訂位永遠不會收到到期提醒或自動釋放。
+
+**排除**：`checked_in`（已到店）、`cancelled`、`completed` 不納入。
+
+**純函式**：`src/lib/deposit-deadline-eligibility.ts` 定義資格規則，供測試與文件化。
+

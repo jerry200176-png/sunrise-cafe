@@ -64,8 +64,6 @@ const toTaipei = (s: string) =>
 
 對客店名、匯款資訊、LINE Pay 連結存在 `branches` 表的 `display_name` / `payment_info` / `line_pay_url` 欄位，由後台「分店管理」編輯。話術產生器為 `src/lib/payment-message.ts`（後台複製按鈕與伺服器推播共用）。未設定時降級為通用話術，不含任何寫死的分店帳號。
 
----
-
 ## 關鍵檔案位置
 
 ```
@@ -105,6 +103,7 @@ print-bridge/             # 本地列印服務（獨立部署，非 Vercel）
 `/api/admin/reminders/deposit-deadline`（每日 Cron + 可手動觸發）：
 
 - 期限 = `min(建立訂位時間 +24hr, 訂位開始時間)`
+- 適用對象：`status IN (pending, confirmed)` 且 `is_deposit_paid = false`（見 ADR-007）
 - 期限前 24 小時內且未提醒過 → 推播客人提醒一次（寫入 `deposit_reminder_sent_at`）
 - 超過期限仍未付訂金 → 自動將 `status` 改為 `cancelled`，通知客人與群組，並觸發等位通知
 
