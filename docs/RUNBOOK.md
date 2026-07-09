@@ -22,9 +22,30 @@ gh pr create --title "feat: ..." --body "..."
 gh pr merge <PR號> --squash
 
 # 5. main 合併後 Vercel 自動部署正式環境
+#    ⚠️ 合併後務必確認 /api/version 的 commit 與 main HEAD 一致（見下方「合併但未上線」）
 ```
 
 **每個 PR 都有專屬 Preview URL**（格式：`https://sunrise-cafe-xxxxx.vercel.app`），可在正式部署前完整測試。
+
+### 合併但未上線（Merged ≠ Deployed）
+
+若 PR 已合併但 production 仍是舊 SHA：
+
+```bash
+curl -s https://sunrise-cafe-six.vercel.app/api/version
+# commit 應等於 git rev-parse origin/main
+```
+
+**手動恢復：**
+
+```bash
+git checkout main && git pull
+vercel deploy --prod --yes
+```
+
+詳見 [docs/incidents/2026-07-09-vercel-merge-deploy-gap.md](./incidents/2026-07-09-vercel-merge-deploy-gap.md)。
+
+GitHub Actions `verify-production` workflow 會在 push 到 `main` 後輪詢 `/api/version`（逾時則 CI 失敗）。
 
 ## 更新環境變數
 

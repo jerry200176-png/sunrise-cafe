@@ -4,6 +4,37 @@
 
 ---
 
+## [RC2-P1] — 2026-07-09
+
+### Security
+- `PATCH`/`DELETE` `/api/reservations/[id]` 需 admin session（middleware + handler）
+- 新增 `requireAdminApiAuth()` 共用守衛
+
+### Added
+- Phase A 付款稽核結構化日誌（`logDepositStatusChange`）
+- ADR-009、RC2-P1  release 文件、部署事故紀錄
+
+### Tests
+- +17 Vitest（auth、audit log PII guard）
+
+詳見 [docs/releases/RC2-P1.md](./docs/releases/RC2-P1.md)。
+
+---
+
+## [RC1] — 2026-07-09
+
+### Added
+- 後台付款審核佇列（`/admin/payments`、`payment_events`）
+- 分店驅動客人付款 UI、`payment-log.ts`、CSV 對帳 MVP
+- Dependabot、gitleaks、CI `npm audit`、Playwright smoke
+
+### Fixed
+- 訂金到期 Cron 涵蓋 `confirmed` 未付款（#55）
+
+詳見 [docs/releases/RC1.md](./docs/releases/RC1.md)。
+
+---
+
 ## [1.1.0] — 2026-05-16
 
 ### Added

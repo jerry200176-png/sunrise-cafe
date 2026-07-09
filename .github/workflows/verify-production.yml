@@ -1,0 +1,46 @@
+# Post-merge production SHA verification
+# Catches "merged to main but Vercel did not deploy" (see docs/incidents/2026-07-09-vercel-merge-deploy-gap.md)
+
+name: Verify Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  verify-sha:
+    name: Production /api/version matches main
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Poll production version
+        env:
+          PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          echo "Expected: $EXPECTED_SHA"
+          for i in $(seq 1 30); do
+            ACTUAL=$(curl -sf "$PRODUCTION_URL/api/version" | jq -r '.commit // empty')
+            echo "Attempt $i: $ACTUAL"
+            if [ "$ACTUAL" = "$EXPECTED_SHA" ]; then
+              echo "Production matches main HEAD."
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::Production commit ($ACTUAL) did not match main ($EXPECTED_SHA) within 15 minutes."
+          echo "Run: vercel deploy --prod --yes (see docs/RUNBOOK.md)"
+          exit 1
+
+      - name: Smoke — auth on reservation PATCH
+        run: |
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH \
+            "$PRODUCTION_URL/api/reservations/00000000-0000-0000-0000-000000000099" \
+            -H "Content-Type: application/json" -d '{"notes":"smoke"}')
+          if [ "$CODE" != "401" ]; then
+            echo "::error::Expected 401 for unauthenticated PATCH, got $CODE"
+            exit 1
+          fi
+          echo "PATCH without auth returns 401."

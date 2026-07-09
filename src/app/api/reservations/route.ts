@@ -6,6 +6,7 @@ import {
   isAdminConfigured,
 } from "@/lib/supabase-admin";
 import { sendLineFlex, buildNewBookingFlex } from "@/lib/line-notify";
+import { requireAdminApiAuth } from "@/lib/admin-api-auth";
 import { createClient } from "@supabase/supabase-js";
 
 function supabaseAdmin() {
@@ -16,6 +17,9 @@ function supabaseAdmin() {
 }
 
 export async function GET(request: NextRequest) {
+  const denied = await requireAdminApiAuth(request);
+  if (denied) return denied;
+
   const branchId = request.nextUrl.searchParams.get("branchId");
   if (!branchId) {
     return NextResponse.json({ error: "缺少 branchId" }, { status: 400 });

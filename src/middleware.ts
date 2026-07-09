@@ -5,7 +5,7 @@ import {
   ADMIN_SESSION_COOKIE,
   requireAdminApiAuth,
   verifyAdminSession,
-  isReservationMutationPath,
+  isAdminOnlyApiPath,
 } from "@/lib/admin-api-auth";
 
 const COOKIE_NAME = ADMIN_SESSION_COOKIE;
@@ -58,8 +58,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // ── 訂位變更 API（PATCH/DELETE）需 admin session ───────────────────
-  if (isReservationMutationPath(pathname, request.method)) {
+  // ── Admin-only API（訂位讀取/變更、分店/設定變更等）────────────────
+  if (isAdminOnlyApiPath(pathname, request.method)) {
     const denied = await requireAdminApiAuth(request);
     if (denied) return denied;
     return NextResponse.next();

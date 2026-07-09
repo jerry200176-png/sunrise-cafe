@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { sendLineFlexMessage, buildPaymentFlex } from "@/lib/line";
 import { type BranchPaymentConfig } from "@/lib/payment-message";
 import { isAdminConfigured } from "@/lib/supabase-admin";
+import { requireAdminApiAuth } from "@/lib/admin-api-auth";
 
 function supabaseAdmin() {
   return createClient(
@@ -12,6 +13,9 @@ function supabaseAdmin() {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = await requireAdminApiAuth(request);
+  if (denied) return denied;
+
   if (!isAdminConfigured()) {
     return NextResponse.json({ error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY" }, { status: 503 });
   }

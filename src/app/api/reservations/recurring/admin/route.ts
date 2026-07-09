@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { isAdminConfigured } from "@/lib/supabase-admin";
+import { requireAdminApiAuth } from "@/lib/admin-api-auth";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,6 +24,9 @@ type NewReservation = {
 };
 
 export async function POST(request: NextRequest) {
+  const denied = await requireAdminApiAuth(request);
+  if (denied) return denied;
+
   if (!isAdminConfigured()) {
     return NextResponse.json(
       { error: "Server misconfigured (missing service role key)" },

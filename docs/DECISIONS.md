@@ -101,3 +101,24 @@ new Date(new Date(s).toLocaleString("en-US", { timeZone: "Asia/Taipei" }))
 
 **資料庫**：`payment_events` 啟用 RLS，無 anon policy（與 `reservations` 相同）；僅 `service_role` 可讀寫。Migration：`supabase/migration-payment-events.sql`。
 
+---
+
+## ADR-009：訂位變更 API 需 admin session + Phase A 付款稽核日誌
+
+**決策**（RC2 P1）：`PATCH`/`DELETE` `/api/reservations/[id]` 必須通過 `requireAdminApiAuth()`（middleware + handler）。付款狀態變更寫入結構化 log（`logDepositStatusChange`），暫不建 `payment_audit_log` 表。
+
+**背景**：RC1 前任何人可 PATCH 訂位（含 `is_deposit_paid`）。P1.2 稽核發現多個 admin 路徑仍無 auth，列 RC2 P2。
+
+**實作**：
+- `src/lib/admin-api-auth.ts` — 與 `/api/admin/*` 共用 session cookie
+- `POST /api/reservations` 維持公開（客人訂位）
+- Phase A 日誌：無 `customer_name`/`phone`；`deposit_payment_note` 截斷 200 字
+
+**取捨**：
+- ✅ 防禦縱深（middleware + handler）
+- ✅ 無 migration、可立刻上線
+- ⚠️ Phase B 可查詢稽核表延後
+- ⚠️ RC2 P2 前仍有其他未保護 admin 路徑（見 `docs/releases/RC2-P1.md`）
+
+**參考**：`docs/PAYMENT_AUDIT_LOG.md`、`docs/releases/RC2-P1.md`
+

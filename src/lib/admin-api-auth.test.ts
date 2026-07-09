@@ -6,6 +6,7 @@ import {
   requireAdminApiAuth,
   createSignedAdminSession,
   isReservationMutationPath,
+  isAdminOnlyApiPath,
 } from "./admin-api-auth";
 
 const origPassword = process.env.ADMIN_PASSWORD;
@@ -26,6 +27,29 @@ describe("isReservationMutationPath", () => {
     expect(isReservationMutationPath("/api/reservations/abc-123", "GET")).toBe(false);
     expect(isReservationMutationPath("/api/reservations", "PATCH")).toBe(false);
     expect(isReservationMutationPath("/api/reservations/send-line", "POST")).toBe(false);
+  });
+});
+
+describe("isAdminOnlyApiPath (RC2 P2)", () => {
+  it("includes reservation mutations", () => {
+    expect(isAdminOnlyApiPath("/api/reservations/x", "PATCH")).toBe(true);
+  });
+
+  it("protects GET /api/reservations list", () => {
+    expect(isAdminOnlyApiPath("/api/reservations", "GET")).toBe(true);
+    expect(isAdminOnlyApiPath("/api/reservations", "POST")).toBe(false);
+  });
+
+  it("protects send-line and recurring admin", () => {
+    expect(isAdminOnlyApiPath("/api/reservations/send-line", "POST")).toBe(true);
+    expect(isAdminOnlyApiPath("/api/reservations/recurring/admin", "POST")).toBe(true);
+  });
+
+  it("protects branch and settings mutations", () => {
+    expect(isAdminOnlyApiPath("/api/branches/uuid", "PATCH")).toBe(true);
+    expect(isAdminOnlyApiPath("/api/branches/uuid", "DELETE")).toBe(true);
+    expect(isAdminOnlyApiPath("/api/settings", "PATCH")).toBe(true);
+    expect(isAdminOnlyApiPath("/api/settings", "GET")).toBe(false);
   });
 });
 

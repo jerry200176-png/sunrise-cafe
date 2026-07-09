@@ -95,3 +95,16 @@ export function isReservationMutationPath(pathname: string, method: string): boo
     (method === "PATCH" || method === "DELETE")
   );
 }
+
+/** RC2 P2 — admin-only API paths (middleware + handler defense in depth) */
+export function isAdminOnlyApiPath(pathname: string, method: string): boolean {
+  if (isReservationMutationPath(pathname, method)) return true;
+  if (pathname === "/api/reservations" && method === "GET") return true;
+  if (pathname === "/api/reservations/send-line" && method === "POST") return true;
+  if (pathname === "/api/reservations/recurring/admin" && method === "POST") return true;
+  if (/^\/api\/branches\/[^/]+$/.test(pathname) && (method === "PATCH" || method === "DELETE")) {
+    return true;
+  }
+  if (pathname === "/api/settings" && method === "PATCH") return true;
+  return false;
+}

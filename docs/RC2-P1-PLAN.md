@@ -1,8 +1,8 @@
 # RC2 P1 — Secure Reservation PATCH & Payment Audit Design
 
-**Status:** Planning (not implemented)  
+**Status:** Shipped (RC2 P1 — production `3fc7215`)  
 **Baseline:** RC1 `8c6ca04`  
-**Constraints:** No production deploy until reviewed
+**Follow-up:** RC2 P2 secured remaining admin API paths (see `isAdminOnlyApiPath`)
 
 ---
 
