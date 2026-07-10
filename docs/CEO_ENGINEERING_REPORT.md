@@ -595,3 +595,30 @@ The team built the right fixes in PR #69 and then kept building parallel phase b
 ---
 
 *No code changes were made in this review. Awaiting CEO approval before implementation.*
+
+---
+
+## Execution Log (2026-07-10)
+
+| Time (UTC) | Action | Result |
+|------------|--------|--------|
+| 19:50 | **Merged #69** — P0 security to `main` | ✅ Production `8253474`; booking-health redacted |
+| 20:02 | **Merged #79** — Wave 1 guest auth + double-book | ✅ Production `09d979f`; closes #67 |
+| 20:07 | **Merged #78** — CEO/CTO docs | ✅ `68e1e98` |
+| 20:08 | **Tagged `v2.1.0`** on `main` | ✅ GitHub release tag pushed |
+| — | Close PRs #70–#76 | ⚠️ Bot lacks `closePullRequest` permission — **founder action** |
+| — | Enable Dependabot alerts | ⚠️ Requires GitHub repo settings — **founder action** |
+
+### Post-deploy operator actions
+
+- [ ] Apply `supabase/migration-reservations-no-overlap.sql` in production Supabase
+- [ ] Apply `supabase/migration-schema-versions.sql` if not already applied
+- [ ] Manually close draft PRs #70–#76 on GitHub
+- [ ] Enable Dependabot security alerts in repo Settings → Security
+
+### Next engineering queue
+
+1. RBAC enforcement cherry-pick from phase7 (split into 3 PRs)
+2. Per-branch `closed_dates` wiring
+3. Cron failure alerting
+4. Dependabot PR #64/#65 fix and merge
