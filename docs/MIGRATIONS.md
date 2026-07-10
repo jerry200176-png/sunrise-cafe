@@ -40,4 +40,12 @@ ON CONFLICT (version) DO NOTHING;
 - [ ] `migration-phase6-scale-indexes.sql` — cron/BI performance indexes
 - [ ] `migration-phase6-analytics-retention.sql` — `purge_analytics_events_older_than`
 
-See `docs/DATA_DICTIONARY.md`, `docs/DATABASE_EVOLUTION.md`, and `docs/PHASE6_ARCHITECTURE.md`.
+## Phase 7 migrations (Enterprise Multi-Branch)
+
+- [ ] `migration-phase7-rbac.sql` — admin users, roles, permission audit
+- [ ] `migration-phase7-branch-settings.sql` — per-branch closed_dates
+- [ ] `migration-phase7-reservations-branch-id.sql` — denormalized branch_id
+- [ ] `migration-phase7-business-actions.sql` — insight → action tracking
+- [ ] `migration-phase7-audit-jobs.sql` — audit logs + job_runs
+
+See `docs/RBAC.md` and `docs/PHASE7_ARCHITECTURE.md`.

@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { requireAdminApiAuth } from "@/lib/admin-api-auth";
+import { requirePermission, getAdminContext } from "@/lib/admin-api-auth";
 import { fetchAnalyticsSummary } from "@/lib/analytics-server";
-import { isAdminConfigured, fetchBranches, fetchRooms } from "@/lib/supabase-admin";
+import {
+  isAdminConfigured,
+  fetchBranches,
+  fetchRoomsForBranches,
+} from "@/lib/supabase-admin";
+import { filterBranchIds, hasPermission } from "@/lib/rbac";
 import { toTaipei } from "@/lib/datetime";
 import {
   branchOpenHoursPerDay,
@@ -41,13 +46,14 @@ function todayTaipeiDate(): string {
 }
 
 export async function GET(request: NextRequest) {
-  const denied = await requireAdminApiAuth(request);
+  const denied = await requirePermission(request, "bi:read");
   if (denied) return denied;
 
   if (!isAdminConfigured()) {
     return NextResponse.json({ error: "後端未設定" }, { status: 503 });
   }
 
+  const ctx = await getAdminContext(request);
   const days = Math.min(90, Math.max(1, Number(request.nextUrl.searchParams.get("days") ?? "30")));
   const branchId = request.nextUrl.searchParams.get("branchId");
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
@@ -63,14 +69,29 @@ export async function GET(request: NextRequest) {
       close_time: string | null;
     }[];
 
-    const allRooms: { id: string; name: string; branch_id: string }[] = [];
-    for (const b of branches) {
-      if (branchId && b.id !== branchId) continue;
-      const rooms = (await fetchRooms(b.id)) as { id: string; name: string }[];
-      for (const r of rooms) {
-        allRooms.push({ id: r.id, name: r.name, branch_id: b.id });
-      }
+    const allowedBranchIds = filterBranchIds(
+      ctx,
+      branches.map((b) => b.id)
+    );
+    const scopedBranches = branches.filter((b) => allowedBranchIds.includes(b.id));
+
+    if (branchId && !hasPermission(ctx, "bi:read", branchId)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    if (branchId && !allowedBranchIds.includes(branchId)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const targetBranches = branchId
+      ? scopedBranches.filter((b) => b.id === branchId)
+      : scopedBranches;
+
+    const roomsRaw = await fetchRoomsForBranches(targetBranches.map((b) => b.id));
+    const allRooms = roomsRaw.map((r) => ({
+      id: r.id,
+      name: r.name,
+      branch_id: r.branch_id,
+    }));
 
     const roomIds = allRooms.map((r) => r.id);
     if (branchId && roomIds.length === 0) {
@@ -117,9 +138,7 @@ export async function GET(request: NextRequest) {
         ? (waitlistRows ?? []).filter((w) => roomIds.includes(w.room_id))
         : (waitlistRows ?? []);
 
-    const relevantBranches = branchId
-      ? branches.filter((b) => b.id === branchId)
-      : branches;
+    const relevantBranches = targetBranches;
 
     const hoursPerDay =
       relevantBranches.reduce(

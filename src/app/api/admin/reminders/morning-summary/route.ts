@@ -6,6 +6,7 @@ import {
   todayTaipeiDateString,
 } from "@/lib/morning-summary-context";
 import { sendLineMessageToGroup, sendLineMessage, isLineConfigured } from "@/lib/line-notify";
+import { startJobRun, finishJobRun } from "@/lib/admin-users";
 
 function verifyCronOrAdmin(request: NextRequest): Promise<NextResponse | null> {
   const cronSecret = process.env.CRON_SECRET;
@@ -26,8 +27,10 @@ export async function GET(request: NextRequest) {
 
   const date = request.nextUrl.searchParams.get("date") || todayTaipeiDateString();
   const push = request.nextUrl.searchParams.get("push") !== "0";
+  let jobId: string | null = null;
 
   try {
+    jobId = await startJobRun("morning-summary");
     const ctx = await buildMorningSummaryContext(date);
     const results: { target: string; ok: boolean; error?: string }[] = [];
 
@@ -67,6 +70,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    await finishJobRun(jobId, {
+      status: "completed",
+      items_processed: results.length,
+      metadata: { date, pushed: push },
+    });
+
     return NextResponse.json({
       ok: true,
       date: ctx.date,
@@ -75,6 +84,10 @@ export async function GET(request: NextRequest) {
       results,
     });
   } catch (err) {
+    await finishJobRun(jobId, {
+      status: "failed",
+      error_message: err instanceof Error ? err.message : String(err),
+    });
     const message = err instanceof Error ? err.message : "晨報推播失敗";
     return NextResponse.json({ error: message }, { status: 500 });
   }

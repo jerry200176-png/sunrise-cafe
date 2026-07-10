@@ -158,3 +158,10 @@ sentry.*.config.ts          # Sentry 設定（三個 runtime）
 - **AI 代理規則**：`docs/AI_AGENT_GOVERNANCE.md`（修改前必讀順序、禁止盲目修改的檔案）
 - **Migration 治理**：`supabase/migrations.manifest.json` + `npm run verify:migrations` + `GET /api/admin/schema/status`
 - **新進開發**：`docs/ONBOARDING.md`、`npm run setup`
+
+## Phase 7 企業多分店（RBAC）
+
+- **RBAC 角色**：owner / branch_manager / staff / finance — 見 `docs/RBAC.md`
+- **登入**：`POST /api/admin/login` 支援 `{ email, password }` 或僅 `password`（legacy owner）
+- **使用者管理**：`/admin/users`（owner only）
+- **分店設定**：`branches.closed_dates` 每店獨立（migration-phase7-branch-settings.sql）

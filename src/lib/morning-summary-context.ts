@@ -2,7 +2,7 @@
  * Shared morning summary context for ops API and LINE cron push.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { fetchBranches, fetchRooms } from "@/lib/supabase-admin";
+import { fetchBranches, fetchRoomsForBranches } from "@/lib/supabase-admin";
 import { toTaipei } from "@/lib/datetime";
 import { buildOpsExceptions, formatMorningSummaryText } from "@/lib/ops-exceptions";
 import { runReservationChecks, type ReservationRow } from "@/lib/data-quality";
@@ -99,11 +99,14 @@ export async function buildMorningSummaryContext(date: string): Promise<MorningS
     .gte("start_time", sevenSince);
 
   const branches = (await fetchBranches()) as MorningSummaryContext["branches"];
+  const branchIds = branches.map((b) => b.id);
+  const allRooms = await fetchRoomsForBranches(branchIds);
+
   let roomCount = 0;
   let hoursPerDay = 12;
   const roomIds = new Set<string>();
   for (const b of branches) {
-    const rooms = (await fetchRooms(b.id)) as { id: string }[];
+    const rooms = allRooms.filter((r) => r.branch_id === b.id);
     roomCount += rooms.length;
     hoursPerDay = branchOpenHoursPerDay(b.open_time ?? null, b.close_time ?? null);
     for (const r of rooms) roomIds.add(r.id);

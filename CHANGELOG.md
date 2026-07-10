@@ -4,6 +4,35 @@
 
 ---
 
+## [RC7-Phase7] — 2026-07-10
+
+### RBAC & Permissions
+- `admin_users`, `admin_user_branches`, `admin_permission_audit` tables
+- `src/lib/rbac.ts`, `admin-password.ts`, extended session claims
+- Email+password login + legacy `ADMIN_PASSWORD` owner fallback
+- `GET /api/admin/me`, `GET/POST /api/admin/users`, `PATCH /api/admin/users/[id]`
+- `/admin/users` management UI
+- `docs/RBAC.md`
+
+### Domain Architecture
+- `src/lib/domains/{booking,payment,customer,analytics,operations}.ts` facades
+
+### Multi-Branch
+- Per-branch `closed_dates` + `operational_config` on `branches`
+- `reservations.branch_id` denormalization + index
+- BI API branch scope filtering via RBAC
+
+### Business Action Loop
+- `business_actions` table + `operational-recommendations.ts`
+- `GET/POST /api/admin/business-actions`, `GET /api/admin/recommendations`
+
+### Enterprise Reliability
+- `admin_audit_logs`, `job_runs` tables
+- `cron-batch.ts`, batched room fetch, morning-summary job tracking
+- `docs/PHASE7_ARCHITECTURE.md`
+
+---
+
 ## [RC6-Phase6] — 2026-07-10
 
 ### Platform Governance

@@ -133,6 +133,18 @@ export async function getBlockedSlots(branchId: string, date: string) {
   return data as { room_id: string; start_time: string; end_time: string }[];
 }
 
+export async function fetchRoomsForBranches(
+  branchIds: string[]
+): Promise<{ id: string; branch_id: string; name: string }[]> {
+  if (branchIds.length === 0) return [];
+  const { data, error } = await supabaseAdmin()
+    .from("rooms")
+    .select("id, branch_id, name")
+    .in("branch_id", branchIds);
+  if (error) throw error;
+  return (data ?? []) as { id: string; branch_id: string; name: string }[];
+}
+
 export async function insertReservationAdmin(payload: {
   room_id: string;
   customer_name: string;
@@ -151,11 +163,14 @@ export async function insertReservationAdmin(payload: {
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const bookingCode = Math.random().toString(36).substring(2, 8).toUpperCase();
     const statusToUse = payload.status ?? "pending";
+    const room = await fetchRoom(payload.room_id);
+    const branch_id = room?.branch_id ?? null;
 
     const { data, error } = await supabaseAdmin()
       .from("reservations")
       .insert({
         room_id: payload.room_id,
+        branch_id,
         customer_name: payload.customer_name,
         phone: payload.phone,
         email: payload.email,

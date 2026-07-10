@@ -32,6 +32,11 @@
     "migration-phase5-experiments.sql",
     "migration-phase5-demand-snapshots.sql",
     "migration-phase6-scale-indexes.sql",
-    "migration-phase6-analytics-retention.sql"
+    "migration-phase6-analytics-retention.sql",
+    "migration-phase7-rbac.sql",
+    "migration-phase7-branch-settings.sql",
+    "migration-phase7-reservations-branch-id.sql",
+    "migration-phase7-business-actions.sql",
+    "migration-phase7-audit-jobs.sql"
   ]
 }
