@@ -89,7 +89,7 @@ function SuccessContent() {
 
           <div className="mt-4 space-y-3">
             <Link
-              href="/book/query"
+              href={code ? `/book/query?code=${encodeURIComponent(code)}` : "/book/query"}
               className="block w-full rounded-lg bg-amber-600 py-3 text-center font-medium text-white hover:bg-amber-700"
             >
               查詢我的訂位

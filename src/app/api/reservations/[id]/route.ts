@@ -3,6 +3,7 @@ import { updateReservationAdmin, deleteReservationAdmin, isAdminConfigured } fro
 import { sendLineFlexMessage, buildPaymentFlex, sendLineMessage, buildReviewInviteMessage } from "@/lib/line";
 import { type BranchPaymentConfig } from "@/lib/payment-message";
 import { notifyWaitlist } from "@/lib/waitlist";
+import { isWeekendDate } from "@/lib/booking-utils";
 import { fetchSettings } from "@/lib/supabase-fetch";
 import { requireAdminApiAuth } from "@/lib/admin-api-auth";
 import { logDepositStatusChange } from "@/lib/payment-log";
@@ -162,12 +163,11 @@ export async function PATCH(
           // 若無金額，從房間定價自動計算
           let total = r.total_price != null ? Number(r.total_price) : null;
           if (total == null && roomInfo) {
-            const start = new Date(r.start_time);
-            const isWeekend = [0, 6].includes(start.getDay());
-            const pricePerHour = isWeekend
+            const dateStr = r.start_time.slice(0, 10);
+            const pricePerHour = isWeekendDate(dateStr)
               ? Number((roomInfo as Record<string, unknown>).price_weekend ?? 0)
               : Number((roomInfo as Record<string, unknown>).price_weekday ?? 0);
-            const hours = (new Date(r.end_time).getTime() - start.getTime()) / 3_600_000;
+            const hours = (new Date(r.end_time).getTime() - new Date(r.start_time).getTime()) / 3_600_000;
             total = Math.round(pricePerHour * hours);
             await supabaseAdmin().from("reservations").update({ total_price: total }).eq("id", id);
           }

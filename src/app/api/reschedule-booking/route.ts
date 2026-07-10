@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   updateReservationAdmin,
-  fetchReservationsByPhone,
   hasSlotConflict,
   isAdminConfigured,
 } from "@/lib/supabase-admin";
@@ -10,6 +9,8 @@ import { notifyWaitlist } from "@/lib/waitlist";
 import { toTaipei } from "@/lib/datetime";
 import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
+
+import { verifyGuestBookingById } from "@/lib/guest-auth";
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
@@ -33,30 +34,32 @@ export async function POST(request: NextRequest) {
     const {
       id,
       phone,
+      booking_code,
       start_time: newStart,
       end_time: newEnd,
       guest_count: newGuestCount,
     } = body as {
       id: string;
       phone: string;
+      booking_code: string;
       start_time: string;
       end_time: string;
       guest_count?: number | null;
     };
 
-    const phoneNorm = phone?.trim();
-    if (!phoneNorm || !id || !newStart || !newEnd) {
+    if (!phone?.trim() || !id || !booking_code?.trim() || !newStart || !newEnd) {
       return NextResponse.json(
-        { error: "缺少必填欄位（id、電話、新時段）" },
+        { error: "缺少必填欄位（id、電話、訂位代號、新時段）" },
         { status: 400 }
       );
     }
 
-    const byPhone = await fetchReservationsByPhone(phoneNorm);
-    const match = byPhone.find((r) => r.id === id);
-    if (!match) {
-      return NextResponse.json({ error: "找不到符合的訂位或電話不正確" }, { status: 404 });
+    const verified = await verifyGuestBookingById(phone, booking_code, id);
+    if (!verified.ok) {
+      return NextResponse.json({ error: verified.error }, { status: verified.status });
     }
+
+    const match = verified.reservation;
     if (match.status === "cancelled") {
       return NextResponse.json({ error: "此訂位已取消" }, { status: 400 });
     }

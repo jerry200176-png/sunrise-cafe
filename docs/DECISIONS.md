@@ -122,3 +122,24 @@ new Date(new Date(s).toLocaleString("en-US", { timeZone: "Asia/Taipei" }))
 
 **參考**：`docs/PAYMENT_AUDIT_LOG.md`、`docs/releases/RC2-P1.md`
 
+---
+
+## ADR-010：雙重預訂防護 — PostgreSQL exclusion constraint
+
+**決策**（Phase 2 P1-2）：在 `reservations` 表加上 `btree_gist` exclusion constraint，禁止同一 `room_id` 下非 `cancelled` 訂位的時間區間重疊。應用層 `hasSlotConflict` 保留為第一道檢查；DB constraint 為最終防線。
+
+**背景**：`hasSlotConflict` + `insert` 為 read-then-write，併發請求可雙重預訂。需 DB 層原子保證。
+
+**取捨**：
+- ✅ 任何寫入路徑（API、admin、waitlist confirm、recurring）皆受保護
+- ✅ 不需改寫所有 insert 為單一 RPC
+- ⚠️ 需手動執行 migration；部署前須確認無既有重疊資料
+- ⚠️ `cancelled` 訂位不佔用 constraint（`WHERE status IS DISTINCT FROM 'cancelled'`）
+
+**實作**：
+- `supabase/migration-reservations-no-overlap.sql`
+- `src/lib/slot-conflict.ts` — 將 Postgres `23P01` 轉為 `SlotConflictError` → HTTP 409
+- `insertReservationAdmin` 對 `booking_code` unique violation 重試最多 3 次
+
+**Rollback**：`ALTER TABLE reservations DROP CONSTRAINT reservations_no_overlap_excl;`
+

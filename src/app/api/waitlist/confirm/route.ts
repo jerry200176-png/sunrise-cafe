@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isWeekendDate } from "@/lib/booking-utils";
+import { SlotConflictError } from "@/lib/slot-conflict";
 import { createClient } from "@supabase/supabase-js";
 import { hasSlotConflict, insertReservationAdmin, isAdminConfigured } from "@/lib/supabase-admin";
 import { sendLineMessage } from "@/lib/line-notify";
@@ -97,10 +99,11 @@ export async function POST(request: NextRequest) {
 
     let totalPrice: number | null = null;
     if (room) {
-      const start = new Date(entry.start_time);
-      const isWeekend = [0, 6].includes(start.getDay());
-      const pricePerHour = Number(isWeekend ? room.price_weekend : room.price_weekday) || 0;
-      const hours = (new Date(entry.end_time).getTime() - start.getTime()) / 3_600_000;
+      const dateStr = entry.start_time.slice(0, 10);
+      const pricePerHour = Number(
+        isWeekendDate(dateStr) ? room.price_weekend : room.price_weekday
+      ) || 0;
+      const hours = (new Date(entry.end_time).getTime() - new Date(entry.start_time).getTime()) / 3_600_000;
       totalPrice = Math.round(pricePerHour * hours);
     }
 
@@ -152,6 +155,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true, id, booking_code });
   } catch (err) {
+    if (err instanceof SlotConflictError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
     const message = err instanceof Error ? err.message : "確認失敗";
     return NextResponse.json({ error: message }, { status: 500 });
   }

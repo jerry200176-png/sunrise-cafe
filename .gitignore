@@ -43,3 +43,4 @@ next-env.d.ts
 # misc local artifacts (not part of the app)
 OIP.*
 *.rar
+test-results/

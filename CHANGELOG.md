@@ -4,6 +4,33 @@
 
 ---
 
+## [2.1.0] — 2026-07-10
+
+Shipped via Wave 1 (cherry-pick from phase2, one deployable unit).
+
+### Security
+
+- Guest auth: phone + booking_code required for lookup/cancel/reschedule (closes #67)
+- `guestLookup` rate limit (10/min) on guest APIs
+- IDOR prevention via `verifyGuestBookingById`
+
+### Reliability
+- P1-2 PostgreSQL exclusion constraint for double-booking prevention (ADR-010)
+- `SlotConflictError` maps Postgres `23P01` → HTTP 409
+- Booking code collision retry (up to 3 attempts)
+
+### Product
+- P1-3 Waitlist CTA when rooms/slots unavailable; deep-link prefill on waitlist form
+
+### Correctness
+- P1-4 Timezone audit: server pricing uses `isWeekendDate` / `toTaipei` (Asia/Taipei)
+
+### Operations
+- P1-5 gitleaks blocking in CI; `schema_migrations` table; `docs/MIGRATIONS.md`
+- Booking route `loading.tsx` + `error.tsx`
+
+---
+
 ## [RC3-P0] — 2026-07-10
 
 ### Security
