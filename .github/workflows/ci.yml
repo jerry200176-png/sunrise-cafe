@@ -70,3 +70,4 @@ jobs:
         env:
           CI: true
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
+          E2E_ADMIN_PASSWORD: e2e-test-admin-password

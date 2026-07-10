@@ -24,3 +24,7 @@ ON CONFLICT (version) DO NOTHING;
 
 - [ ] `migration-schema-versions.sql`
 - [ ] `migration-reservations-no-overlap.sql` (verify no overlaps first)
+
+## Phase 3 migrations
+
+- [ ] `migration-analytics-events.sql`

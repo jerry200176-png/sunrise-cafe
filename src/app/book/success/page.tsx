@@ -12,14 +12,7 @@ function SuccessContent() {
   const lineError = searchParams.get("line_error") === "1";
 
   function startLineLogin() {
-    const url =
-      `https://access.line.me/oauth2/v2.1/authorize` +
-      `?response_type=code` +
-      `&client_id=2009884734` +
-      `&redirect_uri=${encodeURIComponent(window.location.origin + "/api/auth/line/callback")}` +
-      `&state=${encodeURIComponent(code)}` +
-      `&scope=profile`;
-    window.location.href = url;
+    window.location.href = `/api/auth/line/authorize?mode=post_booking&code=${encodeURIComponent(code)}`;
   }
 
   return (

@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { getSessionSecret } from "@/lib/admin-auth";
+import {
+  createLineBindCookieValue,
+  setLineBindCookie,
+  verifyLineOAuthState,
+} from "@/lib/line-oauth";
 
 function supabaseAdmin() {
   return createClient(
@@ -10,17 +16,31 @@ function supabaseAdmin() {
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
-  const bookingCode = request.nextUrl.searchParams.get("state");
+  const stateParam = request.nextUrl.searchParams.get("state");
   const origin = request.nextUrl.origin;
-  const redirectUri = `${origin}/api/auth/line/callback`;
+  const secret = getSessionSecret();
 
-  const errorDest = bookingCode
-    ? `${origin}/book/success?code=${bookingCode}&line_error=1`
-    : `${origin}/book?line_error=1`;
+  const fallbackBook = `${origin}/book?line_error=1`;
+  const fallbackSuccess = (bookingCode: string) =>
+    `${origin}/book/success?code=${bookingCode}&line_error=1`;
 
-  if (!code) return NextResponse.redirect(errorDest);
+  if (!code || !stateParam || !secret) {
+    return NextResponse.redirect(fallbackBook);
+  }
+
+  const state = await verifyLineOAuthState(stateParam, secret);
+  if (!state) {
+    return NextResponse.redirect(fallbackBook);
+  }
+
+  const bookingCode = state.booking_code;
+  const errorDest =
+    state.mode === "post_booking" && bookingCode
+      ? fallbackSuccess(bookingCode)
+      : fallbackBook;
 
   try {
+    const redirectUri = `${origin}/api/auth/line/callback`;
     const tokenRes = await fetch("https://api.line.me/oauth2/v2.1/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -35,7 +55,7 @@ export async function GET(request: NextRequest) {
 
     if (!tokenRes.ok) return NextResponse.redirect(errorDest);
 
-    const { access_token } = await tokenRes.json() as { access_token: string };
+    const { access_token } = (await tokenRes.json()) as { access_token: string };
 
     const profileRes = await fetch("https://api.line.me/v2/profile", {
       headers: { Authorization: `Bearer ${access_token}` },
@@ -43,15 +63,14 @@ export async function GET(request: NextRequest) {
 
     if (!profileRes.ok) return NextResponse.redirect(errorDest);
 
-    const { userId } = await profileRes.json() as { userId: string };
-
-    if (bookingCode === "prebooking") {
-      return NextResponse.redirect(
-        `${origin}/book?line_user_id=${encodeURIComponent(userId)}`
-      );
+    const { userId } = (await profileRes.json()) as { userId: string };
+    if (!/^U[0-9a-f]{32}$/i.test(userId)) {
+      return NextResponse.redirect(errorDest);
     }
 
-    if (bookingCode) {
+    const bindValue = await createLineBindCookieValue(userId, secret);
+
+    if (state.mode === "post_booking" && bookingCode) {
       const db = supabaseAdmin();
       const { data: reservation } = await db
         .from("reservations")
@@ -67,10 +86,17 @@ export async function GET(request: NextRequest) {
           .neq("status", "cancelled");
       }
 
-      return NextResponse.redirect(`${origin}/book/success?code=${bookingCode}&line_bound=1`);
+      const res = NextResponse.redirect(
+        `${origin}/book/success?code=${bookingCode}&line_bound=1`
+      );
+      setLineBindCookie(res, bindValue);
+      return res;
     }
 
-    return NextResponse.redirect(`${origin}/book?line_user_id=${encodeURIComponent(userId)}`);
+    // prebooking: bind cookie only — no userId in URL (anti-forgery)
+    const res = NextResponse.redirect(`${origin}/book?line_bound=1`);
+    setLineBindCookie(res, bindValue);
+    return res;
   } catch {
     return NextResponse.redirect(errorDest);
   }

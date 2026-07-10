@@ -4,6 +4,28 @@
 
 ---
 
+## [RC3-Phase3] — 2026-07-10
+
+### Product Intelligence
+- First-party analytics pipeline (`analytics_events`, `/api/analytics`, admin summary)
+- Privacy-first: no PII, allowlisted properties — see `docs/ANALYTICS.md`
+- Dashboard: operations overview + 7-day conversion metrics
+
+### Security
+- LINE OAuth: signed state, httpOnly bind cookie, no client `line_user_id` — `docs/LINE_OAUTH_SECURITY.md`
+- `GET /api/auth/line/authorize` entry point
+
+### Testing
+- E2E customer flows with API mocks (`e2e/customer-flows.spec.ts`)
+- LINE OAuth unit tests
+
+### Operations
+- `GET /api/admin/operations/overview`
+- Release/staging docs: `docs/RELEASE.md`, `docs/STAGING.md`
+- `scripts/verify-migrations.sh`
+
+---
+
 ## [RC3-Phase2] — 2026-07-10
 
 ### Security

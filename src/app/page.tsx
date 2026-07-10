@@ -1,13 +1,19 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { Calendar, Search, ArrowUpRight, Coffee, UtensilsCrossed, MessageCircleHeart } from "lucide-react";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { trackEvent } from "@/lib/analytics";
 
 export default function Home() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
+
+  useEffect(() => {
+    trackEvent("landing_viewed", { locale });
+  }, [locale]);
   const features = [
     { icon: Coffee, title: t("home.feature.room"), desc: t("home.feature.roomDesc") },
     { icon: UtensilsCrossed, title: t("home.feature.order"), desc: t("home.feature.orderDesc") },

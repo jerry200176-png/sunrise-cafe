@@ -8,6 +8,7 @@ import type { Branch, Room, RentalNoteSection } from "@/types";
 import { getDurationOptions, getDepositAmount, isWeekendDate } from "@/lib/booking-utils";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { trackEvent } from "@/lib/analytics";
 
 type Step = "branch" | "room" | "date" | "slot" | "form";
 
@@ -40,7 +41,7 @@ export default function BookPage() {
   const [submitting, setSubmitting] = useState(false);
   const [rentalNotes, setRentalNotes] = useState<RentalNoteSection[]>([]);
   const [depositInfo, setDepositInfo] = useState<string | null>(null);
-  const [lineUserId, setLineUserId] = useState<string | null>(null);
+  const [lineBound, setLineBound] = useState(false);
 
   // 這裡確保介面包含 image_url
   const [branchRoomsAvailability, setBranchRoomsAvailability] = useState<{
@@ -66,6 +67,7 @@ export default function BookPage() {
   // }, [branchRoomsAvailability]);
 
   useEffect(() => {
+    trackEvent("booking_started", branchId ? { branch_id: branchId } : undefined);
     fetch("/api/branches")
       .then((r) => r.json())
       .then((d) => {
@@ -176,12 +178,12 @@ export default function BookPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, branchId, roomId, date]);
 
-  // LINE OAuth 回調：從 URL param 取得 user_id，並從 localStorage 還原表單
+  // LINE OAuth 回調：還原表單（userId 在 httpOnly cookie，不在 URL）
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const uid = params.get("line_user_id");
-    if (!uid) return;
-    setLineUserId(uid);
+    if (params.get("line_bound") === "1") {
+      setLineBound(true);
+    }
     const saved = localStorage.getItem("booking_form_state");
     if (saved) {
       try {
@@ -204,8 +206,10 @@ export default function BookPage() {
         localStorage.removeItem("booking_form_state");
       } catch { /* 略過 */ }
     }
-    window.history.replaceState({}, "", "/book");
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    if (params.has("line_bound") || params.has("line_error")) {
+      window.history.replaceState({}, "", "/book");
+    }
+  }, []);
 
   const canSelectDuration = (slotStart: string): boolean => {
     const startIdx = slots.findIndex((s) => s.start === slotStart);
@@ -278,7 +282,7 @@ export default function BookPage() {
       }
     }
 
-    if (!agreeToTerms) {
+    if (rentalNotes.length > 0 && !agreeToTerms) {
       setError(t("book.error.agreeRequired"));
       setSubmitting(false);
       return;
@@ -298,7 +302,6 @@ export default function BookPage() {
           total_price: getTotalPrice(),
           guest_count: guestCount === "" ? null : Number(guestCount),
           notes: null,
-          line_user_id: lineUserId || null,
         }),
       });
       const data = await res.json();
@@ -308,13 +311,14 @@ export default function BookPage() {
         return;
       }
       if (!res.ok) {
+        trackEvent("booking_failed", { room_id: roomId, error_code: res.status });
         setError((data as { error?: string })?.error ?? t("book.error.bookingFailed"));
         return;
       }
       const code = (data as { booking_code?: string })?.booking_code;
       if (code) {
         const weekendFlag = "1";
-        window.location.href = `/book/success?code=${encodeURIComponent(code)}&weekend=${weekendFlag}${lineUserId ? "&line_bound=1" : ""}`;
+        window.location.href = `/book/success?code=${encodeURIComponent(code)}&weekend=${weekendFlag}${lineBound ? "&line_bound=1" : ""}`;
       } else {
         setError(t("book.error.noBookingCode"));
       }
@@ -329,14 +333,7 @@ export default function BookPage() {
       "booking_form_state",
       JSON.stringify({ branchId, roomId, date, selectedStart, duration, name, phone, email, guestCount, step })
     );
-    const qs = new URLSearchParams({
-      response_type: "code",
-      client_id: "2009884734",
-      redirect_uri: `${window.location.origin}/api/auth/line/callback`,
-      scope: "profile",
-      state: "prebooking",
-    });
-    window.location.href = `https://access.line.me/oauth2/v2.1/authorize?${qs}`;
+    window.location.href = "/api/auth/line/authorize?mode=prebooking";
   };
 
   const formatSlotTime = (iso: string) =>
@@ -494,6 +491,10 @@ export default function BookPage() {
                             setRoomId(r.roomId);
                             setRoomName(r.roomName);
                             setBranchName(branchRoomsAvailability.branchName);
+                            trackEvent("room_selected", {
+                              branch_id: branchId,
+                              room_id: r.roomId,
+                            });
                             setStep("slot");
                           }}
                           className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-sm hover:border-amber-400 hover:bg-amber-50/50"
@@ -554,6 +555,13 @@ export default function BookPage() {
                           <p className="mt-1 text-xs text-gray-500">{t("book.waitlistHint")}</p>
                           <Link
                             href={buildWaitlistHref(r.roomId)}
+                            onClick={() =>
+                              trackEvent("waitlist_cta_clicked", {
+                                branch_id: branchId,
+                                room_id: r.roomId,
+                                source: "room_full",
+                              })
+                            }
                             className="mt-3 flex w-full items-center justify-center rounded-lg bg-amber-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-amber-700"
                           >
                             {t("book.waitlistCta")}
@@ -646,6 +654,13 @@ export default function BookPage() {
                     <p className="mt-1 text-xs text-amber-700">{t("book.slot.waitlistHint")}</p>
                     <Link
                       href={buildWaitlistHref(roomId)}
+                      onClick={() =>
+                        trackEvent("waitlist_cta_clicked", {
+                          branch_id: branchId,
+                          room_id: roomId,
+                          source: "no_contiguous_slot",
+                        })
+                      }
                       className="mt-2 inline-flex w-full items-center justify-center rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 sm:w-auto"
                     >
                       {t("book.waitlistCta")}
@@ -666,7 +681,14 @@ export default function BookPage() {
                           key={s.start}
                           type="button"
                           disabled={!available}
-                          onClick={() => setSelectedStart(s.start)}
+                          onClick={() => {
+                            setSelectedStart(s.start);
+                            trackEvent("slot_selected", {
+                              branch_id: branchId,
+                              room_id: roomId,
+                              duration_hours: duration,
+                            });
+                          }}
                           className={`rounded-lg border py-3 text-sm font-medium ${selectedStart === s.start
                             ? "border-amber-600 bg-amber-600 text-white"
                             : available
@@ -809,7 +831,7 @@ export default function BookPage() {
 
               <div className="rounded-lg border border-green-200 bg-green-50 p-4">
                 <p className="mb-2 text-sm font-medium text-gray-700">{t("book.form.lineSectionTitle")}</p>
-                {lineUserId ? (
+                {lineBound ? (
                   <p className="text-sm text-green-700">{t("book.form.lineBound")}</p>
                 ) : (
                   <button

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { recordAnalyticsEvent } from "@/lib/analytics-server";
+import { fetchRoom } from "@/lib/supabase-admin";
 
 function supabaseAdmin() {
   return createClient(
@@ -50,6 +52,14 @@ export async function POST(request: NextRequest) {
       });
 
     if (error) throw error;
+
+    const room = await fetchRoom(room_id);
+    await recordAnalyticsEvent({
+      event_name: "waitlist_joined",
+      branch_id: room?.branch_id ?? null,
+      room_id,
+    });
+
     return NextResponse.json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法加入等位";

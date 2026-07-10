@@ -3,14 +3,15 @@ import {
   updateReservationAdmin,
   hasSlotConflict,
   isAdminConfigured,
+  fetchRoom,
 } from "@/lib/supabase-admin";
 import { sendLineMessage as sendLineMessageToGroup } from "@/lib/line-notify";
 import { notifyWaitlist } from "@/lib/waitlist";
 import { toTaipei } from "@/lib/datetime";
 import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
-
 import { verifyGuestBookingById } from "@/lib/guest-auth";
+import { recordAnalyticsEvent } from "@/lib/analytics-server";
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
@@ -119,6 +120,13 @@ export async function POST(request: NextRequest) {
     notifyWaitlist(match.room_id, oldStart, oldEnd).catch((err) =>
       console.error("[reschedule-booking] waitlist notify failed:", err)
     );
+
+    const room = await fetchRoom(match.room_id);
+    await recordAnalyticsEvent({
+      event_name: "reschedule_completed",
+      branch_id: room?.branch_id ?? null,
+      room_id: match.room_id,
+    });
 
     return NextResponse.json({ ok: true });
   } catch (err) {

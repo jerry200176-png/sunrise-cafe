@@ -114,6 +114,17 @@ export default function AdminDashboardPage() {
   const [remindersUpdating, setRemindersUpdating] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [operations, setOperations] = useState<{
+    today: { reservations: number; revenue: number; cancellations: number; pending_deposit: number };
+    waitlist: { waiting: number; notified: number };
+    by_branch: { branch_name: string; reservations: number; revenue: number }[];
+  } | null>(null);
+  const [analytics, setAnalytics] = useState<{
+    funnel: { booking_started: number; booking_completed: number; booking_failed: number };
+    waitlist: { cta_clicked: number; joined: number; conversion_rate: number | null };
+    cancellation_rate: number | null;
+    peak_hours: { hour: number; count: number }[];
+  } | null>(null);
 
   useEffect(() => {
     fetch("/api/branches")
@@ -148,6 +159,21 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     loadReminders();
   }, [loadReminders]);
+
+  useEffect(() => {
+    fetch(`/api/admin/operations/overview?date=${encodeURIComponent(date)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!d.error) setOperations(d);
+      })
+      .catch(() => setOperations(null));
+    fetch("/api/admin/analytics/summary?days=7")
+      .then((r) => r.json())
+      .then((d) => {
+        if (!d.error && !d.migration_required) setAnalytics(d);
+      })
+      .catch(() => setAnalytics(null));
+  }, [date]);
 
   useEffect(() => {
     if (!branchId) {
@@ -276,6 +302,62 @@ export default function AdminDashboardPage() {
             className="rounded-lg border border-gray-300 px-3 py-2"
           />
         </div>
+
+        {operations && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4">
+            <h2 className="text-sm font-semibold text-amber-900">今日營運概覽</h2>
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4 text-sm">
+              <div>
+                <p className="text-amber-700">取消</p>
+                <p className="font-bold text-amber-950">{operations.today.cancellations}</p>
+              </div>
+              <div>
+                <p className="text-amber-700">待收訂金</p>
+                <p className="font-bold text-amber-950">{operations.today.pending_deposit}</p>
+              </div>
+              <div>
+                <p className="text-amber-700">等位中</p>
+                <p className="font-bold text-amber-950">{operations.waitlist.waiting}</p>
+              </div>
+              <div>
+                <p className="text-amber-700">等位已通知</p>
+                <p className="font-bold text-amber-950">{operations.waitlist.notified}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {analytics && (
+          <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4">
+            <h2 className="text-sm font-semibold text-blue-900">近 7 日轉換（產品分析）</h2>
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4 text-sm">
+              <div>
+                <p className="text-blue-700">開始訂位</p>
+                <p className="font-bold">{analytics.funnel.booking_started}</p>
+              </div>
+              <div>
+                <p className="text-blue-700">完成訂位</p>
+                <p className="font-bold">{analytics.funnel.booking_completed}</p>
+              </div>
+              <div>
+                <p className="text-blue-700">等位轉換</p>
+                <p className="font-bold">
+                  {analytics.waitlist.conversion_rate != null
+                    ? `${Math.round(analytics.waitlist.conversion_rate * 100)}%`
+                    : "—"}
+                </p>
+              </div>
+              <div>
+                <p className="text-blue-700">取消率</p>
+                <p className="font-bold">
+                  {analytics.cancellation_rate != null
+                    ? `${Math.round(analytics.cancellation_rate * 100)}%`
+                    : "—"}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">

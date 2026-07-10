@@ -10,6 +10,8 @@ import { sendLineFlex, buildNewBookingFlex } from "@/lib/line-notify";
 import { requireAdminApiAuth } from "@/lib/admin-api-auth";
 import { computeReservationTotalPrice } from "@/lib/booking-utils";
 import { SlotConflictError } from "@/lib/slot-conflict";
+import { getLineUserIdFromRequest } from "@/lib/line-oauth";
+import { recordAnalyticsEvent } from "@/lib/analytics-server";
 import { createClient } from "@supabase/supabase-js";
 
 function supabaseAdmin() {
@@ -49,6 +51,7 @@ export async function POST(request: NextRequest) {
       { status: 503 }
     );
   }
+  let roomIdForAnalytics: string | undefined;
   try {
     const body = await request.json();
     const {
@@ -60,7 +63,6 @@ export async function POST(request: NextRequest) {
       end_time: endTime,
       guest_count: guestCount,
       notes,
-      line_user_id: lineUserId,
     } = body as {
       room_id: string;
       customer_name: string;
@@ -70,7 +72,6 @@ export async function POST(request: NextRequest) {
       end_time: string;
       guest_count?: number | null;
       notes?: string | null;
-      line_user_id?: string | null;
     };
 
     if (!roomId || !customerName?.trim() || !phone?.trim() || !startTime || !endTime) {
@@ -79,6 +80,7 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    roomIdForAnalytics = roomId;
 
     const startMs = new Date(startTime).getTime();
     const endMs = new Date(endTime).getTime();
@@ -118,8 +120,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 若客人已在表單中綁定 LINE，優先使用；否則嘗試從舊訂位複製
-    let finalLineUserId: string | null = lineUserId ?? null;
+    // LINE user ID: signed httpOnly cookie only — never trust client body
+    let finalLineUserId: string | null = await getLineUserIdFromRequest(request);
     if (!finalLineUserId) {
       try {
         const { data: bound } = await supabaseAdmin()
@@ -163,11 +165,27 @@ export async function POST(request: NextRequest) {
       console.error("[reservations] 群組通知失敗:", err);
     }
 
+    await recordAnalyticsEvent({
+      event_name: "booking_completed",
+      branch_id: room.branch_id,
+      room_id: roomId,
+      properties: { duration_hours: durationHours },
+    });
+
     return NextResponse.json({ ok: true, id, booking_code });
   } catch (err) {
     if (err instanceof SlotConflictError) {
+      await recordAnalyticsEvent({
+        event_name: "booking_failed",
+        room_id: roomIdForAnalytics,
+        properties: { error_code: 409 },
+      });
       return NextResponse.json({ error: err.message }, { status: 409 });
     }
+    await recordAnalyticsEvent({
+      event_name: "booking_failed",
+      properties: { error_code: 500 },
+    });
     const message = err instanceof Error ? err.message : "無法新增訂位";
     return NextResponse.json({ error: message }, { status: 500 });
   }

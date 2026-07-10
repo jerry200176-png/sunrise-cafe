@@ -5,6 +5,8 @@ import {
 } from "@/lib/supabase-admin";
 import { notifyWaitlist } from "@/lib/waitlist";
 import { verifyGuestBookingById } from "@/lib/guest-auth";
+import { recordAnalyticsEvent } from "@/lib/analytics-server";
+import { fetchRoom } from "@/lib/supabase-admin";
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
@@ -49,6 +51,13 @@ export async function POST(request: NextRequest) {
     }
 
     await updateReservationAdmin(match.id, { status: "cancelled" });
+
+    const room = await fetchRoom(match.room_id);
+    await recordAnalyticsEvent({
+      event_name: "booking_cancelled",
+      branch_id: room?.branch_id ?? null,
+      room_id: match.room_id,
+    });
 
     notifyWaitlist(match.room_id, match.start_time, match.end_time).catch((err) =>
       console.error("[cancel-booking] waitlist notify failed:", err)
