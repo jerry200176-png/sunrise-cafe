@@ -1,7 +1,7 @@
 # Implementation Truth — Single Source of Technical State
 
 **Owner:** CTO Operating System  
-**Updated:** 2026-07-10 (Round 2)  
+**Updated:** 2026-07-10 (Round 3)  
 **Rule:** If this doc disagrees with other docs, **this doc wins**. Verify against `main` branch code.
 
 ---
@@ -27,8 +27,9 @@
 | Server-side booking price/status | ✅ | `reservations/route.ts` POST #69 |
 | Guest phone + booking_code auth | ✅ | `guest-auth.ts` #79 |
 | Double-book app handling | ✅ | `slot-conflict.ts` #79 |
-| RBAC tables + login | 🔄 | Wave 2 PR pending |
-| RBAC route enforcement | ❌ | `requirePermission` not on payment/reservation routes |
+| RBAC tables + login | ✅ | #81 |
+| RBAC payment routes | ✅ | #82 |
+| RBAC reservation routes | ❌ | Wave 3 |
 | Per-branch `closed_dates` | ❌ | Column may exist in DB; code reads `settings.closed_dates` |
 | Audit log on mutations | ❌ | `writeAdminAuditLog` unused |
 | Cron job fan-out | ❌ | Sequential loops; `job_runs` not on main |
