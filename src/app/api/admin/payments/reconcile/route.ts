@@ -5,6 +5,7 @@ import { computeDepositDeadline, shouldAutoRelease } from "@/lib/deposit-deadlin
 import { parseBankCsv, matchBankRowsToReservations } from "@/lib/payment-reconcile";
 import { getDepositAmount } from "@/lib/booking-utils";
 import { logPayment } from "@/lib/payment-log";
+import { requirePermission } from "@/lib/admin-api-auth";
 
 function db() {
   return createClient(
@@ -14,7 +15,10 @@ function db() {
 }
 
 /** GET: 訂金逾期風險清單（#55 營運檢視，不自動取消） */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = await requirePermission(request, "payments:read");
+  if (denied) return denied;
+
   if (!isAdminConfigured()) {
     return NextResponse.json({ error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY" }, { status: 503 });
   }
@@ -50,6 +54,9 @@ export async function GET() {
 
 /** POST: 上傳銀行 CSV 對帳（MVP） */
 export async function POST(request: NextRequest) {
+  const denied = await requirePermission(request, "payments:approve");
+  if (denied) return denied;
+
   if (!isAdminConfigured()) {
     return NextResponse.json({ error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY" }, { status: 503 });
   }

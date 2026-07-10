@@ -1,12 +1,15 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import {
   fetchPendingPaymentEvents,
   isPaymentEventsTableReady,
 } from "@/lib/payment-events-admin";
 import { isAdminConfigured } from "@/lib/supabase-admin";
+import { requirePermission } from "@/lib/admin-api-auth";
 
 /** GET: 待審核付款事件列表 */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = await requirePermission(request, "payments:read");
+  if (denied) return denied;
   if (!isAdminConfigured()) {
     return NextResponse.json({ error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY" }, { status: 503 });
   }
