@@ -25,6 +25,17 @@ export default function WaitlistPage() {
 
   useEffect(() => {
     fetch("/api/branches").then((r) => r.json()).then(setBranches);
+    const params = new URLSearchParams(window.location.search);
+    const b = params.get("branchId");
+    const r = params.get("roomId");
+    const d = params.get("date");
+    const s = params.get("start");
+    const e = params.get("end");
+    if (b) setBranchId(b);
+    if (r) setRoomId(r);
+    if (d) setDate(d);
+    if (s) setStartTime(s);
+    if (e) setEndTime(e);
   }, []);
 
   useEffect(() => {

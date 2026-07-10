@@ -1,4 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
+import { phonesMatch } from "@/lib/phone-utils";
+import {
+  SlotConflictError,
+  isPostgresExclusionViolation,
+  isPostgresUniqueViolation,
+} from "@/lib/slot-conflict";
 
 // Force Update: Restore all missing functions + image_url fix
 const supabaseAdmin = () =>
@@ -140,30 +146,43 @@ export async function insertReservationAdmin(payload: {
   notes: string | null;
   line_user_id?: string | null;
 }) {
-  const bookingCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-  const statusToUse = payload.status ?? "pending";
+  const maxAttempts = 3;
 
-  const { data, error } = await supabaseAdmin()
-    .from("reservations")
-    .insert({
-      room_id: payload.room_id,
-      customer_name: payload.customer_name,
-      phone: payload.phone,
-      email: payload.email,
-      start_time: payload.start_time,
-      end_time: payload.end_time,
-      status: statusToUse,
-      total_price: payload.total_price,
-      guest_count: payload.guest_count,
-      notes: payload.notes,
-      booking_code: bookingCode,
-      line_user_id: payload.line_user_id ?? null,
-    })
-    .select("id, booking_code")
-    .single();
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const bookingCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const statusToUse = payload.status ?? "pending";
 
-  if (error) throw error;
-  return data;
+    const { data, error } = await supabaseAdmin()
+      .from("reservations")
+      .insert({
+        room_id: payload.room_id,
+        customer_name: payload.customer_name,
+        phone: payload.phone,
+        email: payload.email,
+        start_time: payload.start_time,
+        end_time: payload.end_time,
+        status: statusToUse,
+        total_price: payload.total_price,
+        guest_count: payload.guest_count,
+        notes: payload.notes,
+        booking_code: bookingCode,
+        line_user_id: payload.line_user_id ?? null,
+      })
+      .select("id, booking_code")
+      .single();
+
+    if (!error) return data;
+
+    if (isPostgresExclusionViolation(error)) {
+      throw new SlotConflictError();
+    }
+    if (isPostgresUniqueViolation(error) && attempt < maxAttempts - 1) {
+      continue;
+    }
+    throw error;
+  }
+
+  throw new Error("無法產生訂位代號，請稍後再試");
 }
 
 // ✅ 補回遺失的函式：fetchReservationsAdmin
@@ -250,6 +269,31 @@ export async function hasSlotConflict(
   const { data, error } = await query;
   if (error) throw error;
   return data && data.length > 0;
+}
+
+/** Lookup by unique booking_code, then verify phone matches (guest auth) */
+export async function fetchReservationByPhoneAndCode(
+  phoneNorm: string,
+  bookingCode: string
+) {
+  const { data, error } = await supabaseAdmin()
+    .from("reservations")
+    .select(`
+      *,
+      room:rooms (
+        name,
+        branch:branches (
+          name
+        )
+      )
+    `)
+    .eq("booking_code", bookingCode)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+  if (!phonesMatch(data.phone, phoneNorm)) return null;
+  return data;
 }
 
 // ✅ 補回遺失的函式：fetchReservationsByPhone

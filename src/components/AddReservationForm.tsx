@@ -4,18 +4,12 @@ import { useState, useEffect } from "react";
 import { X, Clock, Repeat, Users, StickyNote, User, Phone, Mail } from "lucide-react";
 import { format, addMonths } from "date-fns";
 import type { Room } from "@/types";
-
-/** 是否為假日（六、日） */
-function isWeekend(dateStr: string): boolean {
-  if (!dateStr) return false;
-  const d = new Date(dateStr + "T12:00:00");
-  const day = d.getDay(); // 0=Sun, 6=Sat
-  return day === 0 || day === 6;
-}
+import { isWeekendDate } from "@/lib/booking-utils";
+import { toTaipei } from "@/lib/datetime";
 
 /** 依所選日期取得該包廂每小時單價（平日/假日） */
 function getPricePerHour(room: Room, dateStr: string): number {
-  return isWeekend(dateStr) ? Number(room.price_weekend) : Number(room.price_weekday);
+  return isWeekendDate(dateStr) ? Number(room.price_weekend) : Number(room.price_weekday);
 }
 
 const WEEKDAYS = [
@@ -82,7 +76,7 @@ export function AddReservationForm({
   // Fix: 加上 selectedWeekdays.length 依賴，解決 Vercel 警告
   useEffect(() => {
     if (repeatEnabled && date && selectedWeekdays.length === 0) {
-      const day = new Date(date).getDay();
+      const day = toTaipei(`${date}T12:00:00+08:00`).getDay();
       setSelectedWeekdays([day]);
     }
   }, [repeatEnabled, date, selectedWeekdays.length]); 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { isAdminConfigured } from "@/lib/supabase-admin";
 import { requireAdminApiAuth } from "@/lib/admin-api-auth";
+import { toTaipei } from "@/lib/datetime";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -68,13 +69,12 @@ export async function POST(request: NextRequest) {
     const [sh, sm] = String(start_time).split(":").map(Number);
 
     while (current <= end) {
-      const day = current.getDay();
+      const y = current.getFullYear();
+      const m = String(current.getMonth() + 1).padStart(2, "0");
+      const d = String(current.getDate()).padStart(2, "0");
+      const dateStr = `${y}-${m}-${d}`;
+      const day = toTaipei(`${dateStr}T12:00:00+08:00`).getDay();
       if (weekdays.includes(day)) {
-        const y = current.getFullYear();
-        const m = String(current.getMonth() + 1).padStart(2, "0");
-        const d = String(current.getDate()).padStart(2, "0");
-        const dateStr = `${y}-${m}-${d}`;
-
         const startDt = new Date(`${dateStr}T${String(sh).padStart(2,"0")}:${String(sm).padStart(2,"0")}:00+08:00`);
         const endDt = new Date(startDt.getTime() + Number(duration_hours) * 60 * 60 * 1000);
         

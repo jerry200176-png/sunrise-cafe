@@ -6,12 +6,10 @@ import {
   isAdminConfigured,
 } from "@/lib/supabase-admin";
 import { requireAdminApiAuth } from "@/lib/admin-api-auth";
+import { isWeekendDate } from "@/lib/booking-utils";
 
 function getPriceForDate(room: { price_weekday: number; price_weekend: number }, dateStr: string): number {
-  const d = new Date(dateStr + "T12:00:00");
-  const day = d.getDay();
-  const isWeekend = day === 0 || day === 6;
-  return isWeekend ? Number(room.price_weekend) : Number(room.price_weekday);
+  return isWeekendDate(dateStr) ? Number(room.price_weekend) : Number(room.price_weekday);
 }
 
 export async function POST(request: NextRequest) {

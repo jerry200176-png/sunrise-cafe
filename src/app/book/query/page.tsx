@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { ArrowLeft, Calendar, Clock } from "lucide-react";
 import { format, parseISO } from "date-fns";
@@ -39,7 +40,22 @@ interface AvailabilitySlot {
 const OFFICIAL_LINE_URL = "https://lin.ee/cxcV0lo";
 
 export default function BookQueryPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-gradient-to-b from-amber-50/40 to-white flex items-center justify-center">
+          <p className="text-gray-500">載入中…</p>
+        </main>
+      }
+    >
+      <BookQueryContent />
+    </Suspense>
+  );
+}
+
+function BookQueryContent() {
   const { t } = useLocale();
+  const searchParams = useSearchParams();
   const STATUS_LABELS: Record<string, string> = {
     pending: t("query.status.pending"),
     confirmed: t("query.status.confirmed"),
@@ -48,6 +64,7 @@ export default function BookQueryPage() {
     completed: t("query.status.completed"),
   };
   const [phone, setPhone] = useState("");
+  const [bookingCode, setBookingCode] = useState("");
   const [list, setList] = useState<BookingItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,16 +77,25 @@ export default function BookQueryPage() {
   const [rescheduleSubmitting, setRescheduleSubmitting] = useState(false);
   const [rescheduleError, setRescheduleError] = useState<string | null>(null);
 
+  useEffect(() => {
+    const codeFromUrl = searchParams.get("code");
+    if (codeFromUrl) {
+      setBookingCode(codeFromUrl.trim().toUpperCase());
+    }
+  }, [searchParams]);
+
   const search = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!phone.trim()) return;
+    if (!phone.trim() || !bookingCode.trim()) return;
     setLoading(true);
     setError(null);
     setList([]);
     try {
-      const res = await fetch(
-        `/api/my-bookings?phone=${encodeURIComponent(phone.trim())}`
-      );
+      const params = new URLSearchParams({
+        phone: phone.trim(),
+        booking_code: bookingCode.trim(),
+      });
+      const res = await fetch(`/api/my-bookings?${params.toString()}`);
       const data = await res.json();
       if (!res.ok) {
         setError((data as { error?: string })?.error ?? t("query.searchFailed"));
@@ -94,7 +120,11 @@ export default function BookQueryPage() {
       const res = await fetch("/api/cancel-booking", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, phone: phone.trim() }),
+        body: JSON.stringify({
+          id,
+          booking_code: bookingCode.trim(),
+          phone: phone.trim(),
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -193,6 +223,7 @@ export default function BookQueryPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: reschedulingItem.id,
+          booking_code: bookingCode.trim(),
           phone: phone.trim(),
           start_time: start,
           end_time: end,
@@ -248,24 +279,43 @@ export default function BookQueryPage() {
       </header>
 
       <div className="mx-auto max-w-lg px-4 py-6">
-        <form onSubmit={search} className="mb-6 flex gap-2">
-          <label htmlFor="query-phone" className="sr-only">{t("query.phonePlaceholder")}</label>
-          <input
-            id="query-phone"
-            type="tel"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder={t("query.phonePlaceholder")}
-            className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5"
-            required
-          />
-          <button
-            type="submit"
-            disabled={loading}
-            className="rounded-lg bg-amber-600 px-4 py-2.5 text-white disabled:opacity-50"
-          >
-            {loading ? t("query.searching") : t("query.searchButton")}
-          </button>
+        <form onSubmit={search} className="mb-6 space-y-3">
+          <div className="flex gap-2">
+            <label htmlFor="query-phone" className="sr-only">{t("query.phonePlaceholder")}</label>
+            <input
+              id="query-phone"
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder={t("query.phonePlaceholder")}
+              className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5"
+              required
+              autoComplete="tel"
+            />
+          </div>
+          <div className="flex gap-2">
+            <label htmlFor="query-booking-code" className="sr-only">{t("query.bookingCodePlaceholder")}</label>
+            <input
+              id="query-booking-code"
+              type="text"
+              value={bookingCode}
+              onChange={(e) => setBookingCode(e.target.value.toUpperCase())}
+              placeholder={t("query.bookingCodePlaceholder")}
+              className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 font-mono uppercase tracking-wider"
+              required
+              maxLength={6}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              className="rounded-lg bg-amber-600 px-4 py-2.5 text-white disabled:opacity-50 shrink-0"
+            >
+              {loading ? t("query.searching") : t("query.searchButton")}
+            </button>
+          </div>
+          <p className="text-xs text-gray-500">{t("query.bookingCodeHint")}</p>
         </form>
 
         {error && (
@@ -274,7 +324,7 @@ export default function BookQueryPage() {
           </div>
         )}
 
-        {list.length === 0 && !loading && phone && (
+        {list.length === 0 && !loading && phone && bookingCode && (
           <p className="text-center text-gray-500">{t("query.empty")}</p>
         )}
 
