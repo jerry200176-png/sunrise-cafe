@@ -26,6 +26,17 @@ describe("rbac", () => {
     expect(hasPermission(manager, "users:manage", "b1")).toBe(false);
   });
 
+  it("staff cannot approve payments", () => {
+    const staff = {
+      user_id: "s1",
+      role: "staff" as const,
+      branch_ids: ["b1"],
+      legacy: false,
+    };
+    expect(hasPermission(staff, "payments:approve", "b1")).toBe(false);
+    expect(hasPermission(staff, "payments:read", "b1")).toBe(false);
+  });
+
   it("finance can read payments not write reservations", () => {
     const finance = {
       user_id: "f1",

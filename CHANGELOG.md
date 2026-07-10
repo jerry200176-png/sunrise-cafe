@@ -19,6 +19,9 @@
 
 **Migration required:** `supabase/migration-phase7-rbac.sql`
 
+### Wave 2b (pending)
+- `requirePermission` on all `/api/admin/payments/*` routes
+
 ---
 
 ## [2.1.0] — 2026-07-10

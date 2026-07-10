@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rejectPaymentEvent } from "@/lib/payment-events-admin";
 import { isAdminConfigured } from "@/lib/supabase-admin";
+import { requirePermission } from "@/lib/admin-api-auth";
 
 type Params = { params: Promise<{ id: string }> };
 
 /** POST: 駁回付款截圖 */
 export async function POST(request: NextRequest, { params }: Params) {
+  const denied = await requirePermission(request, "payments:approve");
+  if (denied) return denied;
+
   if (!isAdminConfigured()) {
     return NextResponse.json({ error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY" }, { status: 503 });
   }
