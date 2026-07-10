@@ -3,6 +3,8 @@ import {
   getDurationOptions,
   isDepositRequired,
   getDepositAmount,
+  isWeekendDate,
+  computeReservationTotalPrice,
 } from "./booking-utils";
 
 describe("getDepositAmount", () => {
@@ -42,5 +44,37 @@ describe("getDurationOptions", () => {
 
   it("共 17 個選項", () => {
     expect(options).toHaveLength(17); // (10-2)/0.5 + 1
+  });
+});
+
+describe("computeReservationTotalPrice", () => {
+  const room = { price_weekday: 200, price_weekend: 300 };
+
+  it("平日 3 小時計價", () => {
+    const total = computeReservationTotalPrice(
+      room,
+      "2026-07-08T10:00:00+08:00",
+      "2026-07-08T13:00:00+08:00"
+    );
+    expect(total).toBe(600);
+  });
+
+  it("週末使用假日單價", () => {
+    const total = computeReservationTotalPrice(
+      room,
+      "2026-07-11T10:00:00+08:00",
+      "2026-07-11T12:00:00+08:00"
+    );
+    expect(total).toBe(600);
+  });
+});
+
+describe("isWeekendDate", () => {
+  it("週六為週末", () => {
+    expect(isWeekendDate("2026-07-11")).toBe(true);
+  });
+
+  it("週三為平日", () => {
+    expect(isWeekendDate("2026-07-08")).toBe(false);
   });
 });

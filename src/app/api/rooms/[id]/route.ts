@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateRoom, deleteRoom } from "@/lib/supabase-fetch";
+import { requireAdminApiAuth } from "@/lib/admin-api-auth";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: NextRequest, { params }: Params) {
+  const denied = await requireAdminApiAuth(request);
+  if (denied) return denied;
+
   const { id } = await params;
   if (!id) return NextResponse.json({ error: "缺少 id" }, { status: 400 });
   try {
@@ -31,7 +35,10 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   }
 }
 
-export async function DELETE(_request: NextRequest, { params }: Params) {
+export async function DELETE(request: NextRequest, { params }: Params) {
+  const denied = await requireAdminApiAuth(request);
+  if (denied) return denied;
+
   const { id } = await params;
   if (!id) return NextResponse.json({ error: "缺少 id" }, { status: 400 });
   try {

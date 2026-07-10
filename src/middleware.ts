@@ -6,6 +6,7 @@ import {
   requireAdminApiAuth,
   verifyAdminSession,
   isAdminOnlyApiPath,
+  isAdminAuthRequired,
 } from "@/lib/admin-api-auth";
 
 const COOKIE_NAME = ADMIN_SESSION_COOKIE;
@@ -69,8 +70,11 @@ export async function middleware(request: NextRequest) {
   if (pathname === "/admin/login") return NextResponse.next();
   if (!pathname.startsWith("/admin")) return NextResponse.next();
 
-  if (!process.env.ADMIN_PASSWORD) return NextResponse.next();
-  const signingKey = getSessionSecret()!;
+  if (!isAdminAuthRequired()) return NextResponse.next();
+  const signingKey = getSessionSecret();
+  if (!signingKey) {
+    return NextResponse.redirect(new URL("/admin/login", request.url));
+  }
 
   const cookie = request.cookies.get(COOKIE_NAME);
   if (!cookie?.value) {

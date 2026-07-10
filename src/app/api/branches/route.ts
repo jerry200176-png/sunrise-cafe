@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchBranches, insertBranch } from "@/lib/supabase-fetch";
+import { requireAdminApiAuth } from "@/lib/admin-api-auth";
 
 export async function GET() {
   try {
@@ -12,6 +13,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = await requireAdminApiAuth(request);
+  if (denied) return denied;
+
   try {
     const body = await request.json();
     const { name, address, phone, open_time, close_time, line_group_id, display_name, payment_info, line_pay_url } = body as {
