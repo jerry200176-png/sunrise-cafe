@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { phonesMatch } from "@/lib/phone-utils";
 
 // Force Update: Restore all missing functions + image_url fix
 const supabaseAdmin = () =>
@@ -250,6 +251,31 @@ export async function hasSlotConflict(
   const { data, error } = await query;
   if (error) throw error;
   return data && data.length > 0;
+}
+
+/** Lookup by unique booking_code, then verify phone matches (guest auth) */
+export async function fetchReservationByPhoneAndCode(
+  phoneNorm: string,
+  bookingCode: string
+) {
+  const { data, error } = await supabaseAdmin()
+    .from("reservations")
+    .select(`
+      *,
+      room:rooms (
+        name,
+        branch:branches (
+          name
+        )
+      )
+    `)
+    .eq("booking_code", bookingCode)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+  if (!phonesMatch(data.phone, phoneNorm)) return null;
+  return data;
 }
 
 // ✅ 補回遺失的函式：fetchReservationsByPhone

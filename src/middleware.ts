@@ -39,6 +39,13 @@ export async function middleware(request: NextRequest) {
   } else if (pathname === "/api/availability") {
     const { success, reset } = await rateLimit(ip, "availability");
     if (!success) return tooManyRequests(reset);
+  } else if (
+    (pathname === "/api/my-bookings" && request.method === "GET") ||
+    (pathname === "/api/cancel-booking" && request.method === "POST") ||
+    (pathname === "/api/reschedule-booking" && request.method === "POST")
+  ) {
+    const { success, reset } = await rateLimit(ip, "guestLookup");
+    if (!success) return tooManyRequests(reset);
   } else if (pathname.startsWith("/api/") && !pathname.startsWith("/api/webhooks/")) {
     // webhooks 已有 LINE 簽章驗證，不需額外限流
     const { success, reset } = await rateLimit(ip, "api");

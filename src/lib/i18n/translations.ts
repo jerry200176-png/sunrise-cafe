@@ -115,6 +115,8 @@ const zhTW: Dict = {
 
   "query.headerTitle": "查詢我的訂位",
   "query.phonePlaceholder": "輸入訂位電話",
+  "query.bookingCodePlaceholder": "訂位代號（6 碼）",
+  "query.bookingCodeHint": "訂位代號在預約成功頁面或確認通知中，查詢與取消時都需要",
   "query.searchButton": "查詢",
   "query.searching": "查詢中…",
   "query.empty": "找不到訂位紀錄",
@@ -270,6 +272,8 @@ const en: Dict = {
 
   "query.headerTitle": "My Bookings",
   "query.phonePlaceholder": "Enter booking phone number",
+  "query.bookingCodePlaceholder": "Booking code (6 characters)",
+  "query.bookingCodeHint": "Your booking code is on the success page or in our confirmation — you'll need it to look up or cancel",
   "query.searchButton": "Search",
   "query.searching": "Searching…",
   "query.empty": "No bookings found",
@@ -425,6 +429,8 @@ const ja: Dict = {
 
   "query.headerTitle": "予約を確認",
   "query.phonePlaceholder": "予約時の電話番号を入力",
+  "query.bookingCodePlaceholder": "予約番号（6桁）",
+  "query.bookingCodeHint": "予約番号は完了画面または確認通知に記載されています。照会・キャンセル時に必要です",
   "query.searchButton": "検索",
   "query.searching": "検索中…",
   "query.empty": "予約が見つかりません",

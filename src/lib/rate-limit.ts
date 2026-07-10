@@ -20,6 +20,7 @@ const limiters = {
   login: makeRatelimit(5, "1 m"),       // 後台登入：暴力破解防護
   booking: makeRatelimit(5, "1 m"),     // 訂位建立：防止假訂位洗版
   availability: makeRatelimit(30, "1 m"), // 時段查詢：防止爬蟲
+  guestLookup: makeRatelimit(10, "1 m"), // 客人查詢/取消/改期：防電話枚舉
   api: makeRatelimit(60, "1 m"),        // 其他 API：一般防護
 } as const;
 
