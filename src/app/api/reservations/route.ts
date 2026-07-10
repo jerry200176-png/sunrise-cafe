@@ -9,6 +9,7 @@ import {
 import { sendLineFlex, buildNewBookingFlex } from "@/lib/line-notify";
 import { requireAdminApiAuth } from "@/lib/admin-api-auth";
 import { computeReservationTotalPrice } from "@/lib/booking-utils";
+import { SlotConflictError } from "@/lib/slot-conflict";
 import { createClient } from "@supabase/supabase-js";
 
 function supabaseAdmin() {
@@ -164,6 +165,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true, id, booking_code });
   } catch (err) {
+    if (err instanceof SlotConflictError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
     const message = err instanceof Error ? err.message : "無法新增訂位";
     return NextResponse.json({ error: message }, { status: 500 });
   }

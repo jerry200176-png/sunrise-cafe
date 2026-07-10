@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import Image from "next/image";
 import type { Branch, Room, RentalNoteSection } from "@/types";
-import { getDurationOptions, getDepositAmount } from "@/lib/booking-utils";
+import { getDurationOptions, getDepositAmount, isWeekendDate } from "@/lib/booking-utils";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
@@ -221,11 +221,21 @@ export default function BookPage() {
   const getTotalPrice = (): number | null => {
     const room = rooms.find((r) => r.id === roomId);
     if (!room || !date) return null;
-    const d = new Date(date + "T12:00:00");
-    const day = d.getDay();
-    const isWeekend = day === 0 || day === 6;
-    const pricePerHour = isWeekend ? room.price_weekend : room.price_weekday;
+    const pricePerHour = isWeekendDate(date)
+      ? room.price_weekend
+      : room.price_weekday;
     return Math.round(Number(pricePerHour) * duration);
+  };
+
+  const buildWaitlistHref = (room: string, startTime?: string, endTime?: string) => {
+    const params = new URLSearchParams({
+      branchId,
+      roomId: room,
+      date,
+    });
+    if (startTime) params.set("start", startTime.slice(11, 16));
+    if (endTime) params.set("end", endTime.slice(11, 16));
+    return `/book/waitlist?${params.toString()}`;
   };
 
   // UX Helper: 計算選擇摘要
@@ -477,69 +487,79 @@ export default function BookPage() {
                   }
                   return (
                     <li key={r.roomId}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRoomId(r.roomId);
-                          setRoomName(r.roomName);
-                          setBranchName(branchRoomsAvailability.branchName);
-                          setStep("slot");
-                        }}
-                        className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-sm hover:border-amber-400 hover:bg-amber-50/50"
-                      >
-                        {/* 圖片顯示區塊 */}
-                        <div className="mb-2 overflow-hidden rounded-lg">
-                          <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-gray-100 flex items-center justify-center text-xs text-gray-500">
-                            {imageUrl ? (
-                              <Image
-                                src={imageUrl}
-                                alt={r.roomName}
-                                fill
-                                sizes="(max-width: 640px) 100vw, 512px"
-                                className="object-cover"
-                                onError={(e) => {
-                                  const img = e.currentTarget;
-                                  img.style.display = "none";
-                                }}
-                              />
-                            ) : (
-                              // Fallback (若無圖片)
-                              <span>{t("book.room.noImage")}</span>
+                      {freeCount > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRoomId(r.roomId);
+                            setRoomName(r.roomName);
+                            setBranchName(branchRoomsAvailability.branchName);
+                            setStep("slot");
+                          }}
+                          className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-sm hover:border-amber-400 hover:bg-amber-50/50"
+                        >
+                          <div className="mb-2 overflow-hidden rounded-lg">
+                            <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-gray-100 flex items-center justify-center text-xs text-gray-500">
+                              {imageUrl ? (
+                                <Image
+                                  src={imageUrl}
+                                  alt={r.roomName}
+                                  fill
+                                  sizes="(max-width: 640px) 100vw, 512px"
+                                  className="object-cover"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = "none";
+                                  }}
+                                />
+                              ) : (
+                                <span>{t("book.room.noImage")}</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-gray-900">{r.roomName}</span>
+                            {r.roomType && (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                                {r.roomType}
+                              </span>
                             )}
                           </div>
+                          <p className="mt-0.5 text-sm text-gray-500">
+                            {r.min_capacity && r.min_capacity < r.capacity ? `${r.min_capacity}-${r.capacity}` : r.capacity} {t("book.room.people")} · {t("book.room.weekday")} ${r.price_weekday}{t("book.room.perHour")} · {t("book.room.weekend")} ${r.price_weekend}{t("book.room.perHour")}
+                          </p>
+                          <p className="mt-1.5 text-xs text-gray-600">
+                            {t("book.room.availableRanges", { ranges: `${ranges.slice(0, 3).join("、")}${ranges.length > 3 ? " …" : ""}` })}
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-0.5">
+                            {r.slots.slice(0, 12).map((s) => (
+                              <span
+                                key={s.start}
+                                className={`inline-block h-2 w-4 rounded-sm ${s.available ? "bg-green-300" : "bg-rose-200"}`}
+                                title={formatSlotTime(s.start)}
+                              />
+                            ))}
+                          </div>
+                        </button>
+                      ) : (
+                        <div className="w-full rounded-xl border border-rose-100 bg-white px-4 py-3 text-left shadow-sm">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-gray-900">{r.roomName}</span>
+                            {r.roomType && (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                                {r.roomType}
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-1.5 text-sm text-rose-600">{t("book.room.full")}</p>
+                          <p className="mt-1 text-xs text-gray-500">{t("book.waitlistHint")}</p>
+                          <Link
+                            href={buildWaitlistHref(r.roomId)}
+                            className="mt-3 flex w-full items-center justify-center rounded-lg bg-amber-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-amber-700"
+                          >
+                            {t("book.waitlistCta")}
+                          </Link>
                         </div>
-
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-gray-900">{r.roomName}</span>
-                          {r.roomType && (
-                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-                              {r.roomType}
-                            </span>
-                          )}
-                        </div>
-                        <p className="mt-0.5 text-sm text-gray-500">
-                          {r.min_capacity && r.min_capacity < r.capacity ? `${r.min_capacity}-${r.capacity}` : r.capacity} {t("book.room.people")} · {t("book.room.weekday")} ${r.price_weekday}{t("book.room.perHour")} · {t("book.room.weekend")} ${r.price_weekend}{t("book.room.perHour")}
-                        </p>
-                        <p className="mt-1.5 text-xs text-gray-600">
-                          {freeCount > 0 ? (
-                            <>{t("book.room.availableRanges", { ranges: `${ranges.slice(0, 3).join("、")}${ranges.length > 3 ? " …" : ""}` })}</>
-                          ) : (
-                            <span className="text-rose-600">{t("book.room.full")}</span>
-                          )}
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-0.5">
-                          {r.slots.slice(0, 12).map((s) => (
-                            <span
-                              key={s.start}
-                              className={`inline-block h-2 w-4 rounded-sm ${s.available ? "bg-green-300" : "bg-rose-200"}`}
-                              title={formatSlotTime(s.start)}
-                            />
-                          ))}
-                          {r.slots.length > 12 && (
-                            <span className="text-xs text-gray-400">…</span>
-                          )}
-                        </div>
-                      </button>
+                      )}
                     </li>
                   );
                 })}
@@ -619,9 +639,18 @@ export default function BookPage() {
                 </div>
 
                 {!slots.some((s) => canSelectDuration(s.start)) && slots.length > 0 && (
-                  <p className="mb-3 text-sm text-amber-700">
-                    {t("book.slot.noContiguous", { duration })}
-                  </p>
+                  <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3">
+                    <p className="text-sm text-amber-800">
+                      {t("book.slot.noContiguous", { duration })}
+                    </p>
+                    <p className="mt-1 text-xs text-amber-700">{t("book.slot.waitlistHint")}</p>
+                    <Link
+                      href={buildWaitlistHref(roomId)}
+                      className="mt-2 inline-flex w-full items-center justify-center rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 sm:w-auto"
+                    >
+                      {t("book.waitlistCta")}
+                    </Link>
+                  </div>
                 )}
 
                 {/* 步驟 2：時段 */}

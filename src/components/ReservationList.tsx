@@ -5,19 +5,12 @@ import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { Calendar, Clock, DoorOpen, Pencil, Users, X, Send } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { isDepositRequired } from "@/lib/booking-utils";
+import { isDepositRequired, isWeekendDate } from "@/lib/booking-utils";
 import { buildPaymentMessage, type BranchPaymentConfig } from "@/lib/payment-message";
 import type { Reservation, ReservationStatus, Room } from "@/types";
 
-function isWeekend(dateStr: string): boolean {
-  if (!dateStr) return false;
-  const d = new Date(dateStr + "T12:00:00");
-  const day = d.getDay();
-  return day === 0 || day === 6;
-}
-
 function getPricePerHour(room: Room, dateStr: string): number {
-  return isWeekend(dateStr) ? Number(room.price_weekend) : Number(room.price_weekday);
+  return isWeekendDate(dateStr) ? Number(room.price_weekend) : Number(room.price_weekday);
 }
 
 const RESERVATIONS_API = "/api/reservations";
@@ -844,7 +837,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                   if (!room || !editDate) return null;
                   const pricePerHour = getPricePerHour(room, editDate);
                   const estimated = Math.round(pricePerHour * editDuration);
-                  const kind = isWeekend(editDate) ? "假日" : "平日";
+                  const kind = isWeekendDate(editDate) ? "假日" : "平日";
                   return (
                     <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
                       預估總價：<strong>${estimated}</strong>（{kind} ${pricePerHour}/時 × {editDuration} 小時）
