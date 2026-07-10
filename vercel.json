@@ -11,6 +11,10 @@
         {
             "path": "/api/admin/reminders/deposit-deadline",
             "schedule": "0 12 * * *"
+        },
+        {
+            "path": "/api/admin/reminders/no-show-scan",
+            "schedule": "0 14 * * *"
         }
     ]
 }

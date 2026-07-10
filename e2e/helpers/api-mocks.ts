@@ -85,7 +85,7 @@ export async function mockPublicApis(page: Page) {
 
   await page.route("**/api/availability?**", async (route) => {
     const url = new URL(route.request().url());
-    const date = url.searchParams.get("date") ?? MOCK_DATE;
+    const date = url.searchParams.get("date") ?? e2eFutureDate();
     const roomId = url.searchParams.get("roomId");
     const body = roomId
       ? roomAvailabilityResponse(date)

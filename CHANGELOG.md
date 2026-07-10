@@ -4,6 +4,26 @@
 
 ---
 
+## [RC4-Phase4] — 2026-07-10
+
+### Business Intelligence
+- `src/lib/business-kpis.ts` — occupancy, RevPAR, funnel, no-show, return rate
+- `GET /api/admin/bi/summary` — unified KPI API
+- `GET /api/admin/customers/insights` — privacy-safe customer segments
+- `/admin/insights` dashboard (revenue, funnel, branch compare, peak/off-peak)
+- `docs/BUSINESS_INTELLIGENCE.md`
+
+### Reservation Intelligence
+- Slot recommendations on booking page (`slot-recommendations.ts`)
+- No-show advisory scan cron (`/api/admin/reminders/no-show-scan`)
+
+### Enterprise Engineering
+- `docs/SLO.md`, `docs/DISASTER_RECOVERY.md`, `docs/SECURITY_REVIEW_CHECKLIST.md`
+- `docs/ARCHITECTURE.md`, `docs/OPERATIONS_AUTOMATION.md`, `docs/TECHNICAL_DEBT_REVIEW.md`
+- `docs/PHASE4_ARCHITECTURE.md`
+
+---
+
 ## [RC3-Phase3] — 2026-07-10
 
 ### Product Intelligence

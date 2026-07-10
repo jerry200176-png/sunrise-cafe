@@ -9,6 +9,7 @@ import { getDurationOptions, getDepositAmount, isWeekendDate } from "@/lib/booki
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { trackEvent } from "@/lib/analytics";
+import { recommendSlotStarts } from "@/lib/slot-recommendations";
 
 type Step = "branch" | "room" | "date" | "slot" | "form";
 
@@ -346,6 +347,7 @@ export default function BookPage() {
     return d.toISOString().slice(0, 10);
   })();
   const summary = getSelectedSummary(); // 取得當前選擇摘要
+  const recommendedStarts = recommendSlotStarts(slots, duration, 3);
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-amber-50/40 to-white">
@@ -673,6 +675,31 @@ export default function BookPage() {
                   <h3 className="mb-2 text-sm font-bold text-gray-800">
                     {t("book.slot.timeTitle")} <span className="text-xs font-normal text-gray-500">{t("book.slot.timeTitleHint")}</span>
                   </h3>
+                  {recommendedStarts.length > 0 && !selectedStart && (
+                    <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+                      <p className="text-xs font-medium text-blue-800">推薦時段</p>
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        {recommendedStarts.map((start) => (
+                          <button
+                            key={start}
+                            type="button"
+                            onClick={() => {
+                              setSelectedStart(start);
+                              trackEvent("slot_selected", {
+                                branch_id: branchId,
+                                room_id: roomId,
+                                duration_hours: duration,
+                                source: "recommendation",
+                              });
+                            }}
+                            className="rounded-md border border-blue-200 bg-white px-2.5 py-1 text-xs font-medium text-blue-800 hover:bg-blue-100"
+                          >
+                            {formatSlotTime(start)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
                     {slots.map((s) => {
                       const available = duration === 1 ? s.available : canSelectDuration(s.start);

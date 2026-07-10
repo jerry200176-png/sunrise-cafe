@@ -270,7 +270,14 @@ export default function AdminDashboardPage() {
             </Link>
             <h1 className="text-xl font-bold text-gray-900">儀表板</h1>
           </div>
-          <button
+          <div className="flex items-center gap-2">
+            <Link
+              href="/admin/insights"
+              className="rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 ring-1 ring-amber-200 hover:bg-amber-100"
+            >
+              商業洞察
+            </Link>
+            <button
             type="button"
             onClick={async () => {
               await fetch("/api/admin/logout", { method: "POST" });
@@ -280,6 +287,7 @@ export default function AdminDashboardPage() {
           >
             <LogOut className="h-4 w-4" /> 登出
           </button>
+          </div>
         </div>
       </header>
 
