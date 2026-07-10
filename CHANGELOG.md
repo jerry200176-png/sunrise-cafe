@@ -4,6 +4,23 @@
 
 ---
 
+## [2.2.0] — 2026-07-10 (pending)
+
+### Security — RBAC foundation (Wave 2)
+- `admin_users` table + email/password login (legacy `ADMIN_PASSWORD` still works)
+- Roles: owner, branch_manager, staff, finance
+- `requirePermission()` helper + `/api/admin/me` + user management APIs
+- `/admin/users` UI
+
+### Operations
+- `docs/ENGINEERING_DASHBOARD.md` — CTO Operating System SSOT
+- `docs/IMPLEMENTATION_TRUTH.md` — enforced vs planned capabilities
+- `docs/RBAC.md`
+
+**Migration required:** `supabase/migration-phase7-rbac.sql`
+
+---
+
 ## [2.1.0] — 2026-07-10
 
 Shipped via Wave 1 (cherry-pick from phase2, one deployable unit).
