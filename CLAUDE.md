@@ -151,3 +151,10 @@ sentry.*.config.ts          # Sentry 設定（三個 runtime）
 - **Rate Limiting**：Upstash 未設定時自動停用（fail-open），設定後立即生效
 - **Sentry**：`NEXT_PUBLIC_SENTRY_DSN` 未設定時靜默，不影響系統運作
 - **後台驗證金鑰**：`ADMIN_PASSWORD` 為登入密碼；`SESSION_SECRET`（選填）為 session 簽章金鑰，未設定時向下相容沿用密碼。建議在 Vercel 設定獨立的 `SESSION_SECRET`，更換密碼才不會讓既有 session 失效
+
+## Phase 6 平台治理（AI / 多開發者）
+
+- **架構邊界**：`docs/PLATFORM_GOVERNANCE.md`
+- **AI 代理規則**：`docs/AI_AGENT_GOVERNANCE.md`（修改前必讀順序、禁止盲目修改的檔案）
+- **Migration 治理**：`supabase/migrations.manifest.json` + `npm run verify:migrations` + `GET /api/admin/schema/status`
+- **新進開發**：`docs/ONBOARDING.md`、`npm run setup`

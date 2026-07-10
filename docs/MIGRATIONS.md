@@ -35,4 +35,9 @@ ON CONFLICT (version) DO NOTHING;
 - [ ] `migration-phase5-experiments.sql` — growth experiment registry
 - [ ] `migration-phase5-demand-snapshots.sql` — daily demand aggregates for pricing prep
 
-See `docs/DATA_DICTIONARY.md` and `docs/PHASE5_ARCHITECTURE.md`.
+## Phase 6 migrations (Platform Governance)
+
+- [ ] `migration-phase6-scale-indexes.sql` — cron/BI performance indexes
+- [ ] `migration-phase6-analytics-retention.sql` — `purge_analytics_events_older_than`
+
+See `docs/DATA_DICTIONARY.md`, `docs/DATABASE_EVOLUTION.md`, and `docs/PHASE6_ARCHITECTURE.md`.

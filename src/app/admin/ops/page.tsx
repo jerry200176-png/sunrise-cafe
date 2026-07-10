@@ -68,6 +68,7 @@ export default function AdminOpsPage() {
   const [dq, setDq] = useState<DqReport | null>(null);
   const [retention, setRetention] = useState<RetentionOpportunities | null>(null);
   const [experiments, setExperiments] = useState<Experiment[]>([]);
+  const [schemaDrift, setSchemaDrift] = useState<boolean | null>(null);
   const [migrationRequired, setMigrationRequired] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -77,11 +78,12 @@ export default function AdminOpsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [mRes, dqRes, rRes, eRes] = await Promise.all([
+      const [mRes, dqRes, rRes, eRes, sRes] = await Promise.all([
         fetch("/api/admin/ops/morning-summary"),
         fetch("/api/admin/data-quality/report?days=30"),
         fetch("/api/admin/retention/opportunities"),
         fetch("/api/admin/experiments"),
+        fetch("/api/admin/schema/status"),
       ]);
       if (!mRes.ok) throw new Error("晨報載入失敗");
       setMorning(await mRes.json());
@@ -91,6 +93,10 @@ export default function AdminOpsPage() {
       if (eRes.ok) {
         setExperiments(eData.experiments ?? []);
         setMigrationRequired(Boolean(eData.migration_required));
+      }
+      if (sRes.ok) {
+        const sData = await sRes.json();
+        setSchemaDrift(Boolean(sData.drift));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "載入失敗");
@@ -313,6 +319,23 @@ export default function AdminOpsPage() {
             <code className="rounded bg-stone-100 px-1">variant</code> 屬性
           </p>
         </section>
+
+        {schemaDrift !== null && (
+          <section className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
+            <h2 className="mb-2 font-semibold text-stone-800">Schema 治理</h2>
+            {schemaDrift ? (
+              <p className="text-sm text-amber-800">
+                ⚠️ Migration drift 偵測到 — 請執行待套用 migration 並確認{" "}
+                <code className="rounded bg-amber-50 px-1">schema_migrations</code>
+              </p>
+            ) : (
+              <p className="text-sm text-green-700">✅ Manifest 與資料庫 migration 記錄一致</p>
+            )}
+            <p className="mt-2 text-xs text-stone-400">
+              詳見 <code className="rounded bg-stone-100 px-1">docs/DATABASE_EVOLUTION.md</code>
+            </p>
+          </section>
+        )}
 
         <p className="text-center text-xs text-stone-400">
           <Link href="/admin/insights" className="text-amber-700 hover:underline">

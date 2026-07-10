@@ -4,6 +4,32 @@
 
 ---
 
+## [RC6-Phase6] — 2026-07-10
+
+### Platform Governance
+- `docs/PHASE6_ARCHITECTURE.md` — maturity assessment, scaling risks, roadmap
+- `docs/PLATFORM_GOVERNANCE.md` — architecture map, domain boundaries, dependency rules
+- `docs/AI_AGENT_GOVERNANCE.md` — multi-agent development rules
+- `docs/MULTI_BRANCH_SCALE.md` — 50-branch failure analysis
+
+### Database Evolution
+- `supabase/migrations.manifest.json` + `npm run verify:migrations`
+- `GET /api/admin/schema/status` — migration drift + DB health
+- `migration-phase6-scale-indexes.sql` — cron/BI indexes
+- `migration-phase6-analytics-retention.sql` — 24-month analytics purge function
+- `GET /api/admin/maintenance/analytics-retention` — monthly cron
+- `docs/DATABASE_EVOLUTION.md`
+
+### Security & DX
+- `docs/SECURITY_MATURITY_PHASE6.md` + checklist updates
+- `docs/ONBOARDING.md`, `.env.example`
+- `scripts/setup-dev.sh`, `scripts/verify-env.sh`
+- `npm run setup`, `verify:env`, `verify:migrations`
+- `src/lib/morning-summary-context.ts` — deduped cron/ops logic
+- `src/lib/schema-governance.ts`
+
+---
+
 ## [RC5-Phase5] — 2026-07-10
 
 ### Data Quality Foundation

@@ -27,8 +27,19 @@ Use before major releases and quarterly.
 ## Operational
 
 - [ ] Supabase migrations applied and recorded in `schema_migrations`
+- [ ] `npm run verify:migrations` passes in CI
+- [ ] `GET /api/admin/schema/status` shows `drift: false` after deploy
+- [ ] Phase 6 scale indexes applied (`migration-phase6-scale-indexes.sql`)
+- [ ] Analytics retention function deployed; monthly cron configured
+- [ ] Upstash rate limiting set in production (not fail-open)
 - [ ] Sentry DSN configured for production error tracking
 - [ ] Previous deployment rollback path tested on Vercel
+
+## Phase 6 governance
+
+- [ ] New contributors read `docs/ONBOARDING.md` + `docs/AI_AGENT_GOVERNANCE.md`
+- [ ] P0 catalog API auth gaps tracked (`SECURITY_MATURITY_PHASE6.md`)
+- [ ] `SESSION_SECRET` distinct from `ADMIN_PASSWORD`
 
 ## Sign-off
 

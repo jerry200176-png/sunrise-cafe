@@ -23,6 +23,10 @@
         {
             "path": "/api/admin/demand/collect",
             "schedule": "0 17 * * *"
+        },
+        {
+            "path": "/api/admin/maintenance/analytics-retention",
+            "schedule": "0 3 1 * *"
         }
     ]
 }

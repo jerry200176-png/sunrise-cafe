@@ -10,7 +10,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "test:e2e:install": "playwright install chromium"
+    "test:e2e:install": "playwright install chromium",
+    "verify:migrations": "bash scripts/verify-migrations.sh",
+    "verify:env": "bash scripts/verify-env.sh",
+    "setup": "bash scripts/setup-dev.sh",
+    "sync:migrations": "bash scripts/sync-migration-manifest.sh"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.53.1",

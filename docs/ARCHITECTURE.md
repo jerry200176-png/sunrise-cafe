@@ -48,8 +48,11 @@ Guests (Web) ──► Vercel (Next.js 15 App Router)
 
 ## Related docs
 
+- `docs/PHASE6_ARCHITECTURE.md` — governance & scale roadmap
+- `docs/PLATFORM_GOVERNANCE.md` — domain boundaries
 - `docs/PHASE4_ARCHITECTURE.md` — growth roadmap
 - `docs/BUSINESS_INTELLIGENCE.md` — KPI definitions
 - `docs/LINE_OAUTH_SECURITY.md` — LINE binding
 - `docs/RELEASE.md` — deploy checklist
+- `docs/ONBOARDING.md` — developer setup
 - `CLAUDE.md` — operator handbook
