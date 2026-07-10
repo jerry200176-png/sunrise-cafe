@@ -15,6 +15,14 @@
         {
             "path": "/api/admin/reminders/no-show-scan",
             "schedule": "0 14 * * *"
+        },
+        {
+            "path": "/api/admin/reminders/morning-summary",
+            "schedule": "0 0 * * *"
+        },
+        {
+            "path": "/api/admin/demand/collect",
+            "schedule": "0 17 * * *"
         }
     ]
 }

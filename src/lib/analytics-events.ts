@@ -26,6 +26,8 @@ export const ANALYTICS_PROPERTY_KEYS = [
   "error_code",
   "source",
   "step",
+  "experiment",
+  "variant",
 ] as const;
 
 export type AnalyticsPropertyKey = (typeof ANALYTICS_PROPERTY_KEYS)[number];

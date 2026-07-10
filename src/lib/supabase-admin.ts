@@ -229,6 +229,9 @@ export async function updateReservationAdmin(
     guest_count?: number | null;
     line_user_id?: string | null;
     review_invited_at?: string | null;
+    cancelled_at?: string | null;
+    cancelled_by?: string | null;
+    cancellation_reason?: string | null;
   }
 ) {
   const { error } = await supabaseAdmin()

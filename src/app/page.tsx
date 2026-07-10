@@ -6,13 +6,16 @@ import Image from "next/image";
 import { Calendar, Search, ArrowUpRight, Coffee, UtensilsCrossed, MessageCircleHeart } from "lucide-react";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
-import { trackEvent } from "@/lib/analytics";
+import { trackEvent, getAnalyticsSessionId } from "@/lib/analytics";
+import { loadActiveExperiments } from "@/lib/experiments-client";
 
 export default function Home() {
   const { t, locale } = useLocale();
 
   useEffect(() => {
-    trackEvent("landing_viewed", { locale });
+    void loadActiveExperiments(getAnalyticsSessionId()).then(() => {
+      trackEvent("landing_viewed", { locale });
+    });
   }, [locale]);
   const features = [
     { icon: Coffee, title: t("home.feature.room"), desc: t("home.feature.roomDesc") },

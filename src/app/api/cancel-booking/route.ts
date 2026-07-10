@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  updateReservationAdmin,
-  isAdminConfigured,
-} from "@/lib/supabase-admin";
+import { cancelReservation } from "@/lib/reservation-cancel";
 import { notifyWaitlist } from "@/lib/waitlist";
 import { verifyGuestBookingById } from "@/lib/guest-auth";
 import { recordAnalyticsEvent } from "@/lib/analytics-server";
-import { fetchRoom } from "@/lib/supabase-admin";
+import { fetchRoom, isAdminConfigured } from "@/lib/supabase-admin";
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
@@ -19,10 +16,11 @@ export async function POST(request: NextRequest) {
   }
   try {
     const body = await request.json();
-    const { id, booking_code, phone } = body as {
+    const { id, booking_code, phone, cancellation_reason } = body as {
       id: string;
       booking_code: string;
       phone: string;
+      cancellation_reason?: string;
     };
 
     if (!id || !booking_code?.trim() || !phone?.trim()) {
@@ -50,7 +48,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "此訂位已取消" }, { status: 400 });
     }
 
-    await updateReservationAdmin(match.id, { status: "cancelled" });
+    await cancelReservation({
+      id: match.id,
+      cancelled_by: "guest",
+      cancellation_reason: cancellation_reason ?? "schedule_conflict",
+    });
 
     const room = await fetchRoom(match.room_id);
     await recordAnalyticsEvent({

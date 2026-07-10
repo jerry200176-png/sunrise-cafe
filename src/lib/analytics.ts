@@ -1,6 +1,7 @@
 "use client";
 
 import type { AnalyticsEventName, AnalyticsProperties } from "@/lib/analytics-events";
+import { analyticsExperimentProps } from "@/lib/experiments-client";
 
 const SESSION_KEY = "sc_analytics_session";
 
@@ -28,12 +29,14 @@ export function trackEvent(
   if (typeof window === "undefined") return;
 
   const session_id = getAnalyticsSessionId();
+  const experimentProps = analyticsExperimentProps();
+  const mergedProperties = { ...experimentProps, ...properties };
   const body = JSON.stringify({
     event_name,
     session_id: session_id || undefined,
-    branch_id: properties?.branch_id,
-    room_id: properties?.room_id,
-    properties,
+    branch_id: mergedProperties?.branch_id,
+    room_id: mergedProperties?.room_id,
+    properties: mergedProperties,
   });
 
   try {

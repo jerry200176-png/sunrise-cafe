@@ -12,6 +12,7 @@ import { toTaipei } from "@/lib/datetime";
 import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { logPayment, logDepositStatusChange } from "@/lib/payment-log";
+import { cancelReservation } from "@/lib/reservation-cancel";
 
 type Row = {
   id: string;
@@ -54,7 +55,11 @@ async function handleRun() {
 
     if (shouldAutoRelease(deadline, now)) {
       try {
-        await updateReservationAdmin(r.id, { status: "cancelled" });
+        await cancelReservation({
+          id: r.id,
+          cancelled_by: "system_deposit",
+          cancellation_reason: "deposit_timeout",
+        });
 
         if (r.line_user_id) {
           await sendLineMessageToUser(

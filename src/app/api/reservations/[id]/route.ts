@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { updateReservationAdmin, deleteReservationAdmin, isAdminConfigured } from "@/lib/supabase-admin";
-import { sendLineFlexMessage, buildPaymentFlex, sendLineMessage, buildReviewInviteMessage } from "@/lib/line";
+import { cancelReservation } from "@/lib/reservation-cancel";
+import {
+  updateReservationAdmin,
+  deleteReservationAdmin,
+  isAdminConfigured,
+} from "@/lib/supabase-admin";
 import { type BranchPaymentConfig } from "@/lib/payment-message";
+import {
+  sendLineFlexMessage,
+  buildPaymentFlex,
+  sendLineMessage,
+  buildReviewInviteMessage,
+} from "@/lib/line";
 import { notifyWaitlist } from "@/lib/waitlist";
 import { isWeekendDate } from "@/lib/booking-utils";
 import { fetchSettings } from "@/lib/supabase-fetch";
@@ -72,7 +82,23 @@ export async function PATCH(
       if (data) beforeRow = data;
     }
 
-    await updateReservationAdmin(id, patch);
+    if (patch.status === "cancelled") {
+      const rest = { ...patch };
+      delete rest.status;
+      await cancelReservation({
+        id,
+        cancelled_by: "admin",
+        cancellation_reason:
+          typeof body.cancellation_reason === "string"
+            ? body.cancellation_reason
+            : "admin_request",
+      });
+      if (Object.keys(rest).length > 0) {
+        await updateReservationAdmin(id, rest);
+      }
+    } else {
+      await updateReservationAdmin(id, patch);
+    }
 
     if (beforeRow && touchesDeposit) {
       const afterPaid =

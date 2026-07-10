@@ -8,7 +8,8 @@ import type { Branch, Room, RentalNoteSection } from "@/types";
 import { getDurationOptions, getDepositAmount, isWeekendDate } from "@/lib/booking-utils";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
-import { trackEvent } from "@/lib/analytics";
+import { trackEvent, getAnalyticsSessionId } from "@/lib/analytics";
+import { loadActiveExperiments } from "@/lib/experiments-client";
 import { recommendSlotStarts } from "@/lib/slot-recommendations";
 
 type Step = "branch" | "room" | "date" | "slot" | "form";
@@ -68,7 +69,9 @@ export default function BookPage() {
   // }, [branchRoomsAvailability]);
 
   useEffect(() => {
-    trackEvent("booking_started", branchId ? { branch_id: branchId } : undefined);
+    void loadActiveExperiments(getAnalyticsSessionId()).then(() => {
+      trackEvent("booking_started", branchId ? { branch_id: branchId } : undefined);
+    });
     fetch("/api/branches")
       .then((r) => r.json())
       .then((d) => {

@@ -4,6 +4,37 @@
 
 ---
 
+## [RC5-Phase5] — 2026-07-10
+
+### Data Quality Foundation
+- `src/lib/data-quality.ts` — reservation checks + cancellation anomaly detection
+- `GET /api/admin/data-quality/report` — admin DQ report
+- Cancellation metadata on `reservations` (`cancelled_at`, `cancelled_by`, `cancellation_reason`)
+- Unified `cancelReservation()` in `src/lib/reservation-cancel.ts`
+- `docs/DATA_DICTIONARY.md`
+
+### Growth Experiment System
+- `experiments` table + `src/lib/experiments.ts` / `experiments-client.ts`
+- `GET/POST /api/admin/experiments`, `GET /api/experiments/active`
+- Analytics allowlist: `experiment` / `variant` properties
+
+### Customer Retention Engine
+- `src/lib/customer-retention.ts` — inactive, review, anniversary (masked PII)
+- `GET /api/admin/retention/opportunities`
+
+### Revenue Optimization Prep
+- `demand_snapshots` table + `src/lib/demand-signals.ts`
+- Daily cron `GET /api/admin/demand/collect` (UTC 17:00 = 台北 01:00)
+
+### Operational Excellence
+- `src/lib/ops-exceptions.ts` — morning summary + exception alerts
+- `GET /api/admin/ops/morning-summary`, `daily-report`, `exceptions`
+- `/admin/ops` dashboard
+- Morning LINE push cron `GET /api/admin/reminders/morning-summary` (UTC 00:00 = 台北 08:00)
+- `docs/PHASE5_ARCHITECTURE.md`
+
+---
+
 ## [RC4-Phase4] — 2026-07-10
 
 ### Business Intelligence

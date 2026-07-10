@@ -471,6 +471,7 @@ export default function AdminBranchesRoomsPage() {
               { href: "/admin/print-station", icon: Printer, label: "列印站" },
               { href: "/admin/reports", icon: BarChart2, label: "營收報表" },
               { href: "/admin/insights", icon: TrendingUp, label: "商業洞察" },
+              { href: "/admin/ops", icon: ClipboardList, label: "營運中心" },
               { href: "/admin/payments", icon: DollarSign, label: "付款審核" },
             ].map(({ href, icon: Icon, label }) => (
               <Link key={href} href={href}

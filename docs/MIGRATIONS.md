@@ -28,3 +28,11 @@ ON CONFLICT (version) DO NOTHING;
 ## Phase 3 migrations
 
 - [ ] `migration-analytics-events.sql`
+
+## Phase 5 migrations (Data Quality + Growth Engine)
+
+- [ ] `migration-phase5-reservation-metadata.sql` — `updated_at`, cancellation metadata
+- [ ] `migration-phase5-experiments.sql` — growth experiment registry
+- [ ] `migration-phase5-demand-snapshots.sql` — daily demand aggregates for pricing prep
+
+See `docs/DATA_DICTIONARY.md` and `docs/PHASE5_ARCHITECTURE.md`.

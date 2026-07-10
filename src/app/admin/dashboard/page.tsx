@@ -277,6 +277,12 @@ export default function AdminDashboardPage() {
             >
               商業洞察
             </Link>
+            <Link
+              href="/admin/ops"
+              className="rounded-lg bg-stone-50 px-3 py-2 text-sm font-medium text-stone-700 ring-1 ring-stone-200 hover:bg-stone-100"
+            >
+              營運中心
+            </Link>
             <button
             type="button"
             onClick={async () => {
