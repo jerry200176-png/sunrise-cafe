@@ -7,14 +7,19 @@ import {
   createSignedAdminSession,
   isReservationMutationPath,
   isAdminOnlyApiPath,
+  isAdminAuthRequired,
 } from "./admin-api-auth";
 
 const origPassword = process.env.ADMIN_PASSWORD;
 const origSession = process.env.SESSION_SECRET;
+const origNodeEnv = process.env.NODE_ENV;
+const origVercelEnv = process.env.VERCEL_ENV;
 
 afterEach(() => {
   process.env.ADMIN_PASSWORD = origPassword;
   process.env.SESSION_SECRET = origSession;
+  process.env.NODE_ENV = origNodeEnv;
+  process.env.VERCEL_ENV = origVercelEnv;
 });
 
 describe("isReservationMutationPath", () => {
@@ -50,6 +55,15 @@ describe("isAdminOnlyApiPath (RC2 P2)", () => {
     expect(isAdminOnlyApiPath("/api/branches/uuid", "DELETE")).toBe(true);
     expect(isAdminOnlyApiPath("/api/settings", "PATCH")).toBe(true);
     expect(isAdminOnlyApiPath("/api/settings", "GET")).toBe(false);
+  });
+
+  it("protects branch/room create and recurring guest path", () => {
+    expect(isAdminOnlyApiPath("/api/branches", "POST")).toBe(true);
+    expect(isAdminOnlyApiPath("/api/rooms", "POST")).toBe(true);
+    expect(isAdminOnlyApiPath("/api/rooms/uuid", "PATCH")).toBe(true);
+    expect(isAdminOnlyApiPath("/api/rooms/uuid", "DELETE")).toBe(true);
+    expect(isAdminOnlyApiPath("/api/reservations/recurring", "POST")).toBe(true);
+    expect(isAdminOnlyApiPath("/api/diagnose", "GET")).toBe(true);
   });
 });
 
@@ -88,11 +102,43 @@ describe("verifyAdminSession", () => {
   });
 });
 
-describe("requireAdminApiAuth", () => {
-  it("allows when ADMIN_PASSWORD is unset (dev mode)", async () => {
+describe("isAdminAuthRequired", () => {
+  it("requires auth when ADMIN_PASSWORD is set", () => {
+    process.env.ADMIN_PASSWORD = "pw";
+    delete process.env.VERCEL_ENV;
+    expect(isAdminAuthRequired()).toBe(true);
+  });
+
+  it("requires auth in production even without ADMIN_PASSWORD", () => {
     delete process.env.ADMIN_PASSWORD;
+    process.env.NODE_ENV = "production";
+    expect(isAdminAuthRequired()).toBe(true);
+  });
+
+  it("allows dev mode without password", () => {
+    delete process.env.ADMIN_PASSWORD;
+    process.env.NODE_ENV = "development";
+    delete process.env.VERCEL_ENV;
+    expect(isAdminAuthRequired()).toBe(false);
+  });
+});
+
+describe("requireAdminApiAuth", () => {
+  it("allows when admin auth not required (dev mode)", async () => {
+    delete process.env.ADMIN_PASSWORD;
+    process.env.NODE_ENV = "development";
+    delete process.env.VERCEL_ENV;
     const req = new NextRequest("http://localhost/api/reservations/x", { method: "PATCH" });
     expect(await requireAdminApiAuth(req)).toBeNull();
+  });
+
+  it("returns 503 in production when no signing key configured", async () => {
+    delete process.env.ADMIN_PASSWORD;
+    delete process.env.SESSION_SECRET;
+    process.env.NODE_ENV = "production";
+    const req = new NextRequest("http://localhost/api/reservations/x", { method: "PATCH" });
+    const res = await requireAdminApiAuth(req);
+    expect(res?.status).toBe(503);
   });
 
   it("returns 401 when no cookie", async () => {

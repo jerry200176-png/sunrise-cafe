@@ -1,17 +1,23 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import {
   isAdminConfigured,
   fetchBranch,
   getBlockedSlots,
 } from "@/lib/supabase-admin";
+import { hasValidAdminSession } from "@/lib/admin-api-auth";
 
 /**
  * 訂位後端健康檢查：確認 Vercel 上 SUPABASE_SERVICE_ROLE_KEY 與 get_blocked_slots 是否正常。
- * 線上站點可開啟：https://你的網址/api/booking-health
+ * 公開請求僅回傳 ok 狀態；詳細診斷需後台登入。
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const isAdmin = await hasValidAdminSession(request);
   const serviceRoleOk = isAdminConfigured();
+
   if (!serviceRoleOk) {
+    if (!isAdmin) {
+      return NextResponse.json({ ok: false }, { status: 503 });
+    }
     return NextResponse.json(
       {
         ok: false,
@@ -37,6 +43,9 @@ export async function GET() {
       }
     );
     if (!branchesRes.ok) {
+      if (!isAdmin) {
+        return NextResponse.json({ ok: false }, { status: 503 });
+      }
       return NextResponse.json(
         {
           ok: false,
@@ -58,6 +67,9 @@ export async function GET() {
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    if (!isAdmin) {
+      return NextResponse.json({ ok: false }, { status: 503 });
+    }
     return NextResponse.json(
       {
         ok: false,
@@ -71,6 +83,10 @@ export async function GET() {
       },
       { status: 503 }
     );
+  }
+
+  if (!isAdmin) {
+    return NextResponse.json({ ok: true });
   }
 
   return NextResponse.json({

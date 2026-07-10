@@ -5,6 +5,7 @@ import {
   fetchRoom,
   isAdminConfigured,
 } from "@/lib/supabase-admin";
+import { requireAdminApiAuth } from "@/lib/admin-api-auth";
 
 function getPriceForDate(room: { price_weekday: number; price_weekend: number }, dateStr: string): number {
   const d = new Date(dateStr + "T12:00:00");
@@ -14,6 +15,9 @@ function getPriceForDate(room: { price_weekday: number; price_weekend: number },
 }
 
 export async function POST(request: NextRequest) {
+  const denied = await requireAdminApiAuth(request);
+  if (denied) return denied;
+
   if (!isAdminConfigured()) {
     return NextResponse.json(
       { error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY" },

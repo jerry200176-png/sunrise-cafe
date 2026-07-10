@@ -1,10 +1,14 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { requireAdminApiAuth } from "@/lib/admin-api-auth";
 
 /**
  * 診斷：從伺服器連到 Supabase 是否成功，並回傳詳細錯誤。
- * 瀏覽器開 http://localhost:3000/api/diagnose 即可查看。
+ * 僅限後台登入後使用，避免在 production 洩漏環境與連線細節。
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = await requireAdminApiAuth(request);
+  if (denied) return denied;
+
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
 

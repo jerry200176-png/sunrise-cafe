@@ -4,9 +4,11 @@ import {
   insertReservationAdmin,
   hasSlotConflict,
   isAdminConfigured,
+  fetchRoom,
 } from "@/lib/supabase-admin";
 import { sendLineFlex, buildNewBookingFlex } from "@/lib/line-notify";
 import { requireAdminApiAuth } from "@/lib/admin-api-auth";
+import { computeReservationTotalPrice } from "@/lib/booking-utils";
 import { createClient } from "@supabase/supabase-js";
 
 function supabaseAdmin() {
@@ -55,10 +57,8 @@ export async function POST(request: NextRequest) {
       email,
       start_time: startTime,
       end_time: endTime,
-      total_price: totalPrice,
       guest_count: guestCount,
       notes,
-      status,
       line_user_id: lineUserId,
     } = body as {
       room_id: string;
@@ -67,10 +67,8 @@ export async function POST(request: NextRequest) {
       email?: string | null;
       start_time: string;
       end_time: string;
-      total_price?: number | null;
       guest_count?: number | null;
       notes?: string | null;
-      status?: string;
       line_user_id?: string | null;
     };
 
@@ -104,6 +102,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const room = await fetchRoom(roomId);
+    if (!room) {
+      return NextResponse.json({ error: "包廂不存在" }, { status: 404 });
+    }
+
+    const totalPrice = computeReservationTotalPrice(room, startTime, endTime);
+
     const conflict = await hasSlotConflict(roomId, startTime, endTime);
     if (conflict) {
       return NextResponse.json(
@@ -134,8 +139,8 @@ export async function POST(request: NextRequest) {
       email: email?.trim() || null,
       start_time: startTime,
       end_time: endTime,
-      status: status ?? "pending",
-      total_price: totalPrice ?? null,
+      status: "pending",
+      total_price: totalPrice,
       guest_count: guestCount ?? null,
       notes: notes?.trim() || null,
       line_user_id: finalLineUserId,

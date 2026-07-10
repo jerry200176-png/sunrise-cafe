@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchRooms, insertRoom } from "@/lib/supabase-fetch";
+import { requireAdminApiAuth } from "@/lib/admin-api-auth";
 
 export async function GET(request: NextRequest) {
   const branchId = request.nextUrl.searchParams.get("branchId");
@@ -16,6 +17,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = await requireAdminApiAuth(request);
+  if (denied) return denied;
+
   try {
     const body = await request.json();
     const { branch_id, name, type, min_capacity, capacity, price_weekday, price_weekend } = body as {

@@ -6,6 +6,18 @@ import { getSessionSecret } from "@/lib/admin-auth";
 
 export const ADMIN_SESSION_COOKIE = "admin_session";
 
+/**
+ * Whether admin session is required for protected routes.
+ * Dev: fail-open when ADMIN_PASSWORD unset (local convenience).
+ * Production: always require ADMIN_PASSWORD — misconfiguration must not open admin APIs.
+ */
+export function isAdminAuthRequired(): boolean {
+  if (process.env.ADMIN_PASSWORD) return true;
+  if (process.env.NODE_ENV === "production") return true;
+  if (process.env.VERCEL_ENV === "production") return true;
+  return false;
+}
+
 function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = "";
@@ -50,11 +62,14 @@ export async function verifyAdminSession(
 export async function requireAdminApiAuth(
   request: NextRequest
 ): Promise<NextResponse | null> {
-  if (!process.env.ADMIN_PASSWORD) return null;
+  if (!isAdminAuthRequired()) return null;
 
   const signingKey = getSessionSecret();
   if (!signingKey) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json(
+      { error: "Admin authentication is not configured" },
+      { status: 503 }
+    );
   }
 
   const cookie = request.cookies.get(ADMIN_SESSION_COOKIE);
@@ -66,6 +81,15 @@ export async function requireAdminApiAuth(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   return null;
+}
+
+/** True when request carries a valid admin session cookie (for optional detailed responses). */
+export async function hasValidAdminSession(request: NextRequest): Promise<boolean> {
+  const signingKey = getSessionSecret();
+  if (!signingKey) return false;
+  const cookie = request.cookies.get(ADMIN_SESSION_COOKIE);
+  if (!cookie?.value) return false;
+  return verifyAdminSession(cookie.value, signingKey);
 }
 
 /** Build signed session cookie value (tests + login route alignment) */
@@ -106,5 +130,12 @@ export function isAdminOnlyApiPath(pathname: string, method: string): boolean {
     return true;
   }
   if (pathname === "/api/settings" && method === "PATCH") return true;
+  if (pathname === "/api/branches" && method === "POST") return true;
+  if (pathname === "/api/rooms" && method === "POST") return true;
+  if (/^\/api\/rooms\/[^/]+$/.test(pathname) && (method === "PATCH" || method === "DELETE")) {
+    return true;
+  }
+  if (pathname === "/api/reservations/recurring" && method === "POST") return true;
+  if (pathname === "/api/diagnose" && method === "GET") return true;
   return false;
 }

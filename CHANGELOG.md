@@ -4,6 +4,24 @@
 
 ---
 
+## [RC3-P0] — 2026-07-10
+
+### Security
+- Admin auth deny-by-default in production when `ADMIN_PASSWORD` unset (`isAdminAuthRequired`)
+- Protect `POST /api/branches`, `POST/PATCH/DELETE /api/rooms`, `POST /api/reservations/recurring`
+- `GET /api/diagnose` admin-only
+- Guest `POST /api/reservations`: force `status=pending`, server-side `computeReservationTotalPrice`
+- `/api/booking-health` public minimal response; detailed diagnostics require admin session
+
+### Added
+- `docs/ENGINEERING_ASSESSMENT.md` — principal engineering audit
+- `computeReservationTotalPrice()` / `isWeekendDate()` in `booking-utils`
+
+### Tests
+- Admin auth production fail-closed, expanded `isAdminOnlyApiPath` coverage, price computation tests
+
+---
+
 ## [RC2-P2] — 2026-07-09
 
 ### Security
