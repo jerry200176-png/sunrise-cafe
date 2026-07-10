@@ -3,6 +3,10 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionSecret } from "@/lib/admin-auth";
+import type { AdminSessionPayload } from "@/lib/admin-session";
+import { payloadToContext } from "@/lib/admin-session";
+import type { AdminContext } from "@/lib/rbac";
+import { hasPermission, ownerContext } from "@/lib/rbac";
 
 export const ADMIN_SESSION_COOKIE = "admin_session";
 
@@ -27,15 +31,15 @@ function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-export async function verifyAdminSession(
+export async function parseAdminSessionPayload(
   value: string,
   secret: string
-): Promise<boolean> {
+): Promise<AdminSessionPayload | null> {
   const dot = value.indexOf(".");
-  if (dot === -1) return false;
+  if (dot === -1) return null;
   const encoded = value.slice(0, dot);
   const sigFromCookie = value.slice(dot + 1);
-  if (!encoded || !sigFromCookie) return false;
+  if (!encoded || !sigFromCookie) return null;
 
   const key = await crypto.subtle.importKey(
     "raw",
@@ -46,16 +50,52 @@ export async function verifyAdminSession(
   );
   const sigBuffer = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(encoded));
   const ourSig = arrayBufferToBase64Url(sigBuffer);
-  if (ourSig !== sigFromCookie) return false;
+  if (ourSig !== sigFromCookie) return null;
 
   try {
     const json = atob(encoded.replace(/-/g, "+").replace(/_/g, "/"));
-    const payload = JSON.parse(json) as { exp?: number };
+    const payload = JSON.parse(json) as AdminSessionPayload;
     const now = Math.floor(Date.now() / 1000);
-    return typeof payload.exp === "number" && payload.exp > now;
+    if (typeof payload.exp !== "number" || payload.exp <= now) return null;
+    return payload;
   } catch {
-    return false;
+    return null;
   }
+}
+
+export async function verifyAdminSession(
+  value: string,
+  secret: string
+): Promise<boolean> {
+  return (await parseAdminSessionPayload(value, secret)) !== null;
+}
+
+export async function getAdminContext(request: NextRequest): Promise<AdminContext> {
+  if (!isAdminAuthRequired()) {
+    return ownerContext(true);
+  }
+  const signingKey = getSessionSecret();
+  if (!signingKey) return ownerContext(true);
+  const cookie = request.cookies.get(ADMIN_SESSION_COOKIE);
+  if (!cookie?.value) return ownerContext(true);
+  const payload = await parseAdminSessionPayload(cookie.value, signingKey);
+  if (!payload) return ownerContext(true);
+  return payloadToContext(payload);
+}
+
+/** @returns 403 if permission denied; otherwise null. Requires valid admin session first. */
+export async function requirePermission(
+  request: NextRequest,
+  permission: string,
+  branchId?: string | null
+): Promise<NextResponse | null> {
+  const authDenied = await requireAdminApiAuth(request);
+  if (authDenied) return authDenied;
+  const ctx = await getAdminContext(request);
+  if (!hasPermission(ctx, permission, branchId)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  return null;
 }
 
 /** @returns 401 response if denied; null if request may proceed */
@@ -95,11 +135,17 @@ export async function hasValidAdminSession(request: NextRequest): Promise<boolea
 /** Build signed session cookie value (tests + login route alignment) */
 export async function createSignedAdminSession(
   secret: string,
-  maxAgeSec = 86400
+  maxAgeSec = 86400,
+  claims?: Partial<AdminSessionPayload>
 ): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
-  const payload = JSON.stringify({ iat: now, exp: now + maxAgeSec });
-  const encoded = btoa(payload).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const payload: AdminSessionPayload = {
+    iat: now,
+    exp: now + maxAgeSec,
+    ...claims,
+  };
+  const payloadStr = JSON.stringify(payload);
+  const encoded = btoa(payloadStr).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
   const key = await crypto.subtle.importKey(
     "raw",

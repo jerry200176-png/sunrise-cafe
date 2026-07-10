@@ -20,7 +20,8 @@ VALUES ('YYYYMMDD-short-name', 'migration-filename.sql')
 ON CONFLICT (version) DO NOTHING;
 ```
 
-## Pre-deploy checklist (Phase 2)
+## Pre-deploy checklist
 
 - [ ] `migration-schema-versions.sql`
 - [ ] `migration-reservations-no-overlap.sql` (verify no overlaps first)
+- [ ] `migration-phase7-rbac.sql` (Wave 2 — admin users + roles)
