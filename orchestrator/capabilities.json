@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-07-11T14:36:31+0800",
-  "in_github_actions": false,
+  "generated_at": "2026-07-11T18:57:28+0800",
+  "in_github_actions": true,
   "codex": {
     "cli": true,
     "authenticated": false,
@@ -16,10 +16,10 @@
   },
   "github": {
     "push": "unknown command \"git\" for \"gh\"\nrestricted",
-    "pr_create": "unknown",
-    "pr_merge": "unknown",
+    "pr_create": "gha_token_expected",
+    "pr_merge": "gha_token_expected",
     "issue_close": "maybe_allowed",
-    "workflow_dispatch": "blocked_integration",
+    "workflow_dispatch": "gha_with_actions_write",
     "note": "Cloud Cursor integration token != GITHUB_TOKEN in Actions"
   }
 }

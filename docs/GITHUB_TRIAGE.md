@@ -1,6 +1,6 @@
 # GitHub Triage Registry
 
-**Updated:** 2026-07-11 17:50 CST  
+**Updated:** 2026-07-11 18:57 CST  
 **Gate:** PASS
 
 Curated issue/PR actions. Bot cannot close — Founder executes [`FOUNDER_ACTION_LIST.md`](./FOUNDER_ACTION_LIST.md).
@@ -20,7 +20,7 @@ Curated issue/PR actions. Bot cannot close — Founder executes [`FOUNDER_ACTION
 
 ## Pull requests
 
-_All triaged PRs closed 2026-07-11. Non-dependabot open: 0._
+_All triaged PRs closed 2026-07-11. Non-dependabot open: 2._
 
 ## Branches
 
@@ -30,31 +30,37 @@ Delete merged `cursor/*` after PR merge.
 ---
 
 ## GitHub Hygiene Audit
-_Generated: 2026-07-11 17:50 CST
+_Generated: 2026-07-11 18:57 CST
 
 **Repository:** jerry200176-png/sunrise-cafe
 
-### Open Issues (6)
+### Open Issues (4)
 
 | # | Title | Recommended action | Evidence |
 |--:|-------|-------------------|----------|
 | 99 | Product: integrated deposit capture (Stripe/LINE P | KEEP — strategic; evidence-based #99 | |
 | 95 | Founder Ops Batch — migrations, secrets, GitHub cl | KEEP — Founder ops batch (migrations) | |
-| 63 | P3: PaymentProvider abstraction for future gateway | DEFER P3 — no gateway contract | |
-| 61 | P2: AI-readable workflow docs (docs/workflows/) | DEFER P3 — Work Gate weak (DX only) | |
 | 54 | Epic: Production Excellence & AI-assisted Developm | KEEP epic — defer; child items tracked separately | |
 | 53 | Payment Flow Optimization Without Paid Gateway | KEEP P1 — payment flow; needs OUTCOME_LOG first | |
 
-### Open Pull Requests (0, draft: 0, non-dependabot: 0)
+### Open Pull Requests (2, draft: 0, non-dependabot: 2)
 
 | # | Branch | Action | Reason |
 |--:|--------|--------|--------|
+| 128 | cursor/loop-push-graceful-3a90 | REVIEW | Verify CI + Work Gate |
+| 127 | cursor/auto-doc-drift-fix-73d33f4-3a90 | REVIEW | Verify CI + Work Gate |
 
-### Remote branches (1 total, cursor/*: 0)
+### Remote branches (3 total, cursor/*: 2)
 
 ```
+cursor/auto-doc-drift-fix-73d33f4-3a90
+cursor/loop-push-graceful-3a90
 main
 ```
 
+**Stale cursor branches (delete if PR merged):**
+- `git push origin --delete cursor/auto-doc-drift-fix-73d33f4-3a90`
+- `git push origin --delete cursor/loop-push-graceful-3a90`
+
 ### Bot permissions
-❌ Bot **cannot** close issues/PRs — Founder must execute triage in [`FOUNDER_ACTION_LIST.md`](./FOUNDER_ACTION_LIST.md)
+✅ Bot closed issue #99 (reopen if unintended)

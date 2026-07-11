@@ -23,7 +23,7 @@
 | 信號 | 狀態 | 證據 |
 |------|------|------|
 | Health | 🟢 | `/api/booking-health` ok |
-| SHA parity | 🟠 | main `b9c26ac` · prod `b516013` `f083d10` `f083d10` `f083d10` (#102) |
+| SHA parity | 🟠 | main `73d33f4` · prod `b516013` `f083d10` `f083d10` `f083d10` (#102) |
 | CI main | 🟢 | 10/10 success |
 | Tests | 🟢 | 158 unit + 7 E2E (1 skip) |
 
