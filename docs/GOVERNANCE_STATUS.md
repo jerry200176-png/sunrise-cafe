@@ -1,8 +1,8 @@
 # Governance Status (auto-generated)
 
-**Last run:** 2026-07-11 14:09 CST  
+**Last run:** 2026-07-11 15:14 CST  
 **Gate:** BLOCK  
-**main:** `acad07d`
+**main:** `886a36c`
 
 > Regenerate: `npm run cto:governance`  
 > Policy: [`ENGINEERING_GOVERNANCE.md`](./ENGINEERING_GOVERNANCE.md)
@@ -13,13 +13,13 @@
 
 | Metric | Value | Threshold |
 |--------|------:|-----------|
-| Overall health | 61 | ≥ 70 |
-| GitHub governance | 47 | ≥ 60 |
-| Production stability | 47 | ≥ 50 |
+| Overall health | 55 | ≥ 70 |
+| GitHub governance | 42 | ≥ 60 |
+| Production stability | 32 | ≥ 50 |
 | Open issues | 9 | triage weekly |
-| Open PRs (non-dep) | 9 | ≤ 3 |
-| Draft PRs | 8 | 0 |
-| cursor/* branches | 0 | ≤ 2 |
+| Open PRs (non-dep) | 11 | ≤ 3 |
+| Draft PRs | 9 | 0 |
+| cursor/* branches | 2 | ≤ 2 |
 | Doc drift failures | 0 | 0 |
 
 ## Gate verdict
@@ -27,11 +27,11 @@
 🛑 Governance iteration required before feature work
 
 ### Blocking reasons
-- Overall health 61 < 70
-- GitHub governance 47 < 60
-- Production stability 47 < 50
-- Non-dependabot open PRs: 9 > 3
-- Draft PRs: 8 (phase ghosts should be closed)
+- Overall health 55 < 70
+- GitHub governance 42 < 60
+- Production stability 32 < 50
+- Non-dependabot open PRs: 11 > 3
+- Draft PRs: 9 (phase ghosts should be closed)
 
 ## Next actions
 

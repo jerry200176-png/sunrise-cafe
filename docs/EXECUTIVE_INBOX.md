@@ -33,9 +33,9 @@
 | 信號 | 狀態 | 證據 |
 |------|------|------|
 | Health | 🟢 | `/api/booking-health` ok |
-| SHA parity | 🟢 | main `488788b` = production (#102) |
+| SHA parity | 🟢 | main `886a36c` = production (#102) |
 | CI main | 🟢 | 10/10 success |
-| Tests | 🟢 | 150 unit + 7 E2E (1 skip) |
+| Tests | 🟢 | 0 unit + 7 E2E (1 skip) |
 
 ### Customer Feedback
 

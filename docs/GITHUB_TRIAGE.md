@@ -1,6 +1,6 @@
 # GitHub Triage Registry
 
-**Updated:** 2026-07-11 14:09 CST  
+**Updated:** 2026-07-11 15:14 CST  
 **Gate:** BLOCK
 
 Curated issue/PR actions. Bot cannot close — Founder executes [`FOUNDER_ACTION_LIST.md`](./FOUNDER_ACTION_LIST.md).
@@ -37,7 +37,7 @@ Remote should be: `main`, `dependabot/*` only. Delete merged `cursor/*` after PR
 ---
 
 ## GitHub Hygiene Audit
-_Generated: 2026-07-11 14:09 CST
+_Generated: 2026-07-11 15:14 CST
 
 **Repository:** jerry200176-png/sunrise-cafe
 
@@ -55,10 +55,12 @@ _Generated: 2026-07-11 14:09 CST
 | 54 | Epic: Production Excellence & AI-assisted Developm | KEEP epic — defer; child items tracked separately | |
 | 53 | Payment Flow Optimization Without Paid Gateway | KEEP P1 — payment flow; needs OUTCOME_LOG first | |
 
-### Open Pull Requests (11, draft: 8, non-dependabot: 9)
+### Open Pull Requests (13, draft: 9, non-dependabot: 11)
 
 | # | Branch | Action | Reason |
 |--:|--------|--------|--------|
+| 113 | cursor/founder-gha-pr-policy-3a90 | **CLOSE** | Superseded ghost/phase draft; content on main |
+| 112 | cursor/auto-doc-drift-fix-886a36c-3a90 | REVIEW | Verify CI + Work Gate |
 | 91 | dependabot/npm_and_yarn/dev-dependencies-a756a62f1e | REVIEW | Dev deps only; patch minors if CI green |
 | 90 | dependabot/npm_and_yarn/production-dependencies-69ab5e432b | **CLOSE** | Major bumps (lucide 1.x, types 26) — DL-012 |
 | 89 | cursor/inbox-round7-close-3a90 | **CLOSE** | Superseded ghost/phase draft; content on main |
@@ -71,13 +73,19 @@ _Generated: 2026-07-11 14:09 CST
 | 71 | cursor/phase3-enterprise-3a90 | **CLOSE** | Superseded ghost/phase draft; content on main |
 | 70 | cursor/phase2-reliability-growth-3a90 | **CLOSE** | Superseded ghost/phase draft; content on main |
 
-### Remote branches (3 total, cursor/*: 0)
+### Remote branches (5 total, cursor/*: 2)
 
 ```
+cursor/auto-doc-drift-fix-886a36c-3a90
+cursor/founder-gha-pr-policy-3a90
 dependabot/npm_and_yarn/dev-dependencies-a756a62f1e
 dependabot/npm_and_yarn/production-dependencies-69ab5e432b
 main
 ```
 
+**Stale cursor branches (delete if PR merged):**
+- `git push origin --delete cursor/auto-doc-drift-fix-886a36c-3a90`
+- `git push origin --delete cursor/founder-gha-pr-policy-3a90`
+
 ### Bot permissions
-❌ Bot **cannot** close issues/PRs — Founder must execute triage in [`FOUNDER_ACTION_LIST.md`](./FOUNDER_ACTION_LIST.md)
+✅ Bot closed issue #99 (reopen if unintended)
