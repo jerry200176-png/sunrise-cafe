@@ -83,6 +83,7 @@ vercel --prod
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | 常見操作與問題排查 |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | 重要技術決策記錄（ADR） |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 初次部署指南 |
+| [docs/ENGINEERING_GOVERNANCE.md](docs/ENGINEERING_GOVERNANCE.md) | 工程治理閘門（`npm run cto:governance`） |
 
 ---
 

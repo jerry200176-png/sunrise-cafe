@@ -1,7 +1,7 @@
 # Implementation Truth — Single Source of Technical State
 
 **Owner:** CTO Operating System v2  
-**Updated:** 2026-07-11 (Round 10 — friction reduction)  
+**Updated:** 2026-07-11 (Round 10 — engineering governance)  
 **Rule:** If this doc disagrees with other docs, **this doc wins**. Verify against `main` branch code.  
 **Daily ops:** [`EXECUTIVE_DASHBOARD.md`](./EXECUTIVE_DASHBOARD.md) · snapshot: `npm run cto:snapshot`
 
@@ -66,9 +66,10 @@ Check: `SELECT * FROM schema_migrations ORDER BY applied_at;`
 
 | Type | Count | Action |
 |------|-------|--------|
-| Open PRs | 11 (8 draft phase + #77/#89 + dependabot) | Founder batch close |
-| Open Issues | 7 | #62 duplicate; #53 active P1 |
-| Tests on main | 141 unit + 7 E2E (1 skip) | verify:migrations in CI |
+| Open PRs | 11 (8 draft phase + #89 + dependabot) | `GITHUB_TRIAGE.md` — Founder batch close |
+| Open Issues | 9 | `GITHUB_TRIAGE.md` — close #59/#62 when shipped |
+| Tests on main | 149 unit + 7 E2E (1 skip) | `npm run cto:governance` verifies drift |
+| Governance gate | `cto:governance` | `ENGINEERING_GOVERNANCE.md` — exit 0 required for features |
 
 ---
 

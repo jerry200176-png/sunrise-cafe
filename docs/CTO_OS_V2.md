@@ -64,10 +64,12 @@
 | 時間 | 動作 | 產出 |
 |------|------|------|
 | 開工 | **審查 `EXECUTIVE_INBOX.md`** | 信號分類 🔴🟠🟡🟢 |
+| 開工 | **`npm run cto:governance`** | Gate PASS → features；BLOCK → 治理迭代 |
 | 開工 | 更新 Decision Log（若有重排） | DL-NNN 條目 |
 | 開工 | `npm run cto:health` + `cto:snapshot` | 計算分數 + 快照 |
 | 開工 | 更新 `EXECUTIVE_DASHBOARD.md` §0–§2 | Inbox 摘要 + 分數 |
-| 執行 | Business Impact Queue **Rank 1 可執行項** | 1 MDU |
+| 執行 | Gate **PASS** 時：Business Impact Queue **Rank 1** | 1 MDU |
+| 執行 | Gate **BLOCK** 時：治理迭代（GitHub / docs / branches） | 見 `ENGINEERING_GOVERNANCE.md` |
 | 完工 | 合併 → 驗證 production → 關閉 Inbox 項目 | Round N+1 |
 
 ### 每日自動整理範圍
@@ -196,5 +198,8 @@
 - `docs/HEALTH_SCORES.md` — 健康度公式（capability vs outcome）
 - `docs/CTO_WORK_GATE.md` — 新工作閘門
 - `docs/IMPLEMENTATION_TRUTH.md` — 技術事實
+- `docs/ENGINEERING_GOVERNANCE.md` — 治理閘門與 GitHub hygiene SOP
+- `docs/GOVERNANCE_STATUS.md` — 自動產生之 gate 狀態
 - `scripts/cto-daily-snapshot.sh` — 快照腳本
 - `scripts/cto-health-scores.sh` — 健康度計算
+- `scripts/cto-governance.sh` — 治理閘門（`npm run cto:governance`）

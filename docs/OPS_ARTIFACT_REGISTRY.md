@@ -17,6 +17,10 @@
 | ART-004 | [`EXECUTIVE_INBOX.md`](./EXECUTIVE_INBOX.md) | Governance | CTO Agent | Every iteration | Inbox reviewed before work selection | Never — compress if signals <3 active |
 | ART-005 | [`OUTCOME_LOG.md`](./OUTCOME_LOG.md) | Evidence | Founder | Weekly with ART-002 | ≥1 outcome metric non-null per week | **Merge into** admin dashboard when automated |
 | ART-006 | [`DECISION_LOG.md`](./DECISION_LOG.md) | Governance | CTO Agent | Per prioritization change | Every rank change has DL entry | Archive yearly to `docs/archive/` |
+| ART-007 | [`ENGINEERING_GOVERNANCE.md`](./ENGINEERING_GOVERNANCE.md) | Governance | CTO Agent | Before feature MDU + weekly CI | `cto:governance` exit 0 | Never — policy SSOT |
+| ART-008 | [`GOVERNANCE_STATUS.md`](./GOVERNANCE_STATUS.md) | Report | CTO Agent | Each `cto:governance` run | Timestamp + gate verdict current | Regenerated each run |
+| ART-009 | [`GITHUB_TRIAGE.md`](./GITHUB_TRIAGE.md) | Registry | CTO Agent | Each governance run | Open items have CLOSE/KEEP/DEFER | Empty when backlog clean |
+| ART-010 | [`FOUNDER_ACTION_LIST.md`](./FOUNDER_ACTION_LIST.md) | Escalation | Founder | When bot blocked | All P0 blockers have copy-paste cmds | **Retire** when list empty 4 weeks |
 
 ---
 

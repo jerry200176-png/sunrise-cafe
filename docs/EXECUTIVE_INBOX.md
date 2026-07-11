@@ -2,23 +2,32 @@
 
 **CTO Operating System v2 · Company-first**  
 **Review cadence:** Every iteration **before** selecting work  
-**Last reviewed:** 2026-07-11 10:10 UTC (Round 9)
+**Last reviewed:** 2026-07-11 13:20 UTC (Round 10 — Engineering Governance)
 
-> Inbox → Decision Log → **Company ROI** → MDU（可能是營運，不一定是 code）  
-> **Round 9:** Outcome scores require `OUTCOME_LOG` evidence — docs alone do not raise business health.
+> Inbox → **`cto:governance` gate** → Decision Log → **Company ROI** → MDU  
+> **Round 10:** Repository-driven governance — feature work blocked when gate exit 2.
 
 ---
 
-## 本輪審查（Round 9 · Outcome governance）
+## 本輪審查（Round 10 · Engineering Governance）
+
+### Governance Gate
+
+| 信號 | 狀態 | 證據 |
+|------|------|------|
+| `cto:governance` | 🔴 **BLOCK** (expected) | GitHub hygiene + overall <70 |
+| Policy SSOT | 🟢 | `ENGINEERING_GOVERNANCE.md` shipped |
+| Weekly CI gate | 🟢 | `.github/workflows/governance.yml` |
+| Founder blockers | 🟠 | `FOUNDER_ACTION_LIST.md` — bot cannot close issues/PRs |
 
 ### Production & Deployment
 
 | 信號 | 狀態 | 證據 |
 |------|------|------|
 | Health | 🟢 | `/api/booking-health` ok |
-| SHA parity | 🟡 | local `0da948f` — verify prod |
+| SHA parity | 🟢 | main `2dbad8e` = production (#101) |
 | CI main | 🟢 | 10/10 success |
-| Tests | 🟢 | 129 pass |
+| Tests | 🟢 | 149 unit + 7 E2E (1 skip) |
 
 ### Customer Feedback
 
@@ -92,15 +101,15 @@
 
 ---
 
-## 本輪 MDU 判定（Round 9 · Outcome governance）
+## 本輪 MDU 判定（Round 10 · Engineering Governance）
 
 | 候選 | 類型 | ROI | 選擇 |
 |------|------|-----|------|
-| #53 寫 code | Eng | 中（無 baseline） | 延後 |
-| #90/#91 merge | Eng | 負（Next 16） | 拒絕 |
-| **Outcome governance** | **治理** | **最高** — 修正 health 誠實度 | ✅ **執行** |
-| 首週 Outcome Review | **營運** | 高 — 解鎖 outcome 分數 | **Founder 待執行** |
+| **Engineering governance OS** | **治理** | **最高** — durable gate before features | ✅ **執行** |
+| Founder GitHub batch | 營運 | 高 — unblocks GitHub score | **Founder 待執行** |
+| #53 payment code | Eng | 中（無 baseline） | 延後至 gate PASS |
+| LINE image storage | Eng | 高 staff friction | 延後至 gate PASS |
 
 ---
 
-*Next: Founder 執行首週 Outcome Review → `OUTCOME_LOG` → 再評估 #53 工程項*
+*Next: merge governance PR → Founder executes `FOUNDER_ACTION_LIST.md` → re-run `cto:governance` until PASS → resume feature MDUs*
