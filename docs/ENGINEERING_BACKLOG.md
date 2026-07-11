@@ -7,25 +7,22 @@
 
 | ID | Item | Horizon | ROI | Status |
 |----|------|---------|-----|--------|
-| CX-003 | i18n success + waitlist-success pages | Guest UX | High | **Next** |
+| ADM-001 | Admin waitlist management page | Staff UX | High | **Next** |
 
-## P1 — Next (Guest / Conversion)
+## P1 — Guest / Conversion
 
 | ID | Item | Why |
 |----|------|-----|
-| CX-003 | i18n success + waitlist-success pages | EN/JA guests land on Chinese-only confirmation |
-| CX-004 | CopyBookingCodeButton i18n | Accessibility + locale consistency |
-| CX-005 | Payment instructions UX on query page (deposit conversion #53) | Reduce drop-off after booking |
-| CX-006 | Waitlist form mobile polish + duration clarity | Hidden feature discovery |
+| CX-005 | Payment instructions UX on query page (#53) | Reduce deposit drop-off |
+| CX-006 | Waitlist confirm page i18n | EN/JA waitlist flow |
+| CX-007 | Waitlist form mobile polish | Hidden feature discovery |
 
 ## P2 — Staff Efficiency
 
 | ID | Item | Why |
 |----|------|-----|
-| ADM-001 | Admin waitlist management page | Staff blind to waitlist queue |
-| ADM-002 | ReservationList: replace alert/confirm/prompt with inline UI | Daily ops friction, mobile broken |
-| ADM-003 | Payment review keyboard nav (j/k/a, Enter to reject) | High-frequency daily task |
-| ADM-004 | Edit modal: one-click apply estimated price | Manual copy every edit |
+| ADM-002 | ReservationList: replace alert/confirm/prompt | Daily ops friction |
+| ADM-003 | Payment review keyboard nav | High-frequency daily task |
 | ADM-005 | Dashboard trend: single API call (7→1) | Morning load latency |
 
 ## P3 — Reliability / Observability
@@ -46,7 +43,9 @@
 
 | ID | Evidence |
 |----|----------|
-| CX-001 | PR — clickable step pills, room/slot skeletons, weekendFlag fix |
-| CX-002 | PR — inline cancel confirm, reschedule scroll+confirm, locale dates |
+| CX-001 | PR #130 — clickable steps, skeletons, weekendFlag |
+| CX-002 | PR #130 — inline cancel, reschedule confirm, locale dates |
+| CX-003 | PR #131 — i18n success + waitlist-success |
+| CX-004 | PR #131 — CopyBookingCodeButton i18n |
+| ADM-004 | PR #132 — edit modal「套用估算」button |
 | GH-001 | PRs #126–#129 — loop handler, push graceful, doc sync |
-| GH-002 | Stale branches cleared, open PRs = 0 |
