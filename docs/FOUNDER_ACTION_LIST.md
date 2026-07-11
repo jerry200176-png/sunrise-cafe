@@ -36,10 +36,18 @@ See issue **#95** and [`OPS_MIGRATION_RUNBOOK.md`](./OPS_MIGRATION_RUNBOOK.md) S
 1. Open https://sunrise-cafe-six.vercel.app/admin/executive once (logged in)
 2. Record metrics in [`OUTCOME_LOG.md`](./OUTCOME_LOG.md)
 
+## GitHub Actions PR create (unblocks autonomous loop merge)
+
+Repo **Settings → Actions → General → Workflow permissions** → enable  
+**Allow GitHub Actions to create and approve pull requests**.
+
+Without this, the loop pushes branches but cannot open PRs (exit 2 — expected, not a failure).
+
 ## Secrets (optional automation)
 
 | Secret | Where | Enables |
 |--------|-------|---------|
+| `E2E_ADMIN_PASSWORD` | GitHub Actions | Admin payment review Playwright smoke (CG-007) |
 | `CTO_OUTCOME_SECRET` | Vercel + GitHub Actions | Auto-sync `OUTCOME_LOG.md` via business-intelligence workflow |
 | `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` | GitHub Actions | Live DB drift gate + outcome metrics |
 | Upstash Redis | Vercel | Rate limits enforce in prod (CG-006) |
