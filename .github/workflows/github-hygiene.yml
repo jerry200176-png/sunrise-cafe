@@ -14,6 +14,10 @@ on:
         options:
           - "false"
           - "true"
+  push:
+    branches: [main]
+    paths:
+      - "orchestrator/github-hygiene-trigger.json"
   schedule:
     # Sunday 21:00 UTC = Mon 05:00 Taipei — after weekly review window
     - cron: "0 21 * * 0"
