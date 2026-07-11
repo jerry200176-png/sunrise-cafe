@@ -887,9 +887,18 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                   const estimated = Math.round(pricePerHour * editDuration);
                   const kind = isWeekendDate(editDate) ? "假日" : "平日";
                   return (
-                    <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                      預估總價：<strong>${estimated}</strong>（{kind} ${pricePerHour}/時 × {editDuration} 小時）
-                    </p>
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                      <p>
+                        預估總價：<strong>${estimated}</strong>（{kind} ${pricePerHour}/時 × {editDuration} 小時）
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setEditTotalPrice(estimated)}
+                        className="shrink-0 rounded-md border border-amber-400 bg-white px-2.5 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+                      >
+                        套用估算
+                      </button>
+                    </div>
                   );
                 })()}
                 <div>
