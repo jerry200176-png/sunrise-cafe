@@ -31,7 +31,8 @@
 | RBAC payment routes | ✅ | #82 |
 | RBAC reservation routes | ✅ | #85 `reservation-access.ts` |
 | Per-branch `closed_dates` | ✅ | #86 `branch-closed-dates.ts` |
-| Cron failure alerting | 🟡 | #87 pending |
+| Cron failure alerting | ✅ | #87 `cron-alert.ts` |
+| Next.js security patch | 🟡 | #88 → 15.5.20 |
 | `verify:migrations` in CI | ❌ | Not in package.json |
 
 ---

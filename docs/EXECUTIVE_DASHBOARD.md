@@ -1,10 +1,25 @@
 # Executive Dashboard — Sunrise Systems
 
 **CTO Operating System v2 · 單一真實來源（SSOT）**  
-**最後更新：** 2026-07-11 Round 6（Wave 4 執行中）  
-**Production：** https://sunrise-cafe-six.vercel.app · `v2.2.0` · `4c63223`
+**最後更新：** 2026-07-11 Round 7（Inbox → Decision → MDU）  
+**Production：** https://sunrise-cafe-six.vercel.app · `v2.2.0` · `60bae19`
 
-> 技術事實以 `IMPLEMENTATION_TRUTH.md` 為準；策略以 `CTO_STRATEGY.md` 為準。
+> **每輪必讀：** [`EXECUTIVE_INBOX.md`](./EXECUTIVE_INBOX.md) → [`DECISION_LOG.md`](./DECISION_LOG.md) → 本文件  
+> 技術事實：`IMPLEMENTATION_TRUTH.md` · 健康度公式：`HEALTH_SCORES.md` · `npm run cto:health`
+
+---
+
+## 0. Executive Inbox（本輪審查摘要）
+
+**審查時間：** 2026-07-11 09:45 UTC
+
+| 嚴重度 | 數量 | 最高優先信號 |
+|--------|------|--------------|
+| 🔴 Critical | 2 | INB-001 migrations 未套用；INB-002 Dependabot Next 16 |
+| 🟠 High | 3 | INB-003 幽靈 PR；INB-004 Next CVE（MDU #88 修復中） |
+| 🟡 Medium | 3 | KPI 未量測、Cron 成功率未知 |
+
+**決策：** 見 DL-008 — 拒絕 #64/#65，改 controlled security patch (#88)
 
 ---
 
@@ -12,40 +27,39 @@
 
 | 指標 | 狀態 |
 |------|------|
-| **平台能否營運？** | 🟢 是 — production 健康、CI 綠燈、129 tests |
-| **能否安全聘請員工？** | 🟢 是 — 付款 + 訂位 RBAC（#85） |
-| **能否多分店？** | 🟢 是 — 公休日 per-branch（#86）；migration 待套用 |
-| **最大業務風險** | DB migration 未套用、7 個幽靈 PR（Founder 手動） |
-| **本輪最高 ROI** | Cron 告警 #87 → Dependabot #64/#65 |
+| **平台能否營運？** | 🟢 health ok · CI 10/10 · 129 tests |
+| **能否安全聘請員工？** | 🟢 RBAC 完整（#85–#82） |
+| **能否多分店？** | 🟡 程式就緒；**3 migrations 待套用** |
+| **最大業務風險** | INB-001 schema drift · INB-003 幽靈 PR |
+| **本輪 MDU** | #88 Next 15.5.20 security patch + Inbox/Health 系統 |
 
 ---
 
-## 2. 健康度計分卡
+## 2. 健康度計分卡（計算值 — `npm run cto:health`）
 
-| 維度 | 分數 | 目標 | 趨勢 | 負責 |
-|------|------:|-----:|------|------|
-| **工程健康** | 86 | 95 | ↑ | CTO / Eng |
-| **資安** | 92 | 95 | ↑ | Security |
-| **產品** | 78 | 85 | ↑ | Product |
-| **營收可靠性** | 75 | 90 | → | Ops |
-| **客戶體驗** | 80 | 85 | ↑ | Product |
-| **部署／營運** | 86 | 95 | → | SRE |
-| **GitHub 治理** | 58 | 90 | → | Founder |
-| **整體** | **84** | 90 | ↑ | CEO |
+| 維度 | 分數 | 目標 | 證據 |
+|------|------:|-----:|------|
+| **Production stability** | **97** | 95 | health=1 · sha match · ci 10/10 · tests=129 |
+| **Security** | **94** | 95 | RBAC ✅ · audit post-#88: crit=0 high=0 |
+| **Product quality** | **85** | 90 | Implementation Truth checklist |
+| **Customer experience** | **55** | 85 | migrations pending −20 |
+| **Revenue reliability** | **70** | 90 | KPIs 未量測 |
+| **Developer experience** | **100** | 85 | CI + SSOT + snapshot + health script |
+| **GitHub governance** | **52** | 90 | open=10 · draft=7 · dep=2 |
+| **整體** | **82** | 90 | weighted per HEALTH_SCORES.md |
+
+> 分數由 `scripts/cto-health-scores.sh` 計算，非人工估計。
 
 ---
 
-## 3. 營運 KPI（業務面）
+## 3. 營運 KPI
 
-| KPI | 定義 | 目標 | 現況 |
+| KPI | 目標 | 量測 | 現況 |
 |-----|------|------|------|
-| **訂位完成率** | `booking_completed ÷ booking_started` | ≥ 70% | 📊 每週查 insights |
-| **訂金收取率** | 期限內 `is_deposit_paid=true` | ≥ 85% | 📊 後台 |
-| **候補轉換率** | `waitlist.booked ÷ joined` | ≥ 30% | 📊 後台 |
-| **Cron 成功率** | 提醒 job 完成 / 觸發 | ≥ 99% | 🟡 無告警 |
-| **訂位正確性** | 無雙重訂位客訴 | 0 件/月 | 🟡 constraint 待套用 |
-| **公休日正確性** | 公休日不可訂 | 100% | 🟡 migration 待套用 |
-| **系統可用性** | `/book` 可訂位 | 99.5% | 🟢 |
+| 訂位完成率 | ≥70% | `analytics_events` | 📊 未自動化 |
+| 訂金收取率 | ≥85% | `reservations` | 📊 未自動化 |
+| Cron 成功率 | ≥99% | Vercel logs | 🟡 告警已上線，成功率未追蹤 |
+| 系統可用性 | 99.5% | health endpoint | 🟢 |
 
 ---
 
@@ -53,108 +67,76 @@
 
 | 信號 | 狀態 | 證據 |
 |------|------|------|
-| Production commit | 🟢 | `4c63223` (#86 closed_dates) |
-| Health | 🟢 | `/api/booking-health` → ok |
-| CI `main` | 🟢 | 129 unit + E2E |
-| **DB parity** | 🔴 | overlap + RBAC + closed_dates migrations |
-
-### 待套用 Migration
-
-- [ ] `migration-reservations-no-overlap.sql`
-- [ ] `migration-phase7-rbac.sql`
-- [ ] `migration-branches-closed-dates.sql`（Wave 3b）
+| Production SHA | 🟢 | `60bae19` = main |
+| Health | 🟢 | `{"ok":true}` |
+| CI main | 🟢 | 10/10 success |
+| Cron alerting | 🟢 | #87 merged |
+| DB parity | 🔴 | 3 migrations pending |
 
 ---
 
-## 5. GitHub 治理（2026-07-11）
+## 5. GitHub 治理
 
-### Pull Requests
-
-| PR | 狀態 | 業務判定 | 動作 |
-|----|------|----------|------|
-| #87 | OPEN Wave 4 | ✅ 營運 — Cron 告警 | 合併 |
-| #64, #65 | OPEN dependabot | ✅ 資安 | 修 CI → 合併 |
-| #70–#77 | DRAFT/OPEN 幽靈 | 零價值 | **Founder 關閉** |
-| #69–#86 | MERGED | — | ✅ Wave 1–3b |
-
-### Issues（7 open）
-
-| Issue | 優先級 | 判定 |
-|-------|--------|------|
-| #53 付款流程優化 | **P1** | 營收 |
-| #54 Epic | P1 | 治理 |
-| #59–#62 | P2 | 品質/營運 |
-| #61, #63 | 延後 | 無近期業務影響 |
+| PR | 判定 | 動作 |
+|----|------|------|
+| #88 | Security patch Next 15.5.20 | **合併** |
+| #64, #65 | Next 16 — **拒絕** (DL-008) | Founder 關閉 |
+| #70–#77 | 零價值幽靈 | Founder 關閉 |
+| #69–#87 | Merged | ✅ |
 
 ---
 
-## 6. 產品狀態
+## 6. Business Impact Queue（Inbox 重排後）
 
-| 旅程 | 品質 | Δ Round 5 |
-|------|------|-----------|
-| 後台 RBAC | **A-** | ↑ 訂位路由已 enforce |
-| 多分店公休日 | **A-** | ✅ #86 程式上線 |
-| 客人訂位 wizard | A- | — |
-| 訂金 LINE | A | — |
-
----
-
-## 7. Business Impact Queue
-
-| Rank | 工作 | 風險 | 營收 | CX | 效率 | 狀態 |
-|------|------|:----:|:----:|:--:|:----:|------|
-| 1 | 套用 DB migrations | ✅ | ✅ | ✅ | — | **Ops 手動** |
-| 2 | 關閉幽靈 PR #70–#77 | ✅ | — | — | ✅ | **Founder** |
-| 3 | ~~訂位 RBAC~~ | ✅ | — | — | ✅ | ✅ **#85** |
-| 4 | ~~分店 closed_dates~~ | ✅ | ✅ | ✅ | — | ✅ **#86** |
-| 5 | Cron 失敗 LINE 告警 | ✅ | ✅ | — | ✅ | **#87 CI** |
-| 6 | Dependabot #64/#65 | ✅ | — | — | — | Eng |
-| 7 | #53 付款流程優化 | — | ✅ | ✅ | ✅ | P1 |
-
-### 本輪已阻塞（記錄後跳過）
-
-| 工作 | 原因 |
-|------|------|
-| 關閉 PR #70–#77 | `GraphQL: Resource not accessible by integration` |
-| 套用 SQL migration | 需 Supabase Dashboard 手動 |
+| Rank | 工作 | 狀態 | 決策 |
+|------|------|------|------|
+| 1 | 套用 3 migrations | 🔴 Ops | INB-001 — blocked, tracked |
+| 2 | 關閉幽靈 PR + 拒絕 #64/#65 | 🟠 Founder | INB-002/003 |
+| 3 | **#88 Security deps** | 🟢 Eng | DL-008 本輪 MDU |
+| 4 | #53 付款流程優化 | P1 | DL-009 下一輪 |
+| 5 | Cron 成功率量測 | P2 | INB-006 |
+| 6 | #59 E2E 擴充 | P2 | 品質 |
 
 ---
 
-## 8. AI Agent 工作分配
+## 7. 風險登錄簿（未關閉 = 持續追蹤）
 
-| Agent | 任務 | 狀態 |
-|-------|------|------|
-| Cloud Agent | Wave 4 Cron 告警 #87 | CI |
-| Cloud Agent | Dependabot #64/#65 | 待 #87 |
-| Founder | 關 PR、套用 3 個 migration | 手動 |
+| ID | 風險 | 嚴重度 | 緩解 | 負責 | 狀態 |
+|----|------|--------|------|------|------|
+| R-001 | Migration 未套用 | 🔴 | Ops 套用 SQL | Ops | **OPEN** |
+| R-002 | 幽靈 PR 混淆決策 | 🟠 | Founder 關閉 | Founder | **OPEN** |
+| R-003 | Dependabot major jump | 🟠 | #88 + dependabot.yml ignore | Eng | **MITIGATING** |
+| R-004 | KPI 盲飛 | 🟡 | insights 自動化 | Product | **OPEN** |
+| R-005 | Cron 成功率未知 | 🟡 | job_runs 表 | Eng | **OPEN** |
 
 ---
 
-## 9. 每日快照區
+## 8. 每日快照
 
 ```
 日期：2026-07-11
-Production SHA：4c63223
-Open PRs：10+ #87
+Production SHA：60bae19
+Open PRs：10（7 draft）
 Open Issues：7
-CI main：green
+CI main：10/10 green
 Tests：129
-Blockers：migration、幽靈 PR（Founder）
-今日最高 ROI：合併 #87 → Dependabot
+Overall health：82 (calculated)
+Blockers：R-001, R-002 (manual)
+本輪 MDU：#88 security patch
 ```
 
 ---
 
-## 10. 風險登錄簿
+## 9. 文件階層
 
-| 風險 | 嚴重度 | 緩解 | 負責 |
-|------|--------|------|------|
-| Migration 未套用 | 🔴 | Ops 今日 | Ops |
-| 幽靈 PR | 🟠 | Founder 關閉 | Founder |
-| ~~staff PATCH 訂位~~ | ~~🟠~~ | ✅ #85 | — |
-| 公休日全域 | ~~🟠~~ | ✅ #86 | — |
-| Cron 靜默失敗 | 🟡 | #87 | Eng |
+```
+docs/EXECUTIVE_INBOX.md     ← 每輪起點（信號收集）
+docs/DECISION_LOG.md        ← 優先級決策紀錄
+docs/EXECUTIVE_DASHBOARD.md ← 本文件（營運狀態）
+docs/HEALTH_SCORES.md       ← 分數公式
+docs/IMPLEMENTATION_TRUTH.md
+```
 
 ---
 
-*Round 6 · 下一動作：合併 #87，處理 Dependabot。*
+*Round 7 · Inbox reviewed · DL-008 logged · MDU #88 executing.*

@@ -33,12 +33,12 @@
 
 | 時間 | 動作 | 產出 |
 |------|------|------|
-| 開工 | 執行 `npm run cto:snapshot` | 終端機快照 |
-| 開工 | 更新 `EXECUTIVE_DASHBOARD.md` §9 | 日期、SHA、blockers |
-| 開工 | 檢查 Production `/api/version` vs `main` | 部署一致 |
-| 執行 | 處理 Business Impact Queue Rank 1 | 1 個可交付批次 |
-| 完工 | 合併 PR → 驗證 production → 更新 Dashboard | Round N+1 |
-| 收工 | 記錄明日 Rank 1 與阻擋項 | §10 風險登錄簿 |
+| 開工 | **審查 `EXECUTIVE_INBOX.md`** | 信號分類 🔴🟠🟡🟢 |
+| 開工 | 更新 Decision Log（若有重排） | DL-NNN 條目 |
+| 開工 | `npm run cto:health` + `cto:snapshot` | 計算分數 + 快照 |
+| 開工 | 更新 `EXECUTIVE_DASHBOARD.md` §0–§2 | Inbox 摘要 + 分數 |
+| 執行 | Business Impact Queue **Rank 1 可執行項** | 1 MDU |
+| 完工 | 合併 → 驗證 production → 關閉 Inbox 項目 | Round N+1 |
 
 ### 每日自動整理範圍
 
@@ -146,7 +146,10 @@
 
 ## 10. 相關文件
 
+- `docs/EXECUTIVE_INBOX.md` — 每輪信號收集
+- `docs/DECISION_LOG.md` — 優先級決策
 - `docs/EXECUTIVE_DASHBOARD.md` — 每日儀表板
+- `docs/HEALTH_SCORES.md` — 健康度公式
 - `docs/CTO_WORK_GATE.md` — 新工作閘門
 - `docs/IMPLEMENTATION_TRUTH.md` — 技術事實
 - `scripts/cto-daily-snapshot.sh` — 快照腳本
