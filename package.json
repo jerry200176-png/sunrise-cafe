@@ -24,7 +24,8 @@
     "cto:capabilities": "bash scripts/orchestrator/capabilities.sh",
     "cto:deploy-gate": "bash scripts/orchestrator/deploy-gate.sh",
     "verify:migrations": "bash scripts/verify-migrations.sh",
-    "executive:review": "npx tsx scripts/generate-executive-review.ts"
+    "executive:review": "npx tsx scripts/generate-executive-review.ts",
+    "migrate:reminded-7d": "node scripts/apply-migration-reminded-7d.mjs"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.65.0",
@@ -43,15 +44,16 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@playwright/test": "^1.51.0",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@playwright/test": "^1.51.0",
     "cross-env": "^7.0.3",
     "dotenv": "^16.4.5",
     "eslint": "^9",
     "eslint-config-next": "15.5.20",
     "postcss": "^8",
+    "postgres": "^3.4.9",
     "tailwindcss": "^3.4.1",
     "typescript": "^5",
     "vitest": "^3.2.6"
