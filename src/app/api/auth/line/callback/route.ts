@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import {
+  decodeLineBindState,
+  phonesMatchReservation,
+} from "@/lib/line-bind";
 
 function supabaseAdmin() {
   return createClient(
@@ -51,15 +55,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    if (bookingCode) {
+    const bindPayload = decodeLineBindState(bookingCode);
+    if (bindPayload) {
       const db = supabaseAdmin();
       const { data: reservation } = await db
         .from("reservations")
         .select("phone")
-        .eq("booking_code", bookingCode)
+        .eq("booking_code", bindPayload.bookingCode)
         .single();
 
-      if (reservation?.phone) {
+      if (
+        bindPayload.phone &&
+        reservation?.phone &&
+        phonesMatchReservation(reservation.phone, bindPayload.phone)
+      ) {
         await db
           .from("reservations")
           .update({ line_user_id: userId })
@@ -67,7 +76,16 @@ export async function GET(request: NextRequest) {
           .neq("status", "cancelled");
       }
 
-      return NextResponse.redirect(`${origin}/book/success?code=${bookingCode}&line_bound=1`);
+      return NextResponse.redirect(
+        `${origin}/book/success?code=${encodeURIComponent(bindPayload.bookingCode)}&line_bound=1`
+      );
+    }
+
+    if (bookingCode) {
+      // Legacy: code-only state (no phone) — do not bind without verification
+      return NextResponse.redirect(
+        `${origin}/book/success?code=${encodeURIComponent(bookingCode)}&line_error=1`
+      );
     }
 
     return NextResponse.redirect(`${origin}/book?line_user_id=${encodeURIComponent(userId)}`);

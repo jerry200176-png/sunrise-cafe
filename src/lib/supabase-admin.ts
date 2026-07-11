@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import crypto from "crypto";
 import { phonesMatch } from "@/lib/phone-utils";
 import {
   SlotConflictError,
@@ -6,7 +7,17 @@ import {
   isPostgresUniqueViolation,
 } from "@/lib/slot-conflict";
 
-// Force Update: Restore all missing functions + image_url fix
+const BOOKING_CODE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+function generateBookingCode(): string {
+  const bytes = crypto.randomBytes(6);
+  let code = "";
+  for (let i = 0; i < 6; i++) {
+    code += BOOKING_CODE_CHARS[bytes[i]! % BOOKING_CODE_CHARS.length];
+  }
+  return code;
+}
+
 const supabaseAdmin = () =>
   createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -149,7 +160,7 @@ export async function insertReservationAdmin(payload: {
   const maxAttempts = 3;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const bookingCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const bookingCode = generateBookingCode();
     const statusToUse = payload.status ?? "pending";
 
     const { data, error } = await supabaseAdmin()

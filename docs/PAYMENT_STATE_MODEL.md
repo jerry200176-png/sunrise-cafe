@@ -56,7 +56,7 @@ reservations.deposit_payment_note: text | null
 | **0** | 修 #55 deposit deadline | ✅ |
 | **1a** | migration `payment_events` + 圖片 → `pending_review` | ✅ |
 | **1b** | 後台待核對佇列 UI (#56) | ✅ `/admin/payments` |
-| **2** | 文字關鍵字 → `pending_review`（需 booking_code+末五碼） | 待做 |
+| **2** | 文字關鍵字 → `pending_review`（需 booking_code+末五碼） | ✅ Phase 2 shipped |
 | **3** | CSV 對帳 (#62) | ✅ MVP（`/api/admin/payments/reconcile` POST） |
 | **4** | `PaymentProvider` 抽象 (#63) | 待做 |
 

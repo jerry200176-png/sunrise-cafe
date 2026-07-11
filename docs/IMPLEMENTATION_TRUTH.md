@@ -1,7 +1,7 @@
 # Implementation Truth — Single Source of Technical State
 
 **Owner:** CTO Operating System v2  
-**Updated:** 2026-07-11 (Round 7 — E2E #59)  
+**Updated:** 2026-07-11 (Round 8 — security + cron alerts)  
 **Rule:** If this doc disagrees with other docs, **this doc wins**. Verify against `main` branch code.  
 **Daily ops:** [`EXECUTIVE_DASHBOARD.md`](./EXECUTIVE_DASHBOARD.md) · snapshot: `npm run cto:snapshot`
 
@@ -36,6 +36,9 @@
 | Next.js security patch | 🟡 | #88 → 15.5.20 |
 | `verify:migrations` in CI | ✅ | `npm run verify:migrations` + optional drift gate |
 | Playwright E2E (mocked flows) | ✅ | `e2e/booking-flow.spec.ts`, `e2e/payment-query.spec.ts` (#59) |
+| LINE bind phone verification | ✅ | `line-bind.ts` + webhook/OAuth |
+| Payment LINE text → review | ✅ | ADR-008 Phase 2 (`payment-events.ts`) |
+| Cron partial-failure alerts | ✅ | `job-runs.ts` + `errors` in deposit-deadline |
 
 ---
 

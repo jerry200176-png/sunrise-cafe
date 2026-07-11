@@ -313,6 +313,7 @@ export default function BookPage() {
       }
       const code = (data as { booking_code?: string })?.booking_code;
       if (code) {
+        sessionStorage.setItem("booking_success_phone", phone.trim());
         const weekendFlag = "1";
         window.location.href = `/book/success?code=${encodeURIComponent(code)}&weekend=${weekendFlag}${lineUserId ? "&line_bound=1" : ""}`;
       } else {
