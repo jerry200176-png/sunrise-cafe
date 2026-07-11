@@ -70,7 +70,7 @@
 | `workflow_dispatch` | ❌ `blocked_integration` | ✅ `actions: write` (GHA v2) |
 | Vercel deploy | ❌ No `VERCEL_TOKEN` | ⚠️ Needs `VERCEL_TOKEN` secret |
 
-**Repo-controlled fixes applied:** `autonomous-loop.yml` permissions expanded (`actions: write`, `issues: write`).
+**Repo-controlled fixes applied:** `autonomous-loop.yml` permissions expanded (`actions: write`, `issues: write`); removed `workflow_dispatch` inputs (phantom push bug [actions/runner#4001]); added `autonomous-canary.yml` for unattended proof.
 
 **Founder-only (account-level):** Add `VERCEL_TOKEN`, `OPENAI_API_KEY` to GitHub Secrets; run `vercel deploy --prod`; batch-close issues/PRs via personal `gh` auth.
 

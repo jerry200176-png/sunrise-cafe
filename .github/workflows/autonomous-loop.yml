@@ -2,23 +2,14 @@ name: Autonomous Engineering Loop
 
 on:
   schedule:
-    # Every 6 hours — unattended wake-up
+    # Every 6 hours — unattended wake-up (uses gha-canary via script default)
     - cron: "0 */6 * * *"
   workflow_dispatch:
-    inputs:
-      mode:
-        description: run | canary | gha-canary | resume
-        required: false
-        default: run
-      continue:
-        description: Chain next iteration if work remains (true/false)
-        required: false
-        default: "false"
+    # No inputs — avoids GitHub Actions phantom push validation bug (actions/runner#4001)
   workflow_run:
-    workflows: ["CI", "Autonomous Engineering Loop", "Verify Production"]
+    workflows: ["CI", "Verify Production"]
     types: [completed]
 
-# One loop at a time; do not cancel in-flight
 concurrency:
   group: autonomous-engineering-loop
   cancel-in-progress: false
@@ -53,11 +44,7 @@ jobs:
       - run: npm ci
 
       - name: Probe capabilities (audit)
-        id: caps
-        run: |
-          bash scripts/orchestrator/capabilities.sh | tee /tmp/caps.json
-          echo "codex_auth=$(jq -r '.codex.authenticated' orchestrator/capabilities.json)" >> "$GITHUB_OUTPUT"
-          echo "vercel=$(jq -r '.vercel.deploy' orchestrator/capabilities.json)" >> "$GITHUB_OUTPUT"
+        run: bash scripts/orchestrator/capabilities.sh
 
       - name: Run autonomous loop
         env:
@@ -70,9 +57,8 @@ jobs:
           DEPLOY_WAIT_SEC: "300"
           CI_FIX_ATTEMPTS: "1"
         run: |
-          MODE="${{ github.event.inputs.mode || 'run' }}"
-          # Scheduled runs use gha-canary for unattended proof
-          if [[ "${{ github.event_name }}" == "schedule" && "$MODE" == "run" ]]; then
+          MODE="run"
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
             MODE="gha-canary"
           fi
           bash scripts/orchestrator/loop.sh "$MODE"
@@ -94,18 +80,18 @@ jobs:
             docs/AUTONOMY_STATUS.md
           retention-days: 90
 
-      - name: Chain next iteration (optional)
+      - name: Chain next iteration (schedule only)
         if: >-
           steps.loop.outcome == 'success' &&
-          (github.event.inputs.continue == 'true' || github.event_name == 'schedule')
+          github.event_name == 'schedule'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           npm run cto:orchestrator >/dev/null
           TASK=$(jq -r '.next_task.id // empty' orchestrator/priority.json)
           if [[ -n "$TASK" && "$TASK" != "null" ]]; then
-            gh workflow run autonomous-loop.yml -f mode=run -f continue=false || \
-              echo "workflow_dispatch blocked — manual continue required"
+            gh workflow run autonomous-loop.yml || \
+              echo "workflow_dispatch blocked — will retry on next schedule"
           else
             echo "Idle — no chain"
           fi
