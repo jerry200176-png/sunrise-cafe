@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-11T16:08:41+0800",
+  "generated_at": "2026-07-11T16:16:44+0800",
   "horizons": {
     "short_term": {
       "production_reachable": true,
@@ -19,8 +19,8 @@
     }
   },
   "deployment": {
-    "repository_commit": "de01dba",
-    "repository_full": "de01dbadc078f0548758a9e0ba97c4331448d089",
+    "repository_commit": "4d3e2d9",
+    "repository_full": "4d3e2d9b0a62c92d3ff759ba448042be2a6b8dd1",
     "production_commit": "f083d10",
     "sha_parity": "false"
   },
