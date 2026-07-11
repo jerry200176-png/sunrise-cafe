@@ -18,7 +18,7 @@
 | 4 | CG-004 | Payment review lacks image persistence | Linear: rich attachment review | Staff had to re-open LINE for screenshots | LINE message id + admin image proxy (#114+) | Agent | **CLOSED** iter-015 |
 | 5 | CG-005 | Webhook/cron observability | Cloudflare: job success metrics | `webhook.event_ok` + `cron.completed` shipped | Close #60 webhook portion; cron via `job-runs` | Agent | **CLOSED** iter-014 |
 | 6 | CG-006 | Rate limits fail-open | Stripe: always enforce limits | Upstash unset → middleware fail-open; `guest.lookup_denied_rate_limit` logs when enforced | Verify Upstash env on Vercel | Founder | **OPEN** |
-| 7 | CG-007 | E2E coverage narrow | Vercel: critical path E2E | 7 Playwright tests; no admin flow | Add admin smoke after gate PASS | Agent | **OPEN** |
+| 7 | CG-007 | E2E coverage narrow | Vercel: critical path E2E | Admin payment + executive smoke wired; needs `E2E_ADMIN_PASSWORD` secret | Set GHA secret; expand booking flow E2E | Agent/Founder | **PARTIAL** iter-018 |
 
 ---
 

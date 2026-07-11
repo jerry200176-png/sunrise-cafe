@@ -9,6 +9,7 @@ import {
 import { sendLineFlex, buildNewBookingFlex } from "@/lib/line-notify";
 import { requireAdminApiAuth, getAdminContext } from "@/lib/admin-api-auth";
 import { assertReservationReadAllowed } from "@/lib/reservation-access";
+import { fetchPendingPaymentCountsByReservation } from "@/lib/payment-events-admin";
 import { computeReservationTotalPrice } from "@/lib/booking-utils";
 import { SlotConflictError } from "@/lib/slot-conflict";
 import { createClient } from "@supabase/supabase-js";
@@ -40,8 +41,14 @@ export async function GET(request: NextRequest) {
     );
   }
   try {
-    const data = await fetchReservationsAdmin(branchId);
-    return NextResponse.json(data ?? []);
+    const data = (await fetchReservationsAdmin(branchId)) as { id: string }[];
+    const ids = data.map((r) => r.id);
+    const pendingCounts = await fetchPendingPaymentCountsByReservation(ids).catch(() => new Map());
+    const enriched = data.map((r) => ({
+      ...r,
+      pending_payment_reviews: pendingCounts.get(r.id) ?? 0,
+    }));
+    return NextResponse.json(enriched);
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法載入訂位";
     return NextResponse.json({ error: message }, { status: 500 });

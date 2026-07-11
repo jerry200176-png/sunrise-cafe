@@ -252,6 +252,13 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   };
 
   const updateDepositStatus = async (id: string, is_deposit_paid: boolean, note?: string | null) => {
+    const row = reservations.find((r) => r.id === id);
+    if (is_deposit_paid && (row?.pending_payment_reviews ?? 0) > 0) {
+      const ok = window.confirm(
+        `此訂位有 ${row?.pending_payment_reviews} 筆付款待審核。\n\n建議至「付款審核」頁面核准，避免與 LINE 截圖審核流程脫鉤。\n\n仍要手動標記已付訂金？`
+      );
+      if (!ok) return;
+    }
     const prev = reservations;
     setReservations((list) =>
       list.map((r) =>
@@ -537,6 +544,14 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                         💰 需收訂金
                       </span>
                     )
+                  )}
+                  {(r.pending_payment_reviews ?? 0) > 0 && (
+                    <a
+                      href="/admin/payments"
+                      className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-medium text-violet-800 border border-violet-200 hover:bg-violet-200"
+                    >
+                      📋 付款待審核 ×{r.pending_payment_reviews}
+                    </a>
                   )}
                 </div>
 

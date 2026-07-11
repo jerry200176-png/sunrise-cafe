@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle2, Clock, XCircle } from "lucide-react";
+import { CopyBookingCodeButton } from "@/components/CopyBookingCodeButton";
 
 interface WaitlistDetail {
   status: "notified" | "waiting" | "booked" | "expired";
@@ -92,6 +93,9 @@ function ConfirmContent() {
               <div className="mt-6 rounded-xl bg-amber-50 p-4 text-center">
                 <p className="text-sm text-amber-800">訂位代號</p>
                 <p className="mt-1 font-mono text-2xl font-bold tracking-wider text-amber-900">{bookingCode}</p>
+                <div className="mt-3 flex justify-center">
+                  <CopyBookingCodeButton code={bookingCode} />
+                </div>
               </div>
               <p className="mt-4 text-center text-xs text-gray-500">
                 店家確認後將主動聯繫通知您繳納訂金，請勿提前匯款。

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import Image from "next/image";
@@ -76,42 +76,55 @@ function BookQueryContent() {
   const [rescheduleGuestCount, setRescheduleGuestCount] = useState<number | "">("");
   const [rescheduleSubmitting, setRescheduleSubmitting] = useState(false);
   const [rescheduleError, setRescheduleError] = useState<string | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
+
+  const runSearch = useCallback(
+    async (phoneVal: string, codeVal: string) => {
+      if (!phoneVal.trim() || !codeVal.trim()) return;
+      setLoading(true);
+      setError(null);
+      setList([]);
+      try {
+        const res = await fetch("/api/my-bookings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phone: phoneVal.trim(),
+            booking_code: codeVal.trim(),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError((data as { error?: string })?.error ?? t("query.searchFailed"));
+          return;
+        }
+        setList(Array.isArray(data) ? data : []);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : t("query.connectionFailed"));
+      } finally {
+        setLoading(false);
+        setHasSearched(true);
+      }
+    },
+    [t]
+  );
 
   useEffect(() => {
     const codeFromUrl = searchParams.get("code");
-    if (codeFromUrl) {
-      setBookingCode(codeFromUrl.trim().toUpperCase());
-    }
-    const savedPhone = sessionStorage.getItem("booking_success_phone");
+    const codeVal = codeFromUrl ? codeFromUrl.trim().toUpperCase() : "";
+    if (codeVal) setBookingCode(codeVal);
+
+    const savedPhone = sessionStorage.getItem("booking_success_phone") ?? "";
     if (savedPhone) setPhone(savedPhone);
-  }, [searchParams]);
+
+    if (savedPhone && codeVal) {
+      runSearch(savedPhone, codeVal);
+    }
+  }, [searchParams, runSearch]);
 
   const search = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!phone.trim() || !bookingCode.trim()) return;
-    setLoading(true);
-    setError(null);
-    setList([]);
-    try {
-      const res = await fetch("/api/my-bookings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phone: phone.trim(),
-          booking_code: bookingCode.trim(),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError((data as { error?: string })?.error ?? t("query.searchFailed"));
-        return;
-      }
-      setList(Array.isArray(data) ? data : []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t("query.connectionFailed"));
-    } finally {
-      setLoading(false);
-    }
+    await runSearch(phone, bookingCode);
   };
 
   const cancel = async (id: string, item: BookingItem) => {
@@ -324,12 +337,15 @@ function BookQueryContent() {
         </form>
 
         {error && (
-          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <div
+            role="alert"
+            className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+          >
             {error}
           </div>
         )}
 
-        {list.length === 0 && !loading && phone && bookingCode && (
+        {hasSearched && list.length === 0 && !loading && phone && bookingCode && (
           <p className="text-center text-gray-500">{t("query.empty")}</p>
         )}
 

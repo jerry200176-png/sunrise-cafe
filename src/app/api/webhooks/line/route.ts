@@ -286,6 +286,11 @@ export async function POST(request: NextRequest) {
         const messageId = event.message?.id;
         const payload = messageId ? buildLineImagePayload(messageId) : PAYMENT_IMAGE_PAYLOAD;
         await handlePaymentReport(userId, payload, "line_image", replyToken, paymentKeywords);
+        logOps("webhook", "webhook.event_handled", {
+          route: "line",
+          msg_type: "image",
+          event_type: event.type,
+        });
         continue;
       }
 
@@ -297,8 +302,20 @@ export async function POST(request: NextRequest) {
       const bookingCode = extractBookingCode(rawText);
       if (bookingCode) {
         await handleBookingCode(userId, rawText, replyToken);
+        logOps("webhook", "webhook.event_handled", {
+          route: "line",
+          msg_type: "text",
+          event_type: event.type,
+          handler: "booking_code",
+        });
       } else {
         await handlePaymentReport(userId, rawText, "line_text", replyToken, paymentKeywords);
+        logOps("webhook", "webhook.event_handled", {
+          route: "line",
+          msg_type: "text",
+          event_type: event.type,
+          handler: "payment_report",
+        });
       }
     } catch (err) {
       logOps("webhook", "webhook.event_error", {

@@ -43,6 +43,8 @@ export interface Reservation {
   line_user_id?: string | null;
   deposit_payment_note?: string | null;
   review_invited_at?: string | null;
+  /** Pending payment_events awaiting staff review */
+  pending_payment_reviews?: number;
   room_with_branch?: {
     id: string;
     name: string;

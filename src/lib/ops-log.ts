@@ -3,6 +3,8 @@
  * Extends payment-log pattern — JSON lines for Vercel / log drains.
  */
 
+import * as Sentry from "@sentry/nextjs";
+
 export type OpsLogDomain = "cron" | "webhook" | "guest";
 
 export type OpsLogAction =
@@ -13,13 +15,33 @@ export type OpsLogAction =
   | "webhook.event_ok"
   | "webhook.event_error"
   | "webhook.signature_failed"
+  | "webhook.event_handled"
   | "guest.lookup_denied_rate_limit";
+
+function addOpsBreadcrumb(
+  domain: OpsLogDomain,
+  action: OpsLogAction,
+  detail: Record<string, unknown>
+): void {
+  if (!process.env.NEXT_PUBLIC_SENTRY_DSN) return;
+  try {
+    Sentry.addBreadcrumb({
+      category: `ops.${domain}`,
+      message: action,
+      data: detail,
+      level: action.includes("error") || action.includes("failed") ? "warning" : "info",
+    });
+  } catch {
+    /* fail-open */
+  }
+}
 
 export function logOps(
   domain: OpsLogDomain,
   action: OpsLogAction,
   detail: Record<string, unknown>
 ): void {
+  addOpsBreadcrumb(domain, action, detail);
   console.log(
     JSON.stringify({
       ts: new Date().toISOString(),
