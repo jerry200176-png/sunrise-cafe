@@ -51,7 +51,8 @@ jobs:
     name: Production DB migration drift (optional)
     runs-on: ubuntu-latest
     needs: verify-sha
-    if: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY != '' && secrets.NEXT_PUBLIC_SUPABASE_URL != '' }}
+    # secrets cannot be referenced in job-level if: — check in step instead
+    if: success()
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -59,9 +60,14 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci
-      - name: Fail on schema drift
+      - name: Migration drift check
         env:
           CHECK_MIGRATION_DRIFT: "1"
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: bash scripts/check-migration-drift.sh
+        run: |
+          if [ -z "${SUPABASE_SERVICE_ROLE_KEY}" ] || [ -z "${NEXT_PUBLIC_SUPABASE_URL}" ]; then
+            echo "Skipping migration drift — Supabase secrets not configured."
+            exit 0
+          fi
+          bash scripts/check-migration-drift.sh

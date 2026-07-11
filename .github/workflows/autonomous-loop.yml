@@ -1,0 +1,111 @@
+name: Autonomous Engineering Loop
+
+on:
+  schedule:
+    # Every 6 hours — unattended wake-up
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: run | canary | resume
+        required: false
+        default: run
+      continue:
+        description: Chain next iteration if work remains (true/false)
+        required: false
+        default: "false"
+  workflow_run:
+    workflows: ["CI", "Autonomous Engineering Loop", "Verify Production"]
+    types: [completed]
+
+# One loop at a time; do not cancel in-flight
+concurrency:
+  group: autonomous-engineering-loop
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  autonomous-iteration:
+    name: Run one bounded iteration
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Skip chaining from failed upstream except our own resume paths
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Prove agent interfaces (audit)
+        run: |
+          echo "=== Autonomy interface probe ==="
+          command -v gh && gh --version
+          type cursor 2>&1 || echo "cursor: NOT FOUND (expected)"
+          npx --yes @openai/codex exec --help 2>&1 | head -3 || true
+          echo "OPENAI_API_KEY set: $([[ -n \"${{ secrets.OPENAI_API_KEY }}\" ]] && echo yes || echo no)"
+
+      - name: Run autonomous loop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          PROD_URL: https://sunrise-cafe-six.vercel.app
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          MAX_CI_WAIT_SEC: "1200"
+          DEPLOY_WAIT_SEC: "300"
+        run: |
+          MODE="${{ github.event.inputs.mode || 'run' }}"
+          bash scripts/orchestrator/loop.sh "$MODE"
+        continue-on-error: true
+        id: loop
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autonomy-evidence-${{ github.run_id }}
+          path: |
+            orchestrator/autonomy-evidence.jsonl
+            orchestrator/state.json
+            orchestrator/lease.json
+            docs/AUTONOMY_STATUS.md
+          retention-days: 90
+
+      - name: Chain next iteration (optional)
+        if: >-
+          steps.loop.outcome == 'success' &&
+          (github.event.inputs.continue == 'true' || github.event_name == 'schedule')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Idempotent continue — only if executable task remains
+          npm run cto:orchestrator >/dev/null
+          TASK=$(jq -r '.next_task.id // empty' orchestrator/priority.json)
+          MODE=$(jq -r '.operational_mode // "STANDBY"' orchestrator/state.json)
+          if [[ -n "$TASK" && "$TASK" != "null" ]]; then
+            gh workflow run autonomous-loop.yml -f mode=run -f continue=false
+            echo "Chained next iteration for task: $TASK (mode=$MODE)"
+          else
+            echo "Idle — no chain"
+          fi
+
+      - name: Fail job if loop failed (not idle/lease)
+        if: steps.loop.outcome == 'failure'
+        run: |
+          echo "Loop failed — see evidence artifact"
+          exit 1

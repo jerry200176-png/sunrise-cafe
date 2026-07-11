@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-11T05:58:32Z",
+  "generated_at": "2026-07-11T06:09:44Z",
   "gate_block": true,
   "ranked": [
     {
@@ -25,6 +25,18 @@
       "blocked_reason": null,
       "evidence": "docs/CAPABILITY_GAPS.md rank 1 open",
       "verify": "gap row marked closed with PR link"
+    },
+    {
+      "id": "autonomy-canary",
+      "title": "Autonomous loop canary — prove unattended iteration",
+      "role": "implementer",
+      "type": "platform",
+      "owner": "agent",
+      "score": 50,
+      "executable": true,
+      "blocked_reason": null,
+      "evidence": "docs/AUTONOMY_AUDIT.md",
+      "verify": "orchestrator/autonomy-evidence.jsonl has complete phase"
     },
     {
       "id": "founder-github-batch",

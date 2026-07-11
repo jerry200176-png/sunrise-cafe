@@ -1,0 +1,12 @@
+{"ts":"2026-07-11T14:09:05+0800","phase":"wake","run_id":"local","sha":"acad07d","data":{"mode":"canary"}}
+{"ts":"2026-07-11T14:09:05+0800","phase":"deploy_gate","run_id":"local","sha":"acad07d","data":{"mode":"STANDBY"}}
+{"ts":"2026-07-11T14:09:05+0800","phase":"lease_acquired","run_id":"local","sha":"acad07d","data":{"holder":"local-1783750145"}}
+{"ts":"2026-07-11T14:09:22+0800","phase":"task_selected","run_id":"local","sha":"acad07d","data":{"task_id":"autonomy-canary"}}
+{"ts":"2026-07-11T14:09:28+0800","phase":"wake","run_id":"local","sha":"acad07d","data":{"mode":"canary"}}
+{"ts":"2026-07-11T14:09:28+0800","phase":"deploy_gate","run_id":"local","sha":"acad07d","data":{"mode":"STANDBY"}}
+{"ts":"2026-07-11T14:09:28+0800","phase":"lease_acquired","run_id":"local","sha":"acad07d","data":{"holder":"local-1783750168"}}
+{"ts":"2026-07-11T14:09:44+0800","phase":"task_selected","run_id":"local","sha":"acad07d","data":{"task_id":"autonomy-canary"}}
+{"ts":"2026-07-11T14:09:44+0800","phase":"canary_start","run_id":"local","sha":"acad07d","data":{"run":"canary-local"}}
+{"ts":"2026-07-11T14:09:44+0800","phase":"executed","run_id":"local","sha":"acad07d","data":{"task_id":"autonomy-canary"}}
+{"ts":"2026-07-11T14:09:51+0800","phase":"validated","run_id":"local","sha":"acad07d","data":{"tests":"pass"}}
+{"ts":"2026-07-11T14:09:51+0800","phase":"review_fail","run_id":"local","sha":"01f13b0","data":{}}
