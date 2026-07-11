@@ -88,7 +88,10 @@ CX=75
 CX=$((CX - 20))
 
 # ── §6 Revenue ────────────────────────────────────────────────
-REV=70  # cron+waitlist+keywords+deadline; KPI not measured
+REV=55  # cron+waitlist+keywords+deadline baseline
+[[ -f docs/OPS_WEEKLY_BUSINESS_REVIEW.md ]] && REV=$((REV + 8))
+[[ -f docs/OPS_PAYMENT_SOP.md ]] && REV=$((REV + 7))
+# +15 if KPI automated in admin (not yet)
 
 # ── §7 DX ─────────────────────────────────────────────────────
 DX=0
@@ -108,7 +111,7 @@ printf "| Security | %d | audit crit=%s high=%s mod=%s |\n" "$SEC" "$CRITICAL" "
 printf "| GitHub governance | %d | open=%s draft=%s dep_open=%s |\n" "$GH" "$OPEN_PRS" "$DRAFT_PRS" "$DEP_FAIL"
 printf "| Product quality | %d | checklist |\n" "$PROD_Q"
 printf "| Customer experience | %d | migrations pending -20 |\n" "$CX"
-printf "| Revenue reliability | %d | KPIs unmeasured |\n" "$REV"
+printf "| Revenue reliability | %d | playbooks=%s |\n" "$REV" "$([ -f docs/OPS_WEEKLY_BUSINESS_REVIEW.md ] && echo weekly+payment || echo none)"
 printf "| Developer experience | %d | |\n" "$DX"
 printf "| **Overall** | **%d** | weighted |\n" "$OVERALL"
 echo

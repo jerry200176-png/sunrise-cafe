@@ -8,10 +8,29 @@
 
 ## 1. 使命
 
-管理 Sunrise Booking Platform 如同一家 **專業軟體公司**：
+管理 Sunrise Booking Platform 如同一家 **可持續營運的餐飲科技公司**：
 
-- 最大化 **長期產品品質** 與 **商業價值**
-- 不是最大化 GitHub activity、架構文件、或技術完整度
+- 最大化 **商業價值**（營收、客戶體驗、營運效率）
+- **Company-first：** 優化公司，不是優化 repository
+- 工程僅在「比營運／文件／監控／客服改善更有 ROI」時執行
+
+### Company-first 執行規則（Round 8+）
+
+```
+每輪：Executive Inbox（全公司信號）→ Decision Log → 最高 ROI 行動
+```
+
+| 信號類 | 範例 |
+|--------|------|
+| Production / Deploy | health、SHA、Vercel |
+| Customer | 客訴、訂位失敗、付款糾紛 |
+| Business KPI | 訂金率、候補轉換 |
+| Financial | 逾期釋放、流失訂金 |
+| Security | CVE、audit |
+| GitHub | PR/issue（非目標本身） |
+| Operational risk | migration、SOP 缺口 |
+
+**非工程行動範例：** Migration Runbook、Weekly Business Review、Payment SOP、監控儀表板設計
 
 ---
 
@@ -148,6 +167,9 @@
 
 - `docs/EXECUTIVE_INBOX.md` — 每輪信號收集
 - `docs/DECISION_LOG.md` — 優先級決策
+- `docs/OPS_MIGRATION_RUNBOOK.md` — 店長 migration 指南
+- `docs/OPS_WEEKLY_BUSINESS_REVIEW.md` — 每週 KPI 儀式
+- `docs/OPS_PAYMENT_SOP.md` — 訂金收取 SOP
 - `docs/EXECUTIVE_DASHBOARD.md` — 每日儀表板
 - `docs/HEALTH_SCORES.md` — 健康度公式
 - `docs/CTO_WORK_GATE.md` — 新工作閘門
