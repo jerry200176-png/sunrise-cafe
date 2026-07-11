@@ -13,14 +13,12 @@
 | ID | Signal | Source | Since | Owner |
 |----|--------|--------|-------|-------|
 | INB-001 | **3 DB migrations unapplied** — overlap constraint, RBAC tables, branch closed_dates | Implementation Truth | Round 3 | Ops |
-| INB-002 | **Dependabot #64/#65 propose Next 16 jump** — CI fails (`next lint` path error) | GitHub PR checks | 2026-07-09 | Eng |
 
 ## 🟠 High (this week)
 
 | ID | Signal | Source | Since | Owner |
 |----|--------|--------|-------|-------|
 | INB-003 | **7 ghost PRs open** (#70–#76 draft, #77 duplicate) — governance noise | GitHub PR list | Round 4 | Founder |
-| INB-004 | **Next.js was on 15.1.9** with critical CVEs (fixed in MDU #88) | npm audit | 2026-07-11 | Eng |
 | INB-005 | **Business KPIs unmeasured** — booking completion, deposit rate not in dashboard | KPI §3 | Ongoing | Product |
 
 ## 🟡 Medium (scheduled)
@@ -39,7 +37,8 @@
 | INB-R2 | Cron silent failure | ✅ #87 LINE alerting merged |
 | INB-R3 | staff reservation PATCH | ✅ #85 RBAC merged |
 | INB-R4 | Global closed_dates | ✅ #86 per-branch merged |
-| INB-R5 | Dashboard manual scores | ✅ `cto-health-scores.sh` Round 7 |
+| INB-R6 | Next.js CVE on 15.1.9 | ✅ #88 merged |
+| INB-R7 | Dependabot uncontrolled major bumps | ✅ dependabot.yml + #88 |
 
 ---
 

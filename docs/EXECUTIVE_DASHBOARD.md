@@ -1,8 +1,8 @@
 # Executive Dashboard — Sunrise Systems
 
 **CTO Operating System v2 · 單一真實來源（SSOT）**  
-**最後更新：** 2026-07-11 Round 7（Inbox → Decision → MDU）  
-**Production：** https://sunrise-cafe-six.vercel.app · `v2.2.0` · `60bae19`
+**最後更新：** 2026-07-11 Round 7 complete  
+**Production：** https://sunrise-cafe-six.vercel.app · `f0be69f` deploying
 
 > **每輪必讀：** [`EXECUTIVE_INBOX.md`](./EXECUTIVE_INBOX.md) → [`DECISION_LOG.md`](./DECISION_LOG.md) → 本文件  
 > 技術事實：`IMPLEMENTATION_TRUTH.md` · 健康度公式：`HEALTH_SCORES.md` · `npm run cto:health`
@@ -31,7 +31,7 @@
 | **能否安全聘請員工？** | 🟢 RBAC 完整（#85–#82） |
 | **能否多分店？** | 🟡 程式就緒；**3 migrations 待套用** |
 | **最大業務風險** | INB-001 schema drift · INB-003 幽靈 PR |
-| **本輪 MDU** | #88 Next 15.5.20 security patch + Inbox/Health 系統 |
+| **本輪 MDU** | ✅ #88 merged — Inbox + Next 15.5.20 |
 
 ---
 
@@ -92,7 +92,7 @@
 |------|------|------|------|
 | 1 | 套用 3 migrations | 🔴 Ops | INB-001 — blocked, tracked |
 | 2 | 關閉幽靈 PR + 拒絕 #64/#65 | 🟠 Founder | INB-002/003 |
-| 3 | **#88 Security deps** | 🟢 Eng | DL-008 本輪 MDU |
+| 3 | ~~#88 Security deps~~ | ✅ | DL-008 **#88 merged** |
 | 4 | #53 付款流程優化 | P1 | DL-009 下一輪 |
 | 5 | Cron 成功率量測 | P2 | INB-006 |
 | 6 | #59 E2E 擴充 | P2 | 品質 |
@@ -105,7 +105,7 @@
 |----|------|--------|------|------|------|
 | R-001 | Migration 未套用 | 🔴 | Ops 套用 SQL | Ops | **OPEN** |
 | R-002 | 幽靈 PR 混淆決策 | 🟠 | Founder 關閉 | Founder | **OPEN** |
-| R-003 | Dependabot major jump | 🟠 | #88 + dependabot.yml ignore | Eng | **MITIGATING** |
+| R-003 | Dependabot major jump | ~~🟠~~ | ✅ #88 + dependabot.yml | Eng | **MITIGATED** |
 | R-004 | KPI 盲飛 | 🟡 | insights 自動化 | Product | **OPEN** |
 | R-005 | Cron 成功率未知 | 🟡 | job_runs 表 | Eng | **OPEN** |
 
