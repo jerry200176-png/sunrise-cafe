@@ -30,6 +30,9 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Verify migration artifacts
+        run: npm run verify:migrations
+
       - name: npm audit (high+)
         run: npm audit --audit-level=high
         continue-on-error: true

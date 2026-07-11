@@ -46,3 +46,22 @@ jobs:
             exit 1
           fi
           echo "PATCH without auth returns 401."
+
+  migration-drift:
+    name: Production DB migration drift (optional)
+    runs-on: ubuntu-latest
+    needs: verify-sha
+    if: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY != '' && secrets.NEXT_PUBLIC_SUPABASE_URL != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - name: Fail on schema drift
+        env:
+          CHECK_MIGRATION_DRIFT: "1"
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: bash scripts/check-migration-drift.sh

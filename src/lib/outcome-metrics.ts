@@ -4,11 +4,10 @@
 import { createClient } from "@supabase/supabase-js";
 import { isPaymentEventsTableReady } from "@/lib/payment-events-admin";
 import { isAdminConfigured } from "@/lib/supabase-admin";
-
-const REQUIRED_MIGRATIONS = [
-  "20260710-reservations-no-overlap",
-  "20260710-phase7-rbac",
-] as const;
+import {
+  fetchMigrationDrift,
+  TRACKED_MIGRATIONS,
+} from "@/lib/migration-verify";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
@@ -120,41 +119,16 @@ export function buildHealthBlock(snapshot: Omit<OutcomeSnapshot, "health_block">
 }
 
 async function fetchMigrationStatus() {
-  const client = db();
-  let schemaMigrationsTable = false;
-  let applied: string[] = [];
-  let overlapActive = false;
-  let closedDatesColumn = false;
-  let rbacTables = false;
-
-  const { data: migrations, error } = await client
-    .from("schema_migrations")
-    .select("version")
-    .order("applied_at", { ascending: true });
-
-  if (!error && migrations) {
-    schemaMigrationsTable = true;
-    applied = migrations.map((m) => m.version as string);
-    overlapActive = applied.includes("20260710-reservations-no-overlap");
-  }
-
-  const { error: rbacErr } = await client.from("admin_users").select("id").limit(1);
-  if (!rbacErr) rbacTables = true;
-
-  const { error: closedErr } = await client.from("branches").select("closed_dates").limit(1);
-  if (!closedErr) closedDatesColumn = true;
-
-  const pending = REQUIRED_MIGRATIONS.filter((v) => !applied.includes(v));
-  const allRequired = pending.length === 0;
-
+  const drift = await fetchMigrationDrift();
   return {
-    schema_migrations_table: schemaMigrationsTable,
-    applied,
-    pending: [...pending],
-    all_required_applied: allRequired,
-    overlap_constraint_active: overlapActive,
-    closed_dates_column: closedDatesColumn,
-    rbac_tables: rbacTables,
+    schema_migrations_table: drift.schema_migrations_table,
+    applied: drift.applied,
+    pending: drift.pending,
+    all_required_applied:
+      drift.pending.length === 0 && drift.closed_dates_column && drift.overlap_constraint_active,
+    overlap_constraint_active: drift.overlap_constraint_active,
+    closed_dates_column: drift.closed_dates_column,
+    rbac_tables: drift.rbac_tables,
   };
 }
 
@@ -369,7 +343,7 @@ export async function collectOutcomeMetrics(): Promise<OutcomeSnapshot> {
       migrations: {
         schema_migrations_table: false,
         applied: [],
-        pending: [...REQUIRED_MIGRATIONS],
+        pending: TRACKED_MIGRATIONS.map((m) => m.version),
         all_required_applied: false,
         overlap_constraint_active: false,
         closed_dates_column: false,
@@ -494,7 +468,7 @@ export async function collectOutcomeMetrics(): Promise<OutcomeSnapshot> {
       migrations: {
         schema_migrations_table: false,
         applied: [],
-        pending: [...REQUIRED_MIGRATIONS],
+        pending: TRACKED_MIGRATIONS.map((m) => m.version),
         all_required_applied: false,
         overlap_constraint_active: false,
         closed_dates_column: false,
