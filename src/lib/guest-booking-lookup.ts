@@ -24,6 +24,7 @@ export type GuestBookingItem = {
   deposit_required: boolean;
   deposit_amount: number | null;
   is_deposit_paid: boolean;
+  created_at: string;
 };
 
 export async function lookupGuestBookings(
@@ -84,6 +85,7 @@ export async function lookupGuestBookings(
           ? getDepositAmount(Number(r.total_price))
           : null,
       is_deposit_paid: !!r.is_deposit_paid,
+      created_at: r.created_at,
     };
 
     return { ok: true, items: [item] };

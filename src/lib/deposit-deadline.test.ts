@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeDepositDeadline, shouldAutoRelease, shouldSendDepositReminder } from "./deposit-deadline";
+import { computeDepositDeadline, shouldAutoRelease, shouldSendDepositReminder, getDepositUrgency } from "./deposit-deadline";
 
 describe("computeDepositDeadline", () => {
   it("用建立時間 +24h，當訂位時間在更遠的未來", () => {
@@ -52,5 +52,22 @@ describe("shouldSendDepositReminder", () => {
     const deadline = new Date("2026-01-05T00:00:00Z");
     const now = new Date("2026-01-01T00:00:00Z");
     expect(shouldSendDepositReminder(deadline, null, now)).toBe(false);
+  });
+});
+
+describe("getDepositUrgency", () => {
+  it("past when deadline elapsed", () => {
+    const deadline = new Date("2026-01-01T00:00:00Z");
+    expect(getDepositUrgency(deadline, new Date("2026-01-01T00:00:01Z"))).toBe("past");
+  });
+
+  it("soon within 6 hours", () => {
+    const deadline = new Date("2026-01-01T06:00:00Z");
+    expect(getDepositUrgency(deadline, new Date("2026-01-01T01:00:00Z"))).toBe("soon");
+  });
+
+  it("ok when more than 6 hours remain", () => {
+    const deadline = new Date("2026-01-02T00:00:00Z");
+    expect(getDepositUrgency(deadline, new Date("2026-01-01T00:00:00Z"))).toBe("ok");
   });
 });

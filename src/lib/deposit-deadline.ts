@@ -7,7 +7,17 @@
 
 const DEADLINE_HOURS = 24;
 const REMINDER_WINDOW_HOURS = 24;
+const URGENCY_SOON_HOURS = 6;
 const HOUR_MS = 60 * 60 * 1000;
+
+export type DepositUrgency = "ok" | "soon" | "past";
+
+export function getDepositUrgency(deadline: Date, now: Date = new Date()): DepositUrgency {
+  const ms = deadline.getTime() - now.getTime();
+  if (ms <= 0) return "past";
+  if (ms <= URGENCY_SOON_HOURS * HOUR_MS) return "soon";
+  return "ok";
+}
 
 export function computeDepositDeadline(createdAt: string, startTime: string): Date {
   const createdMs = new Date(createdAt).getTime();

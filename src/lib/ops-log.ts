@@ -16,7 +16,10 @@ export type OpsLogAction =
   | "webhook.event_error"
   | "webhook.signature_failed"
   | "webhook.event_handled"
-  | "guest.lookup_denied_rate_limit";
+  | "guest.lookup_denied_rate_limit"
+  | "guest.deposit_instructions_viewed"
+  | "guest.payment_line_pay_click"
+  | "guest.payment_line_official_click";
 
 function addOpsBreadcrumb(
   domain: OpsLogDomain,
