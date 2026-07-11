@@ -3,7 +3,9 @@ import { createClient } from "@supabase/supabase-js";
 import { sendLineFlexMessage, buildPaymentFlex } from "@/lib/line";
 import { type BranchPaymentConfig } from "@/lib/payment-message";
 import { isAdminConfigured } from "@/lib/supabase-admin";
-import { requireAdminApiAuth } from "@/lib/admin-api-auth";
+import { requireAdminApiAuth, getAdminContext } from "@/lib/admin-api-auth";
+import { assertReservationWriteAllowed } from "@/lib/reservation-access";
+import { fetchReservationBranchId } from "@/lib/supabase-admin";
 
 function supabaseAdmin() {
   return createClient(
@@ -22,6 +24,16 @@ export async function POST(request: NextRequest) {
 
   const { id } = await request.json() as { id: string };
   if (!id) return NextResponse.json({ error: "缺少訂位 id" }, { status: 400 });
+
+  const branchId = await fetchReservationBranchId(id);
+  if (!branchId) {
+    return NextResponse.json({ error: "找不到訂位或分店" }, { status: 404 });
+  }
+  const ctx = await getAdminContext(request);
+  const rbacDenied = assertReservationWriteAllowed(ctx, branchId);
+  if (rbacDenied) {
+    return NextResponse.json({ error: rbacDenied }, { status: 403 });
+  }
 
   const { data: r, error: fetchErr } = await supabaseAdmin()
     .from("reservations")

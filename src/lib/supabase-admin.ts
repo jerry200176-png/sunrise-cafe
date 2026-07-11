@@ -247,6 +247,27 @@ export async function deleteReservationAdmin(id: string) {
   if (error) throw error;
 }
 
+/** Branch id for RBAC scope checks on a reservation */
+export async function fetchReservationBranchId(
+  reservationId: string
+): Promise<string | null> {
+  const { data, error } = await supabaseAdmin()
+    .from("reservations")
+    .select("rooms!inner(branch_id)")
+    .eq("id", reservationId)
+    .single();
+  if (error || !data) return null;
+  const rooms = data.rooms as { branch_id: string } | { branch_id: string }[];
+  const room = Array.isArray(rooms) ? rooms[0] : rooms;
+  return room?.branch_id ?? null;
+}
+
+/** Branch id from room_id (recurring admin, etc.) */
+export async function fetchRoomBranchId(roomId: string): Promise<string | null> {
+  const room = await fetchRoom(roomId);
+  return room?.branch_id ?? null;
+}
+
 // ✅ 補回遺失的函式：hasSlotConflict
 export async function hasSlotConflict(
   roomId: string,

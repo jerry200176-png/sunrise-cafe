@@ -7,7 +7,8 @@ import {
   fetchRoom,
 } from "@/lib/supabase-admin";
 import { sendLineFlex, buildNewBookingFlex } from "@/lib/line-notify";
-import { requireAdminApiAuth } from "@/lib/admin-api-auth";
+import { requireAdminApiAuth, getAdminContext } from "@/lib/admin-api-auth";
+import { assertReservationReadAllowed } from "@/lib/reservation-access";
 import { computeReservationTotalPrice } from "@/lib/booking-utils";
 import { SlotConflictError } from "@/lib/slot-conflict";
 import { createClient } from "@supabase/supabase-js";
@@ -26,6 +27,11 @@ export async function GET(request: NextRequest) {
   const branchId = request.nextUrl.searchParams.get("branchId");
   if (!branchId) {
     return NextResponse.json({ error: "缺少 branchId" }, { status: 400 });
+  }
+  const ctx = await getAdminContext(request);
+  const rbacDenied = assertReservationReadAllowed(ctx, branchId);
+  if (rbacDenied) {
+    return NextResponse.json({ error: rbacDenied }, { status: 403 });
   }
   if (!isAdminConfigured()) {
     return NextResponse.json(

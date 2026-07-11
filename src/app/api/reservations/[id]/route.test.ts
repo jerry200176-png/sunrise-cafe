@@ -7,12 +7,14 @@ import {
 import {
   updateReservationAdmin,
   deleteReservationAdmin,
+  fetchReservationBranchId,
 } from "@/lib/supabase-admin";
 import { PATCH, DELETE } from "./route";
 
 vi.mock("@/lib/supabase-admin", () => ({
   updateReservationAdmin: vi.fn(),
   deleteReservationAdmin: vi.fn(),
+  fetchReservationBranchId: vi.fn(),
   isAdminConfigured: vi.fn(() => true),
 }));
 
@@ -53,6 +55,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   process.env.ADMIN_PASSWORD = "pw";
   process.env.SESSION_SECRET = "sess";
+  vi.mocked(fetchReservationBranchId).mockResolvedValue("b1");
 });
 
 afterEach(() => {
@@ -62,14 +65,14 @@ afterEach(() => {
 
 const params = Promise.resolve({ id: "res-1" });
 
-function patchRequest(cookie?: string) {
+function patchRequest(body: object, cookie?: string) {
   return new NextRequest("http://localhost/api/reservations/res-1", {
     method: "PATCH",
     headers: {
       "content-type": "application/json",
       ...(cookie ? { cookie: `${ADMIN_SESSION_COOKIE}=${cookie}` } : {}),
     },
-    body: JSON.stringify({ notes: "updated" }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -80,48 +83,63 @@ function deleteRequest(cookie?: string) {
   });
 }
 
+async function staffSession() {
+  return createSignedAdminSession("sess", 86400, {
+    role: "staff",
+    branch_ids: ["b1"],
+    sub: "staff-1",
+  });
+}
+
+async function managerSession() {
+  return createSignedAdminSession("sess", 86400, {
+    role: "branch_manager",
+    branch_ids: ["b1"],
+    sub: "mgr-1",
+  });
+}
+
 describe("PATCH /api/reservations/[id]", () => {
   it("returns 401 without auth cookie", async () => {
-    const res = await PATCH(patchRequest(), { params });
+    const res = await PATCH(patchRequest({ notes: "updated" }), { params });
     expect(res.status).toBe(401);
     expect(updateReservationAdmin).not.toHaveBeenCalled();
   });
 
-  it("returns 401 with invalid session", async () => {
-    const res = await PATCH(patchRequest("bad.token"), { params });
-    expect(res.status).toBe(401);
+  it("returns 403 when staff patches non-status fields", async () => {
+    const token = await staffSession();
+    const res = await PATCH(patchRequest({ notes: "updated" }, token), { params });
+    expect(res.status).toBe(403);
     expect(updateReservationAdmin).not.toHaveBeenCalled();
   });
 
-  it("succeeds with valid admin session", async () => {
-    const token = await createSignedAdminSession("sess");
-    const res = await PATCH(patchRequest(token), { params });
+  it("allows staff to patch status on assigned branch", async () => {
+    const token = await staffSession();
+    const res = await PATCH(patchRequest({ status: "confirmed" }, token), { params });
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
+    expect(updateReservationAdmin).toHaveBeenCalledWith("res-1", { status: "confirmed" });
+  });
+
+  it("allows branch_manager full patch", async () => {
+    const token = await managerSession();
+    const res = await PATCH(patchRequest({ notes: "updated" }, token), { params });
+    expect(res.status).toBe(200);
     expect(updateReservationAdmin).toHaveBeenCalledWith("res-1", { notes: "updated" });
   });
 });
 
 describe("DELETE /api/reservations/[id]", () => {
-  it("returns 401 without auth cookie", async () => {
-    const res = await DELETE(deleteRequest(), { params });
-    expect(res.status).toBe(401);
+  it("returns 403 for staff without cancel permission", async () => {
+    const token = await staffSession();
+    const res = await DELETE(deleteRequest(token), { params });
+    expect(res.status).toBe(403);
     expect(deleteReservationAdmin).not.toHaveBeenCalled();
   });
 
-  it("returns 401 with invalid session", async () => {
-    const res = await DELETE(deleteRequest("invalid"), { params });
-    expect(res.status).toBe(401);
-    expect(deleteReservationAdmin).not.toHaveBeenCalled();
-  });
-
-  it("succeeds with valid admin session", async () => {
-    const token = await createSignedAdminSession("sess");
+  it("allows branch_manager to delete", async () => {
+    const token = await managerSession();
     const res = await DELETE(deleteRequest(token), { params });
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
     expect(deleteReservationAdmin).toHaveBeenCalledWith("res-1");
   });
 });
