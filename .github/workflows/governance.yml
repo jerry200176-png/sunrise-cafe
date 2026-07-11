@@ -1,0 +1,47 @@
+name: Engineering Governance
+
+on:
+  schedule:
+    # Monday 01:00 UTC = 09:00 Asia/Taipei — weekly hygiene gate
+    - cron: "0 1 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  governance-gate:
+    name: Repository health gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run governance gate
+        run: npm run cto:governance
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROD_URL: https://sunrise-cafe-six.vercel.app
+
+      - name: Upload governance artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: governance-report
+          path: |
+            docs/GOVERNANCE_STATUS.md
+            docs/GITHUB_TRIAGE.md
+            docs/FOUNDER_ACTION_LIST.md
+          retention-days: 30

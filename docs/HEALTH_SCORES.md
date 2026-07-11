@@ -123,3 +123,29 @@ SSOT docs capped at **10** — documentation alone cannot dominate DX.
 | 80–89 | Operable |
 | 70–79 | Capability without proven outcomes |
 | <70 | Stabilize |
+
+---
+
+## Governance gate (repository-driven)
+
+Health scores feed the **engineering governance gate** — not calendar rounds.
+
+| Command | Exit 0 | Exit 2 |
+|---------|--------|--------|
+| `npm run cto:governance` | Feature MDUs allowed | Governance iteration **required** |
+
+**Blocking conditions** (any triggers exit 2):
+
+| Signal | Threshold |
+|--------|-----------|
+| Overall health | < 70 |
+| GitHub governance | < 60 |
+| Production stability | < 50 |
+| Non-dependabot open PRs | > 3 |
+| Draft PRs | > 0 |
+| `cursor/*` remote branches | > 2 |
+| Doc drift failures | > 0 |
+
+Policy SSOT: [`ENGINEERING_GOVERNANCE.md`](./ENGINEERING_GOVERNANCE.md)  
+Generated status: [`GOVERNANCE_STATUS.md`](./GOVERNANCE_STATUS.md)  
+CI: `.github/workflows/governance.yml` (weekly + manual)
