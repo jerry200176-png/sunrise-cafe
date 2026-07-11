@@ -7,7 +7,8 @@ export async function GET(request: NextRequest) {
     const data = await fetchSettings();
     const isAdmin = await hasValidAdminSession(request);
     if (!isAdmin) {
-      const { payment_keywords: _pk, ...publicData } = data;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- strip from public response
+      const { payment_keywords, ...publicData } = data;
       return NextResponse.json(publicData);
     }
     return NextResponse.json(data);

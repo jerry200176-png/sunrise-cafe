@@ -65,6 +65,7 @@ export async function GET(request: NextRequest) {
         .single();
 
       if (
+        bindPayload.phone &&
         reservation?.phone &&
         phonesMatchReservation(reservation.phone, bindPayload.phone)
       ) {
