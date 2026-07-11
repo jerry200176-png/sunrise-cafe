@@ -7,6 +7,7 @@ import {
   isAdminConfigured,
 } from "@/lib/supabase-admin";
 import { fetchSettings } from "@/lib/supabase-fetch";
+import { isDateClosed, resolveClosedDates } from "@/lib/branch-closed-dates";
 
 // Vercel Build Fix: Updated types
 const TAIWAN_OFFSET_HOURS = 8;
@@ -110,8 +111,15 @@ export async function GET(request: NextRequest) {
   const isToday = date === taiwanTodayStr;
 
   try {
-    const settings = await fetchSettings();
-    if ((settings.closed_dates ?? []).includes(date)) {
+    const [settings, branchForClosed] = await Promise.all([
+      fetchSettings(),
+      fetchBranch(branchId),
+    ]);
+    const closedDates = resolveClosedDates(
+      (branchForClosed as { closed_dates?: string[] } | null)?.closed_dates,
+      settings.closed_dates
+    );
+    if (isDateClosed(date, closedDates)) {
       return NextResponse.json({ closed: true });
     }
 

@@ -113,13 +113,21 @@ export default function AdminBranchesRoomsPage() {
         const data = d as { current_branch_id?: string | null; rental_notes?: RentalNoteSection[]; closed_dates?: string[]; deposit_info?: string | null; payment_keywords?: string[]; google_review_url?: string | null };
         if (data?.current_branch_id) setReservationBranchId(data.current_branch_id);
         if (Array.isArray(data?.rental_notes)) setRentalNotes(data.rental_notes);
-        if (Array.isArray(data?.closed_dates)) setClosedDates(data.closed_dates);
         if (data?.deposit_info) setDepositInfo(data.deposit_info);
         if (Array.isArray(data?.payment_keywords)) setPaymentKeywords(data.payment_keywords);
         if (data?.google_review_url) setGoogleReviewUrl(data.google_review_url);
       })
       .catch(() => { });
   }, []);
+
+  useEffect(() => {
+    if (!reservationBranchId) {
+      setClosedDates([]);
+      return;
+    }
+    const branch = branches.find((b) => b.id === reservationBranchId);
+    setClosedDates(Array.isArray(branch?.closed_dates) ? branch.closed_dates : []);
+  }, [reservationBranchId, branches]);
 
   const openAddBranch = () => {
     setEditingBranch(null);
@@ -330,14 +338,19 @@ export default function AdminBranchesRoomsPage() {
     setClosedDates((prev) => prev.filter((x) => x !== d));
 
   const saveClosedDates = async () => {
+    if (!reservationBranchId) {
+      setError("請先在訂位區選擇分店");
+      return;
+    }
     setClosedDatesSaving(true);
     try {
-      const res = await fetch("/api/settings", {
+      const res = await fetch(`/api/branches/${encodeURIComponent(reservationBranchId)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ closed_dates: closedDates }),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "儲存失敗");
+      await loadBranches();
       setClosedDatesSaved(true);
       setTimeout(() => setClosedDatesSaved(false), 2000);
     } catch (err) {
