@@ -1,8 +1,8 @@
 # Orchestrator Plan (auto-generated)
 
-**Iteration:** iter-012  
-**Generated:** 2026-07-11 13:52 CST  
-**main:** `f083d10`  
+**Iteration:** iter-013  
+**Generated:** 2026-07-11 13:58 CST  
+**main:** `ff3cf47`  
 **Policy:** [`ORCHESTRATOR.md`](./ORCHESTRATOR.md)
 
 > Regenerate: `npm run cto:orchestrator`  
@@ -18,7 +18,7 @@
 | Overall health | 60 |
 | GitHub score | 47 |
 | Doc drift (fail/warn) | 0 / 1 |
-| Production SHA match | 1 (`f083d10` vs `f083d10`) |
+| Production SHA match | 0 (`f083d10` vs `ff3cf47`) |
 | Bot can close GitHub | 0 |
 
 ---
