@@ -1,7 +1,8 @@
 # Engineering Backlog (Continuous Product Improvement)
 
 **Updated:** 2026-07-11  
-**Mode:** ROI-ranked by real user value — re-sorted after each delivery.
+**Mode:** ROI-ranked by real user value — re-sorted after each delivery.  
+**Loop:** [`PRODUCT_IMPROVEMENT_LOOP.md`](./PRODUCT_IMPROVEMENT_LOOP.md) · Metrics: [`NORTH_STAR_METRICS.md`](./NORTH_STAR_METRICS.md)
 
 ## Value lens (every P0 must answer)
 
@@ -18,12 +19,13 @@
 |----|------|---------------|--------|
 | ADM-002 | ReservationList: replace alert/confirm/prompt | Daily ops friction; mobile confirm broken | **Next** |
 
-## P1 — Guest / Conversion
+## P1 — Measurement & Guest
 
 | ID | Item | Why |
 |----|------|-----|
+| OPS-004 | North Star log aggregation (ops-log → ratios) | Enable booking_conversion & payment_completion_rate |
 | CX-006 | Waitlist confirm page i18n | EN/JA waitlist flow completion |
-| CX-007 | Payment CTA sticky bar on mobile query | Click-through on small screens |
+| CX-007 | Payment CTA sticky bar on mobile query | `payment_completion_rate` |
 | CX-008 | Booking form a11y audit (focus order, labels) | Permanent a11y lane |
 
 ## P2 — Staff Efficiency
@@ -48,6 +50,7 @@ Performance · A11y · Mobile · Error/empty/loading · Monitoring · Security �
 
 | ID | Evidence | Measured by |
 |----|----------|-------------|
+| OPS-004 | PR — North Star framework + booking funnel telemetry | `GET /api/admin/north-star`, ops-log events |
 | ADM-001 | PR #135 — admin waitlist page + API | `waitlist_conversion_pct`, `admin.waitlist_expired` |
 | ADM-003 | PR #134 — payment review keyboard nav + admin ops-log | `admin.payment_*` logs, `interaction` field |
 | CX-005 | PR #133 — deposit deadline UX + guest funnel telemetry | `deposit_rate_pct`, `auto_releases_7d`, ops-log |

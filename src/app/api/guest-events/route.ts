@@ -7,6 +7,7 @@ const GUEST_EVENT_ACTIONS: Record<string, OpsLogAction> = {
   deposit_instructions_viewed: "guest.deposit_instructions_viewed",
   payment_line_pay_click: "guest.payment_line_pay_click",
   payment_line_official_click: "guest.payment_line_official_click",
+  booking_success_viewed: "guest.booking_success_viewed",
 };
 
 /** Minimal guest funnel telemetry — auth via phone + booking_code, logs to ops JSON. */
