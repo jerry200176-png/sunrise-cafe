@@ -9,6 +9,7 @@ import {
   TRACKED_MIGRATIONS,
 } from "@/lib/migration-verify";
 import { fetchCronJobSummaries, type JobRunSummary } from "@/lib/job-runs";
+import { fetchProductionVersion, deploymentShaParity } from "@/lib/production-version";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
@@ -24,8 +25,9 @@ export type OutcomeHealthBlock = {
   date: string;
   deposit_rate_pct: number | null;
   waitlist_conversion_pct: number | null;
-  payment_review_oldest_hours: number | null;
-  migrations_all_applied: "yes" | "no";
+    payment_review_oldest_hours: number | null;
+    payment_review_sla_breached: boolean;
+    migrations_all_applied: "yes" | "no";
   overlap_constraint_active: "yes" | "no";
   evidence_source: string;
   reviewer: string;
@@ -74,6 +76,11 @@ export type OutcomeSnapshot = {
   };
   deployment: {
     commit: string | null;
+    live_commit: string | null;
+    live_commit_short: string | null;
+    repository_commit: string | null;
+    sha_parity: boolean | null;
+    production_reachable: boolean;
     health_ok: boolean;
     service_role_configured: boolean;
   };
@@ -109,15 +116,45 @@ export function hoursSince(iso: string, now = new Date()): number {
 }
 
 export function buildHealthBlock(snapshot: Omit<OutcomeSnapshot, "health_block"> & { health_block?: never }): OutcomeHealthBlock {
+  const slaHours = 4;
+  const reviewBreached =
+    snapshot.payment.payment_review_oldest_hours != null &&
+    snapshot.payment.payment_review_oldest_hours > slaHours;
   return {
     date: snapshot.collected_at.slice(0, 10),
     deposit_rate_pct: snapshot.payment.deposit_rate_pct,
     waitlist_conversion_pct: snapshot.waitlist.conversion_pct,
     payment_review_oldest_hours: snapshot.payment.payment_review_oldest_hours,
+    payment_review_sla_breached: reviewBreached,
     migrations_all_applied: snapshot.migrations.all_required_applied ? "yes" : "no",
     overlap_constraint_active: snapshot.migrations.overlap_constraint_active ? "yes" : "no",
     evidence_source: "outcome-pipeline:/api/cto/outcomes",
     reviewer: "automated",
+  };
+}
+
+async function buildDeploymentMetrics(repositoryCommit: string | null) {
+  const prod = await fetchProductionVersion();
+  const healthRes = await fetch(
+    `${(process.env.PROD_URL ?? "https://sunrise-cafe-six.vercel.app").replace(/\/$/, "")}/api/booking-health`,
+    { cache: "no-store", signal: AbortSignal.timeout(10_000) }
+  ).catch(() => null);
+  const healthOk = healthRes?.ok
+    ? ((await healthRes.json().catch(() => ({}))) as { ok?: boolean }).ok === true
+    : false;
+
+  const repoShort = repositoryCommit?.slice(0, 7) ?? null;
+  const liveShort = prod.commit_short;
+
+  return {
+    commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? repoShort,
+    live_commit: prod.commit,
+    live_commit_short: liveShort,
+    repository_commit: repoShort,
+    sha_parity: deploymentShaParity(repoShort, liveShort),
+    production_reachable: prod.reachable,
+    health_ok: healthOk,
+    service_role_configured: isAdminConfigured(),
   };
 }
 
@@ -302,9 +339,18 @@ async function buildCronMetrics(now: Date) {
 }
 
 /** Collect all outcome metrics from production Supabase. */
-export async function collectOutcomeMetrics(): Promise<OutcomeSnapshot> {
+export async function collectOutcomeMetrics(
+  options?: { repositoryCommit?: string | null }
+): Promise<OutcomeSnapshot> {
   const now = new Date();
   const collected_at = now.toISOString();
+  const repositoryCommit =
+    options?.repositoryCommit ??
+    process.env.VERCEL_GIT_COMMIT_SHA ??
+    process.env.GITHUB_SHA ??
+    null;
+
+  const deploymentBase = await buildDeploymentMetrics(repositoryCommit);
 
   if (!isAdminConfigured()) {
     return {
@@ -315,6 +361,7 @@ export async function collectOutcomeMetrics(): Promise<OutcomeSnapshot> {
         deposit_rate_pct: null,
         waitlist_conversion_pct: null,
         payment_review_oldest_hours: null,
+        payment_review_sla_breached: false,
         migrations_all_applied: "no",
         overlap_constraint_active: "no",
         evidence_source: "outcome-pipeline:unavailable",
@@ -350,11 +397,7 @@ export async function collectOutcomeMetrics(): Promise<OutcomeSnapshot> {
         job_runs_ready: false,
         jobs: [],
       },
-      deployment: {
-        commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
-        health_ok: false,
-        service_role_configured: false,
-      },
+      deployment: deploymentBase,
       migrations: {
         schema_migrations_table: false,
         applied: [],
@@ -386,6 +429,8 @@ export async function collectOutcomeMetrics(): Promise<OutcomeSnapshot> {
       now
     );
 
+    const deployment = deploymentBase;
+
     const partial = {
       collected_at,
       status: "ok" as const,
@@ -415,11 +460,7 @@ export async function collectOutcomeMetrics(): Promise<OutcomeSnapshot> {
       },
       waitlist,
       cron,
-      deployment: {
-        commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
-        health_ok: true,
-        service_role_configured: true,
-      },
+      deployment,
       migrations,
       support: {
         pending_payment_reviews: payment.pending_reviews,
@@ -442,6 +483,7 @@ export async function collectOutcomeMetrics(): Promise<OutcomeSnapshot> {
         deposit_rate_pct: null,
         waitlist_conversion_pct: null,
         payment_review_oldest_hours: null,
+        payment_review_sla_breached: false,
         migrations_all_applied: "no",
         overlap_constraint_active: "no",
         evidence_source: "outcome-pipeline:error",
@@ -477,11 +519,7 @@ export async function collectOutcomeMetrics(): Promise<OutcomeSnapshot> {
         job_runs_ready: false,
         jobs: [],
       },
-      deployment: {
-        commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
-        health_ok: false,
-        service_role_configured: isAdminConfigured(),
-      },
+      deployment,
       migrations: {
         schema_migrations_table: false,
         applied: [],

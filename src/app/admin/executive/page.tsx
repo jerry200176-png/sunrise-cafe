@@ -23,6 +23,7 @@ type OutcomeSnapshot = {
     deposit_rate_pct: number | null;
     waitlist_conversion_pct: number | null;
     payment_review_oldest_hours: number | null;
+    payment_review_sla_breached?: boolean;
     migrations_all_applied: string;
     overlap_constraint_active: string;
   };
@@ -54,7 +55,14 @@ type OutcomeSnapshot = {
       last_items_processed: number;
     }[];
   };
-  deployment: { commit: string | null; health_ok: boolean };
+  deployment: {
+    commit: string | null;
+    live_commit_short: string | null;
+    repository_commit: string | null;
+    sha_parity: boolean | null;
+    production_reachable: boolean;
+    health_ok: boolean;
+  };
   migrations: {
     all_required_applied: boolean;
     pending: string[];
@@ -152,6 +160,18 @@ export default function ExecutiveDashboardPage() {
   const depositLow =
     data?.payment.deposit_rate_pct != null && data.payment.deposit_rate_pct < 75;
   const reviewBacklog = (data?.payment.pending_reviews ?? 0) > 0;
+  const reviewSla =
+    data?.health_block.payment_review_sla_breached === true ||
+    (data?.payment.payment_review_oldest_hours != null &&
+      data.payment.payment_review_oldest_hours > 4);
+  const deployDrift = data?.deployment.sha_parity === false;
+  const migrationsPending = data?.migrations.all_required_applied === false;
+
+  const topRisks: string[] = [];
+  if (deployDrift) topRisks.push("Production 落後 repository — 客戶未收到最新修正");
+  if (migrationsPending) topRisks.push("DB migrations 未套用 — 雙重訂位風險");
+  if (reviewSla) topRisks.push("付款審核超過 4 小時 SLA");
+  if (depositLow) topRisks.push("訂金率低於 75% 目標");
 
   return (
     <div className="min-h-screen bg-stone-50">
@@ -189,6 +209,17 @@ export default function ExecutiveDashboardPage() {
 
         {data && (
           <>
+            {topRisks.length > 0 && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+                <p className="text-sm font-semibold text-amber-900">營運風險（需處理）</p>
+                <ul className="mt-2 list-disc pl-5 text-sm text-amber-800 space-y-1">
+                  {topRisks.map((r) => (
+                    <li key={r}>{r}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <div className="flex flex-wrap items-center gap-3 text-sm text-stone-600">
               <span
                 className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
@@ -202,8 +233,16 @@ export default function ExecutiveDashboardPage() {
                 {data.status}
               </span>
               <span>更新：{new Date(data.collected_at).toLocaleString("zh-TW")}</span>
-              {data.deployment.commit && (
-                <span className="font-mono text-xs">SHA {data.deployment.commit}</span>
+              {data.deployment.live_commit_short && (
+                <span className="font-mono text-xs">
+                  線上 SHA {data.deployment.live_commit_short}
+                  {data.deployment.sha_parity === false && data.deployment.repository_commit && (
+                    <span className="text-amber-700">
+                      {" "}
+                      ≠ repo {data.deployment.repository_commit}
+                    </span>
+                  )}
+                </span>
               )}
             </div>
 
@@ -232,7 +271,7 @@ export default function ExecutiveDashboardPage() {
                         ? "點擊前往審核"
                         : undefined
                   }
-                  alert={reviewBacklog}
+                  alert={reviewSla || reviewBacklog}
                   href={data.payment.pending_reviews > 0 ? "/admin/payments" : undefined}
                 />
                 <Metric
