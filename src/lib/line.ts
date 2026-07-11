@@ -66,12 +66,14 @@ export function buildPaymentFlex({
   endTime,
   total,
   branch,
+  bookingCode,
 }: {
   customerName: string;
   startTime: string;
   endTime: string;
   total: number;
   branch: BranchPaymentConfig;
+  bookingCode?: string | null;
 }): LineFlexContainer {
   const startDate = toTaipei(startTime);
   const endDate = toTaipei(endTime);
@@ -81,6 +83,17 @@ export function buildPaymentFlex({
   const storeName = resolveStoreName(branch);
   const paymentInfo = branch.payment_info?.trim();
   const linePayUrl = branch.line_pay_url?.trim();
+  const code = bookingCode?.trim();
+  const replyHint = code
+    ? `匯款後請回傳：${code} 末五碼（範例：${code} 12345；可附截圖）`
+    : "匯款後請回傳「訂位碼」與「末五碼」（可附截圖），謝謝！";
+
+  const detailRows = [
+    flexRow("時間", `${formattedDate} ${timeRange}`),
+    flexRow("總金額", `$${total}`),
+    flexRow("訂金", `$${deposit}（請今日內付清）`),
+  ];
+  if (code) detailRows.splice(1, 0, flexRow("訂位碼", code));
 
   const bodyContents: Record<string, unknown>[] = [
     { type: "text", text: `${customerName} 您好，已收到訂位申請`, wrap: true, weight: "bold", size: "sm" },
@@ -89,11 +102,7 @@ export function buildPaymentFlex({
       layout: "vertical",
       spacing: "sm",
       margin: "md",
-      contents: [
-        flexRow("時間", `${formattedDate} ${timeRange}`),
-        flexRow("總金額", `$${total}`),
-        flexRow("訂金", `$${deposit}（請今日內付清）`),
-      ],
+      contents: detailRows,
     },
   ];
 
@@ -104,7 +113,7 @@ export function buildPaymentFlex({
       ...paymentInfo.split("\n").map((line) => ({ type: "text" as const, text: line, size: "xs" as const, color: "#3D2B1F" })),
       {
         type: "text",
-        text: "匯款後請回傳「末五碼」或「截圖」告知，謝謝！",
+        text: replyHint,
         size: "xs",
         color: "#9A8C7A",
         margin: "md",
@@ -116,7 +125,9 @@ export function buildPaymentFlex({
       { type: "separator", margin: "md" },
       {
         type: "text",
-        text: "請依照官網或現場指示完成付款，並回傳證明，謝謝！",
+        text: code
+          ? `請依照官網或現場指示完成付款，並回傳「${code}」與末五碼證明，謝謝！`
+          : "請依照官網或現場指示完成付款，並回傳訂位碼與證明，謝謝！",
         size: "xs",
         color: "#9A8C7A",
         margin: "md",

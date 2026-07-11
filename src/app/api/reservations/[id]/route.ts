@@ -158,9 +158,10 @@ export async function PATCH(
       try {
         const { data: r } = await supabaseAdmin()
           .from("reservations")
-          .select(`
+            .select(`
             line_user_id,
             customer_name,
+            booking_code,
             start_time,
             end_time,
             total_price,
@@ -206,6 +207,7 @@ export async function PATCH(
               endTime: r.end_time,
               total,
               branch,
+              bookingCode: (r as { booking_code?: string | null }).booking_code,
             });
             await sendLineFlexMessage(r.line_user_id, "訂金繳費通知", flex);
             lineResult = "sent";

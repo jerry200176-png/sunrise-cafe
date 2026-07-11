@@ -624,6 +624,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                             endTime: r.end_time,
                             total: Number(r.total_price),
                             branch: branchConfig ?? { name: branchName },
+                            bookingCode: r.booking_code,
                           });
                           try {
                             if (navigator.clipboard?.writeText) {

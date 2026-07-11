@@ -39,7 +39,8 @@ interface AvailabilitySlot {
   available: boolean;
 }
 
-const OFFICIAL_LINE_URL = "https://lin.ee/cxcV0lo";
+const OFFICIAL_LINE_URL =
+  process.env.NEXT_PUBLIC_OFFICIAL_LINE_URL?.trim() || "https://lin.ee/cxcV0lo";
 
 export default function BookQueryPage() {
   return (
