@@ -1,0 +1,74 @@
+name: Work Gate（業務影響四問）
+description: 新功能或改善 — 必須通過 CTO Work Gate
+title: "[P?] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    value: |
+      **CTO Operating System v2** — 每個新工作必須回答四問。
+      若四問皆無法具體回答 → 降為 P3 或延後。
+      詳見 [`docs/CTO_WORK_GATE.md`](../../docs/CTO_WORK_GATE.md)
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 工作摘要
+      description: 一兩句說清楚要做什麼
+    validations:
+      required: true
+
+  - type: textarea
+    id: risk
+    attributes:
+      label: 1. 降低什麼風險？
+      description: 資安、資料正確性、營運中斷、法遵 — 具體描述。若無 → 非 P0/P1
+    validations:
+      required: true
+
+  - type: textarea
+    id: revenue
+    attributes:
+      label: 2. 如何提升營收？
+      description: 訂金轉換、滿房率、候補轉換、減少 no-show — 可量測
+    validations:
+      required: true
+
+  - type: textarea
+    id: cx
+    attributes:
+      label: 3. 如何改善客戶體驗？
+      description: 客人或店員 — 減少步驟、錯誤、等待
+    validations:
+      required: true
+
+  - type: textarea
+    id: dx
+    attributes:
+      label: 4. 如何提升開發效率？
+      description: 僅此項不足以成為 P0/P1
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: priority
+    attributes:
+      label: 優先級判定
+      options:
+        - label: P0 — 阻擋營運或資安事故
+        - label: P1 — 本季 KPI 直接相關
+        - label: P2 — 間接改善
+        - label: P3 / 延後 — 四問皆弱
+
+  - type: textarea
+    id: success_metric
+    attributes:
+      label: 成功指標（可驗證）
+    validations:
+      required: true
+
+  - type: textarea
+    id: rollback
+    attributes:
+      label: Rollback 計畫
+    validations:
+      required: true

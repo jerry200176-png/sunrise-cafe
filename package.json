@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "test:e2e:install": "playwright install chromium"
+    "test:e2e:install": "playwright install chromium",
+    "cto:snapshot": "bash scripts/cto-daily-snapshot.sh"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.53.1",
