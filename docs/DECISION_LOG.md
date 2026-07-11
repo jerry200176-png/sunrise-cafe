@@ -4,6 +4,36 @@
 
 ---
 
+## Round 8 — 2026-07-11
+
+### DL-011: Company-first — Ops Excellence Pack over engineering
+
+**Inbox refs:** INB-001, INB-005, #53  
+**Mode shift:** Engineering-first → **Company-first**
+
+**Options evaluated:**
+
+| Option | Business ROI | Time | Verdict |
+|--------|-------------|------|---------|
+| A. #53 付款流程寫 code | 高（長期） | 高 | 延後 — 無 KPI baseline |
+| B. Merge Dependabot #90/#91 | 低 | 中 | ❌ 仍為 Next 16 jump |
+| C. **Ops 三件套文件** | **最高** — 解鎖 migration、KPI、訂金 SOP | 低 | ✅ **Selected** |
+
+**Why highest company ROI:**
+- R-001 migration：Runbook 降低套用摩擦 → 直接解 CX/營收風險
+- R-004 KPI 盲飛：Weekly Review SQL → 本週即可量測訂金率
+- #53 營收：Payment SOP → 店員今日可執行，無需 deploy
+
+**MDU:** Ops Migration Runbook + Weekly Business Review + Payment SOP
+
+---
+
+### DL-012: Reject Dependabot #90/#91 (same as DL-008)
+
+New dependabot PRs still target Next 16.2.10. Founder 關閉；controlled minors only.
+
+---
+
 ## Round 7 — 2026-07-11
 
 ### DL-007: Executive Inbox review mandatory

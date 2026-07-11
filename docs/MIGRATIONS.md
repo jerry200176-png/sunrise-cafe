@@ -1,5 +1,7 @@
 # Migration Status Check
 
+> **營運逐步指南：** [`OPS_MIGRATION_RUNBOOK.md`](./OPS_MIGRATION_RUNBOOK.md)（店長可照做）
+
 Run in Supabase SQL Editor to see which tracked migrations have been applied:
 
 ```sql

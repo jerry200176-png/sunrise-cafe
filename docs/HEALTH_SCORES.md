@@ -91,7 +91,9 @@ Deductions: migration not applied for closed_dates (−10), overlap constraint (
 | Cron failure alert | 25 | #87 merged |
 | Waitlist notify | 20 | on cancel |
 | Payment keywords | 15 | configurable |
-| KPI measured | 15 | if deposit rate tracked (else 0) |
+| KPI playbook documented | 8 | `OPS_WEEKLY_BUSINESS_REVIEW.md` exists |
+| Payment SOP documented | 7 | `OPS_PAYMENT_SOP.md` exists |
+| KPI automated in admin | 15 | deposit rate dashboard (else 0) |
 
 ---
 
