@@ -278,7 +278,7 @@ export default function BookPage() {
       }
     }
 
-    if (!agreeToTerms) {
+    if (rentalNotes.length > 0 && !agreeToTerms) {
       setError(t("book.error.agreeRequired"));
       setSubmitting(false);
       return;

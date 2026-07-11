@@ -1,7 +1,7 @@
 # Implementation Truth — Single Source of Technical State
 
 **Owner:** CTO Operating System v2  
-**Updated:** 2026-07-11 (Round 6)  
+**Updated:** 2026-07-11 (Round 7 — E2E #59)  
 **Rule:** If this doc disagrees with other docs, **this doc wins**. Verify against `main` branch code.  
 **Daily ops:** [`EXECUTIVE_DASHBOARD.md`](./EXECUTIVE_DASHBOARD.md) · snapshot: `npm run cto:snapshot`
 
@@ -35,6 +35,7 @@
 | Cron job_runs persistence | ✅ | `job-runs.ts` + migration (apply optional) |
 | Next.js security patch | 🟡 | #88 → 15.5.20 |
 | `verify:migrations` in CI | ✅ | `npm run verify:migrations` + optional drift gate |
+| Playwright E2E (mocked flows) | ✅ | `e2e/booking-flow.spec.ts`, `e2e/payment-query.spec.ts` (#59) |
 
 ---
 
@@ -57,7 +58,7 @@ Check: `SELECT * FROM schema_migrations ORDER BY applied_at;`
 |------|-------|--------|
 | Open PRs | 11 (8 draft phase + #77/#89 + dependabot) | Founder batch close |
 | Open Issues | 7 | #62 duplicate; #53 active P1 |
-| Tests on main | 140+ | verify:migrations in CI |
+| Tests on main | 141 unit + 7 E2E (1 skip) | verify:migrations in CI |
 
 ---
 
