@@ -33,6 +33,7 @@ jq -n \
   --argjson drift_warnings "$DOC_DRIFT_WARNINGS" \
   --argjson cursor_branches "$GITHUB_CURSOR_BRANCHES" \
   --argjson outcome_measured "$OUTCOME_MEASURED" \
+  --argjson orch_shipped "${ORCH_SHIPPED:-0}" \
   --arg last_task "$LAST_TASK_ID" \
   '
   def score_task($t):
@@ -44,6 +45,7 @@ jq -n \
     (if $t.id == "branch-hygiene" and $cursor_branches <= 2 then 0 else 1 end) as $branch_needed |
     (if $t.id == "outcome-baseline" and $outcome_measured == 1 then 0 else 1 end) as $outcome_needed |
     (if $t.id == $last_task and $last_task != "" then 0 else 1 end) as $not_repeat |
+    (if $t.id == "orch-os-evolve" and $orch_shipped == 1 then 0 else 1 end) as $orch_needed |
     ($t.base_score // 50)
     + (if $gate_block == 1 then ($t.gate_block_bonus // 0) else 0 end)
     + (if $t.id == "doc-drift-fix" then ($drift_failures * 20 + $drift_warnings * 5) else 0 end)
@@ -54,8 +56,8 @@ jq -n \
       role: $t.role,
       type: $t.type,
       owner: ($t.owner // "agent"),
-      score: (if ($ind * $agent * $gate_ok * $perm_ok * $drift_needed * $branch_needed * $outcome_needed * $not_repeat) == 0 then 0 else $s end),
-      executable: (($ind * $agent * $gate_ok * $perm_ok * $drift_needed * $branch_needed * $outcome_needed * $not_repeat) == 1),
+      score: (if ($ind * $agent * $gate_ok * $perm_ok * $drift_needed * $branch_needed * $outcome_needed * $not_repeat * $orch_needed) == 0 then 0 else $s end),
+      executable: (($ind * $agent * $gate_ok * $perm_ok * $drift_needed * $branch_needed * $outcome_needed * $not_repeat * $orch_needed) == 1),
       blocked_reason: (
         if $perm_ok == 0 then "requires_permission:github_write"
         elif $gate_ok == 0 then "requires_gate_pass"
@@ -64,6 +66,7 @@ jq -n \
         elif $branch_needed == 0 then "branches_clean"
         elif $outcome_needed == 0 then "outcome_already_measured"
         elif $not_repeat == 0 then "completed_last_iteration"
+        elif $orch_needed == 0 then "orchestrator_v1_shipped"
         else null end
       ),
       evidence: $t.evidence,

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-11T05:52:13Z",
+  "generated_at": "2026-07-11T05:58:32Z",
   "gate_block": true,
   "ranked": [
     {
@@ -13,18 +13,6 @@
       "blocked_reason": null,
       "evidence": "cto-doc-drift.sh warnings",
       "verify": "DOC_DRIFT_WARNINGS=0 or documented founder-blocked"
-    },
-    {
-      "id": "ops-log-cron-extend",
-      "title": "Extend structured ops-log to all cron routes (#60)",
-      "role": "implementer",
-      "type": "observability",
-      "owner": "agent",
-      "score": 80,
-      "executable": true,
-      "blocked_reason": null,
-      "evidence": "issue #60, partial ops-log.ts",
-      "verify": "all cron routes call opsLog"
     },
     {
       "id": "capability-gap-close",
@@ -70,7 +58,7 @@
       "owner": "agent",
       "score": 0,
       "executable": false,
-      "blocked_reason": "completed_last_iteration",
+      "blocked_reason": "orchestrator_v1_shipped",
       "evidence": "docs/ORCHESTRATOR.md",
       "verify": "npm run cto:orchestrator produces ORCHESTRATOR_PLAN.md"
     },
@@ -85,6 +73,18 @@
       "blocked_reason": "branches_clean",
       "evidence": "cto-github-hygiene.sh branch section",
       "verify": "GITHUB_CURSOR_BRANCH_COUNT <= 2"
+    },
+    {
+      "id": "ops-log-cron-extend",
+      "title": "Extend structured ops-log to all cron routes (#60)",
+      "role": "implementer",
+      "type": "observability",
+      "owner": "agent",
+      "score": 0,
+      "executable": false,
+      "blocked_reason": "completed_last_iteration",
+      "evidence": "issue #60, partial ops-log.ts",
+      "verify": "all cron routes call opsLog"
     },
     {
       "id": "payment-review-images",
