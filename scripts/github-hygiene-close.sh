@@ -23,25 +23,15 @@ close_issue() {
   echo "Closed issue #$num"
 }
 
-close_issue 59 "**Closed by github-hygiene workflow** — evidence on \`main\`:
+close_issue 61 "**Closed by github-hygiene** — shipped AI-readable workflow docs.
 
-- Playwright E2E: \`e2e/critical-flows.spec.ts\` (public + admin smoke)
-- Shipped: #97, expanded #118
-- Optional CI: set \`E2E_ADMIN_PASSWORD\` repo secret
+- \`docs/workflows/README.md\` — booking, payment, waitlist, admin, cron flows
+- Living issue registry: \`docs/GITHUB_ISSUE_STATUS.md\`"
 
-See \`docs/GITHUB_TRIAGE.md\`."
+close_issue 63 "**Closed (deferred)** — tracked in \`docs/CAPABILITY_GAPS.md\` CG-003 area.
 
-close_issue 62 "**Closed by github-hygiene workflow** — duplicate scope.
-
-Bank CSV reconcile MVP: \`/api/admin/payments/reconcile\` + admin UI.
-
-See \`docs/PAYMENT_STATE_MODEL.md\`."
-
-close_issue 60 "**Closed by github-hygiene workflow** — webhook observability on \`main\`:
-
-- \`webhook.event_ok\` / \`webhook.event_error\` / \`webhook.event_handled\` in \`src/lib/ops-log.ts\`
-- Sentry breadcrumbs when \`NEXT_PUBLIC_SENTRY_DSN\` set (#118)
-- Cron: \`job-runs.ts\` structured logging"
+No PaymentProvider contract until gateway integration (#99) is approved.
+Re-open when Stripe/LINE Pay integration begins."
 
 echo "Open issues:"
 gh issue list --state open --limit 20 || true
