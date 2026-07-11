@@ -38,11 +38,11 @@ See issue **#95** and [`OPS_MIGRATION_RUNBOOK.md`](./OPS_MIGRATION_RUNBOOK.md) S
 
 ## Secrets (optional automation)
 
-| Secret | Where |
-|--------|-------|
-| `CTO_OUTCOME_SECRET` | Vercel |
-| `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` | GitHub Actions (drift gate) |
-| Upstash Redis | Vercel (rate limits enforce in prod) |
+| Secret | Where | Enables |
+|--------|-------|---------|
+| `CTO_OUTCOME_SECRET` | Vercel + GitHub Actions | Auto-sync `OUTCOME_LOG.md` via business-intelligence workflow |
+| `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` | GitHub Actions | Live DB drift gate + outcome metrics |
+| Upstash Redis | Vercel | Rate limits enforce in prod (CG-006) |
 
 ---
 

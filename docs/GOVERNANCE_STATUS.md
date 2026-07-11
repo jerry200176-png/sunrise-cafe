@@ -1,8 +1,8 @@
 # Governance Status (auto-generated)
 
-**Last run:** 2026-07-11 15:28 CST  
+**Last run:** 2026-07-11 15:40 CST  
 **Gate:** BLOCK  
-**main:** `4d084be`
+**main:** `de01dba`
 
 > Regenerate: `npm run cto:governance`  
 > Policy: [`ENGINEERING_GOVERNANCE.md`](./ENGINEERING_GOVERNANCE.md)
@@ -15,11 +15,11 @@
 |--------|------:|-----------|
 | Overall health | 57 | ≥ 70 |
 | GitHub governance | 47 | ≥ 60 |
-| Production stability | 30 | ≥ 50 |
+| Production stability | 32 | ≥ 50 |
 | Open issues | 9 | triage weekly |
 | Open PRs (non-dep) | 10 | ≤ 3 |
 | Draft PRs | 8 | 0 |
-| cursor/* branches | 2 | ≤ 2 |
+| cursor/* branches | 3 | ≤ 2 |
 | Doc drift failures | 0 | 0 |
 
 ## Gate verdict
@@ -29,9 +29,10 @@
 ### Blocking reasons
 - Overall health 57 < 70
 - GitHub governance 47 < 60
-- Production stability 30 < 50
+- Production stability 32 < 50
 - Non-dependabot open PRs: 10 > 3
 - Draft PRs: 8 (phase ghosts should be closed)
+- cursor/* branches: 3 > 2
 
 ## Next actions
 
