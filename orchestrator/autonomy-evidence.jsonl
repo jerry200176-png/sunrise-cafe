@@ -10,3 +10,5 @@
 {"ts":"2026-07-11T14:09:44+0800","phase":"executed","run_id":"local","sha":"acad07d","data":{"task_id":"autonomy-canary"}}
 {"ts":"2026-07-11T14:09:51+0800","phase":"validated","run_id":"local","sha":"acad07d","data":{"tests":"pass"}}
 {"ts":"2026-07-11T14:09:51+0800","phase":"review_fail","run_id":"local","sha":"01f13b0","data":{}}
+{"ts":"2026-07-11T14:10:15+0800","phase":"review_pass","run_id":"local","sha":"1e3b18b","data":{}}
+{"ts":"2026-07-11T14:10:15+0800","phase":"pushed","run_id":"local","sha":"1e3b18b","data":{"branch":"cursor/auto-autonomy-canary-acad07d-3a90"}}
