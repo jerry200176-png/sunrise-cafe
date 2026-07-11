@@ -5,6 +5,17 @@
 
 ---
 
+## GitHub Actions policy (blocks PR create from loop)
+
+Enable in **Settings → Actions → General → Workflow permissions**:
+
+- [ ] **Allow GitHub Actions to create and approve pull requests**
+
+Without this, the loop can push branches but `gh pr create` fails with:
+`GitHub Actions is not permitted to create or approve pull requests`
+
+Evidence: GHA run `29143971152` pushed `cursor/auto-doc-drift-fix-886a36c-3a90` then blocked at PR create.
+
 ## GitHub batch (bot cannot close issues/PRs)
 
 Copy-paste in GitHub UI or local `gh` with your auth:
