@@ -1,7 +1,7 @@
 # Implementation Truth — Single Source of Technical State
 
 **Owner:** CTO Operating System v2  
-**Updated:** 2026-07-11 (Round 11 — AI Engineering Orchestrator)  
+**Updated:** 2026-07-11 (Round 18 — governance score + GitHub hygiene complete)  
 **Rule:** If this doc disagrees with other docs, **this doc wins**. Verify against `main` branch code.  
 **Daily ops:** [`EXECUTIVE_DASHBOARD.md`](./EXECUTIVE_DASHBOARD.md) · snapshot: `npm run cto:snapshot`
 
@@ -35,14 +35,18 @@
 | Cron job_runs persistence | ✅ | `job-runs.ts` + migration (apply optional) |
 | Next.js security patch | 🟡 | #88 → 15.5.20 |
 | `verify:migrations` in CI | ✅ | `npm run verify:migrations` + optional drift gate |
-| Playwright E2E (mocked flows) | ✅ | `e2e/booking-flow.spec.ts`, `e2e/payment-query.spec.ts` (#59) |
+| Playwright E2E (mocked flows) | ✅ | `e2e/critical-flows.spec.ts` — public + admin smoke (#97, #118) |
 | LINE bind phone verification | ✅ | `line-bind.ts` + webhook/OAuth |
 | Payment LINE text → review | ✅ | ADR-008 Phase 2 (`payment-events.ts`) |
 | Cron partial-failure alerts | ✅ | `job-runs.ts` + `errors` in deposit-deadline |
 | Guest lookup POST (no URL creds) | ✅ | `/api/my-bookings` POST + query page |
 | Per-phone guest rate limits | ✅ | `guestRateLimitId` in middleware + routes |
 | Guest rate limit mode | 🟡 enforced when Upstash env set; **fail-open** otherwise | `rate-limit.ts` `isUpstashConfigured()` |
-| Structured ops logging | ✅ | `ops-log.ts` — webhook (`event_ok`/`event_error`) + cron via `runCronJob` + guest rate-limit denials |
+| Structured ops logging | ✅ | `ops-log.ts` — webhook + Sentry breadcrumbs (#118) |
+| Executive BI dashboard | ✅ | `/admin/executive` + `business-snapshot.json` (#116) |
+| Query auto-search post-booking | ✅ | `/book/query` prefilled search (#118) |
+| Booking wizard stepper/a11y | ✅ | `/book` step progress + aria (#119) |
+| GitHub hygiene automation | ✅ | `github-hygiene.yml` + `github-hygiene-close.sh` (#120–#122) |
 | Staff: no duplicate LINE reminders | ✅ | Manual send-line `force: false` |
 | Staff: reservation PATCH error feedback | ✅ | `ReservationList` rollback + alert |
 | Staff: payment review evidence UI | ✅ | `/admin/payments` — LINE screenshot proxy when message id stored |
@@ -67,10 +71,10 @@ Check: `SELECT * FROM schema_migrations ORDER BY applied_at;`
 
 | Type | Count | Action |
 |------|-------|--------|
-| Open PRs | 11 (8 draft phase + #89 + dependabot) | `GITHUB_TRIAGE.md` — Founder batch close |
-| Open Issues | 9 | `GITHUB_TRIAGE.md` — close #59/#62 when shipped |
-| Tests on main | 157 unit + 7 E2E (1 skip) | `npm run cto:governance` verifies drift |
-| Governance gate | `cto:governance` | `ENGINEERING_GOVERNANCE.md` |
+| Open PRs | 0 | ✅ Cleaned 2026-07-11 |
+| Open Issues | 6 | Strategic: #53 #54 #95 #99; defer #61 #63 — see `GITHUB_TRIAGE.md` |
+| Tests on main | 158 unit + 8 E2E (2 skip) | `npm run cto:governance` verifies drift |
+| Governance gate | `cto:governance` | Target 100: see `FOUNDER_PERMISSIONS.md` |
 | AI orchestrator | `cto:orchestrator` | `ORCHESTRATOR.md` — discover/prioritize/plan |
 
 ---

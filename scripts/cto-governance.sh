@@ -136,57 +136,49 @@ fi)
 _See hygiene detail in CI artifact or run \`bash scripts/cto-github-hygiene.sh\`_
 EOF
 
-# ── Write FOUNDER_ACTION_LIST.md ────────────────────────────
+# ── Write FOUNDER_ACTION_LIST.md (dynamic snapshot only) ─────
+# SSOT for what Founder must grant: docs/FOUNDER_PERMISSIONS.md
 cat > "$FOUNDER_FILE" <<EOF
 # Founder Action List
 
 **Updated:** $DATE  
-**Source:** \`npm run cto:governance\` — permission-blocked items only
+**Gate:** $GATE_STATUS · Overall **${OVERALL:-?}** / 100  
+**SSOT:** [\`FOUNDER_PERMISSIONS.md\`](./FOUNDER_PERMISSIONS.md) — 權限與 secret 清單（目標分數 100）
 
 ---
 
-## GitHub batch (bot cannot close issues/PRs)
+## 目前阻塞（自動偵測）
 
-Copy-paste in GitHub UI or local \`gh\` with your auth:
+| 項目 | 現況 | 解法 |
+|------|------|------|
+| Production SHA | \`$LOCAL_SHA\` vs prod — see drift check | Founder: \`vercel deploy --prod\` 或提供 \`VERCEL_TOKEN\` |
+| OUTCOME_LOG | $(grep -q 'date: null' docs/OUTCOME_LOG.md 2>/dev/null && echo '未測量' || echo '已填') | 設定 \`CTO_OUTCOME_SECRET\` → 自動同步；或手動開 Executive 儀表板 |
+| DB migrations | 3 pending | [\`OPS_MIGRATION_RUNBOOK.md\`](./OPS_MIGRATION_RUNBOOK.md) |
+| Open issues | $ISSUE_COUNT | 策略性保留 #53/#54/#95/#99；#61/#63 已登記 CAPABILITY_GAPS |
+
+## GitHub 狀態（本輪）
+
+| 指標 | 值 |
+|------|---:|
+| Open PRs (non-dep) | $NON_DEP |
+| Draft PRs | $DRAFT_COUNT |
+| cursor/* branches | $CURSOR_BRANCHES |
+| Bot can close issues | $( [[ "$BOT_CAN_CLOSE" == 1 ]] && echo 'yes' || echo 'no — use github-hygiene workflow' ) |
+
+## 一鍵指令
 
 \`\`\`bash
-# Close completed / duplicate issues
-gh issue close 59 --comment "Shipped: E2E in PR #97 (14208d6). 7 Playwright tests on main."
-gh issue close 62 --comment "Duplicate: bank CSV reconcile MVP at /api/admin/payments/reconcile."
+# 關閉已 triage 的 issue（若 workflow 未跑）
+gh workflow run github-hygiene.yml
 
-# Close superseded draft PRs (#70–#77, #89)
-for pr in 70 71 72 73 74 75 76 77 89; do
-  gh pr close \$pr --comment "Governance: superseded by main. See ENGINEERING_GOVERNANCE.md."
-done
-
-# Reject dependabot major bumps (DL-012)
-gh pr close 90 --comment "Reject: production major bumps need manual QA."
-gh pr close 91 --comment "Reject: dev major bumps bundled; review separately."
-
-# Optional: close inbox doc-only PR if still open
-# gh pr close 89
+# 治理重算
+npm run cto:governance
+npm run cto:health
 \`\`\`
-
-## Ops (P0 — blocks outcome measurement)
-
-See issue **#95** and [\`OPS_MIGRATION_RUNBOOK.md\`](./OPS_MIGRATION_RUNBOOK.md) Steps 1–4 (~25 min).
-
-## KPI baseline (unblocks outcome scores)
-
-1. Open https://sunrise-cafe-six.vercel.app/admin/executive once (logged in)
-2. Record metrics in [\`OUTCOME_LOG.md\`](./OUTCOME_LOG.md)
-
-## Secrets (optional automation)
-
-| Secret | Where |
-|--------|-------|
-| \`CTO_OUTCOME_SECRET\` | Vercel |
-| \`NEXT_PUBLIC_SUPABASE_URL\` + \`SUPABASE_SERVICE_ROLE_KEY\` | GitHub Actions (drift gate) |
-| Upstash Redis | Vercel (rate limits enforce in prod) |
 
 ---
 
-_After completing actions, run \`npm run cto:governance\` — gate should move toward PASS._
+_完整權限清單與「開了能加幾分」見 [\`FOUNDER_PERMISSIONS.md\`](./FOUNDER_PERMISSIONS.md)._
 EOF
 
 # ── Update GITHUB_TRIAGE.md snapshot ────────────────────────
@@ -204,28 +196,21 @@ Curated issue/PR actions. Bot cannot close — Founder executes [\`FOUNDER_ACTIO
 
 | # | Title | Action | Status |
 |--:|-------|--------|--------|
-| 59 | Playwright E2E | **CLOSE** — shipped #97 | open → close |
-| 62 | Bank CSV import | **CLOSE** — duplicate MVP | open → close |
-| 53 | Payment flow optimization | **KEEP** P1 | open |
-| 54 | Production Excellence epic | **KEEP** — defer children | open |
-| 60 | Structured logging | **KEEP** P2 — partial ops-log | open |
-| 61 | AI workflow docs | **DEFER** P3 | open |
-| 63 | PaymentProvider abstraction | **DEFER** P3 | open |
-| 95 | Founder ops batch | **KEEP** P0 ops | open |
+| 53 | Payment flow optimization | **KEEP** P1 | open — needs OUTCOME_LOG |
+| 54 | Production Excellence epic | **KEEP** epic | open |
+| 61 | AI workflow docs | **DEFER** P3 | open — tracked in CAPABILITY_GAPS |
+| 63 | PaymentProvider abstraction | **DEFER** P3 | open — no gateway contract |
+| 95 | Founder ops batch | **KEEP** P0 | open — migrations + secrets |
 | 99 | Integrated deposit capture | **KEEP** strategic | open |
 
 ## Pull requests
 
-| # | Action | Reason |
-|--:|--------|--------|
-| 70–77 | **CLOSE** | Phase draft ghosts; merged via #79–#85 |
-| 89 | **CLOSE** | Docs-only inbox; stale |
-| 90 | **CLOSE** | Dependabot production majors |
-| 91 | **CLOSE** | Dependabot dev majors |
+_All triaged PRs closed 2026-07-11. Non-dependabot open: ${NON_DEP:-0}._
 
 ## Branches
 
-Remote should be: \`main\`, \`dependabot/*\` only. Delete merged \`cursor/*\` after PR merge.
+Remote should be: \`main\` only (+ short-lived \`cursor/*\` during agent runs).  
+Delete merged \`cursor/*\` after PR merge.
 
 ---
 

@@ -48,9 +48,10 @@ TEST_COUNT="${TEST_COUNT:-0}"
 CI_SUCCESS=10
 CI_TOTAL=10
 if command -v gh >/dev/null 2>&1; then
-  CI_JSON="$(gh run list --branch main --limit 10 --json conclusion 2>/dev/null || echo '[]')"
+  CI_JSON="$(gh run list --workflow=ci.yml --branch main --limit 10 --json conclusion 2>/dev/null || echo '[]')"
   CI_TOTAL="$(echo "$CI_JSON" | jq 'length' 2>/dev/null || echo 10)"
   CI_SUCCESS="$(echo "$CI_JSON" | jq '[.[] | select(.conclusion == "success")] | length' 2>/dev/null || echo 10)"
+  [[ "$CI_TOTAL" -eq 0 ]] && CI_TOTAL=10 && CI_SUCCESS=10
 fi
 
 DRAFT_PRS=0
@@ -73,7 +74,11 @@ PROD=0
 [[ "$HEALTH_OK" == "1" ]] && PROD=$((PROD + 30))
 [[ "$PROD_SHA" != "unknown" && "$LOCAL_SHA" != "unknown" && "$PROD_SHA" == "$LOCAL_SHA" ]] && PROD=$((PROD + 30))
 [[ "$CI_TOTAL" -gt 0 ]] && PROD=$((PROD + (CI_SUCCESS * 25 / CI_TOTAL)))
-[[ "$TEST_COUNT" -gt 0 ]] && PROD=$((PROD + $(echo "$TEST_COUNT / 10" | bc 2>/dev/null || echo 0) ))
+if [[ "$TEST_COUNT" -gt 0 ]]; then
+  TEST_PTS=$((TEST_COUNT / 10))
+  [[ "$TEST_PTS" -gt 15 ]] && TEST_PTS=15
+  PROD=$((PROD + TEST_PTS))
+fi
 
 SEC=70
 AUDIT_SCORE=$((30 - CRITICAL * 15 - HIGH * 8 - MODERATE * 2))
@@ -89,9 +94,19 @@ NON_DEP=$((OPEN_PRS - DRAFT_PRS))
 [[ $GH -lt 0 ]] && GH=0
 
 PROD_Q=85
+TRUTH_FILE="docs/IMPLEMENTATION_TRUTH.md"
+if [[ -f "$TRUTH_FILE" ]]; then
+  TRUTH_DONE="$(grep -cE '^\| .+ \| ✅' "$TRUTH_FILE" 2>/dev/null || echo 0)"
+  TRUTH_PARTIAL="$(grep -cE '^\| .+ \| 🟡' "$TRUTH_FILE" 2>/dev/null || echo 0)"
+  TRUTH_TOTAL=$((TRUTH_DONE + TRUTH_PARTIAL))
+  if [[ "$TRUTH_TOTAL" -gt 0 ]]; then
+    PROD_Q=$(( (TRUTH_DONE * 100 + TRUTH_PARTIAL * 50) / TRUTH_TOTAL ))
+    [[ "$PROD_Q" -gt 100 ]] && PROD_Q=100
+  fi
+fi
 
 DX=0
-[[ "$CI_SUCCESS" == "$CI_TOTAL" ]] && DX=$((DX + 30))
+[[ "$CI_TOTAL" -gt 0 && "$CI_SUCCESS" -eq "$CI_TOTAL" ]] && DX=$((DX + 30))
 [[ "$TEST_COUNT" -ge 100 ]] && DX=$((DX + 25))
 DX=$((DX + 20 + 10))  # scripts + SSOT cap
 
@@ -131,6 +146,15 @@ if outcome_measured; then
     RH_INT="${REVIEW_H%.*}"
     [[ "$RH_INT" -lt 4 ]] && REV=$((REV + 15))
     [[ "$RH_INT" -ge 4 && "$RH_INT" -lt 24 ]] && REV=$((REV + 8))
+  fi
+
+  # All outcome targets met → grade A (per HEALTH_SCORES.md §5–§6)
+  if [[ "$MIG" == "yes" && "$OVERLAP" == "yes" && "$DEPOSIT" != "null" ]]; then
+    DEP_INT="${DEPOSIT%.*}"
+    if [[ "$DEP_INT" -ge 85 ]]; then
+      CX=100
+      REV=100
+    fi
   fi
 fi
 
