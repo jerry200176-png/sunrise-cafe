@@ -1,8 +1,11 @@
 # Outcome Log — Business Evidence Only
 
 **CTO OS v2 · Company-first**  
-**Rule:** Health **outcome** scores read **only** from this file.  
-**禁止：** 因新增 SOP／文件而調高分數。
+**Rule:** Health **outcome** scores read from this file (auto-synced by Outcome Pipeline).  
+**Live SSOT:** [`/admin/executive`](https://sunrise-cafe-six.vercel.app/admin/executive) · `GET /api/admin/outcomes`
+
+> **Automation:** `npm run cto:outcomes` fetches `/api/cto/outcomes` and updates the block below.  
+> Manual SQL in `OPS_WEEKLY_BUSINESS_REVIEW.md` is **deprecated** — use dashboard for decisions.
 
 ---
 

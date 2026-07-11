@@ -1,30 +1,26 @@
 # Executive Dashboard — Sunrise Systems
 
 **CTO OS v2 · Company-first · SSOT**  
-**最後更新：** 2026-07-11 Round 9  
-**Production：** https://sunrise-cafe-six.vercel.app · `0da948f`
+**最後更新：** 2026-07-11 Round 10 — Outcome Pipeline  
+**Production：** https://sunrise-cafe-six.vercel.app · `/admin/executive`
 
-> **每輪：** [`EXECUTIVE_INBOX.md`](./EXECUTIVE_INBOX.md) → [`DECISION_LOG.md`](./DECISION_LOG.md) → 本文件  
-> `npm run cto:health` · `npm run cto:snapshot`  
-> **Outcome 分數：** 僅 [`OUTCOME_LOG.md`](./OUTCOME_LOG.md) measured 證據
+> **每輪：** Inbox → Decision Log → **live metrics** at `/admin/executive`  
+> `npm run cto:outcomes` · `npm run cto:health` · `npm run cto:snapshot`
 
 ---
 
-## 0. Executive Inbox 摘要（Round 9）
+## 0. Executive Inbox 摘要（Round 10）
 
-**模式：** Company-first — capability ≠ outcome
+**模式：** Automation-first — live production metrics, not manual docs
 
 | 維度 | 信號 | 判定 |
 |------|------|------|
 | Production | 🟢 health · CI | 穩定 |
-| Customer | 🟢 無新客訴 | 監控 Payment SOP |
-| Business KPI | 🔴 UNMEASURED | Outcome 分數凍結 baseline |
-| Financial | 🟡 逾期釋放風險 | 待首週 Outcome Review |
-| Security | 🟢 audit clean | #90/#91 拒絕 |
-| GitHub | 🟠 11 open PR | Founder |
+| Business KPI | 🟢 **automated** | `/admin/executive` + `/api/cto/outcomes` |
 | Ops risk | 🔴 migration | ART-001 待執行 |
+| GitHub | 🟠 11 open PR | Founder |
 
-**決策 DL-013：** 撤銷 doc-based health inflation；outcome 僅來自 `OUTCOME_LOG`
+**決策 DL-014：** Outcome Pipeline > more governance docs
 
 ---
 
@@ -33,10 +29,10 @@
 | 指標 | 狀態 |
 |------|------|
 | **公司能否營運？** | 🟢 平台穩定 |
-| **能否看見營收健康度？** | 🔴 **尚未量測** — capability 就緒，outcome 待證據 |
+| **能否看見營收健康度？** | 🟢 **Outcome Pipeline** — `/admin/executive` |
 | **店員能否正確收訂金？** | 🟡 SOP 就緒（ART-003），執行待驗證 |
 | **DB 與程式同步？** | 🔴 ART-001 待 Ops 執行 |
-| **本輪 MDU** | Outcome governance（誠實 health 計分） |
+| **本輪 MDU** | Outcome Pipeline — automated production metrics |
 
 ---
 
@@ -64,14 +60,16 @@
 
 ---
 
-## 3. 營運 KPI（量測方式已建立）
+## 3. 營運 KPI（自動化 — 取代手動 SQL）
 
-| KPI | 目標 | 量測 |
+| KPI | 目標 | 來源 |
 |-----|------|------|
-| 訂金收取率 | ≥85% | [`OPS_WEEKLY_BUSINESS_REVIEW.md`](./OPS_WEEKLY_BUSINESS_REVIEW.md) SQL 1 |
-| 審核 SLA | <4hr | SQL 2 + `/admin/payments` |
-| 候補轉換 | ≥30% | SQL 4 |
-| 系統可用性 | 99.5% | health endpoint 🟢 |
+| 訂金收取率 | ≥85% | `/api/admin/outcomes` → `payment.deposit_rate_pct` |
+| 審核 SLA | <4hr | `payment.payment_review_oldest_hours` |
+| 候補轉換 | ≥30% | `waitlist.conversion_pct` |
+| 系統可用性 | 99.5% | `deployment.health_ok` |
+
+**UI:** https://sunrise-cafe-six.vercel.app/admin/executive
 
 ---
 
@@ -79,12 +77,11 @@
 
 | Rank | 工作 | 類型 | 狀態 |
 |------|------|------|------|
-| 1 | **首週 Outcome Review** | **營運** | 📋 ART-002 待 Founder 執行 |
-| 2 | Ops 套用 migration | **營運** | 📋 ART-001 |
-| 3 | 店員執行 Payment SOP | **營運** | 📋 ART-003 |
-| 4 | Founder 關閉幽靈 PR + #90/#91 | 治理 | 手動 |
-| 5 | #53 付款 **工程**優化 | Eng | 待 KPI baseline + SOP 2 週 |
-| 6 | Cron 成功率量測 | Eng | P2 |
+| 1 | **使用 Executive Dashboard 決策** | **營運** | ✅ `/admin/executive` live |
+| 2 | Ops 套用 migration | **營運** | ART-001 |
+| 3 | 設定 `CTO_OUTCOME_SECRET` on Vercel | Eng/Ops | 啟用 `cto:outcomes` cron sync |
+| 4 | Founder 關閉幽靈 PR | 治理 | 手動 |
+| 5 | #53 付款工程 | Eng | 待 outcome 顯示 <75% 連續 2 週 |
 
 ---
 
@@ -103,13 +100,10 @@
 ## 6. 營運文件（Company SSOT）
 
 ```
-docs/OPS_ARTIFACT_REGISTRY.md    ← 每份 artifact 治理
-docs/OUTCOME_LOG.md              ← 業務 outcome 證據（驅動 health）
-docs/OPS_MIGRATION_RUNBOOK.md    ← ART-001
-docs/OPS_WEEKLY_BUSINESS_REVIEW.md ← ART-002 + Outcome Review
-docs/OPS_PAYMENT_SOP.md            ← ART-003
-docs/EXECUTIVE_INBOX.md
-docs/DECISION_LOG.md
+/admin/executive                    ← live Outcome Pipeline UI
+/api/admin/outcomes                 ← authenticated metrics API
+/api/cto/outcomes                   ← machine sync (CTO_OUTCOME_SECRET)
+docs/OUTCOME_LOG.md                 ← auto-sync target for cto:health
 ```
 
 ---
@@ -117,11 +111,9 @@ docs/DECISION_LOG.md
 ## 7. 快照
 
 ```
-日期：2026-07-11 Round 9
-SHA：0da948f
-模式：Company-first · Outcome governance
-MDU：OUTCOME_LOG + ARTIFACT_REGISTRY + health script（無 deploy）
-下一輪：Founder 首週 Outcome Review → 更新 OUTCOME_LOG → outcome 分數才會變動
+日期：2026-07-11 Round 10
+MDU：Outcome Pipeline (API + /admin/executive)
+下一輪：Set CTO_OUTCOME_SECRET → npm run cto:outcomes → migrations
 ```
 
 ---

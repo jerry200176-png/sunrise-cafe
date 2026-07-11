@@ -8,8 +8,8 @@
 **Retirement:** KPI 自動化儀表板連續 4 週覆蓋本檔全部 KPI 且誤差 <2% → 降為附錄  
 **工具:** Supabase SQL Editor · 後台 `/admin/payments`
 
-> 解決 INB-005 / R-004：**在寫更多程式之前，先讓公司看得見營收健康度。**  
-> **Capability ≠ Outcome：** 跑完 SQL 不算完成；必須寫入 `OUTCOME_LOG.md` 才驅動 health **outcome** 分數。
+> 解決 INB-005 / R-004：**改用 `/admin/executive` 即時指標。**  
+> 下方 SQL 僅作 fallback；Outcome Pipeline 為主要資料來源。
 
 ---
 

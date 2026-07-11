@@ -158,5 +158,6 @@ printf "| Revenue reliability | %d | outcome_log |\n" "$REV"
 echo
 printf "| **Overall (weighted)** | **%d** | cap+outcome |\n" "$OVERALL"
 echo
-echo "Update outcomes: OPS_WEEKLY_BUSINESS_REVIEW → OUTCOME_LOG.md"
-echo "Artifact governance: docs/OPS_ARTIFACT_REGISTRY.md"
+echo "Live dashboard: ${PROD_URL}/admin/executive"
+echo "Auto-sync:      npm run cto:outcomes  (requires CTO_OUTCOME_SECRET)"
+echo "Health scores:  npm run cto:health"

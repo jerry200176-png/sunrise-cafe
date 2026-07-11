@@ -63,6 +63,26 @@ New dependabot PRs still target Next 16.2.10. Founder 關閉；controlled minors
 
 ---
 
+## Round 10 — 2026-07-11
+
+### DL-014: Outcome Pipeline automation over governance expansion
+
+**User directive:** Stop expanding governance; automate production-backed metrics.
+
+**Decision:**
+
+| Build | Skip |
+|-------|------|
+| `/api/cto/outcomes` + `/api/admin/outcomes` | More artifact registry entries |
+| `/admin/executive` live dashboard | Manual SQL weekly ritual as primary |
+| `npm run cto:outcomes` auto-sync | Doc-only health score changes |
+
+**MDU:** `outcome-metrics.ts` + API routes + Executive UI + pipeline script
+
+**Founder action:** Set `CTO_OUTCOME_SECRET` on Vercel (can reuse `CRON_SECRET`)
+
+---
+
 ## Round 7 — 2026-07-11
 
 ### DL-007: Executive Inbox review mandatory

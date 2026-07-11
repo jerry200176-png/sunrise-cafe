@@ -117,6 +117,24 @@ gh run list --branch main --limit 5 --json conclusion,displayTitle,createdAt,url
   || echo "    (unable to fetch)"
 echo
 
+# ── Outcome Pipeline (optional) ─────────────────────────────
+SECRET="${CTO_OUTCOME_SECRET:-${CRON_SECRET:-}}"
+if [[ -n "$SECRET" ]] && command -v jq >/dev/null 2>&1; then
+  echo "## Outcome Pipeline"
+  OUTCOME_JSON="$(curl -sf --max-time 20 -H "Authorization: Bearer ${SECRET}" \
+    "${PROD_URL}/api/cto/outcomes" 2>/dev/null || echo '{}')"
+  O_STATUS="$(echo "$OUTCOME_JSON" | jq -r '.status // "unavailable"' 2>/dev/null)"
+  O_DEPOSIT="$(echo "$OUTCOME_JSON" | jq -r '.payment.deposit_rate_pct // "—"' 2>/dev/null)"
+  O_WAITLIST="$(echo "$OUTCOME_JSON" | jq -r '.waitlist.conversion_pct // "—"' 2>/dev/null)"
+  O_PENDING="$(echo "$OUTCOME_JSON" | jq -r '.payment.pending_reviews // "—"' 2>/dev/null)"
+  echo "  Status:       $O_STATUS"
+  echo "  訂金率(30d):  ${O_DEPOSIT}%"
+  echo "  候補轉換:     ${O_WAITLIST}%"
+  echo "  待審核:       $O_PENDING"
+  echo "  Dashboard:    ${PROD_URL}/admin/executive"
+  echo
+fi
+
 # ── Blockers heuristic ──────────────────────────────────────
 BLOCKERS=()
 [[ "$DRAFT_COUNT" -gt 0 ]] && BLOCKERS+=("${DRAFT_COUNT} draft PR(s) should close")
