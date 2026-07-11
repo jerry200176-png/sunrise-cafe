@@ -35,7 +35,7 @@
 | Health | 🟢 | `/api/booking-health` ok |
 | SHA parity | 🟢 | main `488788b` = production (#102) |
 | CI main | 🟢 | 10/10 success |
-| Tests | 🟢 | 149 unit + 7 E2E (1 skip) |
+| Tests | 🟢 | 150 unit + 7 E2E (1 skip) |
 
 ### Customer Feedback
 

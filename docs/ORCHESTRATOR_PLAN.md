@@ -1,8 +1,8 @@
 # Orchestrator Plan (auto-generated)
 
-**Iteration:** iter-011  
-**Generated:** 2026-07-11 13:44 CST  
-**main:** `488788b`  
+**Iteration:** iter-012  
+**Generated:** 2026-07-11 13:52 CST  
+**main:** `f083d10`  
 **Policy:** [`ORCHESTRATOR.md`](./ORCHESTRATOR.md)
 
 > Regenerate: `npm run cto:orchestrator`  
@@ -15,10 +15,10 @@
 | Signal | Value |
 |--------|------:|
 | Gate | **BLOCK** (exit 2) |
-| Overall health | 68 |
+| Overall health | 60 |
 | GitHub score | 47 |
-| Doc drift (fail/warn) | 0 / 0 |
-| Production SHA match | 1 (`488788b` vs `488788b`) |
+| Doc drift (fail/warn) | 0 / 1 |
+| Production SHA match | 1 (`f083d10` vs `f083d10`) |
 | Bot can close GitHub | 0 |
 
 ---
@@ -27,26 +27,26 @@
 
 | Field | Value |
 |-------|-------|
-| **ID** | `orch-os-evolve` |
-| **Title** | Evolve AI Engineering Orchestrator (discover/prioritize/plan/verify) |
-| **Role** | [implementer](../orchestrator/roles/implementer.md) |
+| **ID** | `doc-drift-fix` |
+| **Title** | Fix documentation drift (IMPLEMENTATION_TRUTH, inbox, stale refs) |
+| **Role** | [documenter](../orchestrator/roles/documenter.md) |
 | **Owner** | agent |
-| **Score** | 120 |
-| **Evidence** | docs/ORCHESTRATOR.md |
+| **Score** | 105 |
+| **Evidence** | cto-doc-drift.sh warnings |
 
 ### Execution checklist
 
-1. Read role playbook: `orchestrator/roles/implementer.md`
+1. Read role playbook: `orchestrator/roles/documenter.md`
 2. Answer Work Gate: [`CTO_WORK_GATE.md`](./CTO_WORK_GATE.md)
 3. Implement / execute task (1 MDU if code)
 4. `npm test` + `npm run cto:orchestrator -- verify`
 5. Commit, PR, merge, verify production SHA
-6. `npm run cto:orchestrator -- complete orch-os-evolve "<measurable outcome>"`
+6. `npm run cto:orchestrator -- complete doc-drift-fix "<measurable outcome>"`
 7. Re-run `npm run cto:orchestrator` for next task
 
 ### Verification
 
-npm run cto:orchestrator produces ORCHESTRATOR_PLAN.md
+DOC_DRIFT_WARNINGS=0 or documented founder-blocked
 
 ---
 

@@ -43,11 +43,10 @@ jq -n \
     (if $t.id == "doc-drift-fix" and ($drift_failures + $drift_warnings) == 0 then 0 else 1 end) as $drift_needed |
     (if $t.id == "branch-hygiene" and $cursor_branches <= 2 then 0 else 1 end) as $branch_needed |
     (if $t.id == "outcome-baseline" and $outcome_measured == 1 then 0 else 1 end) as $outcome_needed |
-    (if $t.id == $last_task then -5 else 0 end) as $repeat_penalty |
+    (if $t.id == $last_task and $last_task != "" then 0 else 1 end) as $not_repeat |
     ($t.base_score // 50)
     + (if $gate_block == 1 then ($t.gate_block_bonus // 0) else 0 end)
     + (if $t.id == "doc-drift-fix" then ($drift_failures * 20 + $drift_warnings * 5) else 0 end)
-    + $repeat_penalty
     | . as $s |
     {
       id: $t.id,
@@ -55,8 +54,8 @@ jq -n \
       role: $t.role,
       type: $t.type,
       owner: ($t.owner // "agent"),
-      score: (if ($ind * $agent * $gate_ok * $perm_ok * $drift_needed * $branch_needed * $outcome_needed) == 0 then 0 else $s end),
-      executable: (($ind * $agent * $gate_ok * $perm_ok * $drift_needed * $branch_needed * $outcome_needed) == 1),
+      score: (if ($ind * $agent * $gate_ok * $perm_ok * $drift_needed * $branch_needed * $outcome_needed * $not_repeat) == 0 then 0 else $s end),
+      executable: (($ind * $agent * $gate_ok * $perm_ok * $drift_needed * $branch_needed * $outcome_needed * $not_repeat) == 1),
       blocked_reason: (
         if $perm_ok == 0 then "requires_permission:github_write"
         elif $gate_ok == 0 then "requires_gate_pass"
@@ -64,6 +63,7 @@ jq -n \
         elif $drift_needed == 0 then "no_drift"
         elif $branch_needed == 0 then "branches_clean"
         elif $outcome_needed == 0 then "outcome_already_measured"
+        elif $not_repeat == 0 then "completed_last_iteration"
         else null end
       ),
       evidence: $t.evidence,

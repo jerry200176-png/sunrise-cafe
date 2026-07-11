@@ -6,6 +6,8 @@
 export type OpsLogDomain = "cron" | "webhook" | "guest";
 
 export type OpsLogAction =
+  | "cron.completed"
+  | "cron.run_failed"
   | "cron.failure_notified"
   | "cron.partial_failure"
   | "webhook.event_error"

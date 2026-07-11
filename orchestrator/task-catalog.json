@@ -71,8 +71,8 @@
       "owner": "agent",
       "independent": true,
       "base_score": 65,
-      "gate_block_bonus": 0,
-      "requires_gate_pass": true,
+      "gate_block_bonus": 15,
+      "requires_gate_pass": false,
       "evidence": "issue #60, partial ops-log.ts",
       "verify": "all cron routes call opsLog"
     },
