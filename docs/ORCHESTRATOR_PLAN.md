@@ -1,8 +1,8 @@
 # Orchestrator Plan (auto-generated)
 
-**Iteration:** iter-013  
-**Generated:** 2026-07-11 14:09 CST  
-**main:** `acad07d`  
+**Iteration:** iter-014  
+**Generated:** 2026-07-11 18:58 CST  
+**main:** `73d33f4`  
 **Policy:** [`ORCHESTRATOR.md`](./ORCHESTRATOR.md)
 
 > Regenerate: `npm run cto:orchestrator`  
@@ -14,12 +14,12 @@
 
 | Signal | Value |
 |--------|------:|
-| Gate | **BLOCK** (exit 2) |
-| Overall health | 61 |
-| GitHub score | 47 |
-| Doc drift (fail/warn) | 0 / 1 |
-| Production SHA match | 0 (`f083d10` vs `acad07d`) |
-| Bot can close GitHub | 0 |
+| Gate | **PASS** (exit 0) |
+| Overall health | 70 |
+| GitHub score | 97 |
+| Doc drift (fail/warn) | 0 / 2 |
+| Production SHA match | 0 (`b516013` vs `73d33f4`) |
+| Bot can close GitHub | 1 |
 
 ---
 
@@ -31,7 +31,7 @@
 | **Title** | Fix documentation drift (IMPLEMENTATION_TRUTH, inbox, stale refs) |
 | **Role** | [documenter](../orchestrator/roles/documenter.md) |
 | **Owner** | agent |
-| **Score** | 105 |
+| **Score** | 85 |
 | **Evidence** | cto-doc-drift.sh warnings |
 
 ### Execution checklist

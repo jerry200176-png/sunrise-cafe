@@ -31,27 +31,27 @@
     }
   ],
   "planned_iteration": {
-    "id": "iter-013",
-    "at": "2026-07-11T14:09:44+0800",
+    "id": "iter-014",
+    "at": "2026-07-11T18:58:04+0800",
     "task_id": "doc-drift-fix",
     "title": "Fix documentation drift (IMPLEMENTATION_TRUTH, inbox, stale refs)",
     "role": "documenter",
     "owner": "agent",
-    "score": 105
+    "score": 85
   },
   "signals": {
-    "gate": "BLOCK",
-    "overall_health": 61,
-    "github_score": 47
+    "gate": "PASS",
+    "overall_health": 70,
+    "github_score": 97
   },
   "operational_mode": "STANDBY",
   "deploy": {
     "status": "blocked",
     "reason": "sha_mismatch",
-    "main_sha": "19ec837",
-    "prod_sha": "f083d10",
-    "main_full": "19ec837c7e8e64609a2775ac27bb47d8cff35df1",
-    "prod_full": "f083d10f5dd7f3d2c61a34d1a600930d534f6d14",
-    "checked_at": "2026-07-11T14:22:12+0800"
+    "main_sha": "73d33f4",
+    "prod_sha": "b516013",
+    "main_full": "73d33f4350cebf18143224637da97248b967f572",
+    "prod_full": "b516013fb7f7857f6214675789af7f0fad28ed8a",
+    "checked_at": "2026-07-11T18:57:31+0800"
   }
 }
