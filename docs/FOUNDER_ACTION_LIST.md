@@ -1,57 +1,40 @@
 # Founder Action List
 
-**Updated:** 2026-07-11 15:40 CST  
-**Source:** `npm run cto:governance` — permission-blocked items only
+**Updated:** 2026-07-11 17:50 CST  
+**Gate:** PASS · Overall **83** / 100  
+**SSOT:** [`FOUNDER_PERMISSIONS.md`](./FOUNDER_PERMISSIONS.md) — 權限與 secret 清單（目標分數 100）
 
 ---
 
-## GitHub batch
+## 目前阻塞（自動偵測）
 
-**Agent-automated (2026-07-11):**
-- Closed PRs #70–#77, #89, #90, #91, #112 (superseded / Dependabot majors)
-- Deleted stale `cursor/*` remote branches
+| 項目 | 現況 | 解法 |
+|------|------|------|
+| Production SHA | `b516013` vs prod — see drift check | Founder: `vercel deploy --prod` 或提供 `VERCEL_TOKEN` |
+| OUTCOME_LOG | 未測量 | 設定 `CTO_OUTCOME_SECRET` → 自動同步；或手動開 Executive 儀表板 |
+| DB migrations | 3 pending | [`OPS_MIGRATION_RUNBOOK.md`](./OPS_MIGRATION_RUNBOOK.md) |
+| Open issues | 6 | 策略性保留 #53/#54/#95/#99；#61/#63 已登記 CAPABILITY_GAPS |
 
-**Automated via workflow:** `.github/workflows/github-hygiene.yml` closes issues #59, #62, #60 with evidence comments (weekly + manual dispatch).
+## GitHub 狀態（本輪）
 
-**Founder one-time (if workflow not yet run):**
+| 指標 | 值 |
+|------|---:|
+| Open PRs (non-dep) | 0 |
+| Draft PRs | 0 |
+| cursor/* branches | 0 |
+| Bot can close issues | no — use github-hygiene workflow |
+
+## 一鍵指令
 
 ```bash
+# 關閉已 triage 的 issue（若 workflow 未跑）
 gh workflow run github-hygiene.yml
+
+# 治理重算
+npm run cto:governance
+npm run cto:health
 ```
-
-**Manual fallback (if Actions blocked):**
-
-```bash
-gh issue close 59 --comment "Shipped: E2E on main (#97, #118)."
-gh issue close 62 --comment "Duplicate: reconcile MVP at /api/admin/payments/reconcile."
-gh issue close 60 --comment "Shipped: webhook observability #118."
-```
-
-## Ops (P0 — blocks outcome measurement)
-
-See issue **#95** and [`OPS_MIGRATION_RUNBOOK.md`](./OPS_MIGRATION_RUNBOOK.md) Steps 1–4 (~25 min).
-
-## KPI baseline (unblocks outcome scores)
-
-1. Open https://sunrise-cafe-six.vercel.app/admin/executive once (logged in)
-2. Record metrics in [`OUTCOME_LOG.md`](./OUTCOME_LOG.md)
-
-## GitHub Actions PR create (unblocks autonomous loop merge)
-
-Repo **Settings → Actions → General → Workflow permissions** → enable  
-**Allow GitHub Actions to create and approve pull requests**.
-
-Without this, the loop pushes branches but cannot open PRs (exit 2 — expected, not a failure).
-
-## Secrets (optional automation)
-
-| Secret | Where | Enables |
-|--------|-------|---------|
-| `E2E_ADMIN_PASSWORD` | GitHub Actions | Admin payment review Playwright smoke (CG-007) |
-| `CTO_OUTCOME_SECRET` | Vercel + GitHub Actions | Auto-sync `OUTCOME_LOG.md` via business-intelligence workflow |
-| `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` | GitHub Actions | Live DB drift gate + outcome metrics |
-| Upstash Redis | Vercel | Rate limits enforce in prod (CG-006) |
 
 ---
 
-_After completing actions, run `npm run cto:governance` — gate should move toward PASS._
+_完整權限清單與「開了能加幾分」見 [`FOUNDER_PERMISSIONS.md`](./FOUNDER_PERMISSIONS.md)._
