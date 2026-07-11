@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback, Suspense } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { ArrowLeft, Calendar, Clock } from "lucide-react";
 import { format, parseISO } from "date-fns";
-import { zhTW } from "date-fns/locale";
+import { enUS, ja, zhTW } from "date-fns/locale";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
@@ -54,7 +54,8 @@ export default function BookQueryPage() {
 }
 
 function BookQueryContent() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
+  const dateFnsLocale = locale === "en" ? enUS : locale === "ja" ? ja : zhTW;
   const searchParams = useSearchParams();
   const STATUS_LABELS: Record<string, string> = {
     pending: t("query.status.pending"),
@@ -69,6 +70,9 @@ function BookQueryContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [confirmingCancelId, setConfirmingCancelId] = useState<string | null>(null);
+  const [pendingReschedule, setPendingReschedule] = useState<{ start: string; end: string } | null>(null);
+  const reschedulePanelRef = useRef<HTMLDivElement | null>(null);
   const [reschedulingItem, setReschedulingItem] = useState<BookingItem | null>(null);
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [rescheduleSlots, setRescheduleSlots] = useState<AvailabilitySlot[]>([]);
@@ -127,12 +131,9 @@ function BookQueryContent() {
     await runSearch(phone, bookingCode);
   };
 
-  const cancel = async (id: string, item: BookingItem) => {
-    const msg = item.is_deposit_paid
-      ? t("query.confirmCancelDepositPaid")
-      : t("query.confirmCancel");
-    if (!confirm(msg)) return;
+  const cancel = async (id: string) => {
     setCancellingId(id);
+    setConfirmingCancelId(null);
     setError(null);
     try {
       const res = await fetch("/api/cancel-booking", {
@@ -167,7 +168,7 @@ function BookQueryContent() {
 
   const cancelDeadline = (item: BookingItem) => {
     const d = new Date(new Date(item.start_time).getTime() - CANCEL_WINDOW_MS);
-    return format(d, "yyyy/MM/dd (EEE) HH:mm", { locale: zhTW });
+    return format(d, "yyyy/MM/dd (EEE) HH:mm", { locale: dateFnsLocale });
   };
 
   const canReschedule = (item: BookingItem) => {
@@ -186,17 +187,29 @@ function BookQueryContent() {
     setRescheduleSlots([]);
     setRescheduleGuestCount(item.guest_count ?? "");
     setRescheduleError(null);
+    setPendingReschedule(null);
   };
 
   const closeReschedule = () => {
     setReschedulingItem(null);
     setRescheduleSlots([]);
     setRescheduleError(null);
+    setPendingReschedule(null);
   };
+
+  useEffect(() => {
+    if (!reschedulingItem) return;
+    reschedulePanelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    const input = document.getElementById(`reschedule-date-${reschedulingItem.id}`);
+    if (input instanceof HTMLInputElement) {
+      input.focus();
+    }
+  }, [reschedulingItem]);
 
   const fetchRescheduleSlots = async (date: string) => {
     if (!reschedulingItem?.branch_id || !date) return;
     setRescheduleDate(date);
+    setPendingReschedule(null);
     setRescheduleSlotsLoading(true);
     setRescheduleError(null);
     setRescheduleSlots([]);
@@ -368,7 +381,7 @@ function BookQueryContent() {
                     <p className="mt-1 flex items-center gap-1 text-sm text-gray-600">
                       <Calendar className="h-4 w-4" />
                       {format(parseISO(item.start_time), "yyyy/MM/dd (EEE)", {
-                        locale: zhTW,
+                        locale: dateFnsLocale,
                       })}
                     </p>
                     <p className="flex items-center gap-1 text-sm text-gray-600">
@@ -513,6 +526,37 @@ function BookQueryContent() {
                     <p className="text-xs text-gray-400">
                       {t("query.cancelDeadlineLabel", { deadline: cancelDeadline(item) })}
                     </p>
+                    {confirmingCancelId === item.id && (
+                      <div
+                        role="alertdialog"
+                        aria-labelledby={`cancel-title-${item.id}`}
+                        className="rounded-lg border border-red-200 bg-red-50 p-3 space-y-2"
+                      >
+                        <p id={`cancel-title-${item.id}`} className="text-sm font-medium text-red-900">
+                          {t("query.cancelConfirmTitle")}
+                        </p>
+                        {item.is_deposit_paid && (
+                          <p className="text-sm text-red-800">{t("query.cancelConfirmDepositWarning")}</p>
+                        )}
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setConfirmingCancelId(null)}
+                            className="flex-1 rounded-lg border border-gray-300 bg-white py-2 text-sm text-gray-700 hover:bg-gray-50"
+                          >
+                            {t("query.cancelConfirmKeep")}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={cancellingId === item.id}
+                            onClick={() => cancel(item.id)}
+                            className="flex-1 rounded-lg bg-red-600 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50"
+                          >
+                            {cancellingId === item.id ? t("query.cancelling") : t("query.cancelConfirmProceed")}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     <div className="flex gap-2">
                       {canReschedule(item) && (
                         <button
@@ -525,14 +569,16 @@ function BookQueryContent() {
                           {reschedulingItem?.id === item.id ? t("query.rescheduleCancelButton") : t("query.rescheduleButton")}
                         </button>
                       )}
-                      <button
-                        type="button"
-                        disabled={cancellingId === item.id}
-                        onClick={() => cancel(item.id, item)}
-                        className="flex-1 rounded-lg border border-red-200 py-2 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"
-                      >
-                        {cancellingId === item.id ? t("query.cancelling") : t("query.cancelButton")}
-                      </button>
+                      {confirmingCancelId !== item.id && (
+                        <button
+                          type="button"
+                          disabled={cancellingId === item.id}
+                          onClick={() => setConfirmingCancelId(item.id)}
+                          className="flex-1 rounded-lg border border-red-200 py-2 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          {t("query.cancelButton")}
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -543,7 +589,10 @@ function BookQueryContent() {
                 )}
 
                 {reschedulingItem?.id === item.id && (
-                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-3">
+                  <div
+                    ref={reschedulePanelRef}
+                    className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-3"
+                  >
                     <label htmlFor={`reschedule-date-${item.id}`} className="block text-sm font-medium text-amber-900">
                       {t("query.reschedulePickDate", { hours: durationHoursOf(item) })}
                     </label>
@@ -579,22 +628,61 @@ function BookQueryContent() {
                     )}
 
                     {!rescheduleSlotsLoading && rescheduleDate && !rescheduleError && (
-                      <div className="flex flex-wrap gap-2">
+                      <div className="space-y-2">
                         {validRescheduleStarts().length === 0 ? (
                           <p className="text-sm text-gray-500">{t("query.rescheduleNoSlots")}</p>
                         ) : (
-                          validRescheduleStarts().map((opt) => (
-                            <button
-                              key={opt.start}
-                              type="button"
-                              disabled={rescheduleSubmitting}
-                              onClick={() => confirmReschedule(opt.start, opt.end)}
-                              className="rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-sm text-amber-800 hover:bg-amber-100 disabled:opacity-50"
-                            >
-                              {format(parseISO(opt.start), "HH:mm")}–
-                              {format(parseISO(opt.end), "HH:mm")}
-                            </button>
-                          ))
+                          <>
+                            <p className="text-xs text-amber-800">{t("query.reschedulePickTime")}</p>
+                            <div className="flex flex-wrap gap-2">
+                              {validRescheduleStarts().map((opt) => (
+                                <button
+                                  key={opt.start}
+                                  type="button"
+                                  disabled={rescheduleSubmitting}
+                                  onClick={() => setPendingReschedule(opt)}
+                                  className={`rounded-lg border px-3 py-1.5 text-sm disabled:opacity-50 ${
+                                    pendingReschedule?.start === opt.start
+                                      ? "border-amber-600 bg-amber-100 text-amber-900"
+                                      : "border-amber-400 bg-white text-amber-800 hover:bg-amber-100"
+                                  }`}
+                                >
+                                  {format(parseISO(opt.start), "HH:mm")}–
+                                  {format(parseISO(opt.end), "HH:mm")}
+                                </button>
+                              ))}
+                            </div>
+                            {pendingReschedule && (
+                              <div className="rounded-lg border border-amber-300 bg-white p-3 space-y-2">
+                                <p className="text-sm font-medium text-amber-900">
+                                  {t("query.rescheduleConfirmTitle")}{" "}
+                                  {format(parseISO(pendingReschedule.start), "HH:mm")}–
+                                  {format(parseISO(pendingReschedule.end), "HH:mm")}
+                                </p>
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setPendingReschedule(null)}
+                                    className="flex-1 rounded-lg border border-gray-300 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                                  >
+                                    {t("query.rescheduleCancelButton")}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={rescheduleSubmitting}
+                                    onClick={() =>
+                                      confirmReschedule(pendingReschedule.start, pendingReschedule.end)
+                                    }
+                                    className="flex-1 rounded-lg bg-amber-600 py-2 text-sm text-white hover:bg-amber-700 disabled:opacity-50"
+                                  >
+                                    {rescheduleSubmitting
+                                      ? t("query.rescheduleSearching")
+                                      : t("query.rescheduleConfirmButton")}
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     )}
