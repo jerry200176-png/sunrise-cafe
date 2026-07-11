@@ -1,6 +1,7 @@
 # Engineering Governance — Repository Operating System
 
 **Owner:** CTO Agent · **SSOT for:** when to ship features vs run governance  
+**Parent:** [`ORCHESTRATOR.md`](./ORCHESTRATOR.md) (governor role module)  
 **Supersedes:** iteration-count planning; complements [`CTO_OS_V2.md`](./CTO_OS_V2.md)  
 **Updated:** 2026-07-11
 

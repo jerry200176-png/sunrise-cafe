@@ -21,6 +21,9 @@
 | ART-008 | [`GOVERNANCE_STATUS.md`](./GOVERNANCE_STATUS.md) | Report | CTO Agent | Each `cto:governance` run | Timestamp + gate verdict current | Regenerated each run |
 | ART-009 | [`GITHUB_TRIAGE.md`](./GITHUB_TRIAGE.md) | Registry | CTO Agent | Each governance run | Open items have CLOSE/KEEP/DEFER | Empty when backlog clean |
 | ART-010 | [`FOUNDER_ACTION_LIST.md`](./FOUNDER_ACTION_LIST.md) | Escalation | Founder | When bot blocked | All P0 blockers have copy-paste cmds | **Retire** when list empty 4 weeks |
+| ART-011 | [`ORCHESTRATOR.md`](./ORCHESTRATOR.md) | Platform | CTO Agent | Every iteration start | `cto:orchestrator` selects next task | Never — OS SSOT |
+| ART-012 | [`orchestrator/state.json`](../orchestrator/state.json) | State | CTO Agent | Each plan/complete | Recoverable after interrupt | Regenerated each complete |
+| ART-013 | [`ORCHESTRATOR_LOG.md`](./ORCHESTRATOR_LOG.md) | Audit | CTO Agent | Each `complete` | Append-only iteration row | Archive yearly |
 
 ---
 

@@ -84,6 +84,7 @@ vercel --prod
 | [docs/DECISIONS.md](docs/DECISIONS.md) | 重要技術決策記錄（ADR） |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 初次部署指南 |
 | [docs/ENGINEERING_GOVERNANCE.md](docs/ENGINEERING_GOVERNANCE.md) | 工程治理閘門（`npm run cto:governance`） |
+| [docs/ORCHESTRATOR.md](docs/ORCHESTRATOR.md) | AI 工程編排器（`npm run cto:orchestrator`） |
 
 ---
 

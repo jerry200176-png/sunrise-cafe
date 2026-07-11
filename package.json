@@ -15,6 +15,7 @@
     "cto:health": "bash scripts/cto-health-scores.sh",
     "cto:outcomes": "bash scripts/cto-outcome-pipeline.sh",
     "cto:governance": "bash scripts/cto-governance.sh",
+    "cto:orchestrator": "bash scripts/cto-orchestrator.sh",
     "verify:migrations": "bash scripts/verify-migrations.sh"
   },
   "dependencies": {

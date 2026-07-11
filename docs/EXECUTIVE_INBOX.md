@@ -2,30 +2,38 @@
 
 **CTO Operating System v2 · Company-first**  
 **Review cadence:** Every iteration **before** selecting work  
-**Last reviewed:** 2026-07-11 13:20 UTC (Round 10 — Engineering Governance)
+**Last reviewed:** 2026-07-11 13:45 UTC (Round 11 — AI Orchestrator)
 
-> Inbox → **`cto:governance` gate** → Decision Log → **Company ROI** → MDU  
-> **Round 10:** Repository-driven governance — feature work blocked when gate exit 2.
+> **`cto:orchestrator`** → auto-select next task → execute → verify → record  
+> Governance gate still BLOCK; agent runs independent tasks until Founder clears GitHub.
 
 ---
 
-## 本輪審查（Round 10 · Engineering Governance）
+## 本輪審查（Round 11 · AI Engineering Orchestrator）
+
+### Orchestrator
+
+| 信號 | 狀態 | 證據 |
+|------|------|------|
+| Task auto-selection | 🟢 | `npm run cto:orchestrator` |
+| Recoverable state | 🟢 | `orchestrator/state.json` |
+| Role playbooks | 🟢 | 8 roles in `orchestrator/roles/` |
+| Daily CI heartbeat | 🟢 | `.github/workflows/orchestrator.yml` |
+| Capability gaps registry | 🟢 | `CAPABILITY_GAPS.md` |
 
 ### Governance Gate
 
 | 信號 | 狀態 | 證據 |
 |------|------|------|
-| `cto:governance` | 🔴 **BLOCK** (expected) | GitHub hygiene + overall <70 |
-| Policy SSOT | 🟢 | `ENGINEERING_GOVERNANCE.md` shipped |
-| Weekly CI gate | 🟢 | `.github/workflows/governance.yml` |
-| Founder blockers | 🟠 | `FOUNDER_ACTION_LIST.md` — bot cannot close issues/PRs |
+| `cto:governance` | 🔴 **BLOCK** | Overall 68, GitHub 47, 9 PRs |
+| Founder blockers | 🟠 | `FOUNDER_ACTION_LIST.md` |
 
 ### Production & Deployment
 
 | 信號 | 狀態 | 證據 |
 |------|------|------|
 | Health | 🟢 | `/api/booking-health` ok |
-| SHA parity | 🟢 | main `2dbad8e` = production (#101) |
+| SHA parity | 🟢 | main `488788b` = production (#102) |
 | CI main | 🟢 | 10/10 success |
 | Tests | 🟢 | 149 unit + 7 E2E (1 skip) |
 
@@ -101,15 +109,15 @@
 
 ---
 
-## 本輪 MDU 判定（Round 10 · Engineering Governance）
+## 本輪 MDU 判定（Round 11 · AI Orchestrator）
 
 | 候選 | 類型 | ROI | 選擇 |
 |------|------|-----|------|
-| **Engineering governance OS** | **治理** | **最高** — durable gate before features | ✅ **執行** |
-| Founder GitHub batch | 營運 | 高 — unblocks GitHub score | **Founder 待執行** |
-| #53 payment code | Eng | 中（無 baseline） | 延後至 gate PASS |
-| LINE image storage | Eng | 高 staff friction | 延後至 gate PASS |
+| **AI Engineering Orchestrator** | **平台** | **最高** — autonomous OS | ✅ **執行** |
+| doc-drift + inbox sync | 治理 | 高 — measurable doc accuracy | ✅ **同輪** |
+| Founder GitHub batch | 營運 | 高 — unblocks gate | **Founder** |
+| payment-review-images | 產品 | 高 — gate requires PASS | 延後 |
 
 ---
 
-*Next: merge governance PR → Founder executes `FOUNDER_ACTION_LIST.md` → re-run `cto:governance` until PASS → resume feature MDUs*
+*Next: merge orchestrator PR → `cto:orchestrator -- complete` → auto-plan iter-012*

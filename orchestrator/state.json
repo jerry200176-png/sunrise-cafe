@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "iteration_count": 10,
+  "last_iteration": {
+    "id": "iter-010",
+    "task_id": "gov-gate-ship",
+    "title": "Engineering governance gate and GitHub hygiene OS",
+    "role": "governor",
+    "outcome": "Merged PR #102 — cto:governance gate, weekly CI, FOUNDER_ACTION_LIST",
+    "completed_at": "2026-07-11T13:30:00+0800",
+    "sha": "488788b",
+    "pr": "102",
+    "overall_health": 67
+  },
+  "blockers": [
+    {
+      "id": "founder-github-close",
+      "owner": "founder",
+      "reason": "Bot cannot close issues/PRs (integration restriction)",
+      "action": "docs/FOUNDER_ACTION_LIST.md"
+    },
+    {
+      "id": "founder-ops-migrations",
+      "owner": "founder",
+      "reason": "Supabase migrations require dashboard access",
+      "action": "docs/OPS_MIGRATION_RUNBOOK.md"
+    },
+    {
+      "id": "outcome-unmeasured",
+      "owner": "founder",
+      "reason": "OUTCOME_LOG has no measured date",
+      "action": "Open /admin/executive and record baseline"
+    }
+  ],
+  "planned_iteration": {
+    "id": "iter-011",
+    "at": "2026-07-11T13:44:47+0800",
+    "task_id": "orch-os-evolve",
+    "title": "Evolve AI Engineering Orchestrator (discover/prioritize/plan/verify)",
+    "role": "implementer",
+    "owner": "agent",
+    "score": 120
+  },
+  "signals": {
+    "gate": "BLOCK",
+    "overall_health": 68,
+    "github_score": 47
+  }
+}

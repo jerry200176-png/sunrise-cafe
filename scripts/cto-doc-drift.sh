@@ -36,9 +36,13 @@ else
   ok "Production SHA matches main ($LOCAL_SHA)"
 fi
 
-# Stale issue #59 reference as open work
+# Stale issue #59 — founder-escalated, not doc drift
 if grep -q '#59' docs/IMPLEMENTATION_TRUTH.md 2>/dev/null && gh issue view 59 --json state -q .state 2>/dev/null | grep -q OPEN; then
-  warn "Issue #59 still OPEN but E2E shipped — governance should close (Founder if bot blocked)"
+  if [[ -f docs/FOUNDER_ACTION_LIST.md ]] && grep -q 'gh issue close 59' docs/FOUNDER_ACTION_LIST.md; then
+    ok "Issue #59 OPEN — Founder action documented (not drift)"
+  else
+    warn "Issue #59 still OPEN but E2E shipped — add to FOUNDER_ACTION_LIST"
+  fi
 fi
 
 # Migration verify
