@@ -1,5 +1,7 @@
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
+import crypto from "crypto";
+import { normalizePhone } from "@/lib/phone-utils";
 
 // 未設定 Upstash 時直接放行，不影響系統運作
 function isUpstashConfigured() {
@@ -26,14 +28,25 @@ const limiters = {
 
 type LimiterKey = keyof typeof limiters;
 
+/** Composite key: IP + hashed phone — slows phone enumeration across IPs. */
+export function guestRateLimitId(ip: string, phone?: string | null): string {
+  if (!phone?.trim()) return `ip:${ip}`;
+  const hash = crypto
+    .createHash("sha256")
+    .update(normalizePhone(phone))
+    .digest("hex")
+    .slice(0, 16);
+  return `ip:${ip}:ph:${hash}`;
+}
+
 export async function rateLimit(
-  ip: string,
+  identifier: string,
   key: LimiterKey
 ): Promise<{ success: boolean; limit: number; remaining: number; reset: number }> {
   const limiter = limiters[key];
   if (!limiter) return { success: true, limit: 0, remaining: 0, reset: 0 };
 
-  const result = await limiter.limit(ip);
+  const result = await limiter.limit(identifier);
   return {
     success: result.success,
     limit: result.limit,
