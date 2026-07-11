@@ -33,7 +33,7 @@
 | Per-branch `closed_dates` | ✅ | #86 `branch-closed-dates.ts` |
 | Cron failure alerting | ✅ | #87 `cron-alert.ts` |
 | Next.js security patch | 🟡 | #88 → 15.5.20 |
-| `verify:migrations` in CI | ❌ | Not in package.json |
+| `verify:migrations` in CI | ✅ | `npm run verify:migrations` + optional drift gate |
 
 ---
 
@@ -54,9 +54,9 @@ Check: `SELECT * FROM schema_migrations ORDER BY applied_at;`
 
 | Type | Count | Action |
 |------|-------|--------|
-| Open PRs | #86 (wave3b), #64/#65 dependabot, #70–#77 stale | Close #70–77 manually |
-| Open Issues | 7 | Triage in dashboard |
-| Tests on main | 129 | — |
+| Open PRs | 11 (8 draft phase + #77/#89 + dependabot) | Founder batch close |
+| Open Issues | 7 | #62 duplicate; #53 active P1 |
+| Tests on main | 140+ | verify:migrations in CI |
 
 ---
 
