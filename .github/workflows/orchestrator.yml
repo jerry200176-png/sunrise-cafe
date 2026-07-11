@@ -1,0 +1,53 @@
+name: Orchestrator Heartbeat
+
+on:
+  schedule:
+    # Daily 02:00 UTC = 10:00 Asia/Taipei
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  orchestrator-plan:
+    name: Generate engineering plan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - run: npm ci
+
+      - name: Run orchestrator (discover → prioritize → plan)
+        run: npm run cto:orchestrator
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROD_URL: https://sunrise-cafe-six.vercel.app
+
+      - name: Upload orchestrator artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: orchestrator-${{ github.run_id }}
+          path: |
+            docs/ORCHESTRATOR_PLAN.md
+            orchestrator/priority.json
+            orchestrator/discover.env
+            orchestrator/state.json
+          retention-days: 30
+
+      - name: Governance gate (informational)
+        if: always()
+        run: npm run cto:governance || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

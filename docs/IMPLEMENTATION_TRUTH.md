@@ -1,7 +1,7 @@
 # Implementation Truth — Single Source of Technical State
 
 **Owner:** CTO Operating System v2  
-**Updated:** 2026-07-11 (Round 10 — engineering governance)  
+**Updated:** 2026-07-11 (Round 11 — AI Engineering Orchestrator)  
 **Rule:** If this doc disagrees with other docs, **this doc wins**. Verify against `main` branch code.  
 **Daily ops:** [`EXECUTIVE_DASHBOARD.md`](./EXECUTIVE_DASHBOARD.md) · snapshot: `npm run cto:snapshot`
 
@@ -69,7 +69,8 @@ Check: `SELECT * FROM schema_migrations ORDER BY applied_at;`
 | Open PRs | 11 (8 draft phase + #89 + dependabot) | `GITHUB_TRIAGE.md` — Founder batch close |
 | Open Issues | 9 | `GITHUB_TRIAGE.md` — close #59/#62 when shipped |
 | Tests on main | 149 unit + 7 E2E (1 skip) | `npm run cto:governance` verifies drift |
-| Governance gate | `cto:governance` | `ENGINEERING_GOVERNANCE.md` — exit 0 required for features |
+| Governance gate | `cto:governance` | `ENGINEERING_GOVERNANCE.md` |
+| AI orchestrator | `cto:orchestrator` | `ORCHESTRATOR.md` — discover/prioritize/plan |
 
 ---
 

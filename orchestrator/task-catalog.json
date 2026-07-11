@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "founder-github-batch",
+      "title": "Execute Founder GitHub batch close (ghost PRs, shipped issues)",
+      "role": "governor",
+      "type": "governance",
+      "owner": "founder",
+      "requires_permission": "github_write",
+      "independent": false,
+      "base_score": 100,
+      "gate_block_bonus": 40,
+      "evidence": "FOUNDER_ACTION_LIST.md",
+      "verify": "npm run cto:governance exits 0 or GitHub score >= 60"
+    },
+    {
+      "id": "founder-ops-migrations",
+      "title": "Apply 3 DB migrations per OPS_MIGRATION_RUNBOOK",
+      "role": "operator",
+      "type": "operations",
+      "owner": "founder",
+      "requires_permission": "supabase_dashboard",
+      "independent": false,
+      "base_score": 95,
+      "gate_block_bonus": 20,
+      "evidence": "issue #95",
+      "verify": "schema_migrations has 3 rows; outcome overlap_constraint_active=yes"
+    },
+    {
+      "id": "orch-os-evolve",
+      "title": "Evolve AI Engineering Orchestrator (discover/prioritize/plan/verify)",
+      "role": "implementer",
+      "type": "platform",
+      "owner": "agent",
+      "independent": true,
+      "base_score": 110,
+      "gate_block_bonus": 10,
+      "evidence": "docs/ORCHESTRATOR.md",
+      "verify": "npm run cto:orchestrator produces ORCHESTRATOR_PLAN.md"
+    },
+    {
+      "id": "doc-drift-fix",
+      "title": "Fix documentation drift (IMPLEMENTATION_TRUTH, inbox, stale refs)",
+      "role": "documenter",
+      "type": "governance",
+      "owner": "agent",
+      "independent": true,
+      "base_score": 75,
+      "gate_block_bonus": 25,
+      "evidence": "cto-doc-drift.sh warnings",
+      "verify": "DOC_DRIFT_WARNINGS=0 or documented founder-blocked"
+    },
+    {
+      "id": "branch-hygiene",
+      "title": "Delete merged/stale remote cursor/* branches",
+      "role": "governor",
+      "type": "governance",
+      "owner": "agent",
+      "independent": true,
+      "base_score": 70,
+      "gate_block_bonus": 15,
+      "evidence": "cto-github-hygiene.sh branch section",
+      "verify": "GITHUB_CURSOR_BRANCH_COUNT <= 2"
+    },
+    {
+      "id": "ops-log-cron-extend",
+      "title": "Extend structured ops-log to all cron routes (#60)",
+      "role": "implementer",
+      "type": "observability",
+      "owner": "agent",
+      "independent": true,
+      "base_score": 65,
+      "gate_block_bonus": 0,
+      "requires_gate_pass": true,
+      "evidence": "issue #60, partial ops-log.ts",
+      "verify": "all cron routes call opsLog"
+    },
+    {
+      "id": "payment-review-images",
+      "title": "Persist LINE payment screenshots for staff review UI",
+      "role": "implementer",
+      "type": "product",
+      "owner": "agent",
+      "independent": true,
+      "base_score": 80,
+      "gate_block_bonus": 0,
+      "requires_gate_pass": true,
+      "evidence": "EXECUTIVE_INBOX staff friction",
+      "verify": "payment review UI shows stored image URL"
+    },
+    {
+      "id": "capability-gap-close",
+      "title": "Close top evidence-based capability gap from CAPABILITY_GAPS.md",
+      "role": "planner",
+      "type": "platform",
+      "owner": "agent",
+      "independent": true,
+      "base_score": 60,
+      "gate_block_bonus": 5,
+      "evidence": "docs/CAPABILITY_GAPS.md rank 1 open",
+      "verify": "gap row marked closed with PR link"
+    },
+    {
+      "id": "outcome-baseline",
+      "title": "Record first OUTCOME_LOG measured baseline via /admin/executive",
+      "role": "operator",
+      "type": "operations",
+      "owner": "founder",
+      "independent": false,
+      "base_score": 85,
+      "gate_block_bonus": 10,
+      "evidence": "OUTCOME_LOG unmeasured",
+      "verify": "OUTCOME_LOG date field populated"
+    }
+  ]
+}

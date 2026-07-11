@@ -64,6 +64,7 @@
 | 時間 | 動作 | 產出 |
 |------|------|------|
 | 開工 | **審查 `EXECUTIVE_INBOX.md`** | 信號分類 🔴🟠🟡🟢 |
+| 開工 | **`npm run cto:orchestrator`** | 自動選下一任務 → `ORCHESTRATOR_PLAN.md` |
 | 開工 | **`npm run cto:governance`** | Gate PASS → features；BLOCK → 治理迭代 |
 | 開工 | 更新 Decision Log（若有重排） | DL-NNN 條目 |
 | 開工 | `npm run cto:health` + `cto:snapshot` | 計算分數 + 快照 |
@@ -198,8 +199,10 @@
 - `docs/HEALTH_SCORES.md` — 健康度公式（capability vs outcome）
 - `docs/CTO_WORK_GATE.md` — 新工作閘門
 - `docs/IMPLEMENTATION_TRUTH.md` — 技術事實
+- `docs/ORCHESTRATOR.md` — AI 工程編排器（自主迭代 OS）
 - `docs/ENGINEERING_GOVERNANCE.md` — 治理閘門與 GitHub hygiene SOP
 - `docs/GOVERNANCE_STATUS.md` — 自動產生之 gate 狀態
 - `scripts/cto-daily-snapshot.sh` — 快照腳本
 - `scripts/cto-health-scores.sh` — 健康度計算
 - `scripts/cto-governance.sh` — 治理閘門（`npm run cto:governance`）
+- `scripts/cto-orchestrator.sh` — 編排器（`npm run cto:orchestrator`）
