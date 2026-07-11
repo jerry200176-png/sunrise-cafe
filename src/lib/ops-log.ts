@@ -5,7 +5,7 @@
 
 import * as Sentry from "@sentry/nextjs";
 
-export type OpsLogDomain = "cron" | "webhook" | "guest";
+export type OpsLogDomain = "cron" | "webhook" | "guest" | "admin";
 
 export type OpsLogAction =
   | "cron.completed"
@@ -19,7 +19,11 @@ export type OpsLogAction =
   | "guest.lookup_denied_rate_limit"
   | "guest.deposit_instructions_viewed"
   | "guest.payment_line_pay_click"
-  | "guest.payment_line_official_click";
+  | "guest.payment_line_official_click"
+  | "admin.payment_approved"
+  | "admin.payment_rejected";
+
+export type AdminPaymentInteraction = "keyboard" | "click";
 
 function addOpsBreadcrumb(
   domain: OpsLogDomain,
