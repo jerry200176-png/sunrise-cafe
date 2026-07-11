@@ -1,6 +1,6 @@
 # GitHub Triage Registry
 
-**Updated:** 2026-07-11 15:28 CST  
+**Updated:** 2026-07-11 15:40 CST  
 **Gate:** BLOCK
 
 Curated issue/PR actions. Bot cannot close — Founder executes [`FOUNDER_ACTION_LIST.md`](./FOUNDER_ACTION_LIST.md).
@@ -37,7 +37,7 @@ Remote should be: `main`, `dependabot/*` only. Delete merged `cursor/*` after PR
 ---
 
 ## GitHub Hygiene Audit
-_Generated: 2026-07-11 15:29 CST
+_Generated: 2026-07-11 15:40 CST
 
 **Repository:** jerry200176-png/sunrise-cafe
 
@@ -72,11 +72,12 @@ _Generated: 2026-07-11 15:29 CST
 | 71 | cursor/phase3-enterprise-3a90 | **CLOSE** | Superseded ghost/phase draft; content on main |
 | 70 | cursor/phase2-reliability-growth-3a90 | **CLOSE** | Superseded ghost/phase draft; content on main |
 
-### Remote branches (5 total, cursor/*: 2)
+### Remote branches (6 total, cursor/*: 3)
 
 ```
 cursor/auto-doc-drift-fix-4d084be-3a90
 cursor/auto-doc-drift-fix-886a36c-3a90
+cursor/governance-observability-3a90
 dependabot/npm_and_yarn/dev-dependencies-a756a62f1e
 dependabot/npm_and_yarn/production-dependencies-69ab5e432b
 main
@@ -85,6 +86,7 @@ main
 **Stale cursor branches (delete if PR merged):**
 - `git push origin --delete cursor/auto-doc-drift-fix-4d084be-3a90`
 - `git push origin --delete cursor/auto-doc-drift-fix-886a36c-3a90`
+- `git push origin --delete cursor/governance-observability-3a90`
 
 ### Bot permissions
 ❌ Bot **cannot** close issues/PRs — Founder must execute triage in [`FOUNDER_ACTION_LIST.md`](./FOUNDER_ACTION_LIST.md)

@@ -1,0 +1,32 @@
+{
+  "generated_at": "2026-07-11T16:16:44+0800",
+  "horizons": {
+    "short_term": {
+      "production_reachable": true,
+      "sha_parity": "false",
+      "booking_health": true,
+      "risks": [
+        "production_sha_drift",
+        "outcome_metrics_unavailable"
+      ]
+    },
+    "medium_term": {
+      "outcome_pipeline": "skipped",
+      "ci_automation": "github_actions"
+    },
+    "long_term": {
+      "evidence_based_decisions": false
+    }
+  },
+  "deployment": {
+    "repository_commit": "4d3e2d9",
+    "repository_full": "4d3e2d9b0a62c92d3ff759ba448042be2a6b8dd1",
+    "production_commit": "f083d10",
+    "sha_parity": "false"
+  },
+  "outcomes": {},
+  "top_risks": [
+    "production_sha_drift",
+    "outcome_metrics_unavailable"
+  ]
+}

@@ -1,0 +1,64 @@
+name: Business Intelligence
+
+on:
+  schedule:
+    # Daily 08:00 UTC = 16:00 Taipei — CEO evidence refresh
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: business-intelligence
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    name: Collect business snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Business snapshot + outcome sync
+        env:
+          PROD_URL: https://sunrise-cafe-six.vercel.app
+          CTO_OUTCOME_SECRET: ${{ secrets.CTO_OUTCOME_SECRET }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          chmod +x scripts/cto-business-snapshot.sh
+          bash scripts/cto-business-snapshot.sh
+
+      - name: Upload snapshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: business-snapshot-${{ github.run_id }}
+          path: |
+            orchestrator/business-snapshot.json
+            docs/OUTCOME_LOG.md
+          retention-days: 90
+
+      - name: Commit snapshot to repo
+        run: |
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add orchestrator/business-snapshot.json docs/OUTCOME_LOG.md 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No snapshot changes"
+            exit 0
+          fi
+          git commit -m "chore(bi): daily business snapshot [skip ci]"
+          git push

@@ -69,7 +69,7 @@ Check: `SELECT * FROM schema_migrations ORDER BY applied_at;`
 |------|-------|--------|
 | Open PRs | 11 (8 draft phase + #89 + dependabot) | `GITHUB_TRIAGE.md` — Founder batch close |
 | Open Issues | 9 | `GITHUB_TRIAGE.md` — close #59/#62 when shipped |
-| Tests on main | 152 unit + 7 E2E (1 skip) | `npm run cto:governance` verifies drift |
+| Tests on main | 157 unit + 7 E2E (1 skip) | `npm run cto:governance` verifies drift |
 | Governance gate | `cto:governance` | `ENGINEERING_GOVERNANCE.md` |
 | AI orchestrator | `cto:orchestrator` | `ORCHESTRATOR.md` — discover/prioritize/plan |
 

@@ -64,7 +64,16 @@ describe("buildHealthBlock", () => {
         tomorrow_reminders_pending: 0,
         auto_releases_7d: 0,
       },
-      deployment: { commit: "abc1234", health_ok: true, service_role_configured: true },
+      deployment: {
+        commit: "abc1234",
+        live_commit: "abc1234",
+        live_commit_short: "abc1234",
+        repository_commit: "abc1234",
+        sha_parity: true,
+        production_reachable: true,
+        health_ok: true,
+        service_role_configured: true,
+      },
       migrations: {
         schema_migrations_table: true,
         applied: ["20260710-reservations-no-overlap"],
