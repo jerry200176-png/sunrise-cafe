@@ -1,7 +1,8 @@
 /**
- * North Star Metrics — maps Outcome Pipeline + targets into comparable product KPIs.
+ * North Star Metrics — Observed vs Target with Delta and Trend.
  */
 import type { OutcomeSnapshot } from "@/lib/outcome-metrics";
+import { NORTH_STAR_TARGETS } from "@/lib/north-star-targets";
 
 export type MetricDirection = "up" | "down";
 export type MetricStatus = "on_track" | "at_risk" | "unmeasured";
@@ -20,15 +21,28 @@ export type NorthStarMetricId =
   | "core_web_vitals_lcp"
   | "api_latency_p95";
 
+export type MetricTrend = {
+  d7: number | null;
+  d30: number | null;
+  d90: number | null;
+  note?: string;
+};
+
 export type NorthStarMetric = {
   id: NorthStarMetricId;
   name: string;
+  /** @deprecated Use observed — kept for backward compatibility */
   value: number | null;
-  unit: string;
+  observed: number | null;
   target: number;
+  delta: number | null;
+  unit: string;
   direction: MetricDirection;
   status: MetricStatus;
+  trend: MetricTrend;
   source: string;
+  target_rationale: string;
+  last_updated: string;
   note?: string;
 };
 
@@ -40,20 +54,33 @@ export type NorthStarSnapshot = {
 };
 
 function rateStatus(
-  value: number | null,
+  observed: number | null,
   target: number,
   direction: MetricDirection,
   tolerance = 0.1
 ): MetricStatus {
-  if (value == null) return "unmeasured";
+  if (observed == null) return "unmeasured";
   if (direction === "up") {
-    if (value >= target) return "on_track";
-    if (value >= target * (1 - tolerance)) return "at_risk";
+    if (observed >= target) return "on_track";
+    if (observed >= target * (1 - tolerance)) return "at_risk";
     return "at_risk";
   }
-  if (value <= target) return "on_track";
-  if (value <= target * (1 + tolerance)) return "at_risk";
+  if (observed <= target) return "on_track";
+  if (observed <= target * (1 + tolerance)) return "at_risk";
   return "at_risk";
+}
+
+/** Positive delta = moving toward target (good). */
+export function calcMetricDelta(
+  observed: number | null,
+  target: number,
+  direction: MetricDirection
+): number | null {
+  if (observed == null) return null;
+  if (direction === "up") {
+    return Math.round((observed - target) * 100) / 100;
+  }
+  return Math.round((target - observed) * 100) / 100;
 }
 
 /** Cron failure rate across scheduled jobs (7d). */
@@ -68,7 +95,45 @@ export function calcCronFailureRate(jobs: OutcomeSnapshot["cron"]["jobs"]): numb
   return Math.round((failed / runs) * 10000) / 100;
 }
 
+const TREND_PENDING: MetricTrend = {
+  d7: null,
+  d30: null,
+  d90: null,
+  note: "Weekly snapshots required — see docs/WEEKLY_EXECUTIVE_REVIEW.md",
+};
+
+function metric(
+  id: NorthStarMetricId,
+  name: string,
+  observed: number | null,
+  source: string,
+  collectedAt: string,
+  trend?: Partial<MetricTrend>,
+  note?: string
+): NorthStarMetric {
+  const def = NORTH_STAR_TARGETS[id];
+  const trendMerged: MetricTrend = { ...TREND_PENDING, ...trend };
+  const status = rateStatus(observed, def.target, def.direction);
+  return {
+    id,
+    name,
+    value: observed,
+    observed,
+    target: def.target,
+    delta: calcMetricDelta(observed, def.target, def.direction),
+    unit: def.unit,
+    direction: def.direction,
+    status,
+    trend: trendMerged,
+    source,
+    target_rationale: def.rationale,
+    last_updated: collectedAt,
+    note,
+  };
+}
+
 export function buildNorthStarSnapshot(snapshot: OutcomeSnapshot): NorthStarSnapshot {
+  const collectedAt = snapshot.collected_at;
   const cronFailPct = calcCronFailureRate(snapshot.cron.jobs);
   const cancelPct =
     snapshot.booking.cancellation_rate_30d != null
@@ -77,136 +142,114 @@ export function buildNorthStarSnapshot(snapshot: OutcomeSnapshot): NorthStarSnap
   const supportProxy =
     snapshot.payment.pending_reviews + snapshot.payment.deposit_at_risk;
 
+  const weeklyBookingPace =
+    snapshot.booking.bookings_30d > 0
+      ? Math.round((snapshot.booking.bookings_7d / (snapshot.booking.bookings_30d / 4.3)) * 100) / 100
+      : null;
+
   const metrics: NorthStarMetric[] = [
-    {
-      id: "booking_conversion",
-      name: "Booking Conversion",
-      value: null,
-      unit: "%",
-      target: 65,
-      direction: "up",
-      status: "unmeasured",
-      source: "ops-log: booking_flow_entered / booking_created",
-      note: "Telemetry added; ratio computed after 7d log volume",
-    },
-    {
-      id: "deposit_conversion",
-      name: "Deposit Conversion",
-      value: snapshot.payment.deposit_rate_pct,
-      unit: "%",
-      target: 85,
-      direction: "up",
-      status: rateStatus(snapshot.payment.deposit_rate_pct, 85, "up"),
-      source: "outcome-pipeline: payment.deposit_rate_pct",
-    },
-    {
-      id: "waitlist_conversion",
-      name: "Waitlist Conversion",
-      value: snapshot.waitlist.conversion_pct,
-      unit: "%",
-      target: 30,
-      direction: "up",
-      status: rateStatus(snapshot.waitlist.conversion_pct, 30, "up"),
-      source: "outcome-pipeline: waitlist.conversion_pct",
-    },
-    {
-      id: "avg_booking_time",
-      name: "Average Booking Time",
-      value: null,
-      unit: "min",
-      target: 5,
-      direction: "down",
-      status: "unmeasured",
-      source: "ops-log timestamps (not yet aggregated)",
-    },
-    {
-      id: "payment_completion_rate",
-      name: "Payment Completion Rate",
-      value: null,
-      unit: "%",
-      target: 70,
-      direction: "up",
-      status: "unmeasured",
-      source: "ops-log: deposit_instructions_viewed / payment_*_click",
-      note: "Telemetry added; ratio after deploy",
-    },
-    {
-      id: "admin_payment_review_sla",
-      name: "Payment Review SLA (oldest h)",
-      value: snapshot.payment.payment_review_oldest_hours,
-      unit: "h",
-      target: 4,
-      direction: "down",
-      status: rateStatus(snapshot.payment.payment_review_oldest_hours, 4, "down", 0.25),
-      source: "outcome-pipeline: payment_review_oldest_hours",
-    },
-    {
-      id: "admin_keyboard_adoption",
-      name: "Keyboard Approval Adoption",
-      value: null,
-      unit: "%",
-      target: 30,
-      direction: "up",
-      status: "unmeasured",
-      source: "ops-log: admin.payment_approved interaction=keyboard",
-      note: "Telemetry added; ratio after staff adoption period",
-    },
-    {
-      id: "customer_support_proxy",
-      name: "Support Load Proxy",
-      value: supportProxy,
-      unit: "count",
-      target: 5,
-      direction: "down",
-      status: rateStatus(supportProxy, 5, "down", 0.4),
-      source: "pending_reviews + deposit_at_risk",
-    },
-    {
-      id: "production_error_rate",
-      name: "Production Error Rate (cron 7d)",
-      value: cronFailPct,
-      unit: "%",
-      target: 1,
-      direction: "down",
-      status: rateStatus(cronFailPct, 1, "down", 0.5),
-      source: "outcome-pipeline: cron job runs",
-    },
-    {
-      id: "cancellation_rate",
-      name: "Cancellation Rate",
-      value: cancelPct,
-      unit: "%",
-      target: 15,
-      direction: "down",
-      status: rateStatus(cancelPct, 15, "down"),
-      source: "outcome-pipeline: booking.cancellation_rate_30d",
-    },
-    {
-      id: "core_web_vitals_lcp",
-      name: "Core Web Vitals LCP",
-      value: null,
-      unit: "s",
-      target: 2.5,
-      direction: "down",
-      status: "unmeasured",
-      source: "RUM / Lighthouse CI (not wired)",
-    },
-    {
-      id: "api_latency_p95",
-      name: "API Latency P95",
-      value: null,
-      unit: "ms",
-      target: 500,
-      direction: "down",
-      status: "unmeasured",
-      source: "Vercel logs / middleware (not wired)",
-    },
+    metric(
+      "booking_conversion",
+      "Booking Conversion",
+      null,
+      "ops-log: booking_flow_entered / booking_created",
+      collectedAt,
+      undefined,
+      "Telemetry added; ratio computed after 7d log volume"
+    ),
+    metric(
+      "deposit_conversion",
+      "Deposit Conversion",
+      snapshot.payment.deposit_rate_pct,
+      "outcome-pipeline: payment.deposit_rate_pct",
+      collectedAt,
+      { d30: snapshot.payment.deposit_rate_pct }
+    ),
+    metric(
+      "waitlist_conversion",
+      "Waitlist Conversion",
+      snapshot.waitlist.conversion_pct,
+      "outcome-pipeline: waitlist.conversion_pct",
+      collectedAt,
+      { d30: snapshot.waitlist.conversion_pct }
+    ),
+    metric("avg_booking_time", "Average Booking Time", null, "ops-log timestamps (not yet aggregated)", collectedAt),
+    metric(
+      "payment_completion_rate",
+      "Payment Completion Rate",
+      null,
+      "ops-log: deposit_instructions_viewed / payment_*_click",
+      collectedAt,
+      undefined,
+      "Telemetry added; ratio after deploy"
+    ),
+    metric(
+      "admin_payment_review_sla",
+      "Payment Review SLA (oldest h)",
+      snapshot.payment.payment_review_oldest_hours,
+      "outcome-pipeline: payment_review_oldest_hours",
+      collectedAt,
+      { d7: snapshot.payment.payment_review_oldest_hours }
+    ),
+    metric(
+      "admin_keyboard_adoption",
+      "Keyboard Approval Adoption",
+      null,
+      "ops-log: admin.payment_approved interaction=keyboard",
+      collectedAt,
+      undefined,
+      "Telemetry added; ratio after staff adoption period"
+    ),
+    metric(
+      "customer_support_proxy",
+      "Support Load Proxy",
+      supportProxy,
+      "pending_reviews + deposit_at_risk",
+      collectedAt,
+      { d7: supportProxy }
+    ),
+    metric(
+      "production_error_rate",
+      "Production Error Rate (cron 7d)",
+      cronFailPct,
+      "outcome-pipeline: cron job runs",
+      collectedAt,
+      { d7: cronFailPct }
+    ),
+    metric(
+      "cancellation_rate",
+      "Cancellation Rate",
+      cancelPct,
+      "outcome-pipeline: booking.cancellation_rate_30d",
+      collectedAt,
+      { d30: cancelPct }
+    ),
+    metric(
+      "core_web_vitals_lcp",
+      "Core Web Vitals LCP",
+      null,
+      "RUM / Lighthouse CI (not wired)",
+      collectedAt
+    ),
+    metric(
+      "api_latency_p95",
+      "API Latency P95",
+      null,
+      "Vercel logs / middleware (not wired)",
+      collectedAt
+    ),
   ];
+
+  // Attach booking volume pace as contextual trend note on booking_conversion when unmeasured
+  const bookingMetric = metrics.find((m) => m.id === "booking_conversion");
+  if (bookingMetric && weeklyBookingPace != null) {
+    bookingMetric.trend.note = `Booking volume pace (7d/30d): ${weeklyBookingPace}x — conversion ratio pending ops-log aggregation`;
+  }
 
   const measured = metrics.filter((m) => m.status !== "unmeasured").length;
 
   return {
-    collected_at: snapshot.collected_at,
+    collected_at: collectedAt,
     metrics,
     measured_count: measured,
     unmeasured_count: metrics.length - measured,

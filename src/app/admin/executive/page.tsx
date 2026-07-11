@@ -136,7 +136,16 @@ export default function ExecutiveDashboardPage() {
   const [northStar, setNorthStar] = useState<{
     measured_count: number;
     unmeasured_count: number;
-    metrics: { id: string; name: string; value: number | null; unit: string; target: number; status: string }[];
+    metrics: {
+      id: string;
+      name: string;
+      observed: number | null;
+      value: number | null;
+      unit: string;
+      target: number;
+      delta: number | null;
+      status: string;
+    }[];
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -261,14 +270,16 @@ export default function ExecutiveDashboardPage() {
               <section>
                 <h2 className="mb-1 text-sm font-semibold text-stone-700">North Star Metrics</h2>
                 <p className="mb-3 text-xs text-stone-500">
-                  Baseline → Implement → Measure → Compare · 已量測 {northStar.measured_count} · 待量測{" "}
-                  {northStar.unmeasured_count}
+                  Hypothesis → Baseline → Measure → Compare · Observed/Target · 已量測{" "}
+                  {northStar.measured_count} · 待量測 {northStar.unmeasured_count}
                 </p>
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {northStar.metrics
                     .filter((m) => m.status !== "unmeasured")
                     .slice(0, 6)
-                    .map((m) => (
+                    .map((m) => {
+                      const obs = m.observed ?? m.value;
+                      return (
                       <div
                         key={m.id}
                         className={`rounded-xl border px-3 py-2 text-sm ${
@@ -279,15 +290,28 @@ export default function ExecutiveDashboardPage() {
                       >
                         <p className="text-xs text-stone-500">{m.name}</p>
                         <p className="font-semibold text-stone-800">
-                          {m.value != null ? `${m.value}${m.unit === "%" ? "%" : ` ${m.unit}`}` : "—"}
+                          {obs != null ? `${obs}${m.unit === "%" ? "%" : ` ${m.unit}`}` : "—"}
                           <span className="ml-1 text-xs font-normal text-stone-500">
-                            / 目標 {m.target}
+                            → {m.target}
                             {m.unit === "%" ? "%" : ` ${m.unit}`}
                           </span>
                         </p>
+                        {m.delta != null && (
+                          <p className="text-xs text-stone-500">
+                            Δ {m.delta > 0 ? "+" : ""}
+                            {m.delta}
+                            {m.unit === "%" ? "%" : ""} vs target
+                          </p>
+                        )}
                       </div>
-                    ))}
+                    );})}
                 </div>
+                <Link
+                  href="/api/admin/executive-review"
+                  className="mt-2 inline-block text-xs text-amber-700 hover:underline"
+                >
+                  Weekly Executive Review JSON →
+                </Link>
               </section>
             )}
 

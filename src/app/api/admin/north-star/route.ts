@@ -15,8 +15,14 @@ export async function GET(request: NextRequest) {
     {
       ...northStar,
       outcome_status: outcome.status,
-      improvement_loop: "Baseline → Implement → Measure → Compare → Iterate",
-      docs: "/docs/NORTH_STAR_METRICS.md",
+      improvement_loop: "Hypothesis → Baseline → Implement → Measure → Compare → Iterate",
+      executive_review: "/api/admin/executive-review",
+      docs: {
+        loop: "/docs/PRODUCT_IMPROVEMENT_LOOP.md",
+        metrics: "/docs/NORTH_STAR_METRICS.md",
+        hypotheses: "/docs/HYPOTHESES.md",
+        weekly_review: "/docs/WEEKLY_EXECUTIVE_REVIEW.md",
+      },
     },
     { headers: { "Cache-Control": "no-store" } }
   );

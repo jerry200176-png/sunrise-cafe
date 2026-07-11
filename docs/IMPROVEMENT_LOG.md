@@ -49,21 +49,55 @@ Per [`PRODUCT_IMPROVEMENT_LOOP.md`](./PRODUCT_IMPROVEMENT_LOOP.md). Newest first
 
 ---
 
+## ADM-002 — ReservationList inline confirm modals (slice 1)
+
+| Field | Value |
+|-------|-------|
+| **Problem** | `window.confirm` broken on mobile Safari |
+| **Mechanism** | `ConfirmDialog` component replaces 6 confirm flows |
+| **North Star metrics** | `customer_support_proxy` |
+| **Expected magnitude** | −2 support-proxy items/week |
+| **Verify window** | T+7 |
+| **If wrong** | Bottom-sheet only; merge actions with undo |
+
+### Compare
+
+| Field | Value |
+|-------|-------|
+| **Observed (baseline)** | 6+ `window.confirm` in ReservationList |
+| **Observed (after)** | 0 confirm (slice 1); alert/prompt remain |
+| **Deploy status** | ⏳ pending |
+| **Met target?** | _pending T+7_ |
+
+---
+
 ## Template (copy for next PR)
 
 ```markdown
 ## {ID} — {title} (#PR)
 
+### Hypothesis (required before code — see HYPOTHESES.md)
+
 | Field | Value |
 |-------|-------|
-| **Metric** | |
-| **Baseline** | |
-| **Expected** | |
-| **Measure via** | |
-| **Deploy status** | |
-| **After (T+7d)** | |
+| **Problem** | |
+| **Mechanism** | |
+| **North Star metrics** | |
+| **Expected magnitude** | |
+| **Verify window** | T+7 / T+14 / T+30 |
+| **If wrong** | |
+
+### Compare
+
+| Field | Value |
+|-------|-------|
+| **Observed (baseline)** | |
+| **Observed (after)** | |
+| **Target** | |
+| **Delta** | |
 | **Met target?** | |
-| **Iterate** | |
+| **Iterate** | modify / simplify / merge / remove / rollback |
+| **Deploy status** | |
 ```
 
 ## Process debt spotted
