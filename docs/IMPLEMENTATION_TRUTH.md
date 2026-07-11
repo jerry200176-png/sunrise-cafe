@@ -45,7 +45,7 @@
 | Structured ops logging | ✅ | `ops-log.ts` — webhook (`event_ok`/`event_error`) + cron via `runCronJob` + guest rate-limit denials |
 | Staff: no duplicate LINE reminders | ✅ | Manual send-line `force: false` |
 | Staff: reservation PATCH error feedback | ✅ | `ReservationList` rollback + alert |
-| Staff: payment review evidence UI | ✅ | `/admin/payments` source + payload |
+| Staff: payment review evidence UI | ✅ | `/admin/payments` — LINE screenshot proxy when message id stored |
 | Guest: query phone prefill | ✅ | `sessionStorage` from booking |
 
 ---

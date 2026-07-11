@@ -13,6 +13,7 @@ import {
   GUEST_REPLY_PAYMENT_PENDING_REVIEW,
   type PaymentEventSource,
 } from "@/lib/payment-events";
+import { buildLineImagePayload } from "@/lib/payment-event-payload";
 import { countPendingPaymentEventsForReservation } from "@/lib/payment-events-admin";
 import { logPayment } from "@/lib/payment-log";
 import { logOps } from "@/lib/ops-log";
@@ -257,7 +258,7 @@ export async function POST(request: NextRequest) {
       type: string;
       replyToken?: string;
       source: { userId?: string };
-      message?: { type: string; text?: string };
+      message?: { type: string; id?: string; text?: string };
     }[];
   };
 
@@ -282,7 +283,9 @@ export async function POST(request: NextRequest) {
 
       // 客人傳圖片 → 記錄待審核，不直接標記已付（ADR-008）
       if (msgType === "image") {
-        await handlePaymentReport(userId, PAYMENT_IMAGE_PAYLOAD, "line_image", replyToken, paymentKeywords);
+        const messageId = event.message?.id;
+        const payload = messageId ? buildLineImagePayload(messageId) : PAYMENT_IMAGE_PAYLOAD;
+        await handlePaymentReport(userId, payload, "line_image", replyToken, paymentKeywords);
         continue;
       }
 
