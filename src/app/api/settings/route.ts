@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchSettings, updateSettings } from "@/lib/supabase-fetch";
-import { requireAdminApiAuth } from "@/lib/admin-api-auth";
+import { requireAdminApiAuth, hasValidAdminSession } from "@/lib/admin-api-auth";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const data = await fetchSettings();
+    const isAdmin = await hasValidAdminSession(request);
+    if (!isAdmin) {
+      const { payment_keywords: _pk, ...publicData } = data;
+      return NextResponse.json(publicData);
+    }
     return NextResponse.json(data);
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法載入設定";

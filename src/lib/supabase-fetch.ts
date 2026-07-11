@@ -34,6 +34,20 @@ export async function fetchBranches(): Promise<unknown[]> {
   return res.json();
 }
 
+/** Guest-facing branch list — excludes internal LINE/payment fields. */
+export async function fetchPublicBranches(): Promise<unknown[]> {
+  const { url: baseUrl } = base();
+  const res = await fetch(
+    `${baseUrl}/rest/v1/branches?select=id,name,address,phone,open_time,close_time,closed_dates,display_name&order=name.asc`,
+    { method: "GET", headers: headers(), cache: "no-store" }
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Supabase branches: ${res.status} ${text || res.statusText}`);
+  }
+  return res.json();
+}
+
 export async function insertBranch(body: {
   name: string;
   address?: string | null;

@@ -47,6 +47,12 @@ export async function POST(request: NextRequest) {
     if (match.status === "cancelled") {
       return NextResponse.json({ error: "此訂位已取消" }, { status: 400 });
     }
+    if (match.is_deposit_paid) {
+      return NextResponse.json(
+        { error: "已付訂金的訂位請來電店家協助取消" },
+        { status: 400 }
+      );
+    }
 
     await updateReservationAdmin(match.id, { status: "cancelled" });
 

@@ -17,19 +17,19 @@ export type PaymentSubmissionOutcome = "auto_mark_paid" | "pending_review";
 
 /**
  * 依來源決定是否直接標記已付，或進入待審核佇列。
- * 漸進遷移：圖片一律審核；文字關鍵字暫時仍自動標記（ADR-008）。
+ * ADR-008 Phase 2：所有客人 LINE 提交一律 pending_review。
  */
 export function getPaymentSubmissionOutcome(
   source: PaymentEventSource
 ): PaymentSubmissionOutcome {
-  if (source === "line_text") return "auto_mark_paid";
+  void source;
   return "pending_review";
 }
 
 export const PAYMENT_IMAGE_PAYLOAD = "【付款截圖】";
 
 export const GUEST_REPLY_PAYMENT_PENDING_REVIEW =
-  "已收到您的付款截圖，店家確認後會另行通知，謝謝！";
+  "已收到您的付款通知，店家確認後會另行通知，謝謝！";
 
 export const GUEST_REPLY_PAYMENT_AUTO_RECORDED =
   "已收到您的付款通知，系統已自動記錄，感謝您！";

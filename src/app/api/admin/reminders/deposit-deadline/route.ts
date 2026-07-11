@@ -48,6 +48,7 @@ async function handleRun() {
   const now = new Date();
   let released = 0;
   let reminded = 0;
+  let errors = 0;
 
   logPayment("deposit_deadline.cron_run", { candidate_count: rows.length });
 
@@ -94,6 +95,7 @@ async function handleRun() {
           after: { is_deposit_paid: false, status: "cancelled" },
         });
       } catch (err) {
+        errors++;
         console.error(`[deposit-deadline] 釋放失敗 id=${r.id}:`, err);
       }
       continue;
@@ -114,12 +116,13 @@ async function handleRun() {
           booking_code: r.booking_code,
         });
       } catch (err) {
+        errors++;
         console.error(`[deposit-deadline] 提醒失敗 id=${r.id}:`, err);
       }
     }
   }
 
-  return NextResponse.json({ ok: true, released, reminded });
+  return NextResponse.json({ ok: true, released, reminded, errors });
   } catch (err) {
     await notifyCronFailure("deposit-deadline", err);
     const message = err instanceof Error ? err.message : "Cron failed";

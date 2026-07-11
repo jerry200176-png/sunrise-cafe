@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchBranches, insertBranch } from "@/lib/supabase-fetch";
+import { fetchPublicBranches, insertBranch } from "@/lib/supabase-fetch";
 import { requireAdminApiAuth } from "@/lib/admin-api-auth";
 
 export async function GET() {
   try {
-    const data = await fetchBranches();
+    const data = await fetchPublicBranches();
     return NextResponse.json(data ?? []);
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法載入分店";

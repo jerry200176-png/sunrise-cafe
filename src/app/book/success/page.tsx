@@ -1,23 +1,35 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle2, ArrowLeft, Clock } from "lucide-react";
+import { encodeLineBindState } from "@/lib/line-bind";
+
+const LINE_LOGIN_CLIENT_ID =
+  process.env.NEXT_PUBLIC_LINE_LOGIN_CHANNEL_ID ?? "2009884734";
 
 function SuccessContent() {
   const searchParams = useSearchParams();
   const code = searchParams.get("code") ?? "";
   const lineBound = searchParams.get("line_bound") === "1";
   const lineError = searchParams.get("line_error") === "1";
+  const [bindPhone, setBindPhone] = useState("");
+
+  useEffect(() => {
+    const saved = sessionStorage.getItem("booking_success_phone");
+    if (saved) setBindPhone(saved);
+  }, []);
 
   function startLineLogin() {
+    if (!code || !bindPhone.trim()) return;
+    const state = encodeLineBindState(code, bindPhone.trim());
     const url =
       `https://access.line.me/oauth2/v2.1/authorize` +
       `?response_type=code` +
-      `&client_id=2009884734` +
+      `&client_id=${LINE_LOGIN_CLIENT_ID}` +
       `&redirect_uri=${encodeURIComponent(window.location.origin + "/api/auth/line/callback")}` +
-      `&state=${encodeURIComponent(code)}` +
+      `&state=${encodeURIComponent(state)}` +
       `&scope=profile`;
     window.location.href = url;
   }
@@ -70,11 +82,19 @@ function SuccessContent() {
                     📲 用 LINE 接收訂位確認通知
                   </p>
                   <p className="text-xs text-green-700 leading-relaxed mb-3">
-                    點下方按鈕，授權後即可自動接收繳費通知與訂位提醒，無需手動操作。
+                    請輸入訂位時的手機號碼以驗證身分，再點下方按鈕綁定 LINE 通知。
                   </p>
+                  <input
+                    type="tel"
+                    value={bindPhone}
+                    onChange={(e) => setBindPhone(e.target.value)}
+                    placeholder="0912345678"
+                    className="mb-3 w-full rounded-lg border border-green-200 px-3 py-2 text-sm"
+                  />
                   <button
                     onClick={startLineLogin}
-                    className="inline-flex items-center gap-2 rounded-lg bg-[#06C755] px-4 py-2 text-sm font-semibold text-white hover:bg-green-600 transition"
+                    disabled={!bindPhone.trim()}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#06C755] px-4 py-2 text-sm font-semibold text-white hover:bg-green-600 transition disabled:opacity-50"
                   >
                     <span>💬</span>
                     用 LINE 登入綁定通知

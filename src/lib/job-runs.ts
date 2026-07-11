@@ -76,14 +76,16 @@ export async function finishJobRun(
 async function extractResponseMeta(res: NextResponse): Promise<{
   items_processed: number;
   metadata: Record<string, unknown>;
+  errors: number;
 }> {
   try {
     const json = (await res.clone().json()) as Record<string, unknown>;
     const items =
       Number(json.sent ?? json.released ?? json.reminded ?? json.items_processed ?? 0) || 0;
-    return { items_processed: items, metadata: json };
+    const errors = Number(json.errors ?? 0) || 0;
+    return { items_processed: items, metadata: json, errors };
   } catch {
-    return { items_processed: 0, metadata: {} };
+    return { items_processed: 0, metadata: {}, errors: 0 };
   }
 }
 
@@ -96,13 +98,28 @@ export async function runCronJob(
   try {
     const res = await handler();
     const ok = res.status < 400;
-    const { items_processed, metadata } = await extractResponseMeta(res);
+    const { items_processed, metadata, errors } = await extractResponseMeta(res);
+    const partialFailure = ok && errors > 0;
+    const status = ok && !partialFailure ? "completed" : "failed";
+    const error_message = !ok
+      ? `HTTP ${res.status}`
+      : partialFailure
+        ? `${errors} item(s) failed`
+        : undefined;
+
     await finishJobRun(runId, {
-      status: ok ? "completed" : "failed",
+      status,
       items_processed,
       metadata,
-      error_message: ok ? undefined : `HTTP ${res.status}`,
+      error_message,
     });
+
+    if (!ok || partialFailure) {
+      await notifyCronFailure(
+        jobName,
+        new Error(error_message ?? `Cron ${jobName} failed`)
+      );
+    }
     return res;
   } catch (err) {
     await finishJobRun(runId, {

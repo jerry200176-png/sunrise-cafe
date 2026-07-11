@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { sendLineFlex, buildPaymentConfirmedFlex, sendLineMessage } from "@/lib/line-notify";
+import { sendLineMessage } from "@/lib/line-notify";
 import {
   DEFAULT_PAYMENT_KEYWORDS,
   isPaymentMessage,
@@ -11,11 +11,16 @@ import {
   getPaymentSubmissionOutcome,
   PAYMENT_IMAGE_PAYLOAD,
   GUEST_REPLY_PAYMENT_PENDING_REVIEW,
-  GUEST_REPLY_PAYMENT_AUTO_RECORDED,
   type PaymentEventSource,
 } from "@/lib/payment-events";
 import { countPendingPaymentEventsForReservation } from "@/lib/payment-events-admin";
-import { logPayment, logDepositStatusChange } from "@/lib/payment-log";
+import { logPayment } from "@/lib/payment-log";
+import {
+  parseLineBindPayload,
+  phonesMatchReservation,
+  LINE_BIND_PHONE_PROMPT,
+  LINE_BIND_PHONE_MISMATCH,
+} from "@/lib/line-bind";
 
 const REPLY_URL = "https://api.line.me/v2/bot/message/reply";
 
@@ -80,31 +85,41 @@ function verifySignature(body: string, signature: string): boolean {
   return hash === signature;
 }
 
-async function handleBookingCode(userId: string, upperText: string, replyToken?: string) {
+async function handleBookingCode(userId: string, rawText: string, replyToken?: string) {
+  const payload = parseLineBindPayload(rawText);
+  if (!payload) return;
+
   const { data: reservation, error } = await supabaseAdmin()
     .from("reservations")
     .select("id, status, phone")
-    .eq("booking_code", upperText)
+    .eq("booking_code", payload.bookingCode)
     .single();
 
   if (error || !reservation) {
-    console.log(`[webhook] booking code not found: ${upperText}`);
+    console.log(`[webhook] booking code not found: ${payload.bookingCode}`);
     if (replyToken) {
       await replyMessage(replyToken, "查無此訂位代號，請確認代號是否正確（請輸入6碼大寫英數字）。");
     }
     return;
   }
 
-  // 更新同電話所有未取消訂位的 line_user_id
-  if (reservation.phone) {
-    const { error: updateErr } = await supabaseAdmin()
-      .from("reservations")
-      .update({ line_user_id: userId })
-      .eq("phone", reservation.phone)
-      .neq("status", "cancelled");
-    if (updateErr) console.error("[webhook] update line_user_id failed:", updateErr);
-    else console.log(`[webhook] bound line_user_id for phone ${reservation.phone}`);
+  if (!payload.phone) {
+    if (replyToken) await replyMessage(replyToken, LINE_BIND_PHONE_PROMPT);
+    return;
   }
+
+  if (!reservation.phone || !phonesMatchReservation(reservation.phone, payload.phone)) {
+    if (replyToken) await replyMessage(replyToken, LINE_BIND_PHONE_MISMATCH);
+    return;
+  }
+
+  const { error: updateErr } = await supabaseAdmin()
+    .from("reservations")
+    .update({ line_user_id: userId })
+    .eq("phone", reservation.phone)
+    .neq("status", "cancelled");
+  if (updateErr) console.error("[webhook] update line_user_id failed:", updateErr);
+  else console.log(`[webhook] bound line_user_id for phone ${reservation.phone}`);
 
   const statusMsg =
     reservation.status === "confirmed"
@@ -114,14 +129,32 @@ async function handleBookingCode(userId: string, upperText: string, replyToken?:
   if (replyToken) await replyMessage(replyToken, statusMsg);
 }
 
-async function handlePaymentReport(
+type PaymentReservation = {
+  id: string;
+  booking_code: string;
+  customer_name: string;
+  start_time: string;
+  end_time: string;
+};
+
+async function findPaymentReservation(
   userId: string,
-  rawText: string,
-  source: PaymentEventSource,
-  replyToken?: string,
-  keywords: string[] = DEFAULT_PAYMENT_KEYWORDS
-) {
-  const { data: reservation } = await supabaseAdmin()
+  rawText: string
+): Promise<PaymentReservation | null> {
+  const codeInMessage = extractBookingCode(rawText);
+  if (codeInMessage) {
+    const { data } = await supabaseAdmin()
+      .from("reservations")
+      .select("id, booking_code, customer_name, start_time, end_time, line_user_id")
+      .eq("booking_code", codeInMessage)
+      .in("status", ["confirmed", "pending"])
+      .eq("is_deposit_paid", false)
+      .single();
+    if (!data || data.line_user_id !== userId) return null;
+    return data;
+  }
+
+  const { data } = await supabaseAdmin()
     .from("reservations")
     .select("id, booking_code, customer_name, start_time, end_time")
     .eq("line_user_id", userId)
@@ -131,102 +164,80 @@ async function handlePaymentReport(
     .limit(1)
     .single();
 
+  return data ?? null;
+}
+
+async function handlePaymentReport(
+  userId: string,
+  rawText: string,
+  source: PaymentEventSource,
+  replyToken?: string,
+  keywords: string[] = DEFAULT_PAYMENT_KEYWORDS
+) {
+  const reservation = await findPaymentReservation(userId, rawText);
+
   if (!reservation) return;
   if (source === "line_text" && !isPaymentMessage(rawText, keywords)) return;
 
   const outcome = getPaymentSubmissionOutcome(source);
+  if (outcome !== "pending_review") return;
 
-  if (outcome === "pending_review") {
-    try {
-      const pending = await countPendingPaymentEventsForReservation(reservation.id);
-      if (pending > 0) {
-        logPayment("payment_event.duplicate_skipped", {
-          reservation_id: reservation.id,
-          booking_code: reservation.booking_code,
-          pending_count: pending,
-        });
-        if (replyToken) {
-          await replyMessage(replyToken, GUEST_REPLY_PAYMENT_PENDING_REVIEW);
-        }
-        return;
-      }
-    } catch (dupErr) {
-      console.error("[webhook] pending count check failed:", dupErr);
-    }
-
-    const { error: eventErr } = await supabaseAdmin().from("payment_events").insert({
-      reservation_id: reservation.id,
-      source,
-      status: "pending_review",
-      raw_payload: rawText,
-    });
-    if (eventErr) {
-      logPayment("payment_event.insert_failed", {
+  try {
+    const pending = await countPendingPaymentEventsForReservation(reservation.id);
+    if (pending > 0) {
+      logPayment("payment_event.duplicate_skipped", {
         reservation_id: reservation.id,
-        error: eventErr.message,
+        booking_code: reservation.booking_code,
+        pending_count: pending,
       });
       if (replyToken) {
-        await replyMessage(
-          replyToken,
-          "已收到您的訊息，但系統暫時無法記錄，請稍後再試或聯繫店家。"
-        );
+        await replyMessage(replyToken, GUEST_REPLY_PAYMENT_PENDING_REVIEW);
       }
       return;
     }
+  } catch (dupErr) {
+    console.error("[webhook] pending count check failed:", dupErr);
+  }
 
-    logPayment("payment_event.created", {
+  const { error: eventErr } = await supabaseAdmin().from("payment_events").insert({
+    reservation_id: reservation.id,
+    source,
+    status: "pending_review",
+    raw_payload: rawText,
+  });
+  if (eventErr) {
+    logPayment("payment_event.insert_failed", {
       reservation_id: reservation.id,
-      booking_code: reservation.booking_code,
-      source,
+      error: eventErr.message,
     });
-
-    try {
-      await sendLineMessage(
-        `📷 付款截圖待確認\n` +
-          `姓名：${reservation.customer_name}\n` +
-          `代號：${reservation.booking_code}\n` +
-          `請至後台「付款審核」核對`
-      );
-    } catch (err) {
-      console.error("[webhook] group pending-review notify failed:", err);
-    }
-
     if (replyToken) {
-      await replyMessage(replyToken, GUEST_REPLY_PAYMENT_PENDING_REVIEW);
+      await replyMessage(
+        replyToken,
+        "已收到您的訊息，但系統暫時無法記錄，請稍後再試或聯繫店家。"
+      );
     }
     return;
   }
 
-  // 過渡期：文字關鍵字仍自動標記（ADR-008）
-  await supabaseAdmin()
-    .from("reservations")
-    .update({ is_deposit_paid: true, deposit_payment_note: rawText })
-    .eq("id", reservation.id);
-
-  logDepositStatusChange({
-    action: "deposit.marked_paid",
+  logPayment("payment_event.created", {
     reservation_id: reservation.id,
     booking_code: reservation.booking_code,
-    actor_type: "line_webhook_text",
-    before: { is_deposit_paid: false },
-    after: { is_deposit_paid: true, deposit_payment_note: rawText },
+    source,
   });
 
   try {
-    const flex = buildPaymentConfirmedFlex({
-      customerName: reservation.customer_name,
-      bookingCode: reservation.booking_code,
-      startTime: reservation.start_time,
-      endTime: reservation.end_time,
-      rawText,
-    });
-    await sendLineFlex(`💰 客人已付訂金：${reservation.customer_name}`, flex);
+    await sendLineMessage(
+      `📋 付款待確認\n` +
+        `姓名：${reservation.customer_name}\n` +
+        `代號：${reservation.booking_code}\n` +
+        `請至後台「付款審核」核對`
+    );
   } catch (err) {
-    console.error("[webhook] group notify failed:", err);
+    console.error("[webhook] group pending-review notify failed:", err);
   }
 
   if (replyToken) {
-    await replyMessage(replyToken, GUEST_REPLY_PAYMENT_AUTO_RECORDED);
+    await replyMessage(replyToken, GUEST_REPLY_PAYMENT_PENDING_REVIEW);
   }
 }
 
@@ -279,7 +290,7 @@ export async function POST(request: NextRequest) {
 
       const bookingCode = extractBookingCode(rawText);
       if (bookingCode) {
-        await handleBookingCode(userId, bookingCode, replyToken);
+        await handleBookingCode(userId, rawText, replyToken);
       } else {
         await handlePaymentReport(userId, rawText, "line_text", replyToken, paymentKeywords);
       }
