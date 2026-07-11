@@ -11,6 +11,8 @@ import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 type Step = "branch" | "room" | "date" | "slot" | "form";
 
+const BOOKING_STEP_ORDER: Step[] = ["branch", "date", "room", "slot", "form"];
+
 interface SlotItem {
   start: string;
   end: string;
@@ -375,9 +377,39 @@ export default function BookPage() {
         </div>
       </header>
 
+      <nav
+        aria-label={t("book.headerTitle")}
+        className="mx-auto max-w-lg px-4 pt-3 flex gap-1 overflow-x-auto"
+      >
+        {BOOKING_STEP_ORDER.map((s) => {
+          const active = step === s;
+          const stepIndex = BOOKING_STEP_ORDER.indexOf(s);
+          const currentIndex = BOOKING_STEP_ORDER.indexOf(step);
+          const done = stepIndex < currentIndex;
+          return (
+            <span
+              key={s}
+              aria-current={active ? "step" : undefined}
+              className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
+                active
+                  ? "bg-amber-600 text-white"
+                  : done
+                    ? "bg-amber-100 text-amber-800"
+                    : "bg-stone-100 text-stone-500"
+              }`}
+            >
+              {t(`book.steps.${s}` as "book.steps.branch")}
+            </span>
+          );
+        })}
+      </nav>
+
       <div className="mx-auto max-w-lg px-4 py-6">
         {error && (
-          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <div
+            role="alert"
+            className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+          >
             {error}
           </div>
         )}
@@ -643,7 +675,15 @@ export default function BookPage() {
                     </p>
                     <p className="mt-1 text-xs text-amber-700">{t("book.slot.waitlistHint")}</p>
                     <Link
-                      href={buildWaitlistHref(roomId)}
+                      href={buildWaitlistHref(
+                        roomId,
+                        selectedStart || undefined,
+                        selectedStart
+                          ? new Date(
+                              new Date(selectedStart).getTime() + duration * 60 * 60 * 1000
+                            ).toISOString()
+                          : undefined
+                      )}
                       className="mt-2 inline-flex w-full items-center justify-center rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 sm:w-auto"
                     >
                       {t("book.waitlistCta")}
@@ -664,6 +704,7 @@ export default function BookPage() {
                           key={s.start}
                           type="button"
                           disabled={!available}
+                          aria-pressed={selectedStart === s.start}
                           onClick={() => setSelectedStart(s.start)}
                           className={`rounded-lg border py-3 text-sm font-medium ${selectedStart === s.start
                             ? "border-amber-600 bg-amber-600 text-white"
@@ -722,6 +763,7 @@ export default function BookPage() {
                   id="booking-name"
                   type="text"
                   required
+                  autoComplete="name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
@@ -734,6 +776,7 @@ export default function BookPage() {
                   id="booking-phone"
                   type="tel"
                   required
+                  autoComplete="tel"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
@@ -748,6 +791,7 @@ export default function BookPage() {
                 <input
                   id="booking-email"
                   type="email"
+                  autoComplete="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
@@ -786,8 +830,9 @@ export default function BookPage() {
                     ))}
                   </div>
 
-                  <label className="flex items-start gap-2 cursor-pointer pt-3 mt-3 border-t border-amber-200/50">
+                  <label htmlFor="booking-agree-terms" className="flex items-start gap-2 cursor-pointer pt-3 mt-3 border-t border-amber-200/50">
                     <input
+                      id="booking-agree-terms"
                       type="checkbox"
                       checked={agreeToTerms}
                       onChange={(e) => setAgreeToTerms(e.target.checked)}
