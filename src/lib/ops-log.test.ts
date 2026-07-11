@@ -28,4 +28,12 @@ describe("logOps", () => {
     expect(parsed.route).toBe("line");
     expect(parsed.event_count).toBe(2);
   });
+
+  it("emits guest.lookup_denied_rate_limit action", () => {
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    logOps("guest", "guest.lookup_denied_rate_limit", { path: "/api/my-bookings", limiter: "guestLookup" });
+    const parsed = JSON.parse(spy.mock.calls[0][0] as string);
+    expect(parsed.action).toBe("guest.lookup_denied_rate_limit");
+    expect(parsed.path).toBe("/api/my-bookings");
+  });
 });

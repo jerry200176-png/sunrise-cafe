@@ -2,40 +2,30 @@
 
 **CTO Operating System v2 · Company-first**  
 **Review cadence:** Every iteration **before** selecting work  
-**Last reviewed:** 2026-07-11 13:45 UTC (Round 11 — AI Orchestrator)
+**Last reviewed:** 2026-07-11 15:30 CST (Round 12 — doc drift + rate-limit observability)
 
 > **`cto:orchestrator`** → auto-select next task → execute → verify → record  
 > Governance gate still BLOCK; agent runs independent tasks until Founder clears GitHub.
 
 ---
 
-## 本輪審查（Round 11 · AI Engineering Orchestrator）
-
-### Orchestrator
-
-| 信號 | 狀態 | 證據 |
-|------|------|------|
-| Task auto-selection | 🟢 | `npm run cto:orchestrator` |
-| Recoverable state | 🟢 | `orchestrator/state.json` |
-| Role playbooks | 🟢 | 8 roles in `orchestrator/roles/` |
-| Daily CI heartbeat | 🟢 | `.github/workflows/orchestrator.yml` |
-| Capability gaps registry | 🟢 | `CAPABILITY_GAPS.md` |
+## 本輪審查（Round 12 · Governance sync + observability）
 
 ### Governance Gate
 
 | 信號 | 狀態 | 證據 |
 |------|------|------|
-| `cto:governance` | 🔴 **BLOCK** | Overall 68, GitHub 47, 9 PRs |
-| Founder blockers | 🟠 | `FOUNDER_ACTION_LIST.md` |
+| `cto:governance` | 🔴 **BLOCK** | Overall 57, GitHub 47, prod SHA drift |
+| Founder blockers | 🟠 | GHA PR-create policy, Vercel deploy, GitHub batch |
 
 ### Production & Deployment
 
 | 信號 | 狀態 | 證據 |
 |------|------|------|
 | Health | 🟢 | `/api/booking-health` ok |
-| SHA parity | 🟢 | main `488788b` = production (#102) |
+| SHA parity | 🟠 | main `4d084be` · prod `f083d10` `f083d10` (#102) |
 | CI main | 🟢 | 10/10 success |
-| Tests | 🟢 | 150 unit + 7 E2E (1 skip) |
+| Tests | 🟢 | 152 unit + 7 E2E (1 skip) |
 
 ### Customer Feedback
 
