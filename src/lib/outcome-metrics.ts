@@ -519,7 +519,7 @@ export async function collectOutcomeMetrics(
         job_runs_ready: false,
         jobs: [],
       },
-      deployment,
+      deployment: deploymentBase,
       migrations: {
         schema_migrations_table: false,
         applied: [],
