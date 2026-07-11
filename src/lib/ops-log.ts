@@ -21,7 +21,8 @@ export type OpsLogAction =
   | "guest.payment_line_pay_click"
   | "guest.payment_line_official_click"
   | "admin.payment_approved"
-  | "admin.payment_rejected";
+  | "admin.payment_rejected"
+  | "admin.waitlist_expired";
 
 export type AdminPaymentInteraction = "keyboard" | "click";
 
