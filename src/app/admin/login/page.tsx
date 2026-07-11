@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ArrowLeft, Lock } from "lucide-react";
 
 export default function AdminLoginPage() {
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -16,17 +17,22 @@ export default function AdminLoginPage() {
     setError("");
     setLoading(true);
     try {
+      const trimmedEmail = email.trim();
       const res = await fetch("/api/admin/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify(
+          trimmedEmail
+            ? { email: trimmedEmail, password }
+            : { password }
+        ),
       });
       const data = await res.json();
       if (data.ok) {
         router.push("/admin");
         router.refresh();
       } else {
-        setError(data.error || "密碼錯誤");
+        setError(data.error || "帳號或密碼錯誤");
       }
     } catch {
       setError("連線失敗，請稍後再試");
@@ -43,8 +49,18 @@ export default function AdminLoginPage() {
             <Lock className="h-12 w-12" />
           </div>
           <h1 className="mt-4 text-center text-xl font-bold text-gray-900">後台登入</h1>
-          <p className="mt-1 text-center text-sm text-gray-500">請輸入後台密碼</p>
+          <p className="mt-1 text-center text-sm text-gray-500">
+            員工帳號請填 Email；或只填共用後台密碼
+          </p>
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email（選填）"
+              className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 placeholder-gray-400 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              autoComplete="username"
+            />
             <input
               type="password"
               value={password}
@@ -54,9 +70,7 @@ export default function AdminLoginPage() {
               autoComplete="current-password"
               required
             />
-            {error && (
-              <p className="text-sm text-red-600">{error}</p>
-            )}
+            {error && <p className="text-sm text-red-600">{error}</p>}
             <button
               type="submit"
               disabled={loading}
