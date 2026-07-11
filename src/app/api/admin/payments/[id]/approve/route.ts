@@ -4,6 +4,7 @@ import { approvePaymentEvent } from "@/lib/payment-events-admin";
 import { isAdminConfigured } from "@/lib/supabase-admin";
 import { requirePermission } from "@/lib/admin-api-auth";
 import { sendLineFlex, buildPaymentConfirmedFlex } from "@/lib/line-notify";
+import { logOps, type AdminPaymentInteraction } from "@/lib/ops-log";
 
 function db() {
   return createClient(
@@ -24,9 +25,11 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
   const { id } = await params;
   let reviewNote: string | null = null;
+  let interaction: AdminPaymentInteraction = "click";
   try {
     const body = await request.json().catch(() => ({}));
     reviewNote = typeof body.review_note === "string" ? body.review_note : null;
+    if (body.interaction === "keyboard") interaction = "keyboard";
   } catch {
     /* empty body ok */
   }
@@ -64,6 +67,9 @@ export async function POST(request: NextRequest, { params }: Params) {
       }
     }
 
+    if (!result.already_processed) {
+      logOps("admin", "admin.payment_approved", { payment_event_id: id, interaction });
+    }
     return NextResponse.json({ ok: true, already_processed: result.already_processed });
   } catch (err) {
     const message = err instanceof Error ? err.message : "核准失敗";

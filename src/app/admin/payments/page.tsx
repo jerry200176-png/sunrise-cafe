@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Check, X, RefreshCw, LogOut, Upload, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Check, X, RefreshCw, LogOut, Upload, AlertTriangle, Keyboard } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { parseLineImageMessageId } from "@/lib/payment-event-payload";
+import type { AdminPaymentInteraction } from "@/lib/ops-log";
 
 type PendingItem = {
   id: string;
@@ -43,7 +44,10 @@ export default function AdminPaymentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [rejectId, setRejectId] = useState<string | null>(null);
   const [rejectNote, setRejectNote] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const [reconcileResult, setReconcileResult] = useState<ReconcileResult | null>(null);
+  const rejectInputRef = useRef<HTMLInputElement>(null);
+  const itemRefs = useRef<(HTMLLIElement | null)[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -82,17 +86,38 @@ export default function AdminPaymentsPage() {
     load();
   }, [load]);
 
-  const approve = async (id: string) => {
-    const res = await fetch(`/api/admin/payments/${id}/approve`, { method: "POST" });
+  useEffect(() => {
+    if (items.length === 0) {
+      setSelectedIndex(0);
+      return;
+    }
+    setSelectedIndex((i) => Math.min(i, items.length - 1));
+  }, [items.length]);
+
+  useEffect(() => {
+    const el = itemRefs.current[selectedIndex];
+    el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [selectedIndex, items.length]);
+
+  useEffect(() => {
+    if (rejectId) rejectInputRef.current?.focus();
+  }, [rejectId]);
+
+  const approve = useCallback(async (id: string, interaction: AdminPaymentInteraction = "click") => {
+    const res = await fetch(`/api/admin/payments/${id}/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ interaction }),
+    });
     if (!res.ok) {
       const d = await res.json();
       alert(d.error ?? "核准失敗");
       return;
     }
     setItems((prev) => prev.filter((i) => i.id !== id));
-  };
+  }, []);
 
-  const reject = async (id: string) => {
+  const reject = useCallback(async (id: string, interaction: AdminPaymentInteraction = "click") => {
     if (!rejectNote.trim()) {
       alert("請填寫駁回原因");
       return;
@@ -100,7 +125,7 @@ export default function AdminPaymentsPage() {
     const res = await fetch(`/api/admin/payments/${id}/reject`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ review_note: rejectNote }),
+      body: JSON.stringify({ review_note: rejectNote, interaction }),
     });
     if (!res.ok) {
       const d = await res.json();
@@ -110,7 +135,68 @@ export default function AdminPaymentsPage() {
     setRejectId(null);
     setRejectNote("");
     setItems((prev) => prev.filter((i) => i.id !== id));
-  };
+  }, [rejectNote]);
+
+  const openReject = useCallback((id: string) => {
+    setRejectId(id);
+    setRejectNote("");
+  }, []);
+
+  const closeReject = useCallback(() => {
+    setRejectId(null);
+    setRejectNote("");
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (items.length === 0) return;
+      const target = e.target as HTMLElement;
+      const inRejectInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA";
+
+      if (e.key === "Escape") {
+        if (rejectId) {
+          e.preventDefault();
+          closeReject();
+        }
+        return;
+      }
+
+      if (inRejectInput) {
+        if (e.key === "Enter" && rejectId && rejectNote.trim()) {
+          e.preventDefault();
+          void reject(rejectId, "keyboard");
+        }
+        return;
+      }
+
+      if (e.key === "j" || e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedIndex((i) => Math.min(i + 1, items.length - 1));
+        return;
+      }
+      if (e.key === "k" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedIndex((i) => Math.max(i - 1, 0));
+        return;
+      }
+
+      const selected = items[selectedIndex];
+      if (!selected) return;
+
+      if ((e.key === "a" || e.key === "Enter") && !rejectId) {
+        e.preventDefault();
+        void approve(selected.id, "keyboard");
+        return;
+      }
+      if (e.key === "r" && !rejectId) {
+        e.preventDefault();
+        openReject(selected.id);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [items, selectedIndex, rejectId, rejectNote, approve, reject, openReject, closeReject]);
 
   const uploadCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -170,8 +256,19 @@ export default function AdminPaymentsPage() {
             <p className="text-gray-500 text-sm">目前無待審核項目</p>
           ) : (
             <ul className="space-y-3">
-              {items.map((item) => (
-                <li key={item.id} className="border rounded-lg p-3">
+              {items.map((item, index) => (
+                <li
+                  key={item.id}
+                  ref={(el) => {
+                    itemRefs.current[index] = el;
+                  }}
+                  className={`border rounded-lg p-3 transition-shadow ${
+                    index === selectedIndex
+                      ? "ring-2 ring-blue-500 border-blue-300 bg-blue-50/40"
+                      : ""
+                  }`}
+                  onClick={() => setSelectedIndex(index)}
+                >
                   <div className="flex flex-wrap justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2 mb-1">
@@ -231,6 +328,7 @@ export default function AdminPaymentsPage() {
                   {rejectId === item.id && (
                     <div className="mt-3 flex gap-2">
                       <input
+                        ref={rejectInputRef}
                         className="flex-1 border rounded px-2 py-1 text-sm"
                         placeholder="駁回原因（必填）"
                         value={rejectNote}
@@ -248,6 +346,17 @@ export default function AdminPaymentsPage() {
                 </li>
               ))}
             </ul>
+          )}
+          {items.length > 0 && (
+            <p className="mt-4 flex items-center gap-2 text-xs text-gray-500">
+              <Keyboard className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                <kbd className="px-1 rounded bg-gray-100">↑</kbd>/<kbd className="px-1 rounded bg-gray-100">↓</kbd> 或{" "}
+                <kbd className="px-1 rounded bg-gray-100">j</kbd>/<kbd className="px-1 rounded bg-gray-100">k</kbd> 切換 ·{" "}
+                <kbd className="px-1 rounded bg-gray-100">Enter</kbd>/<kbd className="px-1 rounded bg-gray-100">a</kbd> 核准 ·{" "}
+                <kbd className="px-1 rounded bg-gray-100">r</kbd> 駁回 · <kbd className="px-1 rounded bg-gray-100">Esc</kbd> 取消
+              </span>
+            </p>
           )}
         </section>
 

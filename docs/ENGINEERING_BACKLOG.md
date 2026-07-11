@@ -12,27 +12,26 @@
 5. Production risk reduction?
 6. Measurable outcome?
 
-## P0 — In Progress
+## P0 — Next
 
 | ID | Item | ROI rationale | Status |
 |----|------|---------------|--------|
-| ADM-001 | Admin waitlist management | Staff-only; smaller guest surface than deposit | **Next** |
+| ADM-001 | Admin waitlist management | Staff can't see queue; blocks waitlist conversion visibility | **Next** |
 
-## P1 — Guest / Conversion (measurable via `deposit_rate_pct`, ops-log funnel)
+## P1 — Staff Efficiency (high daily frequency)
+
+| ID | Item | Why |
+|----|------|-----|
+| ADM-002 | ReservationList: replace alert/confirm/prompt | Daily ops, mobile broken |
+| ADM-005 | Dashboard trend: single API call (7→1) | Morning latency |
+
+## P2 — Guest / Conversion
 
 | ID | Item | Why |
 |----|------|-----|
 | CX-006 | Waitlist confirm page i18n | EN/JA waitlist flow completion |
 | CX-007 | Payment CTA sticky bar on mobile query | Click-through on small screens |
 | CX-008 | Booking form a11y audit (focus order, labels) | Permanent a11y lane |
-
-## P2 — Staff Efficiency
-
-| ID | Item | Why |
-|----|------|-----|
-| ADM-002 | ReservationList: replace alert/confirm/prompt | Daily ops, mobile broken |
-| ADM-003 | Payment review keyboard nav | High-frequency daily task |
-| ADM-005 | Dashboard trend: single API call (7→1) | Morning latency |
 
 ## P3 — Reliability / Observability
 
@@ -50,6 +49,7 @@ Performance · A11y · Mobile · Error/empty/loading · Monitoring · Security �
 
 | ID | Evidence | Measured by |
 |----|----------|-------------|
+| ADM-003 | PR — payment review keyboard nav + admin ops-log | `admin.payment_*` logs, `interaction` field |
 | CX-005 | PR #133 — deposit deadline UX + guest funnel telemetry | `deposit_rate_pct`, `auto_releases_7d`, ops-log |
 | CX-001–004 | PRs #130–#131 | E2E + manual |
 | ADM-004 | PR #132 | Staff clicks saved |
