@@ -31,6 +31,26 @@ function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+/** UTF-8-safe base64url (btoa alone throws on non-Latin1, e.g. Chinese display_name). */
+function utf8ToBase64Url(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64UrlToUtf8(encoded: string): string {
+  const padded = encoded.replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new TextDecoder().decode(bytes);
+}
+
 export async function parseAdminSessionPayload(
   value: string,
   secret: string
@@ -53,7 +73,7 @@ export async function parseAdminSessionPayload(
   if (ourSig !== sigFromCookie) return null;
 
   try {
-    const json = atob(encoded.replace(/-/g, "+").replace(/_/g, "/"));
+    const json = base64UrlToUtf8(encoded);
     const payload = JSON.parse(json) as AdminSessionPayload;
     const now = Math.floor(Date.now() / 1000);
     if (typeof payload.exp !== "number" || payload.exp <= now) return null;
@@ -145,7 +165,7 @@ export async function createSignedAdminSession(
     ...claims,
   };
   const payloadStr = JSON.stringify(payload);
-  const encoded = btoa(payloadStr).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const encoded = utf8ToBase64Url(payloadStr);
 
   const key = await crypto.subtle.importKey(
     "raw",
