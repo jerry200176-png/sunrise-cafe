@@ -20,6 +20,9 @@ export type OpsLogAction =
   | "guest.deposit_instructions_viewed"
   | "guest.payment_line_pay_click"
   | "guest.payment_line_official_click"
+  | "guest.booking_flow_entered"
+  | "guest.booking_created"
+  | "guest.booking_success_viewed"
   | "admin.payment_approved"
   | "admin.payment_rejected"
   | "admin.waitlist_expired";

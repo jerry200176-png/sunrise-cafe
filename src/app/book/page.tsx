@@ -91,6 +91,14 @@ export default function BookPage() {
   }, []);
 
   useEffect(() => {
+    fetch("/api/booking-funnel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event: "booking_flow_entered" }),
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
     if (!branchId) {
       setRooms([]);
       return;

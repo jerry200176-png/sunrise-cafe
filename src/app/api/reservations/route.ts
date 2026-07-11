@@ -13,6 +13,7 @@ import { fetchPendingPaymentCountsByReservation } from "@/lib/payment-events-adm
 import { computeReservationTotalPrice } from "@/lib/booking-utils";
 import { SlotConflictError } from "@/lib/slot-conflict";
 import { createClient } from "@supabase/supabase-js";
+import { logOps } from "@/lib/ops-log";
 
 function supabaseAdmin() {
   return createClient(
@@ -175,6 +176,12 @@ export async function POST(request: NextRequest) {
     } catch (err) {
       console.error("[reservations] 群組通知失敗:", err);
     }
+
+    logOps("guest", "guest.booking_created", {
+      reservation_id: id,
+      room_id: roomId,
+      deposit_required: totalPrice != null && totalPrice > 0,
+    });
 
     return NextResponse.json({ ok: true, id, booking_code });
   } catch (err) {

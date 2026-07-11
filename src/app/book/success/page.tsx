@@ -25,6 +25,17 @@ function SuccessContent() {
     if (saved) setBindPhone(saved);
   }, []);
 
+  useEffect(() => {
+    if (!code) return;
+    const phone = sessionStorage.getItem("booking_success_phone")?.trim();
+    if (!phone) return;
+    fetch("/api/guest-events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event: "booking_success_viewed", phone, booking_code: code }),
+    }).catch(() => {});
+  }, [code]);
+
   function startLineLogin() {
     if (!code || !bindPhone.trim()) return;
     const state = encodeLineBindState(code, bindPhone.trim());

@@ -133,6 +133,11 @@ function pct(v: number | null, target?: number) {
 
 export default function ExecutiveDashboardPage() {
   const [data, setData] = useState<OutcomeSnapshot | null>(null);
+  const [northStar, setNorthStar] = useState<{
+    measured_count: number;
+    unmeasured_count: number;
+    metrics: { id: string; name: string; value: number | null; unit: string; target: number; status: string }[];
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -147,6 +152,9 @@ export default function ExecutiveDashboardPage() {
       }
       if (!res.ok) throw new Error(json.error ?? "載入失敗");
       setData(json);
+
+      const nsRes = await fetch("/api/admin/north-star", { cache: "no-store" });
+      if (nsRes.ok) setNorthStar(await nsRes.json());
     } catch (e) {
       setError(e instanceof Error ? e.message : "載入失敗");
     } finally {
@@ -248,6 +256,40 @@ export default function ExecutiveDashboardPage() {
                 </span>
               )}
             </div>
+
+            {northStar && (
+              <section>
+                <h2 className="mb-1 text-sm font-semibold text-stone-700">North Star Metrics</h2>
+                <p className="mb-3 text-xs text-stone-500">
+                  Baseline → Implement → Measure → Compare · 已量測 {northStar.measured_count} · 待量測{" "}
+                  {northStar.unmeasured_count}
+                </p>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {northStar.metrics
+                    .filter((m) => m.status !== "unmeasured")
+                    .slice(0, 6)
+                    .map((m) => (
+                      <div
+                        key={m.id}
+                        className={`rounded-xl border px-3 py-2 text-sm ${
+                          m.status === "on_track"
+                            ? "border-green-200 bg-green-50/40"
+                            : "border-amber-200 bg-amber-50/40"
+                        }`}
+                      >
+                        <p className="text-xs text-stone-500">{m.name}</p>
+                        <p className="font-semibold text-stone-800">
+                          {m.value != null ? `${m.value}${m.unit === "%" ? "%" : ` ${m.unit}`}` : "—"}
+                          <span className="ml-1 text-xs font-normal text-stone-500">
+                            / 目標 {m.target}
+                            {m.unit === "%" ? "%" : ` ${m.unit}`}
+                          </span>
+                        </p>
+                      </div>
+                    ))}
+                </div>
+              </section>
+            )}
 
             <section>
               <h2 className="mb-3 text-sm font-semibold text-stone-700">營收 & 付款</h2>
