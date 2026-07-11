@@ -12,3 +12,5 @@
 {"ts":"2026-07-11T14:09:51+0800","phase":"review_fail","run_id":"local","sha":"01f13b0","data":{}}
 {"ts":"2026-07-11T14:10:15+0800","phase":"review_pass","run_id":"local","sha":"1e3b18b","data":{}}
 {"ts":"2026-07-11T14:10:15+0800","phase":"pushed","run_id":"local","sha":"1e3b18b","data":{"branch":"cursor/auto-autonomy-canary-acad07d-3a90"}}
+{"ts":"2026-07-11T14:18:31+0800","phase":"pr_created","run_id":"local","sha":"3cef318","data":{"pr":106}}
+{"ts":"2026-07-11T14:18:31+0800","phase":"merged","run_id":"local","sha":"3cef318","data":{"pr":106}}
