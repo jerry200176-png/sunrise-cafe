@@ -1,8 +1,12 @@
 # Ops Migration Runbook — 店長／營運手冊
 
 **CTO OS v2 · Company-first**  
+**Artifact ID:** ART-001 · Registry: [`OPS_ARTIFACT_REGISTRY.md`](./OPS_ARTIFACT_REGISTRY.md)  
 **Owner:** Ops / Founder  
-**風險：** INB-001 · R-001 — 程式已上線，DB 未同步 = 雙重訂位、RBAC 無法建帳、公休日無效
+**Review cadence:** 每週一 Inbox R-001 檢查；部署含 migration 的 commit 後 24hr 內  
+**Success metric:** `IMPLEMENTATION_TRUTH.md` 三項 migration 皆 ✅ Applied  
+**Retirement:** 三項皆 Applied 且驗證通過 30 天 → 移至 `docs/archive/` 或標 **RETIRED**  
+**風險:** INB-001 · R-001 — 程式已上線，DB 未同步 = 雙重訂位、RBAC 無法建帳、公休日無效
 
 > 在 Supabase Dashboard → **SQL Editor** 執行。每步完成後打勾。  
 > 估計時間：**20–30 分鐘**（含驗證）

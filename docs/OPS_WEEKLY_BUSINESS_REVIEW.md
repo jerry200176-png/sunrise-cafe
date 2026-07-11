@@ -1,11 +1,15 @@
 # Weekly Business Review — 15 分鐘營運儀式
 
 **CTO OS v2 · Company-first**  
+**Artifact ID:** ART-002 · Registry: [`OPS_ARTIFACT_REGISTRY.md`](./OPS_ARTIFACT_REGISTRY.md)  
 **Owner:** Founder / 店長  
-**頻率：** 每週一 10:00（或訂位高峰前）  
-**工具：** Supabase SQL Editor · 後台 `/admin/payments`
+**Review cadence:** 每週一 10:00（或訂位高峰前）  
+**Success metric:** `OUTCOME_LOG.md` 每週有 measured 條目；`deposit_rate_pct` 有數值  
+**Retirement:** KPI 自動化儀表板連續 4 週覆蓋本檔全部 KPI 且誤差 <2% → 降為附錄  
+**工具:** Supabase SQL Editor · 後台 `/admin/payments`
 
-> 解決 INB-005 / R-004：**在寫更多程式之前，先讓公司看得見營收健康度。**
+> 解決 INB-005 / R-004：**在寫更多程式之前，先讓公司看得見營收健康度。**  
+> **Capability ≠ Outcome：** 跑完 SQL 不算完成；必須寫入 `OUTCOME_LOG.md` 才驅動 health **outcome** 分數。
 
 ---
 
@@ -25,7 +29,8 @@
 |------|------|
 | 0–5 | 執行下方 SQL → 記錄 KPI 表 |
 | 5–10 | 檢查 `/admin/payments` 待審核佇列 |
-| 10–15 | 決定本週 1 個動作（話術／審核／提醒） |
+| 10–12 | **Outcome Review**（見下節） |
+| 12–15 | 決定本週 1 個動作 + 寫入 `OUTCOME_LOG.md` |
 
 ### KPI 記錄表（複製到每週筆記）
 
@@ -136,6 +141,45 @@ ORDER BY 1;
 
 ---
 
+## Outcome Review（每週必做 — 約 5 分鐘）
+
+**文件存在不加分。** 僅 production 證據可調高 Revenue / CX outcome 分數。
+
+### 1. 本週業務變化（對照上週 `OUTCOME_LOG`）
+
+| 指標 | 上週 | 本週 | Δ | 解讀 |
+|------|------|------|---|------|
+| 訂金率% | | | | |
+| 審核積壓 | | | | |
+| 候補轉換% | | | | |
+| 逾期釋放風險 | | | | |
+
+### 2. 本週執行了哪些營運動作？
+
+- [ ] Payment SOP（ART-003）每日清 backlog？
+- [ ] Migration runbook 有進度？（ART-001）
+- [ ] 其他：___
+
+### 3. 動作 → 結果（誠實填寫）
+
+> 若 SOP 有執行但指標沒改善 → 寫「無改善」，**不要**調高 health score。
+
+- 改善 attributable 到營運：___
+- 改善 attributable 到產品/工程：___
+- 無改善 / 惡化：___
+
+### 4. 該停止什麼？（Stop list）
+
+| 停止/降級項目 | 理由 |
+|---------------|------|
+| | |
+
+### 5. 寫入 `OUTCOME_LOG.md`
+
+複製 `OUTCOME_LOG.md` 週次模板 → 填 `status: measured` → 更新 `outcome` block → `npm run cto:health`
+
+---
+
 ## 本週決策模板
 
 完成 SQL 後，回答：
@@ -144,7 +188,8 @@ ORDER BY 1;
 2. **是否有客人會因逾期流失？** 若是 → 今日內聯絡
 3. **是否需工程介入？** 僅當 SOP 無法解決時才開 Issue
 
-記錄至 `docs/DECISION_LOG.md`（若改變優先級）。
+記錄至 `docs/DECISION_LOG.md`（若改變優先級）。  
+Outcome 證據寫入 `docs/OUTCOME_LOG.md`（驅動 health outcome 分數）。
 
 ---
 
@@ -159,4 +204,9 @@ ORDER BY 1;
 
 ---
 
-*解決 INB-005 · 提升 Revenue reliability 計分（見 HEALTH_SCORES.md）*
+## 與 CTO OS 的連結
+
+- **Health outcome 分**：僅 `OUTCOME_LOG` measured 條目驅動；文件存在不加分
+- 訂金率 <75% 連續 2 週 + SOP 已執行 → 才評估 #53 工程
+- `pending_review` >5 → 每日 Payment SOP Step 2–4（ART-003）
+- Artifact 治理：[`OPS_ARTIFACT_REGISTRY.md`](./OPS_ARTIFACT_REGISTRY.md)
