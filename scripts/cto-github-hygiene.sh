@@ -38,8 +38,8 @@ ISSUE_ACTION[62]="CLOSE — duplicate; reconcile MVP on main (github-hygiene wor
 ISSUE_ACTION[60]="CLOSE — webhook observability shipped #118 (github-hygiene workflow)"
 ISSUE_ACTION[54]="KEEP epic — defer; child items tracked separately"
 ISSUE_ACTION[53]="KEEP P1 — payment flow; needs OUTCOME_LOG first"
-ISSUE_ACTION[61]="DEFER P3 — Work Gate weak (DX only)"
-ISSUE_ACTION[63]="DEFER P3 — no gateway contract"
+ISSUE_ACTION[61]="CLOSE — docs/workflows/README.md shipped (#61)"
+ISSUE_ACTION[63]="CLOSE — deferred to CAPABILITY_GAPS (no gateway)"
 ISSUE_ACTION[95]="KEEP — Founder ops batch (migrations)"
 ISSUE_ACTION[99]="KEEP — strategic; evidence-based #99"
 

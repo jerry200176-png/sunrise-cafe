@@ -52,6 +52,8 @@ jobs:
           retention-days: 90
 
       - name: Commit snapshot to repo
+        id: push_snapshot
+        continue-on-error: true
         run: |
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
@@ -61,4 +63,12 @@ jobs:
             exit 0
           fi
           git commit -m "chore(bi): daily business snapshot [skip ci]"
-          git push
+          if ! git push; then
+            echo "::notice::main is branch-protected — snapshot saved as artifact only"
+            exit 0
+          fi
+
+      - name: Workflow result
+        if: always()
+        run: |
+          test -f orchestrator/business-snapshot.json && echo "Snapshot file OK" || exit 1
