@@ -16,6 +16,12 @@ source "$SCRIPT_DIR/common.sh"
 orchestrator_require_jq
 orchestrator_root
 
+# GHA runners may lack git identity — required for commits
+if ! git config user.email >/dev/null 2>&1; then
+  git config user.email "${GIT_AUTHOR_EMAIL:-41898282+github-actions[bot]@users.noreply.github.com}"
+  git config user.name "${GIT_AUTHOR_NAME:-github-actions[bot]}"
+fi
+
 MODE="${1:-run}"
 RUN_ID="${GITHUB_RUN_ID:-local-$(date +%s)}"
 STATE="orchestrator/state.json"

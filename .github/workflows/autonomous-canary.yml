@@ -36,6 +36,11 @@ jobs:
 
       - run: npm ci
 
+      - name: Configure git identity
+        run: |
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
       - name: Probe capabilities
         run: bash scripts/orchestrator/capabilities.sh
 
