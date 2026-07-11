@@ -32,6 +32,7 @@
 | RBAC reservation routes | ✅ | #85 `reservation-access.ts` |
 | Per-branch `closed_dates` | ✅ | #86 `branch-closed-dates.ts` |
 | Cron failure alerting | ✅ | #87 `cron-alert.ts` |
+| Cron job_runs persistence | ✅ | `job-runs.ts` + migration (apply optional) |
 | Next.js security patch | 🟡 | #88 → 15.5.20 |
 | `verify:migrations` in CI | ✅ | `npm run verify:migrations` + optional drift gate |
 

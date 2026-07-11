@@ -45,6 +45,14 @@ type OutcomeSnapshot = {
     deposit_reminders_7d: number;
     tomorrow_reminders_pending: number;
     auto_releases_7d: number;
+    job_runs_ready: boolean;
+    jobs: {
+      job_name: string;
+      last_status: string;
+      runs_7d: number;
+      failed_7d: number;
+      last_items_processed: number;
+    }[];
   };
   deployment: { commit: string | null; health_ok: boolean };
   migrations: {
@@ -277,6 +285,37 @@ export default function ExecutiveDashboardPage() {
                   alert={!data.migrations.all_required_applied}
                 />
               </div>
+              {data.cron.job_runs_ready && data.cron.jobs.length > 0 && (
+                <div className="mt-3 overflow-x-auto rounded-xl border border-stone-200 bg-white text-xs">
+                  <table className="w-full text-left">
+                    <thead className="border-b border-stone-100 text-stone-500">
+                      <tr>
+                        <th className="px-3 py-2">Cron job</th>
+                        <th className="px-3 py-2">上次狀態</th>
+                        <th className="px-3 py-2">7d 執行</th>
+                        <th className="px-3 py-2">7d 失敗</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.cron.jobs.map((j) => (
+                        <tr key={j.job_name} className="border-b border-stone-50">
+                          <td className="px-3 py-2 font-mono">{j.job_name}</td>
+                          <td className={`px-3 py-2 ${j.last_status === "failed" ? "text-amber-700" : "text-green-700"}`}>
+                            {j.last_status || "—"}
+                          </td>
+                          <td className="px-3 py-2">{j.runs_7d}</td>
+                          <td className="px-3 py-2">{j.failed_7d}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {!data.cron.job_runs_ready && (
+                <p className="mt-2 text-xs text-stone-500">
+                  job_runs 表未建立 — 執行 migration-job-runs.sql 後可查 cron 歷史
+                </p>
+              )}
             </section>
 
             <section className="rounded-2xl border border-stone-200 bg-white p-4 text-sm text-stone-600">

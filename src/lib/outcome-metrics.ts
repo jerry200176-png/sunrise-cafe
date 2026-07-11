@@ -8,6 +8,7 @@ import {
   fetchMigrationDrift,
   TRACKED_MIGRATIONS,
 } from "@/lib/migration-verify";
+import { fetchCronJobSummaries, type JobRunSummary } from "@/lib/job-runs";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
@@ -68,6 +69,8 @@ export type OutcomeSnapshot = {
     deposit_reminders_7d: number;
     tomorrow_reminders_pending: number;
     auto_releases_7d: number;
+    job_runs_ready: boolean;
+    jobs: JobRunSummary[];
   };
   deployment: {
     commit: string | null;
@@ -288,6 +291,16 @@ async function fetchCronProxies(now: Date) {
   };
 }
 
+async function buildCronMetrics(now: Date) {
+  const proxies = await fetchCronProxies(now);
+  const jobSummary = await fetchCronJobSummaries();
+  return {
+    ...proxies,
+    job_runs_ready: jobSummary.ready,
+    jobs: jobSummary.jobs,
+  };
+}
+
 /** Collect all outcome metrics from production Supabase. */
 export async function collectOutcomeMetrics(): Promise<OutcomeSnapshot> {
   const now = new Date();
@@ -334,6 +347,8 @@ export async function collectOutcomeMetrics(): Promise<OutcomeSnapshot> {
         deposit_reminders_7d: 0,
         tomorrow_reminders_pending: 0,
         auto_releases_7d: 0,
+        job_runs_ready: false,
+        jobs: [],
       },
       deployment: {
         commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
@@ -362,7 +377,7 @@ export async function collectOutcomeMetrics(): Promise<OutcomeSnapshot> {
       fetchBookingMetrics(now),
       fetchWaitlistMetrics(now),
       fetchMigrationStatus(),
-      fetchCronProxies(now),
+      buildCronMetrics(now),
     ]);
 
     const payment = await fetchPaymentMetrics(
@@ -459,6 +474,8 @@ export async function collectOutcomeMetrics(): Promise<OutcomeSnapshot> {
         deposit_reminders_7d: 0,
         tomorrow_reminders_pending: 0,
         auto_releases_7d: 0,
+        job_runs_ready: false,
+        jobs: [],
       },
       deployment: {
         commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,

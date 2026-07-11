@@ -176,38 +176,3 @@ export async function writeAdminAuditLog(params: {
   });
   if (error && !error.message.includes("admin_audit_logs")) throw error;
 }
-
-export async function startJobRun(job_name: string): Promise<string | null> {
-  const { data, error } = await db()
-    .from("job_runs")
-    .insert({ job_name, status: "running" })
-    .select("id")
-    .single();
-  if (error) {
-    if (error.message.includes("job_runs")) return null;
-    throw error;
-  }
-  return data.id as string;
-}
-
-export async function finishJobRun(
-  id: string | null,
-  result: {
-    status: "completed" | "failed";
-    items_processed?: number;
-    error_message?: string;
-    metadata?: Record<string, unknown>;
-  }
-): Promise<void> {
-  if (!id) return;
-  await db()
-    .from("job_runs")
-    .update({
-      status: result.status,
-      finished_at: new Date().toISOString(),
-      items_processed: result.items_processed ?? 0,
-      error_message: result.error_message ?? null,
-      metadata: result.metadata ?? {},
-    })
-    .eq("id", id);
-}
