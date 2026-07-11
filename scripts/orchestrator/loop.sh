@@ -246,7 +246,20 @@ bash "$EVIDENCE" review_pass "{}"
 bash "$SCRIPT_DIR/adversarial-review.sh" "origin/main" || { bash "$EVIDENCE" adversarial_fail "{}"; exit 4; }
 bash "$EVIDENCE" adversarial_pass "{}"
 
-git push -u origin "$BRANCH" --force-with-lease
+set +e
+PUSH_OUT="$(git push -u origin "$BRANCH" --force-with-lease 2>&1)"
+PUSH_EXIT=$?
+set -e
+if [[ "$PUSH_EXIT" -ne 0 ]]; then
+  if echo "$PUSH_OUT" | grep -qiE 'failed to push|rejected|already exists|stale info|fetch first'; then
+    bash "$EVIDENCE" push_blocked "{\"branch\":\"$BRANCH\",\"output\":$(jq -Rs . <<<"$PUSH_OUT")}"
+    log "Push blocked (branch collision or policy) — $BRANCH"
+    exit 2
+  fi
+  echo "$PUSH_OUT" >&2
+  bash "$EVIDENCE" push_fail "{\"branch\":\"$BRANCH\"}"
+  exit 4
+fi
 bash "$EVIDENCE" pushed "{\"branch\":\"$BRANCH\"}"
 
 # ── 9. PR ───────────────────────────────────────────────────
