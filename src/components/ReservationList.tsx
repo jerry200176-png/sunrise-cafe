@@ -228,39 +228,62 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   };
 
   const updateStatus = async (id: string, status: ReservationStatus) => {
-    setReservations((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, status } : r))
+    const prev = reservations;
+    setReservations((list) =>
+      list.map((r) => (r.id === id ? { ...r, status } : r))
     );
     try {
-      await fetch(`${RESERVATIONS_API}/${id}`, {
+      const res = await fetch(`${RESERVATIONS_API}/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
+      if (!res.ok) {
+        setReservations(prev);
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        alert(data.error ?? "狀態更新失敗，請重新整理後再試");
+        return;
+      }
       fetchReservations(false);
     } catch {
-      fetchReservations(false);
+      setReservations(prev);
+      alert("連線失敗，狀態未更新");
     }
   };
 
   const updateDepositStatus = async (id: string, is_deposit_paid: boolean, note?: string | null) => {
-    setReservations((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, is_deposit_paid, deposit_payment_note: note ?? r.deposit_payment_note } : r))
+    const prev = reservations;
+    setReservations((list) =>
+      list.map((r) =>
+        r.id === id ? { ...r, is_deposit_paid, deposit_payment_note: note ?? r.deposit_payment_note } : r
+      )
     );
     try {
-      await fetch(`${RESERVATIONS_API}/${id}`, {
+      const res = await fetch(`${RESERVATIONS_API}/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ is_deposit_paid, deposit_payment_note: note ?? null }),
       });
+      if (!res.ok) {
+        setReservations(prev);
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        alert(data.error ?? "訂金狀態更新失敗，請重新整理後再試");
+        return;
+      }
       fetchReservations(false);
     } catch {
-      fetchReservations(false);
+      setReservations(prev);
+      alert("連線失敗，訂金狀態未更新");
     }
   };
 
   const handleSendLine = async () => {
-    if (!window.confirm("確定要手動發送明日訂位提醒到 LINE 群組嗎？")) return;
+    if (
+      !window.confirm(
+        "確定要手動發送明日訂位提醒嗎？\n\n僅會發送「尚未通知」的訂位，不會重複推播已發送過的。"
+      )
+    )
+      return;
     setSendingLine(true);
     try {
       const res = await fetch("/api/admin/reminders/send-line", { method: "POST" });
@@ -707,10 +730,15 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                         const ok = window.confirm("確定要永久刪除此訂位嗎？此動作無法復原！");
                         if (!ok) return;
                         try {
-                          await fetch(`${RESERVATIONS_API}/${r.id}`, { method: "DELETE" });
+                          const res = await fetch(`${RESERVATIONS_API}/${r.id}`, { method: "DELETE" });
+                          if (!res.ok) {
+                            const data = (await res.json().catch(() => ({}))) as { error?: string };
+                            alert(data.error ?? "刪除失敗");
+                            return;
+                          }
                           fetchReservations(false);
                         } catch {
-                          // ignore
+                          alert("連線失敗，刪除未完成");
                         }
                       }}
                       className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
@@ -734,10 +762,15 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                         const ok = window.confirm("確定要永久刪除此訂位歷史嗎？此動作無法復原！");
                         if (!ok) return;
                         try {
-                          await fetch(`${RESERVATIONS_API}/${r.id}`, { method: "DELETE" });
+                          const res = await fetch(`${RESERVATIONS_API}/${r.id}`, { method: "DELETE" });
+                          if (!res.ok) {
+                            const data = (await res.json().catch(() => ({}))) as { error?: string };
+                            alert(data.error ?? "刪除失敗");
+                            return;
+                          }
                           fetchReservations(false);
                         } catch {
-                          // ignore
+                          alert("連線失敗，刪除未完成");
                         }
                       }}
                       className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"

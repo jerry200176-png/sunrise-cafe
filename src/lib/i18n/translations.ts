@@ -26,6 +26,7 @@ const zhTW: Dict = {
 
   "common.back": "返回",
   "common.loading": "載入中…",
+  "common.retry": "重試",
 
   "book.headerTitle": "我要訂位",
   "book.branch.title": "選擇分店",
@@ -186,6 +187,7 @@ const en: Dict = {
 
   "common.back": "Back",
   "common.loading": "Loading…",
+  "common.retry": "Retry",
 
   "book.headerTitle": "Book a Room",
   "book.branch.title": "Choose a branch",
@@ -346,6 +348,7 @@ const ja: Dict = {
 
   "common.back": "戻る",
   "common.loading": "読み込み中…",
+  "common.retry": "再試行",
 
   "book.headerTitle": "予約する",
   "book.branch.title": "店舗を選択",

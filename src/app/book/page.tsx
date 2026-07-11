@@ -41,6 +41,7 @@ export default function BookPage() {
   const [rentalNotes, setRentalNotes] = useState<RentalNoteSection[]>([]);
   const [depositInfo, setDepositInfo] = useState<string | null>(null);
   const [lineUserId, setLineUserId] = useState<string | null>(null);
+  const [availabilityRetry, setAvailabilityRetry] = useState(0);
 
   // 這裡確保介面包含 image_url
   const [branchRoomsAvailability, setBranchRoomsAvailability] = useState<{
@@ -151,7 +152,7 @@ export default function BookPage() {
       })
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, branchId, date]);
+  }, [step, branchId, date, availabilityRetry]);
 
   useEffect(() => {
     if (step !== "slot" || !branchId || !roomId || !date) return;
@@ -378,13 +379,6 @@ export default function BookPage() {
         {error && (
           <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
             {error}
-            <p className="mt-2 text-xs text-red-600">
-              若為線上網站，可開啟{" "}
-              <a href="/api/booking-health" target="_blank" rel="noopener noreferrer" className="underline">
-                /api/booking-health
-              </a>{" "}
-              檢查後端設定。
-            </p>
           </div>
         )}
 
@@ -566,15 +560,18 @@ export default function BookPage() {
                 })}
               </ul>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <p className="text-sm text-gray-500">{t("book.room.loadError")}</p>
-                <p className="text-xs text-gray-400">
-                  若為線上網站，可開啟{" "}
-                  <a href="/api/booking-health" target="_blank" rel="noopener noreferrer" className="underline">
-                    /api/booking-health
-                  </a>{" "}
-                  檢查後端是否已設定 SUPABASE_SERVICE_ROLE_KEY 與 get_blocked_slots。
-                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError(null);
+                    setAvailabilityRetry((n) => n + 1);
+                  }}
+                  className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"
+                >
+                  {t("common.retry")}
+                </button>
               </div>
             )}
           </>

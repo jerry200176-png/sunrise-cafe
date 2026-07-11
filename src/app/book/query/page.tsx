@@ -82,6 +82,8 @@ function BookQueryContent() {
     if (codeFromUrl) {
       setBookingCode(codeFromUrl.trim().toUpperCase());
     }
+    const savedPhone = sessionStorage.getItem("booking_success_phone");
+    if (savedPhone) setPhone(savedPhone);
   }, [searchParams]);
 
   const search = async (e: React.FormEvent) => {

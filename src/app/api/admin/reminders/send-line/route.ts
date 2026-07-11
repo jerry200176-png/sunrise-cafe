@@ -121,7 +121,14 @@ async function handleSendLine(force: boolean = false, sendCatOnEmpty: boolean = 
             }
         }
 
-        return NextResponse.json({ ok: true, sent: totalSent });
+        return NextResponse.json({
+            ok: true,
+            sent: totalSent,
+            message:
+                totalSent === 0
+                    ? "沒有尚未通知的明日訂位（可能已全部發送過）"
+                    : `已發送 ${totalSent} 筆明日提醒（僅尚未通知的訂位）`,
+        });
     } catch (err) {
         const message = err instanceof Error ? err.message : "LINE 發送失敗";
         console.error("[send-line] Error:", message);
@@ -157,5 +164,5 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST() {
-    return runCronJob("send-line", () => handleSendLine(true));
+    return runCronJob("send-line", () => handleSendLine(false));
 }
