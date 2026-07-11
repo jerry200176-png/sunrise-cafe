@@ -1,8 +1,9 @@
 # Implementation Truth — Single Source of Technical State
 
-**Owner:** CTO Operating System  
-**Updated:** 2026-07-10 (Round 3)  
-**Rule:** If this doc disagrees with other docs, **this doc wins**. Verify against `main` branch code.
+**Owner:** CTO Operating System v2  
+**Updated:** 2026-07-11 (Round 4)  
+**Rule:** If this doc disagrees with other docs, **this doc wins**. Verify against `main` branch code.  
+**Daily ops:** [`EXECUTIVE_DASHBOARD.md`](./EXECUTIVE_DASHBOARD.md) · snapshot: `npm run cto:snapshot`
 
 ---
 
@@ -12,7 +13,7 @@
 |------|-------|
 | URL | https://sunrise-cafe-six.vercel.app |
 | Branch | `main` |
-| Release tag | `v2.1.0` |
+| Release tag | `v2.2.0` |
 | Verify | `GET /api/version` → `commit` SHA |
 
 ---
@@ -73,4 +74,4 @@ Check: `SELECT * FROM schema_migrations ORDER BY applied_at;`
 
 ---
 
-*Updated each engineering round in `docs/ENGINEERING_DASHBOARD.md`.*
+*Updated each engineering round in `docs/EXECUTIVE_DASHBOARD.md` (CTO OS v2 SSOT).*
