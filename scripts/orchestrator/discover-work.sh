@@ -51,7 +51,7 @@ if grep -q 'fail-open\|fail open' src/middleware.ts 2>/dev/null || grep -q 'UPST
 fi
 
 # TODO scan (bounded)
-TODO_COUNT="$(grep -rE 'TODO|FIXME' src --include='*.ts' --include='*.tsx' 2>/dev/null | wc -l | tr -d ' ')"
+TODO_COUNT="$( (grep -rE 'TODO|FIXME' src --include='*.ts' --include='*.tsx' 2>/dev/null || true) | wc -l | tr -d ' ')"
 if [[ "$TODO_COUNT" -gt 0 && "$TODO_COUNT" -le 5 ]]; then
   FIRST="$(grep -rnE 'TODO|FIXME' src --include='*.ts' 2>/dev/null | head -1 || true)"
   if [[ -n "$FIRST" ]]; then
