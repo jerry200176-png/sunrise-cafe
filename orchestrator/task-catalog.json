@@ -118,6 +118,8 @@
       "evidence": "docs/AUTONOMY_AUDIT.md",
       "verify": "autonomy-evidence.jsonl has gha_canary phase"
     },
+    {
+      "id": "ops-log-cron-extend",
       "title": "Extend structured ops-log to all cron routes (#60)",
       "role": "implementer",
       "type": "observability",

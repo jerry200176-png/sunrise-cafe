@@ -25,30 +25,35 @@ GATE_BLOCK=0
 [[ "$GATE_STATUS" == "BLOCK" ]] && GATE_BLOCK=1
 
 # Merge discovered items not already in catalog
-MERGED_CATALOG="$(jq -s '
-  .[0] as $cat |
-  (.[1].items // []) as $disc |
-  ($cat.tasks | map(.id)) as $ids |
-  ($disc | map(select(.id as $i | $ids | index($i) | not)) | map({
-    id: .id,
-    title: .title,
-    role: "implementer",
-    type: "discovered",
-    owner: "agent",
-    independent: true,
-    base_score: (.base_score // 55),
-    gate_block_bonus: 0,
-    novel: (.novel // false),
-    novel_prompt: (.novel_prompt // ""),
-    handler: ("scripts/orchestrator/handlers/" + .id + ".sh"),
-    evidence: .source,
-    verify: "npm test"
-  })) as $extra |
-  $cat | .tasks = (.tasks + $extra)
-' "$CATALOG" "$DISCOVERED" 2>/dev/null || cat "$CATALOG")"
+MERGED_FILE="orchestrator/.merged-catalog.json"
+if [[ -f "$DISCOVERED" ]]; then
+  jq -s '
+    .[0] as $cat |
+    (.[1].items // []) as $disc |
+    ($cat.tasks | map(.id)) as $ids |
+    ($disc | map(select(.id as $i | $ids | index($i) | not)) | map({
+      id: .id,
+      title: .title,
+      role: "implementer",
+      type: "discovered",
+      owner: "agent",
+      independent: true,
+      base_score: (.base_score // 55),
+      gate_block_bonus: 0,
+      novel: (.novel // false),
+      novel_prompt: (.novel_prompt // ""),
+      handler: ("scripts/orchestrator/handlers/" + .id + ".sh"),
+      evidence: .source,
+      verify: "npm test"
+    })) as $extra |
+    $cat | .tasks = (.tasks + $extra)
+  ' "$CATALOG" "$DISCOVERED" > "$MERGED_FILE"
+else
+  cp "$CATALOG" "$MERGED_FILE"
+fi
 
 jq -n \
-  --argjson catalog "$MERGED_CATALOG" \
+  --slurpfile catalog "$MERGED_FILE" \
   --argjson gate_block "$GATE_BLOCK" \
   --argjson bot_can_close "$BOT_CAN_CLOSE" \
   --argjson drift_failures "$DOC_DRIFT_FAILURES" \
@@ -98,7 +103,7 @@ jq -n \
       verify: $t.verify
     };
 
-  ($catalog.tasks | map(score_task(.)) | sort_by(-.score)) as $ranked |
+  ($catalog[0].tasks | map(score_task(.)) | sort_by(-.score)) as $ranked |
   ($ranked | map(select(.executable == true)) | .[0] // null) as $next |
   ($ranked | map(select(.executable == false and .score > 0)) | .[0:3]) as $blocked |
   {
