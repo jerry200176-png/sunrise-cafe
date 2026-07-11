@@ -71,8 +71,8 @@ Check: `SELECT * FROM schema_migrations ORDER BY applied_at;`
 
 | Type | Count | Action |
 |------|-------|--------|
-| Open PRs | 0 | ✅ Cleaned 2026-07-11 |
-| Open Issues | 6 | Strategic: #53 #54 #95 #99; defer #61 #63 — see `GITHUB_TRIAGE.md` |
+| Open PRs | 2 | ✅ Cleaned 2026-07-11 |
+| Open Issues | 4 | Strategic: #53 #54 #95 #99; defer #61 #63 — see `GITHUB_TRIAGE.md` |
 | Tests on main | 158 unit + 8 E2E (2 skip) | `npm run cto:governance` verifies drift |
 | Governance gate | `cto:governance` | Target 100: see `FOUNDER_PERMISSIONS.md` |
 | AI orchestrator | `cto:orchestrator` | `ORCHESTRATOR.md` — discover/prioritize/plan |

@@ -1,0 +1,21 @@
+{
+  "generated_at": "2026-07-11T10:58:04Z",
+  "items": [
+    {
+      "id": "doc-drift-fix",
+      "title": "Fix documentation drift",
+      "source": "cto-doc-drift",
+      "base_score": 80,
+      "novel": false,
+      "novel_prompt": ""
+    },
+    {
+      "id": "deploy-status-sync",
+      "title": "Sync AUTONOMY_STATUS deploy blockers",
+      "source": "deploy-gate",
+      "base_score": 55,
+      "novel": false,
+      "novel_prompt": ""
+    }
+  ]
+}
