@@ -7,9 +7,9 @@
 |---|-------|--------|-------|-------------------|
 | 53 | Payment Flow Optimization | **OPEN P1** | Product | Needs OUTCOME_LOG baseline; child: deposit conversion UX |
 | 54 | Production Excellence epic | **OPEN** | Eng | Track via CAPABILITY_GAPS + orchestrator; defer phase drafts |
-| 61 | AI workflow docs | **DONE** → close | Eng | Shipped `docs/workflows/README.md` — run hygiene to close |
-| 63 | PaymentProvider abstraction | **DEFER P3** | Eng | Close when CAPABILITY_GAPS CG; no gateway contract |
-| 95 | Founder Ops Batch | **OPEN P0** | Founder | GitHub ✅; remaining: Supabase migrations only |
+| 61 | AI workflow docs | **CLOSED** | Eng | Shipped `docs/workflows/README.md` (hygiene 2026-07-11) |
+| 63 | PaymentProvider abstraction | **CLOSED deferred** | Eng | CAPABILITY_GAPS CG-003; re-open with #99 |
+| 95 | Founder Ops Batch | **OPEN P0** | Founder | GitHub ✅; autonomous loop handler fixed #126; remaining: Supabase migrations |
 | 99 | Integrated deposit capture | **OPEN strategic** | Product | After #53 KPI; Stripe/LINE Pay decision |
 
 ## Completed (reference)

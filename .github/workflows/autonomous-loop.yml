@@ -111,7 +111,7 @@ jobs:
       - name: Report blocked iteration (expected founder policy)
         if: steps.loop.outputs.exit_code == '2'
         run: |
-          echo "::notice::Loop blocked at PR create or external gate — see evidence artifact"
+          echo "::notice::Loop blocked at push/PR create or external gate — see evidence artifact"
           echo "Founder: enable 'Allow GitHub Actions to create pull requests' in repo Settings"
 
       - name: Fail job if loop validation failed
