@@ -16,6 +16,7 @@ import {
 } from "@/lib/line-notify";
 import { sendLineFlexMessage, buildReminderFlex } from "@/lib/line";
 import { notifyCronFailure } from "@/lib/cron-alert";
+import { runCronJob } from "@/lib/job-runs";
 
 const CAT_MESSAGES = [
     "喵～沒訂位！Ivy 妳備好零食了嗎？本喵五分鐘後到 🐱",
@@ -152,9 +153,9 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
     }
-    return handleSendLine(false, true);
+    return runCronJob("send-line", () => handleSendLine(false, true));
 }
 
 export async function POST() {
-    return handleSendLine(true);
+    return runCronJob("send-line", () => handleSendLine(true));
 }

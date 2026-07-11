@@ -13,6 +13,7 @@ import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { logPayment, logDepositStatusChange } from "@/lib/payment-log";
 import { notifyCronFailure } from "@/lib/cron-alert";
+import { runCronJob } from "@/lib/job-runs";
 
 type Row = {
   id: string;
@@ -135,10 +136,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
   }
-  return handleRun();
+  return runCronJob("deposit-deadline", () => handleRun());
 }
 
 /** POST: 手動觸發 */
 export async function POST() {
-  return handleRun();
+  return runCronJob("deposit-deadline", () => handleRun());
 }

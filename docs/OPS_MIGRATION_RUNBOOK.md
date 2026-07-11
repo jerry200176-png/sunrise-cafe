@@ -120,6 +120,19 @@ SELECT id, name, closed_dates FROM branches LIMIT 5;
 
 ---
 
+## Step 4 — Cron 執行紀錄（建議 · 可觀測性）
+
+**檔案：** `supabase/migration-job-runs.sql`  
+**時間：** 約 2 分鐘
+
+- [ ] SQL Editor 執行全文
+- [ ] 驗證：`SELECT * FROM job_runs ORDER BY started_at DESC LIMIT 5;`（次日 cron 後應有資料）
+- [ ] `/admin/executive` → Cron 區塊 `job_runs_ready: true`
+
+**業務影響：** 明日提醒是否成功送出可查證，不需翻 Vercel logs
+
+---
+
 ## 完成後
 
 - [ ] 更新 `docs/EXECUTIVE_INBOX.md` — 關閉 INB-001

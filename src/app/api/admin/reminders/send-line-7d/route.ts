@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchReservationsIn7Days, updateReservationAdmin, isAdminConfigured } from "@/lib/supabase-admin";
 import { sendLineFlexMessage, buildReminderFlex } from "@/lib/line";
 import { notifyCronFailure } from "@/lib/cron-alert";
+import { runCronJob } from "@/lib/job-runs";
 
 async function handleSend() {
   if (!isAdminConfigured()) {
@@ -52,10 +53,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
   }
-  return handleSend();
+  return runCronJob("send-line-7d", () => handleSend());
 }
 
 /** POST: 手動觸發 */
 export async function POST() {
-  return handleSend();
+  return runCronJob("send-line-7d", () => handleSend());
 }
