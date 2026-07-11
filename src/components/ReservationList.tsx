@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { Calendar, Clock, DoorOpen, Pencil, Users, X, Send } from "lucide-react";
@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { isDepositRequired, isWeekendDate } from "@/lib/booking-utils";
 import { buildPaymentMessage, type BranchPaymentConfig } from "@/lib/payment-message";
 import type { Reservation, ReservationStatus, Room } from "@/types";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 function getPricePerHour(room: Room, dateStr: string): number {
   return isWeekendDate(dateStr) ? Number(room.price_weekend) : Number(room.price_weekday);
@@ -75,6 +76,21 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   const [sendingLine, setSendingLine] = useState(false);
   const [sendingLinePaymentTo, setSendingLinePaymentTo] = useState<string | null>(null);
   const [branchConfig, setBranchConfig] = useState<BranchPaymentConfig | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string } | null>(null);
+  const confirmResolver = useRef<((value: boolean) => void) | null>(null);
+
+  const openConfirm = useCallback((title: string, message: string) => {
+    return new Promise<boolean>((resolve) => {
+      confirmResolver.current = resolve;
+      setConfirmDialog({ title, message });
+    });
+  }, []);
+
+  const closeConfirm = useCallback((result: boolean) => {
+    confirmResolver.current?.(result);
+    confirmResolver.current = null;
+    setConfirmDialog(null);
+  }, []);
 
   const fetchReservations = useCallback(async (showLoading = true) => {
     if (!branchId) {
@@ -254,7 +270,8 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   const updateDepositStatus = async (id: string, is_deposit_paid: boolean, note?: string | null) => {
     const row = reservations.find((r) => r.id === id);
     if (is_deposit_paid && (row?.pending_payment_reviews ?? 0) > 0) {
-      const ok = window.confirm(
+      const ok = await openConfirm(
+        "付款待審核",
         `此訂位有 ${row?.pending_payment_reviews} 筆付款待審核。\n\n建議至「付款審核」頁面核准，避免與 LINE 截圖審核流程脫鉤。\n\n仍要手動標記已付訂金？`
       );
       if (!ok) return;
@@ -285,12 +302,11 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   };
 
   const handleSendLine = async () => {
-    if (
-      !window.confirm(
-        "確定要手動發送明日訂位提醒嗎？\n\n僅會發送「尚未通知」的訂位，不會重複推播已發送過的。"
-      )
-    )
-      return;
+    const ok = await openConfirm(
+      "發送明日提醒",
+      "確定要手動發送明日訂位提醒嗎？\n\n僅會發送「尚未通知」的訂位，不會重複推播已發送過的。"
+    );
+    if (!ok) return;
     setSendingLine(true);
     try {
       const res = await fetch("/api/admin/reminders/send-line", { method: "POST" });
@@ -573,7 +589,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                     <button
                       type="button"
                       onClick={async () => {
-                        const ok = window.confirm("確定要將此訂位標記為取消/拒絕嗎？");
+                        const ok = await openConfirm("拒絕訂位", "確定要將此訂位標記為取消/拒絕嗎？");
                         if (!ok) return;
                         await updateStatus(r.id, "cancelled");
                       }}
@@ -722,7 +738,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                       <button
                         type="button"
                         onClick={async () => {
-                          const ok = window.confirm("確定要將此訂位標記為取消嗎？");
+                          const ok = await openConfirm("取消訂位", "確定要將此訂位標記為取消嗎？");
                           if (!ok) return;
                           await updateStatus(r.id, "cancelled");
                         }}
@@ -742,7 +758,10 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                     <button
                       type="button"
                       onClick={async () => {
-                        const ok = window.confirm("確定要永久刪除此訂位嗎？此動作無法復原！");
+                        const ok = await openConfirm(
+                          "永久刪除",
+                          "確定要永久刪除此訂位嗎？此動作無法復原！"
+                        );
                         if (!ok) return;
                         try {
                           const res = await fetch(`${RESERVATIONS_API}/${r.id}`, { method: "DELETE" });
@@ -774,7 +793,10 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                     <button
                       type="button"
                       onClick={async () => {
-                        const ok = window.confirm("確定要永久刪除此訂位歷史嗎？此動作無法復原！");
+                        const ok = await openConfirm(
+                          "刪除歷史",
+                          "確定要永久刪除此訂位歷史嗎？此動作無法復原！"
+                        );
                         if (!ok) return;
                         try {
                           const res = await fetch(`${RESERVATIONS_API}/${r.id}`, { method: "DELETE" });
@@ -968,6 +990,14 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmDialog != null}
+        title={confirmDialog?.title ?? ""}
+        message={confirmDialog?.message ?? ""}
+        onConfirm={() => closeConfirm(true)}
+        onCancel={() => closeConfirm(false)}
+      />
     </>
   );
 }

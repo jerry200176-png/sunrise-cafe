@@ -2,66 +2,74 @@
 
 **Updated:** 2026-07-11  
 **Live API:** `GET /api/admin/north-star` (requires `bi:read`)  
-**Derived from:** `collectOutcomeMetrics()` + ops-log funnel events
+**Targets:** `src/lib/north-star-targets.ts` (rationale required)
 
-> Rule: **Do not mark a feature complete until Compare is logged in [`IMPROVEMENT_LOG.md`](./IMPROVEMENT_LOG.md).**
+> Every metric: **Observed · Target · Delta · Trend · Source · Last Updated**
 
-## Metrics
+## Registry
 
-| ID | Metric | Target | Direction | Primary source | Status |
-|----|--------|-------:|-----------|----------------|--------|
-| `booking_conversion` | Form entered → booking created | 65% | ↑ | ops-log `guest.booking_flow_entered` / `guest.booking_created` | 🟡 telemetry added |
-| `deposit_conversion` | Eligible bookings with deposit paid (30d) | 85% | ↑ | `payment.deposit_rate_pct` | 🟡 pipeline |
-| `waitlist_conversion` | Waitlist → booked (30d) | 30% | ↑ | `waitlist.conversion_pct` | 🟡 pipeline |
-| `avg_booking_time` | Median minutes: flow enter → booking created | <5 min | ↓ | ops-log timestamps (future) | 🔴 unmeasured |
-| `payment_completion_rate` | Deposit instructions viewed → pay CTA click | 70% | ↑ | ops-log funnel ratio | 🟡 telemetry added |
-| `admin_payment_review_sla` | Oldest pending payment review (hours) | <4 h | ↓ | `payment.payment_review_oldest_hours` | 🟡 pipeline |
-| `admin_keyboard_adoption` | Payment approvals via keyboard | 30% | ↑ | ops-log `interaction: keyboard` | 🟡 telemetry added |
-| `customer_support_proxy` | Pending reviews + deposit at-risk | <5 | ↓ | `payment.pending_reviews` + `deposit_at_risk` | 🟡 pipeline |
-| `production_error_rate` | Cron job failure rate (7d) | <1% | ↓ | `cron.jobs[].failed_7d / runs_7d` | 🟡 pipeline |
-| `cancellation_rate` | Cancellations / all reservations (30d) | <15% | ↓ | `booking.cancellation_rate_30d` | 🟡 pipeline |
-| `core_web_vitals_lcp` | Largest Contentful Paint (p75) | <2.5s | ↓ | RUM / Lighthouse CI | 🔴 unmeasured |
-| `api_latency_p95` | Admin API p95 response time | <500ms | ↓ | Vercel logs / middleware | 🔴 unmeasured |
+| ID | Metric | Observed | Target | Δ | Trend (7/30/90) | Source | Updated |
+|----|--------|----------|-------:|--:|-----------------|--------|---------|
+| `booking_conversion` | Form → booking | — | 65% | — | —/—/— | ops-log funnel | telemetry live |
+| `deposit_conversion` | Deposit paid (30d) | pipeline | 85% | pipeline | —/30d/— | `deposit_rate_pct` | pipeline |
+| `waitlist_conversion` | Waitlist → booked | pipeline | 30% | pipeline | —/30d/— | `conversion_pct` | pipeline |
+| `avg_booking_time` | Median minutes | — | <5 min | — | —/—/— | ops-log timestamps | unmeasured |
+| `payment_completion_rate` | Instructions → CTA | — | 70% | — | —/—/— | ops-log funnel | telemetry live |
+| `admin_payment_review_sla` | Oldest review (h) | pipeline | <4 h | pipeline | 7d/—/— | `payment_review_oldest_hours` | pipeline |
+| `admin_keyboard_adoption` | Keyboard approvals | — | 30% | — | —/—/— | ops-log interaction | telemetry live |
+| `customer_support_proxy` | Reviews + at-risk | pipeline | <5 | pipeline | 7d/—/— | pending + at_risk | pipeline |
+| `production_error_rate` | Cron failures (7d) | pipeline | <1% | pipeline | 7d/—/— | cron job runs | pipeline |
+| `cancellation_rate` | Cancelled (30d) | pipeline | <15% | pipeline | —/30d/— | `cancellation_rate_30d` | pipeline |
+| `core_web_vitals_lcp` | LCP p75 | — | <2.5s | — | —/—/— | RUM | unmeasured |
+| `api_latency_p95` | Admin API p95 | — | <500ms | — | —/—/— | Vercel logs | unmeasured |
 
-## How to read status
+**Observed** = live from API when `bi:read` available. This table is documentation; API is SSOT.
+
+## Target rationale (summary)
+
+| Metric | Target | Why |
+|--------|-------:|-----|
+| Booking Conversion | 65% | Multi-step form benchmark 55–70% |
+| Deposit Conversion | 85% | OUTCOME_LOG + slot waste policy |
+| Waitlist Conversion | 30% | OUTCOME_LOG + LINE notify window |
+| Payment Completion | 70% | High-intent viewers → CTA click |
+| Review SLA | 4h | Same-day deposit confirm (code SLA) |
+| Keyboard Adoption | 30% | Power-user keep threshold at T+14 |
+| Support Proxy | 5 | ~5 items/shift capacity |
+| Cron Error | 1% | SRE reliability standard |
+| Cancellation | 15% | Hospitality benchmark |
+| LCP | 2.5s | Google CWV "good" |
+| API P95 | 500ms | Nielsen 1s perceived wait |
+
+Full text: `src/lib/north-star-targets.ts`
+
+## Trend methodology
+
+| Window | Source |
+|--------|--------|
+| 7d | Point metrics from 7d pipeline fields or weekly snapshot |
+| 30d | Rolling 30d outcome metrics |
+| 90d | `WEEKLY_EXECUTIVE_REVIEW.md` archive (manual until history DB) |
+
+Run `npm run executive:review` weekly to snapshot Observed values into review archive.
+
+## Status badges
 
 | Badge | Meaning |
 |-------|---------|
-| 🟢 on_track | Value meets target (or within 10% for rates) |
-| 🟡 at_risk / telemetry | Measurable but below target, or telemetry just added |
-| 🔴 unmeasured | No data path yet — add minimal telemetry before optimizing |
+| 🟢 on_track | Observed meets Target (±10% for rates) |
+| 🟡 at_risk | Below target or telemetry just added |
+| 🔴 unmeasured | No Observed data — add telemetry before optimizing |
 
-## Measurement cadence
+## Ops-log events
 
-| When | Action |
-|------|--------|
-| Before PR | Record baseline in `IMPROVEMENT_LOG.md` |
-| After deploy + 7d | Compare Δ; update this table |
-| Weekly | Sync health block to `OUTCOME_LOG.md` via `npm run cto:outcomes` |
+See previous version — guest funnel + admin events unchanged.
 
-## Ops-log funnel events (guest)
+## Reduction opportunities
 
-| Event | When |
-|-------|------|
-| `guest.booking_flow_entered` | `/book` page mount |
-| `guest.booking_created` | `POST /api/reservations` success |
-| `guest.booking_success_viewed` | `/book/success` with valid code |
-| `guest.deposit_instructions_viewed` | Query page payment section |
-| `guest.payment_line_pay_click` | LINE Pay CTA |
-| `guest.payment_line_official_click` | LINE official account CTA |
-
-## Ops-log admin events
-
-| Event | When |
-|-------|------|
-| `admin.payment_approved` / `rejected` | Payment review; includes `interaction` |
-| `admin.waitlist_expired` | Staff removes waitlist entry |
-
-## Reduction opportunities (standing)
-
-| Area | Opportunity | Metric impact |
-|------|-------------|---------------|
-| ReservationList | Replace `alert`/`confirm`/`prompt` → inline modals | `admin_task_completion_time`, mobile completion |
-| Query page | Sticky payment CTA on mobile | `payment_completion_rate` |
-| Dashboard | 7 API calls → 1 | `api_latency_p95` |
-| Deposit flow | Deadline visible before LINE questions | `deposit_conversion`, support proxy |
+| Area | Opportunity | Metrics |
+|------|-------------|---------|
+| ReservationList | Inline modals (ADM-002) | support proxy, task completion |
+| Query page | Sticky payment CTA (CX-007) | payment_completion_rate |
+| Dashboard | 7→1 API (ADM-005) | api_latency_p95 |
+| Unused features | Remove if Compare fails T+30 | all |

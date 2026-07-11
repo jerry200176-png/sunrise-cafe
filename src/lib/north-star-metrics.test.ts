@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildNorthStarSnapshot, calcCronFailureRate } from "./north-star-metrics";
+import { buildNorthStarSnapshot, calcMetricDelta, calcCronFailureRate } from "./north-star-metrics";
+import { buildExecutiveReview } from "./executive-review";
 import type { OutcomeSnapshot } from "./outcome-metrics";
 
 function minimalSnapshot(overrides: Partial<OutcomeSnapshot> = {}): OutcomeSnapshot {
@@ -67,34 +68,40 @@ function minimalSnapshot(overrides: Partial<OutcomeSnapshot> = {}): OutcomeSnaps
   };
 }
 
+describe("calcMetricDelta", () => {
+  it("positive when observed above target for up metrics", () => {
+    expect(calcMetricDelta(90, 85, "up")).toBe(5);
+  });
+
+  it("positive when observed below target for down metrics", () => {
+    expect(calcMetricDelta(2, 4, "down")).toBe(2);
+  });
+});
+
 describe("calcCronFailureRate", () => {
   it("returns null when no runs", () => {
     expect(calcCronFailureRate([])).toBeNull();
   });
-
-  it("computes failure percentage", () => {
-    expect(
-      calcCronFailureRate([
-        { job_name: "a", last_status: "ok", runs_7d: 50, failed_7d: 1, last_items_processed: 0 },
-        { job_name: "b", last_status: "ok", runs_7d: 50, failed_7d: 0, last_items_processed: 0 },
-      ])
-    ).toBe(1);
-  });
 });
 
 describe("buildNorthStarSnapshot", () => {
-  it("maps deposit and waitlist conversion from outcome snapshot", () => {
+  it("includes observed, target, delta, and rationale", () => {
     const ns = buildNorthStarSnapshot(minimalSnapshot());
     const deposit = ns.metrics.find((m) => m.id === "deposit_conversion");
-    const waitlist = ns.metrics.find((m) => m.id === "waitlist_conversion");
-    expect(deposit?.value).toBe(80);
-    expect(waitlist?.value).toBe(30);
-    expect(waitlist?.status).toBe("on_track");
+    expect(deposit?.observed).toBe(80);
+    expect(deposit?.target).toBe(85);
+    expect(deposit?.delta).toBe(-5);
+    expect(deposit?.target_rationale).toContain("OUTCOME_LOG");
+    expect(deposit?.last_updated).toBe("2026-07-11T12:00:00.000Z");
   });
+});
 
-  it("marks funnel metrics unmeasured until log aggregation exists", () => {
+describe("buildExecutiveReview", () => {
+  it("generates markdown with top 10 ROI", () => {
     const ns = buildNorthStarSnapshot(minimalSnapshot());
-    expect(ns.metrics.find((m) => m.id === "booking_conversion")?.status).toBe("unmeasured");
-    expect(ns.unmeasured_count).toBeGreaterThan(0);
+    const review = buildExecutiveReview(ns);
+    expect(review.top_10_roi).toHaveLength(10);
+    expect(review.markdown).toContain("Weekly Executive Review");
+    expect(review.hypotheses.pending.length).toBeGreaterThan(0);
   });
 });

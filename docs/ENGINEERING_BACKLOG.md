@@ -2,7 +2,7 @@
 
 **Updated:** 2026-07-11  
 **Mode:** ROI-ranked by real user value — re-sorted after each delivery.  
-**Loop:** [`PRODUCT_IMPROVEMENT_LOOP.md`](./PRODUCT_IMPROVEMENT_LOOP.md) · Metrics: [`NORTH_STAR_METRICS.md`](./NORTH_STAR_METRICS.md)
+**Loop:** [`PRODUCT_IMPROVEMENT_LOOP.md`](./PRODUCT_IMPROVEMENT_LOOP.md) · [`HYPOTHESES.md`](./HYPOTHESES.md) · Metrics: [`NORTH_STAR_METRICS.md`](./NORTH_STAR_METRICS.md)
 
 ## Value lens (every P0 must answer)
 
@@ -17,7 +17,7 @@
 
 | ID | Item | ROI rationale | Status |
 |----|------|---------------|--------|
-| ADM-002 | ReservationList: replace alert/confirm/prompt | Daily ops friction; mobile confirm broken | **Next** |
+| ADM-002 | ReservationList: replace alert/confirm/prompt | Daily ops friction; mobile confirm broken | **In progress** (confirm slice) |
 
 ## P1 — Measurement & Guest
 
