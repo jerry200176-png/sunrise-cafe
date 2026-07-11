@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Copy, Check } from "lucide-react";
+import { useLocale } from "@/lib/i18n/LocaleContext";
 
 type Props = {
   code: string;
@@ -9,6 +10,7 @@ type Props = {
 };
 
 export function CopyBookingCodeButton({ code, className = "" }: Props) {
+  const { t } = useLocale();
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
@@ -37,21 +39,21 @@ export function CopyBookingCodeButton({ code, className = "" }: Props) {
       type="button"
       onClick={copy}
       className={`inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm font-medium text-amber-800 hover:bg-amber-100 transition ${className}`}
-      aria-label="複製訂位代號"
+      aria-label={t("copyCode.ariaLabel")}
     >
       {copied ? (
         <>
           <Check className="h-4 w-4" aria-hidden />
-          已複製
+          {t("copyCode.copied")}
         </>
       ) : (
         <>
           <Copy className="h-4 w-4" aria-hidden />
-          複製代號
+          {t("copyCode.label")}
         </>
       )}
       <span className="sr-only" aria-live="polite">
-        {copied ? "訂位代號已複製" : ""}
+        {copied ? t("copyCode.srCopied") : ""}
       </span>
     </button>
   );
