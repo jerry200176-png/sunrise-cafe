@@ -15,6 +15,7 @@
     "cto:health": "bash scripts/cto-health-scores.sh",
     "cto:outcomes": "bash scripts/cto-outcome-pipeline.sh",
     "cto:business-snapshot": "bash scripts/cto-business-snapshot.sh",
+    "cto:verify-permissions": "bash scripts/cto-verify-permissions.sh",
     "cto:governance": "bash scripts/cto-governance.sh",
     "cto:orchestrator": "bash scripts/cto-orchestrator.sh",
     "cto:loop": "bash scripts/orchestrator/loop.sh run",

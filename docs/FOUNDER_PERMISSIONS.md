@@ -97,7 +97,25 @@ npm run cto:governance  # Gate PASS
 
 ---
 
-## 你說「要開權限」— 最小集合
+## 你說「給權限、用 MCP 接上去」— 實話
+
+**此 Cloud Agent 環境只有 `cursor-cloud` MCP**（診斷用），**沒有** Vercel / Supabase / GitHub Secrets 的 MCP。
+
+| 想做什麼 | Agent 能否代設 | 正確做法 |
+|----------|:-------------:|----------|
+| Vercel 環境變數 | ❌ | 你在 Vercel Dashboard 設，或把 `VERCEL_TOKEN` 貼到 **Cursor Secrets** |
+| GitHub Actions Secrets | ❌ | `github.com` → repo → Settings → Secrets（integration token 403） |
+| Supabase migration | ❌ | 你在 Supabase SQL Editor 執行 runbook |
+| Agent 執行 deploy / outcome 同步 | ✅ | **你把 secret 貼進 Cursor 後，下一輪 agent 自動讀環境變數** |
+
+### Cursor 貼 Secret 的 UI（約 2 分鐘）
+
+1. 打開 [cursor.com/dashboard/cloud-agents](https://cursor.com/dashboard/cloud-agents)
+2. **Secrets** 分頁
+3. 類型選 **Runtime Secret**
+4. 依下表新增 key/value
+
+驗證 agent 是否讀到：`npm run cto:verify-permissions`
 
 若只想開 **3 樣** 就讓 Agent 繼續自治並衝高分：
 
