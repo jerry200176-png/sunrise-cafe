@@ -191,12 +191,15 @@ function BookQueryContent() {
   };
 
   const depositDeadlineLabel = (item: BookingItem) => {
+    if (!item.created_at) return "";
     const deadline = computeDepositDeadline(item.created_at, item.start_time);
     return format(deadline, "yyyy/MM/dd (EEE) HH:mm", { locale: dateFnsLocale });
   };
 
-  const depositUrgency = (item: BookingItem) =>
-    getDepositUrgency(computeDepositDeadline(item.created_at, item.start_time));
+  const depositUrgency = (item: BookingItem) => {
+    if (!item.created_at) return "ok" as const;
+    return getDepositUrgency(computeDepositDeadline(item.created_at, item.start_time));
+  };
 
   const canReschedule = (item: BookingItem) => {
     if (!["pending", "confirmed"].includes(item.status)) return false;
@@ -488,7 +491,7 @@ function BookQueryContent() {
                           <p className="text-sm text-amber-700 bg-amber-100 inline-block px-2 py-1 rounded">
                             {t("query.weekendDepositNote")}
                           </p>
-                          {depositUrgency(item) === "past" ? (
+                          {item.created_at && depositUrgency(item) === "past" ? (
                             <p
                               role="alert"
                               className="mt-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-800"

@@ -134,6 +134,7 @@ export async function setupMyBookingsMock(page: Page) {
           deposit_required: true,
           deposit_amount: 1000,
           is_deposit_paid: false,
+          created_at: new Date().toISOString(),
         },
       ]),
     });
