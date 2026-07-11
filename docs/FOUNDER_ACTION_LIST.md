@@ -31,6 +31,19 @@ gh pr close 91 --comment "Reject: dev major bumps bundled; review separately."
 
 See issue **#95** and [`OPS_MIGRATION_RUNBOOK.md`](./OPS_MIGRATION_RUNBOOK.md) Steps 1–4 (~25 min).
 
+## Deploy (P0 — orchestrator STANDBY until done)
+
+Production SHA lags `main`. Orchestrator is **not LIVE** until matched.
+
+\`\`\`bash
+git checkout main && git pull
+vercel deploy --prod --yes
+curl -s https://sunrise-cafe-six.vercel.app/api/version | jq .commit
+# Must equal: git rev-parse HEAD
+\`\`\`
+
+Reason: Vercel rate limit / merge-deploy gap (see `docs/AUTONOMY_STATUS.md`).
+
 ## KPI baseline (unblocks outcome scores)
 
 1. Open https://sunrise-cafe-six.vercel.app/admin/executive once (logged in)

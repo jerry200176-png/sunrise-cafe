@@ -106,7 +106,26 @@ New dependabot PRs still target Next 16.2.10. Founder 關閉；controlled minors
 
 **MDU:** Orchestrator platform (this PR) + doc drift fix + CAPABILITY_GAPS registry
 
-**Next auto-selected task after merge:** `doc-drift-fix` or `founder-github-batch` (blocked) per priority engine
+**Next auto-selected task after merge:** `doc-drift-fix` when deploy LIVE; else STANDBY idle.
+
+---
+
+## Round 11 — 2026-07-11 (continued)
+
+### DL-016: Autonomous loop via GitHub Actions (not Cursor headless)
+
+**User directive:** Unattended engineering loop; prove with canary.
+
+**Environment proof:**
+- `cursor` CLI: **not installed**
+- `codex exec`: available via npx; needs `OPENAI_API_KEY` in CI
+- Cloud agent `gh` token: **cannot** create PRs, close issues, or workflow_dispatch
+
+**Decision:** Implement real loop in **GitHub Actions** + `scripts/orchestrator/loop.sh`. Cursor sessions remain interactive fallback.
+
+**Operational rule:** `operational_mode=LIVE` only when prod SHA = main. Currently **STANDBY** until Founder `vercel deploy --prod`.
+
+**MDU:** PR #106 autonomous loop + canary evidence
 
 ---
 

@@ -1,14 +1,14 @@
 {
   "version": 1,
-  "iteration_count": 12,
+  "iteration_count": 13,
   "last_iteration": {
-    "id": "iter-012",
-    "task_id": "ops-log-cron-extend",
-    "outcome": "cron.completed structured logging for all crons via runCronJob",
-    "completed_at": "2026-07-11T13:57:13+0800",
-    "sha": "ff3cf47",
-    "pr": "104",
-    "overall_health": 60
+    "id": "iter-013",
+    "task_id": "autonomy-canary",
+    "outcome": "autonomous loop shipped + canary PR #106",
+    "completed_at": "2026-07-11T14:18:47+0800",
+    "sha": "3cef318",
+    "pr": "106",
+    "overall_health": 59
   },
   "blockers": [
     {
@@ -43,5 +43,15 @@
     "gate": "BLOCK",
     "overall_health": 61,
     "github_score": 47
+  },
+  "operational_mode": "STANDBY",
+  "deploy": {
+    "status": "blocked",
+    "reason": "sha_mismatch",
+    "main_sha": "3cef318",
+    "prod_sha": "f083d10",
+    "main_full": "3cef318df9c971052b0f036b558540c6b888dd8b",
+    "prod_full": "f083d10f5dd7f3d2c61a34d1a600930d534f6d14",
+    "checked_at": "2026-07-11T14:18:39+0800"
   }
 }

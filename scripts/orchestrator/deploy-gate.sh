@@ -60,8 +60,8 @@ if [[ -f "$STATE" ]]; then
     --arg at "$NOW" \
     '.operational_mode = $mode
      | .deploy = {
-         status: (if $mode == "LIVE" then "synced" else "blocked"),
-         reason: (if $mode == "LIVE" then null else $reason),
+         status: (if $mode == "LIVE" then "synced" else "blocked" end),
+         reason: (if $mode == "LIVE" then null else $reason end),
          main_sha: $main,
          prod_sha: $prod,
          main_full: $main_full,
