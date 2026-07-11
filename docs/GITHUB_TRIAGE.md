@@ -11,11 +11,11 @@ Curated issue/PR actions. Bot cannot close — Founder executes [`FOUNDER_ACTION
 
 | # | Title | Action | Status |
 |--:|-------|--------|--------|
-| 59 | Playwright E2E | **CLOSE** — shipped #97 | open → close |
-| 62 | Bank CSV import | **CLOSE** — duplicate MVP | open → close |
+| 59 | Playwright E2E | **CLOSE** — shipped #97/#118 | github-hygiene workflow |
+| 62 | Bank CSV import | **CLOSE** — duplicate MVP | github-hygiene workflow |
 | 53 | Payment flow optimization | **KEEP** P1 | open |
 | 54 | Production Excellence epic | **KEEP** — defer children | open |
-| 60 | Structured logging | **KEEP** P2 — partial ops-log | open |
+| 60 | Structured logging | **CLOSE** — shipped #118 | github-hygiene workflow |
 | 61 | AI workflow docs | **DEFER** P3 | open |
 | 63 | PaymentProvider abstraction | **DEFER** P3 | open |
 | 95 | Founder ops batch | **KEEP** P0 ops | open |
@@ -25,10 +25,11 @@ Curated issue/PR actions. Bot cannot close — Founder executes [`FOUNDER_ACTION
 
 | # | Action | Reason |
 |--:|--------|--------|
-| 70–77 | **CLOSE** | Phase draft ghosts; merged via #79–#85 |
-| 89 | **CLOSE** | Docs-only inbox; stale |
-| 90 | **CLOSE** | Dependabot production majors |
-| 91 | **CLOSE** | Dependabot dev majors |
+| 70–77 | **CLOSED** | Phase draft ghosts (agent 2026-07-11) |
+| 89 | **CLOSED** | Docs-only inbox; stale |
+| 90 | **CLOSED** | Dependabot production majors |
+| 91 | **CLOSED** | Dependabot dev majors |
+| 112 | **CLOSED** | Superseded by #114/#116 |
 
 ## Branches
 

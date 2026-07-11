@@ -5,26 +5,26 @@
 
 ---
 
-## GitHub batch (bot cannot close issues/PRs)
+## GitHub batch
 
-Copy-paste in GitHub UI or local `gh` with your auth:
+**Agent-automated (2026-07-11):**
+- Closed PRs #70–#77, #89, #90, #91, #112 (superseded / Dependabot majors)
+- Deleted stale `cursor/*` remote branches
+
+**Automated via workflow:** `.github/workflows/github-hygiene.yml` closes issues #59, #62, #60 with evidence comments (weekly + manual dispatch).
+
+**Founder one-time (if workflow not yet run):**
 
 ```bash
-# Close completed / duplicate issues
-gh issue close 59 --comment "Shipped: E2E in PR #97 (14208d6). 7 Playwright tests on main."
-gh issue close 62 --comment "Duplicate: bank CSV reconcile MVP at /api/admin/payments/reconcile."
+gh workflow run github-hygiene.yml
+```
 
-# Close superseded draft PRs (#70–#77, #89)
-for pr in 70 71 72 73 74 75 76 77 89; do
-  gh pr close $pr --comment "Governance: superseded by main. See ENGINEERING_GOVERNANCE.md."
-done
+**Manual fallback (if Actions blocked):**
 
-# Reject dependabot major bumps (DL-012)
-gh pr close 90 --comment "Reject: production major bumps need manual QA."
-gh pr close 91 --comment "Reject: dev major bumps bundled; review separately."
-
-# Optional: close inbox doc-only PR if still open
-# gh pr close 89
+```bash
+gh issue close 59 --comment "Shipped: E2E on main (#97, #118)."
+gh issue close 62 --comment "Duplicate: reconcile MVP at /api/admin/payments/reconcile."
+gh issue close 60 --comment "Shipped: webhook observability #118."
 ```
 
 ## Ops (P0 — blocks outcome measurement)
