@@ -14,7 +14,8 @@ test.describe("付款資訊（查詢頁 mock）", () => {
     await page.getByPlaceholder("訂位代號（6 碼）").fill("E2E001");
     await page.getByRole("button", { name: "查詢" }).click();
 
-    await expect(page.getByText("需繳納訂金以完成保留")).toBeVisible();
+    await expect(page.getByText(/需繳納訂金以完成保留/)).toBeVisible();
+    await expect(page.getByText(/訂金繳費期限/)).toBeVisible();
     await expect(page.getByText("銀行：012-1234567890")).toBeVisible();
     await expect(page.getByText("E2E001")).toBeVisible();
   });

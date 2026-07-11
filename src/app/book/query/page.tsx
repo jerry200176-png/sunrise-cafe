@@ -9,6 +9,7 @@ import { format, parseISO } from "date-fns";
 import { enUS, ja, zhTW } from "date-fns/locale";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { computeDepositDeadline, getDepositUrgency } from "@/lib/deposit-deadline";
 
 interface BookingItem {
   id: string;
@@ -29,6 +30,7 @@ interface BookingItem {
   deposit_required: boolean;
   deposit_amount: number | null;
   is_deposit_paid?: boolean;
+  created_at: string;
 }
 
 interface AvailabilitySlot {
@@ -81,6 +83,23 @@ function BookQueryContent() {
   const [rescheduleSubmitting, setRescheduleSubmitting] = useState(false);
   const [rescheduleError, setRescheduleError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
+  const depositViewedRef = useRef<Set<string>>(new Set());
+
+  const trackGuestEvent = useCallback(
+    (event: string) => {
+      if (!phone.trim() || !bookingCode.trim()) return;
+      fetch("/api/guest-events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event,
+          phone: phone.trim(),
+          booking_code: bookingCode.trim(),
+        }),
+      }).catch(() => {});
+    },
+    [phone, bookingCode]
+  );
 
   const runSearch = useCallback(
     async (phoneVal: string, codeVal: string) => {
@@ -171,6 +190,17 @@ function BookQueryContent() {
     return format(d, "yyyy/MM/dd (EEE) HH:mm", { locale: dateFnsLocale });
   };
 
+  const depositDeadlineLabel = (item: BookingItem) => {
+    if (!item.created_at) return "";
+    const deadline = computeDepositDeadline(item.created_at, item.start_time);
+    return format(deadline, "yyyy/MM/dd (EEE) HH:mm", { locale: dateFnsLocale });
+  };
+
+  const depositUrgency = (item: BookingItem) => {
+    if (!item.created_at) return "ok" as const;
+    return getDepositUrgency(computeDepositDeadline(item.created_at, item.start_time));
+  };
+
   const canReschedule = (item: BookingItem) => {
     if (!["pending", "confirmed"].includes(item.status)) return false;
     return canCancel(item);
@@ -205,6 +235,21 @@ function BookQueryContent() {
       input.focus();
     }
   }, [reschedulingItem]);
+
+  useEffect(() => {
+    for (const item of list) {
+      const isConfirmed = item.status === "confirmed" || item.status === "checked_in";
+      if (
+        item.deposit_required &&
+        isConfirmed &&
+        !item.is_deposit_paid &&
+        !depositViewedRef.current.has(item.id)
+      ) {
+        depositViewedRef.current.add(item.id);
+        trackGuestEvent("deposit_instructions_viewed");
+      }
+    }
+  }, [list, trackGuestEvent]);
 
   const fetchRescheduleSlots = async (date: string) => {
     if (!reschedulingItem?.branch_id || !date) return;
@@ -446,6 +491,26 @@ function BookQueryContent() {
                           <p className="text-sm text-amber-700 bg-amber-100 inline-block px-2 py-1 rounded">
                             {t("query.weekendDepositNote")}
                           </p>
+                          {item.created_at && depositUrgency(item) === "past" ? (
+                            <p
+                              role="alert"
+                              className="mt-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-800"
+                            >
+                              {t("query.depositDeadlinePast", { deadline: depositDeadlineLabel(item) })}
+                            </p>
+                          ) : (
+                            <p
+                              className={`mt-2 rounded-lg border px-3 py-2 text-sm ${
+                                depositUrgency(item) === "soon"
+                                  ? "border-orange-300 bg-orange-50 font-medium text-orange-900"
+                                  : "border-amber-200 bg-white text-amber-900"
+                              }`}
+                            >
+                              {depositUrgency(item) === "soon"
+                                ? t("query.depositDeadlineSoon", { deadline: depositDeadlineLabel(item) })
+                                : t("query.depositDeadlineLabel", { deadline: depositDeadlineLabel(item) })}
+                            </p>
+                          )}
                         </div>
 
                         {/* 匯款帳戶 + LINE Pay + 官方 LINE */}
@@ -464,7 +529,7 @@ function BookQueryContent() {
                               </div>
                             ) : (
                               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded p-3 mb-3">
-                                付款資訊請參考 LINE 繳費通知，或聯繫店家確認匯款帳號。
+                                {t("query.paymentInfoFallback")}
                               </p>
                             )}
 
@@ -481,6 +546,7 @@ function BookQueryContent() {
                                     href={item.line_pay_url.trim()}
                                     target="_blank"
                                     rel="noopener noreferrer"
+                                    onClick={() => trackGuestEvent("payment_line_pay_click")}
                                     className="inline-flex w-full sm:w-auto justify-center items-center gap-2 rounded-lg bg-[#06C755] px-6 py-3 text-base font-bold text-white shadow hover:bg-[#05b34c] transition"
                                   >
                                     <span className="bg-white text-[#06C755] p-1 rounded font-black text-xs">LINE Pay</span>
@@ -502,6 +568,7 @@ function BookQueryContent() {
                               href={OFFICIAL_LINE_URL}
                               target="_blank"
                               rel="noopener noreferrer"
+                              onClick={() => trackGuestEvent("payment_line_official_click")}
                               className="inline-flex w-full sm:w-auto justify-center items-center gap-2 rounded-lg border-2 border-[#06C755] bg-white px-6 py-3 text-base font-bold text-[#06C755] shadow-sm hover:bg-green-50 transition"
                             >
                               <span className="text-xl">💬</span>

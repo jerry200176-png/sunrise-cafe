@@ -210,6 +210,10 @@ const zhTW: Dict = {
   "query.rescheduleConfirmTitle": "確認改為以下時段？",
   "query.rescheduleConfirmButton": "確認改期",
   "query.reschedulePickTime": "點選新時段後再確認",
+  "query.depositDeadlineLabel": "訂金繳費期限：{{deadline}} 前",
+  "query.depositDeadlineSoon": "⏰ 訂金即將到期！請於 {{deadline}} 前完成繳費並回傳 LINE",
+  "query.depositDeadlinePast": "訂金期限已過（{{deadline}}），訂位可能已被釋出，請聯繫店家",
+  "query.paymentInfoFallback": "付款資訊請參考 LINE 繳費通知，或聯繫店家確認匯款帳號。",
 };
 
 const en: Dict = {
@@ -412,6 +416,10 @@ const en: Dict = {
   "query.rescheduleConfirmTitle": "Confirm new time?",
   "query.rescheduleConfirmButton": "Confirm reschedule",
   "query.reschedulePickTime": "Select a time slot, then confirm",
+  "query.depositDeadlineLabel": "Deposit due by: {{deadline}}",
+  "query.depositDeadlineSoon": "⏰ Deposit due soon! Pay and message us on LINE by {{deadline}}",
+  "query.depositDeadlinePast": "Deposit deadline passed ({{deadline}}) — your slot may have been released; please contact us",
+  "query.paymentInfoFallback": "See our LINE payment message for bank details, or contact us to confirm.",
 };
 
 const ja: Dict = {
@@ -614,6 +622,10 @@ const ja: Dict = {
   "query.rescheduleConfirmTitle": "以下の時間帯に変更しますか？",
   "query.rescheduleConfirmButton": "日時変更を確定",
   "query.reschedulePickTime": "時間帯を選んでから確定してください",
+  "query.depositDeadlineLabel": "デポジット期限：{{deadline}} まで",
+  "query.depositDeadlineSoon": "⏰ まもなく期限です！{{deadline}} までにお支払いとLINE連絡をお願いします",
+  "query.depositDeadlinePast": "デポジット期限を過ぎています（{{deadline}}）。枠が解放された可能性があります。店舗へご連絡ください",
+  "query.paymentInfoFallback": "お支払い情報はLINEの案内をご確認いただくか、店舗にお問い合わせください。",
 };
 
 export const translations: Record<Locale, Dict> = { "zh-TW": zhTW, en, ja };
