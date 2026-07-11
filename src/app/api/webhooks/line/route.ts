@@ -269,7 +269,8 @@ export async function POST(request: NextRequest) {
 
   const paymentKeywords = await fetchPaymentKeywords();
 
-  for (const event of payload.events ?? []) {
+  const events = payload.events ?? [];
+  for (const event of events) {
     if (event.type !== "message") continue;
 
     const userId = event.source.userId;
@@ -304,6 +305,13 @@ export async function POST(request: NextRequest) {
       console.error("[webhook] event processing error:", err);
       // 不讓單一事件的錯誤影響整體回應
     }
+  }
+
+  if (events.length > 0) {
+    logOps("webhook", "webhook.event_ok", {
+      route: "line",
+      event_count: events.length,
+    });
   }
 
   return NextResponse.json({ ok: true });

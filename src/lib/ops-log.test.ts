@@ -18,4 +18,14 @@ describe("logOps", () => {
     expect(parsed.items_processed).toBe(3);
     expect(parsed.ts).toBeDefined();
   });
+
+  it("emits webhook.event_ok action", () => {
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    logOps("webhook", "webhook.event_ok", { route: "line", event_count: 2 });
+    const parsed = JSON.parse(spy.mock.calls[0][0] as string);
+    expect(parsed.domain).toBe("webhook");
+    expect(parsed.action).toBe("webhook.event_ok");
+    expect(parsed.route).toBe("line");
+    expect(parsed.event_count).toBe(2);
+  });
 });

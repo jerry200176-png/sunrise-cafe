@@ -1,0 +1,25 @@
+{
+  "generated_at": "2026-07-11T14:36:31+0800",
+  "in_github_actions": false,
+  "codex": {
+    "cli": true,
+    "authenticated": false,
+    "mode": "degraded_handlers"
+  },
+  "vercel": {
+    "token_set": false,
+    "deploy": "founder_only"
+  },
+  "cursor": {
+    "cli": false,
+    "headless": false
+  },
+  "github": {
+    "push": "unknown command \"git\" for \"gh\"\nrestricted",
+    "pr_create": "unknown",
+    "pr_merge": "unknown",
+    "issue_close": "maybe_allowed",
+    "workflow_dispatch": "blocked_integration",
+    "note": "Cloud Cursor integration token != GITHUB_TOKEN in Actions"
+  }
+}

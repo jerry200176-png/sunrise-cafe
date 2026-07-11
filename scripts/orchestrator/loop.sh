@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Autonomous engineering loop — one bounded iteration
+# Autonomous engineering loop v2 — one bounded iteration
 # Usage:
 #   bash scripts/orchestrator/loop.sh run
 #   bash scripts/orchestrator/loop.sh canary
+#   bash scripts/orchestrator/loop.sh gha-canary
 #   bash scripts/orchestrator/loop.sh resume
 #
 # Exit: 0=success/idle | 2=blocked | 3=lease held | 4=validation fail
@@ -21,14 +22,24 @@ STATE="orchestrator/state.json"
 EVIDENCE="$SCRIPT_DIR/evidence.sh"
 MAX_CI_WAIT="${MAX_CI_WAIT_SEC:-1200}"
 DEPLOY_WAIT_SEC="${DEPLOY_WAIT_SEC:-600}"
+CI_FIX_ATTEMPTS="${CI_FIX_ATTEMPTS:-1}"
 
 log() { echo "[loop:$RUN_ID] $*"; }
 
 poll_and_merge_pr() {
   local pr="$1"
   local elapsed=0
+  local fix_attempts=0
   while [[ "$elapsed" -lt "$MAX_CI_WAIT" ]]; do
     if gh pr checks "$pr" 2>/dev/null | grep -E 'Lint & Build.*fail|Playwright.*fail' | grep -q fail; then
+      if [[ "$fix_attempts" -lt "$CI_FIX_ATTEMPTS" ]]; then
+        log "CI failed — attempting safe ci-fix"
+        if bash "$SCRIPT_DIR/ci-fix.sh" "$pr"; then
+          fix_attempts=$((fix_attempts + 1))
+          elapsed=0
+          continue
+        fi
+      fi
       log "CI failed on PR #$pr"
       bash "$EVIDENCE" ci_fail "{\"pr\":$pr}"
       return 1
@@ -55,6 +66,10 @@ poll_and_merge_pr() {
 finalize_iteration() {
   local task="$1"
   local pr="$2"
+
+  # Attempt deploy via supported path (non-blocking)
+  bash "$SCRIPT_DIR/deploy.sh" --wait "$DEPLOY_WAIT_SEC" 2>/dev/null || true
+
   if bash "$SCRIPT_DIR/deploy-gate.sh" --wait "$DEPLOY_WAIT_SEC" 2>/dev/null; then
     bash "$EVIDENCE" production_verified "{\"pr\":$pr}"
   else
@@ -66,22 +81,33 @@ finalize_iteration() {
   log "Iteration complete: $task PR #$pr"
 }
 
+persist_loop_artifacts() {
+  git add "$STATE" orchestrator/autonomy-evidence.jsonl orchestrator/capabilities.json \
+    orchestrator/discovered-work.json orchestrator/canary-marker.json 2>/dev/null || true
+  git add "$STATE" orchestrator/autonomy-evidence.jsonl 2>/dev/null || true
+}
+
 cleanup() {
   bash "$SCRIPT_DIR/lease.sh" release "$RUN_ID" 2>/dev/null || true
 }
 trap cleanup EXIT
 
-# ── 1. Wake ─────────────────────────────────────────────────
+# ── 1. Wake + capability probe ───────────────────────────────
 bash "$EVIDENCE" wake "{\"mode\":\"$MODE\"}"
+bash "$SCRIPT_DIR/capabilities.sh" >/dev/null 2>&1 || true
+bash "$EVIDENCE" capabilities "$(jq -c '{codex,vercel,github}' orchestrator/capabilities.json 2>/dev/null || echo '{}')"
 log "Wake mode=$MODE"
 
-# ── 2. Deploy gate ──────────────────────────────────────────
+# ── 2. Deploy gate (informational — does NOT block implementation) ──
 DEPLOY_MODE="STANDBY"
 if bash "$SCRIPT_DIR/deploy-gate.sh" 2>/dev/null; then
   DEPLOY_MODE="LIVE"
 fi
 bash "$EVIDENCE" deploy_gate "{\"mode\":\"$DEPLOY_MODE\"}"
-log "Deploy gate: $DEPLOY_MODE"
+log "Deploy gate: $DEPLOY_MODE (implementation workstream independent)"
+
+# Non-blocking deploy resolution attempt
+bash "$SCRIPT_DIR/deploy.sh" 2>/dev/null || true
 
 # ── 3. Lease ────────────────────────────────────────────────
 if ! bash "$SCRIPT_DIR/lease.sh" acquire "$RUN_ID"; then
@@ -105,21 +131,43 @@ if [[ "$MODE" == "resume" ]] || jq -e '.active_pr.number' "$STATE" >/dev/null 2>
   fi
 fi
 
-# ── 5. Select task ──────────────────────────────────────────
+# ── 5. Discover + select task ───────────────────────────────
+bash "$SCRIPT_DIR/discover-work.sh" >/dev/null 2>&1 || true
 npm run cto:orchestrator >/dev/null
 TASK="$(jq -r '.next_task.id // empty' orchestrator/priority.json)"
+
 [[ "$MODE" == "canary" ]] && TASK="autonomy-canary"
 [[ "$MODE" == "canary" ]] && export LOOP_BOOTSTRAP=1
+# GHA unattended canary: real novel work when webhook gap exists, else status sync
+if [[ "$MODE" == "gha-canary" ]]; then
+  export LOOP_BOOTSTRAP=1
+  if grep -q 'webhook.event_ok' src/lib/ops-log.ts 2>/dev/null; then
+    TASK="deploy-status-sync"
+  else
+    TASK="webhook-ops-log"
+  fi
+  bash "$EVIDENCE" gha_canary "{\"forced_task\":\"$TASK\"}"
+fi
+
 if [[ -z "$TASK" || "$TASK" == "null" ]]; then
   bash "$EVIDENCE" idle "{\"reason\":\"no_executable_task\"}"
   log "No executable task — idle"
   exit 0
 fi
-bash "$EVIDENCE" task_selected "{\"task_id\":\"$TASK\"}"
-log "Task: $TASK"
+bash "$EVIDENCE" task_selected "{\"task_id\":\"$TASK\",\"deploy_mode\":\"$DEPLOY_MODE\"}"
+log "Task: $TASK (deploy_mode=$DEPLOY_MODE)"
 
 # ── 6. Execute ──────────────────────────────────────────────
-bash "$SCRIPT_DIR/execute.sh" "$TASK"
+if ! bash "$SCRIPT_DIR/execute.sh" "$TASK"; then
+  EX_RC=$?
+  if [[ "$EX_RC" -eq 2 ]]; then
+    bash "$EVIDENCE" execute_degraded "{\"task\":\"$TASK\"}"
+    log "Execute degraded — no handler/codex for $TASK"
+    exit 2
+  fi
+  bash "$EVIDENCE" execute_fail "{\"task\":\"$TASK\"}"
+  exit 4
+fi
 bash "$EVIDENCE" executed "{\"task_id\":\"$TASK\"}"
 
 # ── 7. Validate ───────────────────────────────────────────
@@ -149,11 +197,23 @@ Deploy mode: ${DEPLOY_MODE}"
 bash "$SCRIPT_DIR/review.sh" "origin/main" || { bash "$EVIDENCE" review_fail "{}"; exit 4; }
 bash "$EVIDENCE" review_pass "{}"
 
+bash "$SCRIPT_DIR/adversarial-review.sh" "origin/main" || { bash "$EVIDENCE" adversarial_fail "{}"; exit 4; }
+bash "$EVIDENCE" adversarial_pass "{}"
+
 git push -u origin "$BRANCH" --force-with-lease
 bash "$EVIDENCE" pushed "{\"branch\":\"$BRANCH\"}"
 
 # ── 9. PR ───────────────────────────────────────────────────
-PR_BODY="Autonomous loop iteration. Task: ${TASK}. Run: ${RUN_ID}. Deploy mode: ${DEPLOY_MODE}."
+CAPS="$(jq -c '.github // {}' orchestrator/capabilities.json 2>/dev/null || echo '{}')"
+PR_BODY="Autonomous loop v2 iteration.
+
+- Task: \`${TASK}\`
+- Run: \`${RUN_ID}\`
+- Deploy mode: \`${DEPLOY_MODE}\`
+- Capabilities: \`${CAPS}\`
+
+Evidence: \`orchestrator/autonomy-evidence.jsonl\`"
+
 PR_URL="$(gh pr create --base main --head "$BRANCH" \
   --title "auto(${TASK}): autonomous loop ${SHA_SHORT}" \
   --body "$PR_BODY")"
@@ -164,8 +224,9 @@ log "PR #$PR_NUM"
 jq --argjson pr "$PR_NUM" --arg branch "$BRANCH" --arg task "$TASK" --arg run "$RUN_ID" \
   '.active_pr = {number: $pr, branch: $branch, task_id: $task, run_id: $run}' \
   "$STATE" > "${STATE}.tmp" && mv "${STATE}.tmp" "$STATE"
-git add "$STATE" orchestrator/autonomy-evidence.jsonl orchestrator/canary-marker.json 2>/dev/null || git add "$STATE"
-git commit -m "auto: record active PR #$PR_NUM" --allow-empty 2>/dev/null || git commit -m "auto: record active PR #$PR_NUM" || true
+persist_loop_artifacts
+git commit -m "auto: record active PR #$PR_NUM" --allow-empty 2>/dev/null || \
+  git commit -m "auto: record active PR #$PR_NUM" || true
 git push 2>/dev/null || true
 
 # ── 10. Merge + finalize ────────────────────────────────────

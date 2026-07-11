@@ -48,10 +48,10 @@
   "deploy": {
     "status": "blocked",
     "reason": "sha_mismatch",
-    "main_sha": "3cef318",
+    "main_sha": "19ec837",
     "prod_sha": "f083d10",
-    "main_full": "3cef318df9c971052b0f036b558540c6b888dd8b",
+    "main_full": "19ec837c7e8e64609a2775ac27bb47d8cff35df1",
     "prod_full": "f083d10f5dd7f3d2c61a34d1a600930d534f6d14",
-    "checked_at": "2026-07-11T14:18:39+0800"
+    "checked_at": "2026-07-11T14:22:12+0800"
   }
 }

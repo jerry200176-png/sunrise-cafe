@@ -10,6 +10,7 @@ export type OpsLogAction =
   | "cron.run_failed"
   | "cron.failure_notified"
   | "cron.partial_failure"
+  | "webhook.event_ok"
   | "webhook.event_error"
   | "webhook.signature_failed"
   | "guest.lookup_denied_rate_limit";

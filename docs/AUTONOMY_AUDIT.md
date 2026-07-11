@@ -36,22 +36,43 @@
 
 ---
 
-## After autonomous loop (target)
+## After autonomous loop v2 (current)
 
 | Step | Automation | Implementation |
 |------|------------|----------------|
-| Wake-up | ✅ | `autonomous-loop.yml`: cron, `workflow_dispatch`, `workflow_run` |
-| Deploy gate | ✅ | `deploy-gate.sh` → `STANDBY` until prod SHA = main |
+| Wake-up | ✅ | `autonomous-loop.yml`: cron → `gha-canary`, `workflow_dispatch`, `workflow_run` |
+| Capability probe | ✅ | `capabilities.sh` → `orchestrator/capabilities.json` |
+| Deploy gate | ✅ | `deploy-gate.sh` → `STANDBY` until prod SHA = main; **does not block** independent tasks |
+| Deploy attempt | ⚠️ | `deploy.sh` if `VERCEL_TOKEN`; else Founder-only |
 | Lease / lock | ✅ | `lease.sh` + `orchestrator/lease.json` |
-| Task select | ✅ | `cto:orchestrator` discover + prioritize |
-| Execute (bounded) | ✅ | `handlers/*.sh` scripted; optional `codex exec` |
-| Validate | ✅ | `npm test`, lint, `verify:migrations`, `review.sh` |
-| PR | ✅ | `gh pr create` in GHA with `contents: write` |
-| Review | ✅ | Scripted policy checks; optional Codex `exec review` |
-| Merge | ✅ | When CI green + review pass + policy allow |
+| Dynamic discover | ✅ | `discover-work.sh` + `discover.sh` |
+| Task select | ✅ | `prioritize.sh` merges catalog + discovered work |
+| Execute (bounded) | ✅ | `handlers/*.sh` → `codex-agent.sh` (novel) → degrade safely |
+| Validate | ✅ | `npm test`, lint, `verify:migrations` |
+| Independent review | ✅ | `review.sh` + `adversarial-review.sh` |
+| PR | ✅ | `gh pr create` in GHA with `contents` + `pull-requests: write` |
+| CI wait + safe fix | ✅ | `ci-fix.sh` (lint auto-fix, bounded retries) |
+| Merge | ✅ | When CI green + reviews pass |
 | Prod verify | ✅ | Poll `/api/version`; record block if external |
-| Persist state | ✅ | `state.json`, `autonomy-evidence.jsonl`, lease |
-| Continue | ✅ | `workflow_dispatch` self-trigger when idle + work queued |
+| Persist state | ✅ | `state.json`, `autonomy-evidence.jsonl`, capabilities artifact |
+| Continue | ✅ | `workflow_dispatch` chain with `actions: write` |
+
+---
+
+## GitHub permissions matrix (probed)
+
+| Action | Cloud Agent (`cursor` integration) | GitHub Actions (`GITHUB_TOKEN`) |
+|--------|-----------------------------------|--------------------------------|
+| Push branches | ⚠️ Limited | ✅ `contents: write` |
+| Create PR | ❌ `blocked_integration` | ✅ `pull-requests: write` |
+| Merge PR | ⚠️ Untested in cloud | ✅ Expected |
+| Close issues | ❌ `blocked_integration` | ✅ `issues: write` (GHA v2) |
+| `workflow_dispatch` | ❌ `blocked_integration` | ✅ `actions: write` (GHA v2) |
+| Vercel deploy | ❌ No `VERCEL_TOKEN` | ⚠️ Needs `VERCEL_TOKEN` secret |
+
+**Repo-controlled fixes applied:** `autonomous-loop.yml` permissions expanded (`actions: write`, `issues: write`).
+
+**Founder-only (account-level):** Add `VERCEL_TOKEN`, `OPENAI_API_KEY` to GitHub Secrets; run `vercel deploy --prod`; batch-close issues/PRs via personal `gh` auth.
 
 ---
 
@@ -82,6 +103,8 @@
 | File | Purpose |
 |------|---------|
 | `orchestrator/autonomy-evidence.jsonl` | Append-only canary/iteration proof |
+| `orchestrator/capabilities.json` | Runtime permission/credential probe |
+| `orchestrator/discovered-work.json` | Dynamic work beyond static catalog |
 | `orchestrator/lease.json` | Active lock |
 | `docs/AUTONOMY_STATUS.md` | Human-readable last run summary |
 

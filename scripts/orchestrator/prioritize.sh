@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Score tasks from catalog and select next highest-impact work
+# Score tasks from catalog + discovered work; select next highest-impact task
 # Output: orchestrator/priority.json
 
 set -euo pipefail
@@ -12,11 +12,11 @@ orchestrator_root
 
 DISCOVER_FILE="orchestrator/discover.env"
 CATALOG="orchestrator/task-catalog.json"
+DISCOVERED="orchestrator/discovered-work.json"
 OUT="orchestrator/priority.json"
 
-[[ -f "$DISCOVER_FILE" ]] || {
-  bash "$SCRIPT_DIR/discover.sh" >/dev/null
-}
+[[ -f "$DISCOVER_FILE" ]] || bash "$SCRIPT_DIR/discover.sh" >/dev/null
+bash "$SCRIPT_DIR/discover-work.sh" >/dev/null 2>&1 || true
 
 # shellcheck disable=SC1090
 source "$DISCOVER_FILE"
@@ -24,9 +24,31 @@ source "$DISCOVER_FILE"
 GATE_BLOCK=0
 [[ "$GATE_STATUS" == "BLOCK" ]] && GATE_BLOCK=1
 
-# Build scored task list
+# Merge discovered items not already in catalog
+MERGED_CATALOG="$(jq -s '
+  .[0] as $cat |
+  (.[1].items // []) as $disc |
+  ($cat.tasks | map(.id)) as $ids |
+  ($disc | map(select(.id as $i | $ids | index($i) | not)) | map({
+    id: .id,
+    title: .title,
+    role: "implementer",
+    type: "discovered",
+    owner: "agent",
+    independent: true,
+    base_score: (.base_score // 55),
+    gate_block_bonus: 0,
+    novel: (.novel // false),
+    novel_prompt: (.novel_prompt // ""),
+    handler: ("scripts/orchestrator/handlers/" + .id + ".sh"),
+    evidence: .source,
+    verify: "npm test"
+  })) as $extra |
+  $cat | .tasks = (.tasks + $extra)
+' "$CATALOG" "$DISCOVERED" 2>/dev/null || cat "$CATALOG")"
+
 jq -n \
-  --argjson catalog "$(cat "$CATALOG")" \
+  --argjson catalog "$MERGED_CATALOG" \
   --argjson gate_block "$GATE_BLOCK" \
   --argjson bot_can_close "$BOT_CAN_CLOSE" \
   --argjson drift_failures "$DOC_DRIFT_FAILURES" \
@@ -46,6 +68,7 @@ jq -n \
     (if $t.id == "outcome-baseline" and $outcome_measured == 1 then 0 else 1 end) as $outcome_needed |
     (if $t.id == $last_task and $last_task != "" then 0 else 1 end) as $not_repeat |
     (if $t.id == "orch-os-evolve" and $orch_shipped == 1 then 0 else 1 end) as $orch_needed |
+    (if $t.id == "autonomy-canary" and $orch_shipped == 1 then 0 else 1 end) as $canary_needed |
     ($t.base_score // 50)
     + (if $gate_block == 1 then ($t.gate_block_bonus // 0) else 0 end)
     + (if $t.id == "doc-drift-fix" then ($drift_failures * 20 + $drift_warnings * 5) else 0 end)
@@ -56,8 +79,9 @@ jq -n \
       role: $t.role,
       type: $t.type,
       owner: ($t.owner // "agent"),
-      score: (if ($ind * $agent * $gate_ok * $perm_ok * $drift_needed * $branch_needed * $outcome_needed * $not_repeat * $orch_needed) == 0 then 0 else $s end),
-      executable: (($ind * $agent * $gate_ok * $perm_ok * $drift_needed * $branch_needed * $outcome_needed * $not_repeat * $orch_needed) == 1),
+      novel: ($t.novel // false),
+      score: (if ($ind * $agent * $gate_ok * $perm_ok * $drift_needed * $branch_needed * $outcome_needed * $not_repeat * $orch_needed * $canary_needed) == 0 then 0 else $s end),
+      executable: (($ind * $agent * $gate_ok * $perm_ok * $drift_needed * $branch_needed * $outcome_needed * $not_repeat * $orch_needed * $canary_needed) == 1),
       blocked_reason: (
         if $perm_ok == 0 then "requires_permission:github_write"
         elif $gate_ok == 0 then "requires_gate_pass"
@@ -67,6 +91,7 @@ jq -n \
         elif $outcome_needed == 0 then "outcome_already_measured"
         elif $not_repeat == 0 then "completed_last_iteration"
         elif $orch_needed == 0 then "orchestrator_v1_shipped"
+        elif $canary_needed == 0 then "canary_already_shipped"
         else null end
       ),
       evidence: $t.evidence,
