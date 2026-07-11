@@ -1,7 +1,7 @@
 # Implementation Truth — Single Source of Technical State
 
 **Owner:** CTO Operating System v2  
-**Updated:** 2026-07-11 (Round 9 — guest privacy + rate limits)  
+**Updated:** 2026-07-11 (Round 10 — friction reduction)  
 **Rule:** If this doc disagrees with other docs, **this doc wins**. Verify against `main` branch code.  
 **Daily ops:** [`EXECUTIVE_DASHBOARD.md`](./EXECUTIVE_DASHBOARD.md) · snapshot: `npm run cto:snapshot`
 
@@ -42,6 +42,10 @@
 | Guest lookup POST (no URL creds) | ✅ | `/api/my-bookings` POST + query page |
 | Per-phone guest rate limits | ✅ | `guestRateLimitId` in middleware + routes |
 | Structured ops logging | ✅ | `ops-log.ts` (cron + webhook) |
+| Staff: no duplicate LINE reminders | ✅ | Manual send-line `force: false` |
+| Staff: reservation PATCH error feedback | ✅ | `ReservationList` rollback + alert |
+| Staff: payment review evidence UI | ✅ | `/admin/payments` source + payload |
+| Guest: query phone prefill | ✅ | `sessionStorage` from booking |
 
 ---
 

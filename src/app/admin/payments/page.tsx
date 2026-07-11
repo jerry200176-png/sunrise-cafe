@@ -16,6 +16,7 @@ type PendingItem = {
   deposit_amount: number | null;
   created_at: string;
   raw_payload: string | null;
+  source: string;
 };
 
 type RiskItem = {
@@ -87,7 +88,7 @@ export default function AdminPaymentsPage() {
       alert(d.error ?? "核准失敗");
       return;
     }
-    await load();
+    setItems((prev) => prev.filter((i) => i.id !== id));
   };
 
   const reject = async (id: string) => {
@@ -107,7 +108,7 @@ export default function AdminPaymentsPage() {
     }
     setRejectId(null);
     setRejectNote("");
-    await load();
+    setItems((prev) => prev.filter((i) => i.id !== id));
   };
 
   const uploadCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -161,7 +162,7 @@ export default function AdminPaymentsPage() {
         )}
 
         <section className="bg-white rounded-lg border p-4">
-          <h2 className="font-bold text-gray-900 mb-3">待審核截圖 ({items.length})</h2>
+          <h2 className="font-bold text-gray-900 mb-3">待審核付款 ({items.length})</h2>
           {loading ? (
             <p className="text-gray-500 text-sm">載入中…</p>
           ) : items.length === 0 ? (
@@ -171,8 +172,13 @@ export default function AdminPaymentsPage() {
               {items.map((item) => (
                 <li key={item.id} className="border rounded-lg p-3">
                   <div className="flex flex-wrap justify-between gap-2">
-                    <div>
-                      <p className="font-bold">{item.customer_name}</p>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <p className="font-bold">{item.customer_name}</p>
+                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                          {item.source === "line_image" ? "LINE 截圖" : item.source === "line_text" ? "LINE 文字" : item.source}
+                        </span>
+                      </div>
                       <p className="text-sm text-gray-600">
                         代號 {item.booking_code} · {item.phone}
                       </p>
@@ -183,6 +189,15 @@ export default function AdminPaymentsPage() {
                       <p className="text-xs text-gray-400 mt-1">
                         提交於 {format(parseISO(item.created_at), "MM/dd HH:mm", { locale: zhTW })}
                       </p>
+                      {item.source === "line_image" ? (
+                        <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                          截圖未存入後台，請至 LINE 群組核對付款截圖後再核准。
+                        </p>
+                      ) : item.raw_payload?.trim() ? (
+                        <p className="mt-2 rounded border border-gray-200 bg-gray-50 px-2 py-1.5 text-xs text-gray-800 whitespace-pre-wrap break-words">
+                          客人訊息：{item.raw_payload.trim()}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="flex gap-2 items-start">
                       <button

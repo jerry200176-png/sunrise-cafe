@@ -70,19 +70,17 @@ function Metric({
   value,
   sub,
   alert,
+  href,
 }: {
   icon: React.ElementType;
   label: string;
   value: string;
   sub?: string;
   alert?: boolean;
+  href?: string;
 }) {
-  return (
-    <div
-      className={`rounded-2xl border p-4 ${
-        alert ? "border-amber-200 bg-amber-50/50" : "border-stone-200 bg-white"
-      }`}
-    >
+  const inner = (
+    <>
       <div className="mb-2 flex items-center gap-2 text-stone-500">
         <Icon size={16} />
         <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
@@ -91,6 +89,29 @@ function Metric({
         {value}
       </p>
       {sub && <p className="mt-1 text-xs text-stone-500">{sub}</p>}
+    </>
+  );
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        className={`block rounded-2xl border p-4 transition hover:border-amber-300 ${
+          alert ? "border-amber-200 bg-amber-50/50" : "border-stone-200 bg-white"
+        }`}
+      >
+        {inner}
+      </Link>
+    );
+  }
+
+  return (
+    <div
+      className={`rounded-2xl border p-4 ${
+        alert ? "border-amber-200 bg-amber-50/50" : "border-stone-200 bg-white"
+      }`}
+    >
+      {inner}
     </div>
   );
 }
@@ -206,10 +227,13 @@ export default function ExecutiveDashboardPage() {
                   value={String(data.payment.pending_reviews)}
                   sub={
                     data.payment.payment_review_oldest_hours != null
-                      ? `最舊 ${data.payment.payment_review_oldest_hours}h`
-                      : undefined
+                      ? `最舊 ${data.payment.payment_review_oldest_hours}h · 點擊前往審核`
+                      : data.payment.pending_reviews > 0
+                        ? "點擊前往審核"
+                        : undefined
                   }
                   alert={reviewBacklog}
+                  href={data.payment.pending_reviews > 0 ? "/admin/payments" : undefined}
                 />
                 <Metric
                   icon={XCircle}
