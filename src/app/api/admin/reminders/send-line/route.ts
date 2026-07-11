@@ -15,8 +15,8 @@ import {
     isLineConfigured,
 } from "@/lib/line-notify";
 import { sendLineFlexMessage, buildReminderFlex } from "@/lib/line";
-import { notifyCronFailure } from "@/lib/cron-alert";
 import { runCronJob } from "@/lib/job-runs";
+import { errorToDetail } from "@/lib/cron-alert";
 
 const CAT_MESSAGES = [
     "喵～沒訂位！Ivy 妳備好零食了嗎？本喵五分鐘後到 🐱",
@@ -130,9 +130,8 @@ async function handleSendLine(force: boolean = false, sendCatOnEmpty: boolean = 
                     : `已發送 ${totalSent} 筆明日提醒（僅尚未通知的訂位）`,
         });
     } catch (err) {
-        const message = err instanceof Error ? err.message : "LINE 發送失敗";
+        const message = errorToDetail(err);
         console.error("[send-line] Error:", message);
-        await notifyCronFailure("send-line", err);
         return NextResponse.json({ error: message }, { status: 500 });
     }
 }

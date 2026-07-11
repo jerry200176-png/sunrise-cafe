@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchReservationsIn7Days, updateReservationAdmin, isAdminConfigured } from "@/lib/supabase-admin";
 import { sendLineFlexMessage, buildReminderFlex } from "@/lib/line";
-import { notifyCronFailure } from "@/lib/cron-alert";
 import { runCronJob } from "@/lib/job-runs";
+import { errorToDetail } from "@/lib/cron-alert";
 
 async function handleSend() {
   if (!isAdminConfigured()) {
@@ -16,6 +16,7 @@ async function handleSend() {
   }
 
   let sent = 0;
+  let errors = 0;
   for (const r of rows) {
     const lineUserId = r.line_user_id as string;
     try {
@@ -32,15 +33,14 @@ async function handleSend() {
       await updateReservationAdmin(r.id as string, { is_reminded_7d: true });
       sent++;
     } catch (err) {
+      errors++;
       console.error(`[send-line-7d] 傳送失敗 id=${r.id}:`, err);
     }
   }
 
-  return NextResponse.json({ ok: true, sent });
+  return NextResponse.json({ ok: true, sent, errors });
   } catch (err) {
-    await notifyCronFailure("send-line-7d", err);
-    const message = err instanceof Error ? err.message : "Cron failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: errorToDetail(err) }, { status: 500 });
   }
 }
 
