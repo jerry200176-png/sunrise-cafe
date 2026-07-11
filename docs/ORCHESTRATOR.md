@@ -64,9 +64,14 @@ Each role defines **inputs, outputs, stop rules** — future agents attach to th
 | `npm run cto:orchestrator` | Full cycle: discover → prioritize → plan |
 | `npm run cto:orchestrator -- verify` | Post-iteration verification |
 | `npm run cto:orchestrator -- complete <id> "outcome" [pr]` | Record iteration |
+| `npm run cto:loop` | **Autonomous iteration** (handler → validate → PR) |
+| `npm run cto:loop:canary` | Forced canary with evidence artifact |
+| `npm run cto:deploy-gate` | LIVE vs STANDBY (prod SHA = main) |
 | `npm run cto:governance` | Health gate (sub-module, governor role) |
 
-**Agent start ritual:**
+**Unattended loop:** [`.github/workflows/autonomous-loop.yml`](../.github/workflows/autonomous-loop.yml) — see [`AUTONOMY_AUDIT.md`](./AUTONOMY_AUDIT.md)
+
+**Agent start ritual (interactive fallback):**
 
 1. `npm run cto:orchestrator`
 2. Read [`ORCHESTRATOR_PLAN.md`](./ORCHESTRATOR_PLAN.md)

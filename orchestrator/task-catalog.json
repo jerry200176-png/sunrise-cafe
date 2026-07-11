@@ -28,6 +28,19 @@
       "verify": "schema_migrations has 3 rows; outcome overlap_constraint_active=yes"
     },
     {
+      "id": "autonomy-canary",
+      "title": "Autonomous loop canary — prove unattended iteration",
+      "role": "implementer",
+      "type": "platform",
+      "owner": "agent",
+      "independent": true,
+      "base_score": 50,
+      "gate_block_bonus": 0,
+      "handler": "scripts/orchestrator/handlers/autonomy-canary.sh",
+      "evidence": "docs/AUTONOMY_AUDIT.md",
+      "verify": "orchestrator/autonomy-evidence.jsonl has complete phase"
+    },
+    {
       "id": "orch-os-evolve",
       "title": "Evolve AI Engineering Orchestrator (discover/prioritize/plan/verify)",
       "role": "implementer",
@@ -48,6 +61,7 @@
       "independent": true,
       "base_score": 75,
       "gate_block_bonus": 25,
+      "handler": "scripts/orchestrator/handlers/doc-drift-fix.sh",
       "evidence": "cto-doc-drift.sh warnings",
       "verify": "DOC_DRIFT_WARNINGS=0 or documented founder-blocked"
     },

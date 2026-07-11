@@ -16,6 +16,9 @@
     "cto:outcomes": "bash scripts/cto-outcome-pipeline.sh",
     "cto:governance": "bash scripts/cto-governance.sh",
     "cto:orchestrator": "bash scripts/cto-orchestrator.sh",
+    "cto:loop": "bash scripts/orchestrator/loop.sh run",
+    "cto:loop:canary": "bash scripts/orchestrator/loop.sh canary",
+    "cto:deploy-gate": "bash scripts/orchestrator/deploy-gate.sh",
     "verify:migrations": "bash scripts/verify-migrations.sh"
   },
   "dependencies": {
