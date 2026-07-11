@@ -802,10 +802,29 @@ export default function BookPage() {
             >
               {t("book.form.reselectSlot")}
             </button>
-            <p className="mb-4 text-sm text-gray-600">
-              {branchName} · {roomName} · {date}{" "}
-              {selectedStart && formatSlotTime(selectedStart)} {t("book.form.startFor", { duration })}
-            </p>
+            <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/80 p-4">
+              <p className="text-sm text-gray-700">
+                {branchName} · {roomName} · {date}{" "}
+                {selectedStart && formatSlotTime(selectedStart)} {t("book.form.startFor", { duration })}
+              </p>
+              {getTotalPrice() != null && (
+                <div className="mt-3 flex flex-wrap items-end justify-between gap-2 border-t border-amber-200/70 pt-3">
+                  <div>
+                    <p className="text-xs text-amber-800/80">{t("book.form.summaryTotal")}</p>
+                    <p className="font-mono text-lg font-bold text-gray-900">
+                      NT$ {getTotalPrice()!.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-amber-800/80">{t("book.form.summaryDeposit")}</p>
+                    <p className="font-mono text-lg font-bold text-amber-800">
+                      NT$ {getDepositAmount(getTotalPrice()!).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              )}
+              <p className="mt-2 text-xs text-amber-900/90">{t("book.form.summaryHint")}</p>
+            </div>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label htmlFor="booking-name" className="mb-1 block text-sm font-medium text-gray-700">{t("book.form.name")}</label>
