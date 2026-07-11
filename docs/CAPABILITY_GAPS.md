@@ -16,7 +16,7 @@
 | 2 | CG-002 | Outcome metrics unmeasured | Stripe: revenue dashboards with SLAs | `OUTCOME_LOG` date=null; CX/REV frozen at 40/35 | Founder opens `/admin/executive`; `cto:outcomes` | Founder | **OPEN** |
 | 3 | CG-003 | DB migrations not applied | Vercel/Supabase: schema version enforced | 3 migrations pending; overlap risk | `OPS_MIGRATION_RUNBOOK` Steps 1–4 | Founder/Ops | **OPEN** |
 | 4 | CG-004 | Payment review lacks image persistence | Linear: rich attachment review | Staff must re-open LINE for screenshots | Store LINE image IDs → Supabase storage | Agent | **OPEN** |
-| 5 | CG-005 | Cron observability partial | Cloudflare: job success metrics | `ops-log` on webhook + 1 cron; not all routes | Extend `ops-log` to all crons (#60) | Agent | **OPEN** |
+| 5 | CG-005 | Cron observability partial | Cloudflare: job success metrics | Success path had no structured log | `cron.completed` in `runCronJob` | Agent | **CLOSED** iter-012 |
 | 6 | CG-006 | Rate limits fail-open | Stripe: always enforce limits | Upstash unset → middleware fail-open | Verify Upstash env on Vercel | Founder | **OPEN** |
 | 7 | CG-007 | E2E coverage narrow | Vercel: critical path E2E | 7 Playwright tests; no admin flow | Add admin smoke after gate PASS | Agent | **OPEN** |
 
@@ -31,6 +31,7 @@
 | CG-R03 | Payment auto-approve on LINE text | PR #98 | All sources → `pending_review` |
 | CG-R04 | Manual LINE duplicate reminders | PR #101 | `force:false` on send-line |
 | CG-R05 | No autonomous task selection | iter-011 | `cto:orchestrator` + task catalog |
+| CG-R06 | Cron success not structured-logged | iter-012 | `cron.completed` in `job-runs.ts` |
 
 ---
 

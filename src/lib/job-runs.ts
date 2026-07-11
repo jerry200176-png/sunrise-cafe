@@ -126,6 +126,12 @@ export async function runCronJob(
         items_processed,
         errors,
       });
+    } else {
+      logOps("cron", "cron.completed", {
+        job_name: jobName,
+        items_processed,
+        status: res.status,
+      });
     }
     return res;
   } catch (err) {
@@ -135,6 +141,7 @@ export async function runCronJob(
     });
     await notifyCronFailure(jobName, err);
     const message = err instanceof Error ? err.message : "Cron failed";
+    logOps("cron", "cron.run_failed", { job_name: jobName, error_message: message });
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
