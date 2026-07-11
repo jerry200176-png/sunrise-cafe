@@ -12,6 +12,7 @@ import { toTaipei } from "@/lib/datetime";
 import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { logPayment, logDepositStatusChange } from "@/lib/payment-log";
+import { notifyCronFailure } from "@/lib/cron-alert";
 
 type Row = {
   id: string;
@@ -41,6 +42,7 @@ async function handleRun() {
     return NextResponse.json({ error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY" }, { status: 503 });
   }
 
+  try {
   const rows = (await fetchUnpaidDepositDueReservations()) as unknown as Row[];
   const now = new Date();
   let released = 0;
@@ -117,6 +119,11 @@ async function handleRun() {
   }
 
   return NextResponse.json({ ok: true, released, reminded });
+  } catch (err) {
+    await notifyCronFailure("deposit-deadline", err);
+    const message = err instanceof Error ? err.message : "Cron failed";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
 
 /** GET: Vercel Cron 觸發 */

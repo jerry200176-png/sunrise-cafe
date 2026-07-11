@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchReservationsIn7Days, updateReservationAdmin, isAdminConfigured } from "@/lib/supabase-admin";
 import { sendLineFlexMessage, buildReminderFlex } from "@/lib/line";
+import { notifyCronFailure } from "@/lib/cron-alert";
 
 async function handleSend() {
   if (!isAdminConfigured()) {
     return NextResponse.json({ error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY" }, { status: 503 });
   }
 
-  const rows = await fetchReservationsIn7Days();
+  try {
+    const rows = await fetchReservationsIn7Days();
   if (rows.length === 0) {
     return NextResponse.json({ ok: true, sent: 0, message: "無需提醒的訂位" });
   }
@@ -34,6 +36,11 @@ async function handleSend() {
   }
 
   return NextResponse.json({ ok: true, sent });
+  } catch (err) {
+    await notifyCronFailure("send-line-7d", err);
+    const message = err instanceof Error ? err.message : "Cron failed";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
 
 /** GET: Vercel Cron 觸發 */

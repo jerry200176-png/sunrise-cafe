@@ -1,7 +1,7 @@
 # Implementation Truth — Single Source of Technical State
 
 **Owner:** CTO Operating System v2  
-**Updated:** 2026-07-11 (Round 5)  
+**Updated:** 2026-07-11 (Round 6)  
 **Rule:** If this doc disagrees with other docs, **this doc wins**. Verify against `main` branch code.  
 **Daily ops:** [`EXECUTIVE_DASHBOARD.md`](./EXECUTIVE_DASHBOARD.md) · snapshot: `npm run cto:snapshot`
 
@@ -30,9 +30,8 @@
 | RBAC tables + login | ✅ | #81 |
 | RBAC payment routes | ✅ | #82 |
 | RBAC reservation routes | ✅ | #85 `reservation-access.ts` |
-| Per-branch `closed_dates` | 🟡 | #86 pending merge; migration manual |
-| Audit log on mutations | ❌ | `writeAdminAuditLog` unused |
-| Cron failure alerting | ❌ | Wave 4 |
+| Per-branch `closed_dates` | ✅ | #86 `branch-closed-dates.ts` |
+| Cron failure alerting | 🟡 | #87 pending |
 | `verify:migrations` in CI | ❌ | Not in package.json |
 
 ---
@@ -56,7 +55,7 @@ Check: `SELECT * FROM schema_migrations ORDER BY applied_at;`
 |------|-------|--------|
 | Open PRs | #86 (wave3b), #64/#65 dependabot, #70–#77 stale | Close #70–77 manually |
 | Open Issues | 7 | Triage in dashboard |
-| Tests on main | 127 | — |
+| Tests on main | 129 | — |
 
 ---
 
