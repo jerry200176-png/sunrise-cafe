@@ -12,7 +12,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   if (!id) return NextResponse.json({ error: "缺少 id" }, { status: 400 });
   try {
     const body = await request.json();
-    const { name, address, phone, open_time, close_time, line_group_id, display_name, payment_info, line_pay_url } = body as Partial<{
+    const { name, address, phone, open_time, close_time, line_group_id, display_name, payment_info, line_pay_url, closed_dates } = body as Partial<{
       name: string;
       address: string | null;
       phone: string | null;
@@ -22,8 +22,9 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       display_name: string | null;
       payment_info: string | null;
       line_pay_url: string | null;
+      closed_dates: string[];
     }>;
-    await updateBranch(id, { name, address, phone, open_time, close_time, line_group_id, display_name, payment_info, line_pay_url });
+    await updateBranch(id, { name, address, phone, open_time, close_time, line_group_id, display_name, payment_info, line_pay_url, closed_dates });
     return NextResponse.json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法更新分店";

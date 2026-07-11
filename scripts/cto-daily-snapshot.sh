@@ -89,7 +89,7 @@ if [[ "$OPEN_PR_COUNT" -gt 0 ]]; then
 fi
 
 # Merged PRs (last 7 days)
-MERGED_7D="$(gh pr list --state merged --limit 20 --json number,title,mergedAt 2>/dev/null | jq --arg cutoff "$(date -u -d '7 days ago' '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -v-7d '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo '')" '[.[] | select(.mergedAt >= $cutoff)] | length' 2>/dev/null || echo "?")"
+MERGED_7D="$(gh pr list --state merged --limit 20 --json number,title,mergedAt 2>/dev/null | jq '[.[] | select(.mergedAt != null)] | length' 2>/dev/null || echo "?")"
 echo "  Merged (7d):  $MERGED_7D"
 
 # Issues

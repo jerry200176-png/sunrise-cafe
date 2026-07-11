@@ -6,6 +6,7 @@ export interface Branch {
   phone: string | null;
   open_time: string | null;
   close_time: string | null;
+  closed_dates?: string[];
   created_at: string;
 }
 
