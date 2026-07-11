@@ -117,5 +117,6 @@ jobs:
       - name: Fail job if loop validation failed
         if: steps.loop.outputs.exit_code == '4'
         run: |
-          echo "Loop validation failed — see evidence artifact"
+          echo "Loop validation failed (exit 4) — see evidence artifact"
+          echo "::notice::Common causes: handler pipefail, npm test/lint in loop validation"
           exit 1
