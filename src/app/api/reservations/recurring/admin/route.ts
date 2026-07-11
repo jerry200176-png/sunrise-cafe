@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { isAdminConfigured } from "@/lib/supabase-admin";
-import { requireAdminApiAuth } from "@/lib/admin-api-auth";
+import { requireAdminApiAuth, getAdminContext } from "@/lib/admin-api-auth";
+import { assertReservationWriteAllowed } from "@/lib/reservation-access";
+import { fetchRoomBranchId } from "@/lib/supabase-admin";
 import { toTaipei } from "@/lib/datetime";
 
 const supabaseAdmin = createClient(
@@ -53,6 +55,16 @@ export async function POST(request: NextRequest) {
 
     if (!room_id || !start_date || !end_date || !weekdays || !start_time || !duration_hours) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
+
+    const branchId = await fetchRoomBranchId(room_id);
+    if (!branchId) {
+      return NextResponse.json({ error: "Room not found" }, { status: 404 });
+    }
+    const ctx = await getAdminContext(request);
+    const rbacDenied = assertReservationWriteAllowed(ctx, branchId);
+    if (rbacDenied) {
+      return NextResponse.json({ error: rbacDenied }, { status: 403 });
     }
 
     // 1. 計算所有符合星期的日期

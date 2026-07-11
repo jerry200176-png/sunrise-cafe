@@ -5,7 +5,12 @@ import { type BranchPaymentConfig } from "@/lib/payment-message";
 import { notifyWaitlist } from "@/lib/waitlist";
 import { isWeekendDate } from "@/lib/booking-utils";
 import { fetchSettings } from "@/lib/supabase-fetch";
-import { requireAdminApiAuth } from "@/lib/admin-api-auth";
+import { requireAdminApiAuth, getAdminContext } from "@/lib/admin-api-auth";
+import {
+  assertReservationPatchAllowed,
+  assertReservationCancelAllowed,
+} from "@/lib/reservation-access";
+import { fetchReservationBranchId } from "@/lib/supabase-admin";
 import { logDepositStatusChange } from "@/lib/payment-log";
 import { createClient } from "@supabase/supabase-js";
 function supabaseAdmin() {
@@ -52,6 +57,16 @@ export async function PATCH(
 
     if (Object.keys(patch).length === 0) {
       return NextResponse.json({ error: "未提供可更新欄位" }, { status: 400 });
+    }
+
+    const branchId = await fetchReservationBranchId(id);
+    if (!branchId) {
+      return NextResponse.json({ error: "找不到訂位或分店" }, { status: 404 });
+    }
+    const ctx = await getAdminContext(request);
+    const rbacDenied = assertReservationPatchAllowed(ctx, patch, branchId);
+    if (rbacDenied) {
+      return NextResponse.json({ error: rbacDenied }, { status: 403 });
     }
 
     const touchesDeposit =
@@ -260,6 +275,16 @@ export async function DELETE(
     );
   }
   try {
+    const branchId = await fetchReservationBranchId(id);
+    if (!branchId) {
+      return NextResponse.json({ error: "找不到訂位或分店" }, { status: 404 });
+    }
+    const ctx = await getAdminContext(request);
+    const rbacDenied = assertReservationCancelAllowed(ctx, branchId);
+    if (rbacDenied) {
+      return NextResponse.json({ error: rbacDenied }, { status: 403 });
+    }
+
     await deleteReservationAdmin(id);
     return NextResponse.json({ ok: true, id });
   } catch (err) {
