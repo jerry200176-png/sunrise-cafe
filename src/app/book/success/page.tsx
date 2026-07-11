@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle2, ArrowLeft, Clock } from "lucide-react";
 import { encodeLineBindState } from "@/lib/line-bind";
+import { CopyBookingCodeButton } from "@/components/CopyBookingCodeButton";
 
 const LINE_LOGIN_CLIENT_ID =
   process.env.NEXT_PUBLIC_LINE_LOGIN_CHANNEL_ID ?? "2009884734";
@@ -52,7 +53,10 @@ function SuccessContent() {
               <p className="mt-1 font-mono text-2xl font-bold tracking-wider text-amber-900">
                 {code}
               </p>
-              <p className="mt-3 text-xs text-amber-700">建議截圖保存，查詢或取消訂位時會用到</p>
+              <div className="mt-3 flex justify-center">
+                <CopyBookingCodeButton code={code} />
+              </div>
+              <p className="mt-3 text-xs text-amber-700">查詢或取消訂位時會用到此代號</p>
             </div>
           )}
 

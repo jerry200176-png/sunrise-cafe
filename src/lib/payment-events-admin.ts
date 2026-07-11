@@ -52,6 +52,30 @@ export async function countPendingPaymentEventsForReservation(
   return count ?? 0;
 }
 
+/** Batch pending counts for admin reservation list */
+export async function fetchPendingPaymentCountsByReservation(
+  reservationIds: string[]
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (!reservationIds.length) return counts;
+
+  const ready = await isPaymentEventsTableReady();
+  if (!ready) return counts;
+
+  const { data, error } = await admin()
+    .from("payment_events")
+    .select("reservation_id")
+    .in("reservation_id", reservationIds)
+    .eq("status", "pending_review");
+  if (error) throw error;
+
+  for (const row of data ?? []) {
+    const id = row.reservation_id as string;
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  return counts;
+}
+
 export async function fetchPendingPaymentEvents(): Promise<PendingPaymentEvent[]> {
   const { data: events, error } = await admin()
     .from("payment_events")

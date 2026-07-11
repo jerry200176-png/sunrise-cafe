@@ -36,4 +36,16 @@ describe("logOps", () => {
     expect(parsed.action).toBe("guest.lookup_denied_rate_limit");
     expect(parsed.path).toBe("/api/my-bookings");
   });
+
+  it("emits webhook.event_handled action", () => {
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    logOps("webhook", "webhook.event_handled", {
+      route: "line",
+      msg_type: "image",
+      event_type: "message",
+    });
+    const parsed = JSON.parse(spy.mock.calls[0][0] as string);
+    expect(parsed.action).toBe("webhook.event_handled");
+    expect(parsed.msg_type).toBe("image");
+  });
 });

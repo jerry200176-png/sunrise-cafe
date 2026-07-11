@@ -142,6 +142,9 @@ export default function ExecutiveDashboardPage() {
     try {
       const res = await fetch("/api/admin/outcomes", { cache: "no-store" });
       const json = await res.json();
+      if (res.status === 403) {
+        throw new Error("您沒有 Executive 儀表板權限（需 bi:read）");
+      }
       if (!res.ok) throw new Error(json.error ?? "載入失敗");
       setData(json);
     } catch (e) {
