@@ -1,8 +1,12 @@
 # Payment SOP — 訂金收取標準作業程序
 
 **CTO OS v2 · Company-first · 對應 Issue #53**  
+**Artifact ID:** ART-003 · Registry: [`OPS_ARTIFACT_REGISTRY.md`](./OPS_ARTIFACT_REGISTRY.md)  
 **Owner:** 店長 / 櫃台  
-**後台：** https://sunrise-cafe-six.vercel.app/admin/payments
+**Review cadence:** 每日營業結束；每週一 Outcome Review 對照訂金率  
+**Success metric:** `pending_review` 當日清零；4 週 rolling 訂金率 ≥80%  
+**Retirement:** 訂金率 ≥85% 連續 8 週且審核自動化上線 → 降為 onboarding 附錄  
+**後台:** https://sunrise-cafe-six.vercel.app/admin/payments
 
 > **目標：** 在無付費閘道下，最大化訂金收取率（≥85%）與審核正確性。  
 > 本 SOP 優先於新功能開發——多數流失來自**流程**，不是缺程式。

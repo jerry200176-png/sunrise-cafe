@@ -34,6 +34,55 @@ New dependabot PRs still target Next 16.2.10. Founder 關閉；controlled minors
 
 ---
 
+## Round 9 — 2026-07-11
+
+### DL-013: Revert doc-based health inflation — outcomes require production evidence
+
+**Inbox refs:** INB-005, R-004  
+**User directive:** Company-first mode — distinguish capability vs business outcomes
+
+**Problem (Round 8 mistake):**
+- Revenue health +15 points awarded for **documentation existence** (Weekly Review + Payment SOP)
+- CX/Revenue scores did not reflect actual business performance
+- No artifact governance (owner, cadence, retirement)
+
+**Decision:**
+
+| Rule | Enforcement |
+|------|-------------|
+| Capability ≠ Outcome | `HEALTH_SCORES.md` split; script outputs both |
+| Outcome scores frozen at baseline until measured | CX=40, REV=35 when `OUTCOME_LOG` unmeasured |
+| No doc-existence bonuses | Removed KPI playbook +8, Payment SOP +7 |
+| Every ops artifact governed | `OPS_ARTIFACT_REGISTRY.md` ART-001–006 |
+| Weekly Outcome Review mandatory | `OPS_WEEKLY_BUSINESS_REVIEW.md` § Outcome Review |
+| Stop rule | Artifact >8 weeks with no outcome improvement → retire/redesign |
+
+**MDU:** `OUTCOME_LOG.md` + `OPS_ARTIFACT_REGISTRY.md` + health script rewrite + Outcome Review section
+
+**Expected health impact:** Overall ~81 → **~72** until first measured outcome entry (honest baseline)
+
+---
+
+## Round 10 — 2026-07-11
+
+### DL-014: Outcome Pipeline automation over governance expansion
+
+**User directive:** Stop expanding governance; automate production-backed metrics.
+
+**Decision:**
+
+| Build | Skip |
+|-------|------|
+| `/api/cto/outcomes` + `/api/admin/outcomes` | More artifact registry entries |
+| `/admin/executive` live dashboard | Manual SQL weekly ritual as primary |
+| `npm run cto:outcomes` auto-sync | Doc-only health score changes |
+
+**MDU:** `outcome-metrics.ts` + API routes + Executive UI + pipeline script
+
+**Founder action:** Set `CTO_OUTCOME_SECRET` on Vercel (can reuse `CRON_SECRET`)
+
+---
+
 ## Round 7 — 2026-07-11
 
 ### DL-007: Executive Inbox review mandatory

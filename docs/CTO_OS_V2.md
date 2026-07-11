@@ -32,6 +32,17 @@
 
 **非工程行動範例：** Migration Runbook、Weekly Business Review、Payment SOP、監控儀表板設計
 
+### Capability vs Outcome（Round 9+）
+
+| | Capability | Outcome |
+|--|------------|---------|
+| **定義** | 我們*能做*什麼 | 業務*有改善*（可量測） |
+| **範例** | SOP 存在、cron 上線、RBAC 部署 | 訂金率 78%→86%、客訴下降 |
+| **Health 計分** | 技術 checklist | **僅** `OUTCOME_LOG` measured 證據 |
+| **禁止** | 因新增文件調高 Revenue/CX 分數 | — |
+
+每份營運 artifact 必須登記於 [`OPS_ARTIFACT_REGISTRY.md`](./OPS_ARTIFACT_REGISTRY.md)：owner · review cadence · success metric · retirement criteria。
+
 ---
 
 ## 2. 價值排序（永久）
@@ -77,11 +88,20 @@
 
 | 動作 | 產出 |
 |------|------|
+| **Outcome Review**（`OPS_WEEKLY_BUSINESS_REVIEW.md`） | `OUTCOME_LOG.md` measured 條目 + Stop list |
+| `npm run cto:health` | Outcome 分數僅在 evidence 更新後變動 |
 | 檢視營運 KPI §3（Executive Dashboard） | 訂金率、完成率趨勢 |
+| 檢視 `OPS_ARTIFACT_REGISTRY` 活躍 artifact | >8 週無 outcome → retire/redesign |
 | 刪除已合併 remote branches | 乾淨 repo |
 | 關閉已解決 issues | 準確 backlog |
 | 更新 `IMPLEMENTATION_TRUTH.md` | 文件 = 程式 |
 | 檢視延後項是否仍應延後 | 避免 scope creep |
+
+### Outcome Review 必答三題
+
+1. **本週業務實際變了什麼？**（對照上週 `OUTCOME_LOG`）
+2. **哪些營運動作有效／無效？**（誠實記錄，SOP 執行但無改善 = 無改善）
+3. **下週該停止什麼？**（避免堆文件、堆 PR、堆會議）
 
 ---
 
@@ -167,11 +187,14 @@
 
 - `docs/EXECUTIVE_INBOX.md` — 每輪信號收集
 - `docs/DECISION_LOG.md` — 優先級決策
+- `docs/OPS_ARTIFACT_REGISTRY.md` — 營運 artifact 治理
+- `docs/OUTCOME_LOG.md` — 業務 outcome 證據（health 分數來源）
 - `docs/OPS_MIGRATION_RUNBOOK.md` — 店長 migration 指南
-- `docs/OPS_WEEKLY_BUSINESS_REVIEW.md` — 每週 KPI 儀式
+- `docs/OPS_WEEKLY_BUSINESS_REVIEW.md` — 每週 KPI + Outcome Review
 - `docs/OPS_PAYMENT_SOP.md` — 訂金收取 SOP
 - `docs/EXECUTIVE_DASHBOARD.md` — 每日儀表板
-- `docs/HEALTH_SCORES.md` — 健康度公式
+- `docs/HEALTH_SCORES.md` — 健康度公式（capability vs outcome）
 - `docs/CTO_WORK_GATE.md` — 新工作閘門
 - `docs/IMPLEMENTATION_TRUTH.md` — 技術事實
 - `scripts/cto-daily-snapshot.sh` — 快照腳本
+- `scripts/cto-health-scores.sh` — 健康度計算

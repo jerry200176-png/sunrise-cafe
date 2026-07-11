@@ -52,6 +52,18 @@ export async function middleware(request: NextRequest) {
     if (!success) return tooManyRequests(reset);
   }
 
+  // ── CTO Outcome Pipeline（Bearer CTO_OUTCOME_SECRET / CRON_SECRET）────────
+  if (pathname.startsWith("/api/cto/")) {
+    const cronSecret = process.env.CRON_SECRET;
+    const outcomeSecret = process.env.CTO_OUTCOME_SECRET;
+    const authHeader = request.headers.get("authorization");
+    const allowed =
+      (outcomeSecret && authHeader === `Bearer ${outcomeSecret}`) ||
+      (cronSecret && authHeader === `Bearer ${cronSecret}`);
+    if (allowed) return NextResponse.next();
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   // ── Admin API 驗證（/api/admin/*，排除登入端點）──────────────────────
   // 注意：API 路徑開頭是 /api，不會進入下方 /admin 頁面驗證，需在此單獨防護。
   if (pathname.startsWith("/api/admin") && pathname !== "/api/admin/login") {
