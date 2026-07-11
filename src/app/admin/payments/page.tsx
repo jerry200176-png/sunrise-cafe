@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, Check, X, RefreshCw, LogOut, Upload, AlertTriangle } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
+import { parseLineImageMessageId } from "@/lib/payment-event-payload";
 
 type PendingItem = {
   id: string;
@@ -190,9 +191,20 @@ export default function AdminPaymentsPage() {
                         提交於 {format(parseISO(item.created_at), "MM/dd HH:mm", { locale: zhTW })}
                       </p>
                       {item.source === "line_image" ? (
-                        <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
-                          截圖未存入後台，請至 LINE 群組核對付款截圖後再核准。
-                        </p>
+                        parseLineImageMessageId(item.raw_payload) ? (
+                          <div className="mt-2">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={`/api/admin/payments/${item.id}/image`}
+                              alt="付款截圖"
+                              className="max-w-xs rounded border border-gray-200"
+                            />
+                          </div>
+                        ) : (
+                          <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                            截圖未存入後台（舊版紀錄），請至 LINE 群組核對付款截圖後再核准。
+                          </p>
+                        )
                       ) : item.raw_payload?.trim() ? (
                         <p className="mt-2 rounded border border-gray-200 bg-gray-50 px-2 py-1.5 text-xs text-gray-800 whitespace-pre-wrap break-words">
                           客人訊息：{item.raw_payload.trim()}
