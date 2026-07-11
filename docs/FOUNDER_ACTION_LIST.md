@@ -51,11 +51,13 @@ Reason: Vercel rate limit / merge-deploy gap (see `docs/AUTONOMY_STATUS.md`).
 
 ## Secrets (optional automation)
 
-| Secret | Where |
-|--------|-------|
-| `CTO_OUTCOME_SECRET` | Vercel |
-| `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` | GitHub Actions (drift gate) |
-| Upstash Redis | Vercel (rate limits enforce in prod) |
+| Secret | Where | Enables |
+|--------|-------|---------|
+| `VERCEL_TOKEN` | GitHub Actions | `deploy.sh` prod deploy from loop |
+| `OPENAI_API_KEY` | GitHub Actions | `codex-agent.sh` novel implementation |
+| `CTO_OUTCOME_SECRET` | Vercel | Outcome pipeline |
+| `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` | GitHub Actions (drift gate) | Doc drift against live DB |
+| Upstash Redis | Vercel | Rate limits enforce in prod |
 
 ---
 
