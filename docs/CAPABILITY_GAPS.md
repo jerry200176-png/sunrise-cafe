@@ -16,8 +16,8 @@
 | 2 | CG-002 | Outcome metrics unmeasured | Stripe: revenue dashboards with SLAs | `OUTCOME_LOG` date=null; CX/REV frozen at 40/35 | Founder opens `/admin/executive`; `cto:outcomes` | Founder | **OPEN** |
 | 3 | CG-003 | DB migrations not applied | Vercel/Supabase: schema version enforced | 3 migrations pending; overlap risk | `OPS_MIGRATION_RUNBOOK` Steps 1–4 | Founder/Ops | **OPEN** |
 | 4 | CG-004 | Payment review lacks image persistence | Linear: rich attachment review | Staff must re-open LINE for screenshots | Store LINE image IDs → Supabase storage | Agent | **OPEN** |
-| 5 | CG-005 | Cron observability partial | Cloudflare: job success metrics | Success path had no structured log | `cron.completed` in `runCronJob` | Agent | **CLOSED** iter-012 |
-| 6 | CG-006 | Rate limits fail-open | Stripe: always enforce limits | Upstash unset → middleware fail-open | Verify Upstash env on Vercel | Founder | **OPEN** |
+| 5 | CG-005 | Webhook/cron observability | Cloudflare: job success metrics | `webhook.event_ok` + `cron.completed` shipped | Close #60 webhook portion; cron via `job-runs` | Agent | **CLOSED** iter-014 |
+| 6 | CG-006 | Rate limits fail-open | Stripe: always enforce limits | Upstash unset → middleware fail-open; `guest.lookup_denied_rate_limit` logs when enforced | Verify Upstash env on Vercel | Founder | **OPEN** |
 | 7 | CG-007 | E2E coverage narrow | Vercel: critical path E2E | 7 Playwright tests; no admin flow | Add admin smoke after gate PASS | Agent | **OPEN** |
 
 ---

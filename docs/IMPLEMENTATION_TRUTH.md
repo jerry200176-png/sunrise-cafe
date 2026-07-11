@@ -41,7 +41,8 @@
 | Cron partial-failure alerts | ✅ | `job-runs.ts` + `errors` in deposit-deadline |
 | Guest lookup POST (no URL creds) | ✅ | `/api/my-bookings` POST + query page |
 | Per-phone guest rate limits | ✅ | `guestRateLimitId` in middleware + routes |
-| Structured ops logging | ✅ | `ops-log.ts` — webhook + cron success/failure via `runCronJob` |
+| Guest rate limit mode | 🟡 enforced when Upstash env set; **fail-open** otherwise | `rate-limit.ts` `isUpstashConfigured()` |
+| Structured ops logging | ✅ | `ops-log.ts` — webhook (`event_ok`/`event_error`) + cron via `runCronJob` + guest rate-limit denials |
 | Staff: no duplicate LINE reminders | ✅ | Manual send-line `force: false` |
 | Staff: reservation PATCH error feedback | ✅ | `ReservationList` rollback + alert |
 | Staff: payment review evidence UI | ✅ | `/admin/payments` source + payload |
@@ -68,7 +69,7 @@ Check: `SELECT * FROM schema_migrations ORDER BY applied_at;`
 |------|-------|--------|
 | Open PRs | 11 (8 draft phase + #89 + dependabot) | `GITHUB_TRIAGE.md` — Founder batch close |
 | Open Issues | 9 | `GITHUB_TRIAGE.md` — close #59/#62 when shipped |
-| Tests on main | 150 unit + 7 E2E (1 skip) | `npm run cto:governance` verifies drift |
+| Tests on main | 152 unit + 7 E2E (1 skip) | `npm run cto:governance` verifies drift |
 | Governance gate | `cto:governance` | `ENGINEERING_GOVERNANCE.md` |
 | AI orchestrator | `cto:orchestrator` | `ORCHESTRATOR.md` — discover/prioritize/plan |
 

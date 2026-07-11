@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimit, getClientIp, guestRateLimitId } from "@/lib/rate-limit";
+import { logOps } from "@/lib/ops-log";
 import { getSessionSecret } from "@/lib/admin-auth";
 import {
   ADMIN_SESSION_COOKIE,
@@ -15,7 +16,8 @@ async function verifySession(value: string, secret: string): Promise<boolean> {
   return verifyAdminSession(value, secret);
 }
 
-function tooManyRequests(reset: number) {
+function tooManyRequests(reset: number, path: string, limiter: string) {
+  logOps("guest", "guest.lookup_denied_rate_limit", { path, limiter });
   return NextResponse.json(
     { error: "Too Many Requests" },
     {
@@ -32,32 +34,32 @@ export async function middleware(request: NextRequest) {
   // ── Rate Limiting ──────────────────────────────────────────────────
   if (pathname === "/api/admin/login" && request.method === "POST") {
     const { success, reset } = await rateLimit(ip, "login");
-    if (!success) return tooManyRequests(reset);
+    if (!success) return tooManyRequests(reset, pathname, "login");
   } else if (pathname === "/api/reservations" && request.method === "POST") {
     const { success, reset } = await rateLimit(ip, "booking");
-    if (!success) return tooManyRequests(reset);
+    if (!success) return tooManyRequests(reset, pathname, "booking");
   } else if (pathname === "/api/availability") {
     const { success, reset } = await rateLimit(ip, "availability");
-    if (!success) return tooManyRequests(reset);
+    if (!success) return tooManyRequests(reset, pathname, "availability");
   } else if (pathname === "/api/my-bookings" && request.method === "GET") {
     const phone = request.nextUrl.searchParams.get("phone");
     const { success, reset } = await rateLimit(guestRateLimitId(ip, phone), "guestLookup");
-    if (!success) return tooManyRequests(reset);
+    if (!success) return tooManyRequests(reset, pathname, "guestLookup");
   } else if (pathname === "/api/waitlist" && request.method === "GET") {
     const phone = request.nextUrl.searchParams.get("phone");
     const { success, reset } = await rateLimit(guestRateLimitId(ip, phone), "guestLookup");
-    if (!success) return tooManyRequests(reset);
+    if (!success) return tooManyRequests(reset, pathname, "guestLookup");
   } else if (
     (pathname === "/api/my-bookings" && request.method === "POST") ||
     (pathname === "/api/cancel-booking" && request.method === "POST") ||
     (pathname === "/api/reschedule-booking" && request.method === "POST")
   ) {
     const { success, reset } = await rateLimit(guestRateLimitId(ip, null), "guestLookup");
-    if (!success) return tooManyRequests(reset);
+    if (!success) return tooManyRequests(reset, pathname, "guestLookup");
   } else if (pathname.startsWith("/api/") && !pathname.startsWith("/api/webhooks/")) {
     // webhooks 已有 LINE 簽章驗證，不需額外限流
     const { success, reset } = await rateLimit(ip, "api");
-    if (!success) return tooManyRequests(reset);
+    if (!success) return tooManyRequests(reset, pathname, "api");
   }
 
   // ── CTO Outcome Pipeline（Bearer CTO_OUTCOME_SECRET / CRON_SECRET）────────
