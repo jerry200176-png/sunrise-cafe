@@ -5,6 +5,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { notifyCronFailure } from "@/lib/cron-alert";
+import { logOps } from "@/lib/ops-log";
 import { isAdminConfigured } from "@/lib/supabase-admin";
 
 export type JobRunStatus = "running" | "completed" | "failed";
@@ -119,6 +120,12 @@ export async function runCronJob(
         jobName,
         new Error(error_message ?? `Cron ${jobName} failed`)
       );
+      logOps("cron", partialFailure ? "cron.partial_failure" : "cron.failure_notified", {
+        job_name: jobName,
+        error_message,
+        items_processed,
+        errors,
+      });
     }
     return res;
   } catch (err) {

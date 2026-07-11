@@ -1,7 +1,7 @@
 # Implementation Truth — Single Source of Technical State
 
 **Owner:** CTO Operating System v2  
-**Updated:** 2026-07-11 (Round 8 — security + cron alerts)  
+**Updated:** 2026-07-11 (Round 9 — guest privacy + rate limits)  
 **Rule:** If this doc disagrees with other docs, **this doc wins**. Verify against `main` branch code.  
 **Daily ops:** [`EXECUTIVE_DASHBOARD.md`](./EXECUTIVE_DASHBOARD.md) · snapshot: `npm run cto:snapshot`
 
@@ -39,6 +39,9 @@
 | LINE bind phone verification | ✅ | `line-bind.ts` + webhook/OAuth |
 | Payment LINE text → review | ✅ | ADR-008 Phase 2 (`payment-events.ts`) |
 | Cron partial-failure alerts | ✅ | `job-runs.ts` + `errors` in deposit-deadline |
+| Guest lookup POST (no URL creds) | ✅ | `/api/my-bookings` POST + query page |
+| Per-phone guest rate limits | ✅ | `guestRateLimitId` in middleware + routes |
+| Structured ops logging | ✅ | `ops-log.ts` (cron + webhook) |
 
 ---
 

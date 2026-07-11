@@ -11,6 +11,7 @@ import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
 
 import { verifyGuestBookingById } from "@/lib/guest-auth";
+import { enforceGuestLookupLimit } from "@/lib/guest-rate-limit";
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
@@ -53,6 +54,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const limited = await enforceGuestLookupLimit(request, phone);
+    if (limited) return limited;
 
     const verified = await verifyGuestBookingById(phone, booking_code, id);
     if (!verified.ok) {

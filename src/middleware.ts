@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { rateLimit, getClientIp } from "@/lib/rate-limit";
+import { rateLimit, getClientIp, guestRateLimitId } from "@/lib/rate-limit";
 import { getSessionSecret } from "@/lib/admin-auth";
 import {
   ADMIN_SESSION_COOKIE,
@@ -39,12 +39,20 @@ export async function middleware(request: NextRequest) {
   } else if (pathname === "/api/availability") {
     const { success, reset } = await rateLimit(ip, "availability");
     if (!success) return tooManyRequests(reset);
+  } else if (pathname === "/api/my-bookings" && request.method === "GET") {
+    const phone = request.nextUrl.searchParams.get("phone");
+    const { success, reset } = await rateLimit(guestRateLimitId(ip, phone), "guestLookup");
+    if (!success) return tooManyRequests(reset);
+  } else if (pathname === "/api/waitlist" && request.method === "GET") {
+    const phone = request.nextUrl.searchParams.get("phone");
+    const { success, reset } = await rateLimit(guestRateLimitId(ip, phone), "guestLookup");
+    if (!success) return tooManyRequests(reset);
   } else if (
-    (pathname === "/api/my-bookings" && request.method === "GET") ||
+    (pathname === "/api/my-bookings" && request.method === "POST") ||
     (pathname === "/api/cancel-booking" && request.method === "POST") ||
     (pathname === "/api/reschedule-booking" && request.method === "POST")
   ) {
-    const { success, reset } = await rateLimit(ip, "guestLookup");
+    const { success, reset } = await rateLimit(guestRateLimitId(ip, null), "guestLookup");
     if (!success) return tooManyRequests(reset);
   } else if (pathname.startsWith("/api/") && !pathname.startsWith("/api/webhooks/")) {
     // webhooks 已有 LINE 簽章驗證，不需額外限流

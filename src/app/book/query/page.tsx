@@ -91,11 +91,14 @@ function BookQueryContent() {
     setError(null);
     setList([]);
     try {
-      const params = new URLSearchParams({
-        phone: phone.trim(),
-        booking_code: bookingCode.trim(),
+      const res = await fetch("/api/my-bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: phone.trim(),
+          booking_code: bookingCode.trim(),
+        }),
       });
-      const res = await fetch(`/api/my-bookings?${params.toString()}`);
       const data = await res.json();
       if (!res.ok) {
         setError((data as { error?: string })?.error ?? t("query.searchFailed"));

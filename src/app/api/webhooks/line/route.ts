@@ -15,6 +15,7 @@ import {
 } from "@/lib/payment-events";
 import { countPendingPaymentEventsForReservation } from "@/lib/payment-events-admin";
 import { logPayment } from "@/lib/payment-log";
+import { logOps } from "@/lib/ops-log";
 import {
   parseLineBindPayload,
   phonesMatchReservation,
@@ -246,6 +247,7 @@ export async function POST(request: NextRequest) {
   const signature = request.headers.get("x-line-signature") ?? "";
 
   if (!verifySignature(rawBody, signature)) {
+    logOps("webhook", "webhook.signature_failed", {});
     console.error("[webhook] signature verification failed");
     return new NextResponse("Forbidden", { status: 403 });
   }
@@ -295,6 +297,10 @@ export async function POST(request: NextRequest) {
         await handlePaymentReport(userId, rawText, "line_text", replyToken, paymentKeywords);
       }
     } catch (err) {
+      logOps("webhook", "webhook.event_error", {
+        user_id: userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
       console.error("[webhook] event processing error:", err);
       // 不讓單一事件的錯誤影響整體回應
     }
