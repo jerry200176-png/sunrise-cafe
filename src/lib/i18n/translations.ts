@@ -174,6 +174,13 @@ const zhTW: Dict = {
   "query.rescheduleClosedDay": "當日不開放預約",
   "query.rescheduleSlotsFailed": "查詢時段失敗",
   "query.rescheduleFailed": "改期失敗",
+  "query.cancelConfirmTitle": "確定要取消此訂位嗎？",
+  "query.cancelConfirmDepositWarning": "您已繳納訂金，取消後訂金不予退還。",
+  "query.cancelConfirmProceed": "確認取消",
+  "query.cancelConfirmKeep": "保留訂位",
+  "query.rescheduleConfirmTitle": "確認改為以下時段？",
+  "query.rescheduleConfirmButton": "確認改期",
+  "query.reschedulePickTime": "點選新時段後再確認",
 };
 
 const en: Dict = {
@@ -340,6 +347,13 @@ const en: Dict = {
   "query.rescheduleClosedDay": "Closed on this date",
   "query.rescheduleSlotsFailed": "Couldn't load time slots",
   "query.rescheduleFailed": "Couldn't reschedule",
+  "query.cancelConfirmTitle": "Cancel this booking?",
+  "query.cancelConfirmDepositWarning": "Your deposit has been paid and is non-refundable.",
+  "query.cancelConfirmProceed": "Yes, cancel",
+  "query.cancelConfirmKeep": "Keep booking",
+  "query.rescheduleConfirmTitle": "Confirm new time?",
+  "query.rescheduleConfirmButton": "Confirm reschedule",
+  "query.reschedulePickTime": "Select a time slot, then confirm",
 };
 
 const ja: Dict = {
@@ -506,6 +520,13 @@ const ja: Dict = {
   "query.rescheduleClosedDay": "本日は予約を受け付けていません",
   "query.rescheduleSlotsFailed": "時間帯の取得に失敗しました",
   "query.rescheduleFailed": "日時変更に失敗しました",
+  "query.cancelConfirmTitle": "この予約をキャンセルしますか？",
+  "query.cancelConfirmDepositWarning": "デポジットはお支払い済みのため、キャンセル後も返金されません。",
+  "query.cancelConfirmProceed": "キャンセルする",
+  "query.cancelConfirmKeep": "予約を残す",
+  "query.rescheduleConfirmTitle": "以下の時間帯に変更しますか？",
+  "query.rescheduleConfirmButton": "日時変更を確定",
+  "query.reschedulePickTime": "時間帯を選んでから確定してください",
 };
 
 export const translations: Record<Locale, Dict> = { "zh-TW": zhTW, en, ja };

@@ -317,7 +317,7 @@ export default function BookPage() {
       const code = (data as { booking_code?: string })?.booking_code;
       if (code) {
         sessionStorage.setItem("booking_success_phone", phone.trim());
-        const weekendFlag = "1";
+        const weekendFlag = isWeekendDate(date) ? "1" : "0";
         window.location.href = `/book/success?code=${encodeURIComponent(code)}&weekend=${weekendFlag}${lineUserId ? "&line_bound=1" : ""}`;
       } else {
         setError(t("book.error.noBookingCode"));
@@ -345,6 +345,26 @@ export default function BookPage() {
 
   const formatSlotTime = (iso: string) =>
     new Date(iso).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" });
+
+  const goToStep = (target: Step) => {
+    const targetIdx = BOOKING_STEP_ORDER.indexOf(target);
+    const currentIdx = BOOKING_STEP_ORDER.indexOf(step);
+    if (targetIdx >= currentIdx) return;
+    if (targetIdx < BOOKING_STEP_ORDER.indexOf("slot")) {
+      setSelectedStart("");
+    }
+    if (targetIdx < BOOKING_STEP_ORDER.indexOf("room")) {
+      setRoomId("");
+      setRoomName("");
+      setSlots([]);
+      setBranchRoomsAvailability(null);
+    }
+    if (targetIdx < BOOKING_STEP_ORDER.indexOf("date")) {
+      setDate("");
+      setBranchId("");
+    }
+    setStep(target);
+  };
 
   const today = new Date().toISOString().slice(0, 10);
   const maxDate = (() => {
@@ -386,16 +406,23 @@ export default function BookPage() {
           const stepIndex = BOOKING_STEP_ORDER.indexOf(s);
           const currentIndex = BOOKING_STEP_ORDER.indexOf(step);
           const done = stepIndex < currentIndex;
-          return (
+          return done ? (
+            <button
+              key={s}
+              type="button"
+              onClick={() => goToStep(s)}
+              className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium bg-amber-100 text-amber-800 hover:bg-amber-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500`}
+            >
+              {t(`book.steps.${s}` as "book.steps.branch")}
+            </button>
+          ) : (
             <span
               key={s}
               aria-current={active ? "step" : undefined}
               className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
                 active
                   ? "bg-amber-600 text-white"
-                  : done
-                    ? "bg-amber-100 text-amber-800"
-                    : "bg-stone-100 text-stone-500"
+                  : "bg-stone-100 text-stone-500"
               }`}
             >
               {t(`book.steps.${s}` as "book.steps.branch")}
@@ -491,7 +518,15 @@ export default function BookPage() {
               {t("book.room.subtitle", { date })}
             </p>
             {loading ? (
-              <p className="py-4 text-center text-gray-500">{t("common.loading")}</p>
+              <ul className="space-y-3" aria-busy="true" aria-live="polite">
+                {[1, 2, 3].map((n) => (
+                  <li key={n} className="animate-pulse rounded-xl border border-gray-200 bg-white p-4">
+                    <div className="aspect-video w-full rounded-lg bg-gray-200" />
+                    <div className="mt-3 h-4 w-2/3 rounded bg-gray-200" />
+                    <div className="mt-2 h-3 w-full rounded bg-gray-100" />
+                  </li>
+                ))}
+              </ul>
             ) : branchRoomsAvailability ? (
               <ul className="space-y-3">
                 {branchRoomsAvailability.rooms.map((r) => {
@@ -623,7 +658,14 @@ export default function BookPage() {
               {branchName} · {roomName} · {date}
             </p>
             {loading ? (
-              <p className="py-4 text-center text-gray-500">{t("common.loading")}</p>
+              <div className="space-y-4" aria-busy="true" aria-live="polite">
+                <div className="h-4 w-1/2 animate-pulse rounded bg-gray-200" />
+                <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
+                  {Array.from({ length: 12 }).map((_, i) => (
+                    <div key={i} className="h-10 animate-pulse rounded-lg bg-gray-200" />
+                  ))}
+                </div>
+              </div>
             ) : (
               <>
                 {slots.length > 0 && (
