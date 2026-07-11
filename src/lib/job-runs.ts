@@ -4,7 +4,7 @@
  */
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { notifyCronFailure } from "@/lib/cron-alert";
+import { notifyCronFailure, errorToDetail } from "@/lib/cron-alert";
 import { logOps } from "@/lib/ops-log";
 import { isAdminConfigured } from "@/lib/supabase-admin";
 
@@ -78,15 +78,17 @@ async function extractResponseMeta(res: NextResponse): Promise<{
   items_processed: number;
   metadata: Record<string, unknown>;
   errors: number;
+  error_detail: string | null;
 }> {
   try {
     const json = (await res.clone().json()) as Record<string, unknown>;
     const items =
       Number(json.sent ?? json.released ?? json.reminded ?? json.items_processed ?? 0) || 0;
     const errors = Number(json.errors ?? 0) || 0;
-    return { items_processed: items, metadata: json, errors };
+    const error_detail = typeof json.error === "string" ? json.error : null;
+    return { items_processed: items, metadata: json, errors, error_detail };
   } catch {
-    return { items_processed: 0, metadata: {}, errors: 0 };
+    return { items_processed: 0, metadata: {}, errors: 0, error_detail: null };
   }
 }
 
@@ -99,11 +101,11 @@ export async function runCronJob(
   try {
     const res = await handler();
     const ok = res.status < 400;
-    const { items_processed, metadata, errors } = await extractResponseMeta(res);
+    const { items_processed, metadata, errors, error_detail } = await extractResponseMeta(res);
     const partialFailure = ok && errors > 0;
     const status = ok && !partialFailure ? "completed" : "failed";
     const error_message = !ok
-      ? `HTTP ${res.status}`
+      ? (error_detail ?? `HTTP ${res.status}`)
       : partialFailure
         ? `${errors} item(s) failed`
         : undefined;
@@ -116,10 +118,7 @@ export async function runCronJob(
     });
 
     if (!ok || partialFailure) {
-      await notifyCronFailure(
-        jobName,
-        new Error(error_message ?? `Cron ${jobName} failed`)
-      );
+      await notifyCronFailure(jobName, error_message ?? `Cron ${jobName} failed`);
       logOps("cron", partialFailure ? "cron.partial_failure" : "cron.failure_notified", {
         job_name: jobName,
         error_message,
@@ -137,10 +136,10 @@ export async function runCronJob(
   } catch (err) {
     await finishJobRun(runId, {
       status: "failed",
-      error_message: err instanceof Error ? err.message : String(err),
+      error_message: errorToDetail(err),
     });
     await notifyCronFailure(jobName, err);
-    const message = err instanceof Error ? err.message : "Cron failed";
+    const message = errorToDetail(err);
     logOps("cron", "cron.run_failed", { job_name: jobName, error_message: message });
     return NextResponse.json({ error: message }, { status: 500 });
   }

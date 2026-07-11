@@ -12,7 +12,7 @@ import { toTaipei } from "@/lib/datetime";
 import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { logPayment, logDepositStatusChange } from "@/lib/payment-log";
-import { notifyCronFailure } from "@/lib/cron-alert";
+import { errorToDetail } from "@/lib/cron-alert";
 import { runCronJob } from "@/lib/job-runs";
 
 type Row = {
@@ -124,9 +124,7 @@ async function handleRun() {
 
   return NextResponse.json({ ok: true, released, reminded, errors });
   } catch (err) {
-    await notifyCronFailure("deposit-deadline", err);
-    const message = err instanceof Error ? err.message : "Cron failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: errorToDetail(err) }, { status: 500 });
   }
 }
 
