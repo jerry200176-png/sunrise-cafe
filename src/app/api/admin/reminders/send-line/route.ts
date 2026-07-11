@@ -15,6 +15,7 @@ import {
     isLineConfigured,
 } from "@/lib/line-notify";
 import { sendLineFlexMessage, buildReminderFlex } from "@/lib/line";
+import { notifyCronFailure } from "@/lib/cron-alert";
 
 const CAT_MESSAGES = [
     "喵～沒訂位！Ivy 妳備好零食了嗎？本喵五分鐘後到 🐱",
@@ -123,6 +124,7 @@ async function handleSendLine(force: boolean = false, sendCatOnEmpty: boolean = 
     } catch (err) {
         const message = err instanceof Error ? err.message : "LINE 發送失敗";
         console.error("[send-line] Error:", message);
+        await notifyCronFailure("send-line", err);
         return NextResponse.json({ error: message }, { status: 500 });
     }
 }
