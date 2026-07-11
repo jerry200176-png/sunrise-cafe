@@ -66,8 +66,15 @@ jobs:
           if [[ "${{ github.event_name }}" == "schedule" ]]; then
             MODE="gha-canary"
           fi
+          set +e
           bash scripts/orchestrator/loop.sh "$MODE"
-        continue-on-error: true
+          RC=$?
+          echo "exit_code=$RC" >> "$GITHUB_OUTPUT"
+          # 0=success/idle | 2=blocked (expected) | 3=lease | 4=validation fail
+          if [[ "$RC" -eq 2 || "$RC" -eq 3 || "$RC" -eq 0 ]]; then
+            exit 0
+          fi
+          exit "$RC"
         id: loop
 
       - name: Upload evidence
@@ -101,8 +108,14 @@ jobs:
             echo "Idle — no chain"
           fi
 
-      - name: Fail job if loop failed (not idle/lease)
-        if: steps.loop.outcome == 'failure'
+      - name: Report blocked iteration (expected founder policy)
+        if: steps.loop.outputs.exit_code == '2'
         run: |
-          echo "Loop failed — see evidence artifact"
+          echo "::notice::Loop blocked at PR create or external gate — see evidence artifact"
+          echo "Founder: enable 'Allow GitHub Actions to create pull requests' in repo Settings"
+
+      - name: Fail job if loop validation failed
+        if: steps.loop.outputs.exit_code == '4'
+        run: |
+          echo "Loop validation failed — see evidence artifact"
           exit 1

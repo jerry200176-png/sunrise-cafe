@@ -122,7 +122,7 @@ if ! bash "$SCRIPT_DIR/lease.sh" acquire "$RUN_ID"; then
 fi
 bash "$EVIDENCE" lease_acquired "{\"holder\":\"$RUN_ID\"}"
 
-# ── 4. Resume active PR ─────────────────────────────────────
+# ── 4. Resume active or pending PR ───────────────────────────
 if [[ "$MODE" == "resume" ]] || jq -e '.active_pr.number' "$STATE" >/dev/null 2>&1; then
   PR_NUM="$(jq -r '.active_pr.number // empty' "$STATE")"
   if [[ -n "$PR_NUM" ]]; then
@@ -135,6 +135,46 @@ if [[ "$MODE" == "resume" ]] || jq -e '.active_pr.number' "$STATE" >/dev/null 2>
     fi
     exit 2
   fi
+fi
+
+PENDING_BRANCH="$(jq -r '.pending_pr.branch // empty' "$STATE")"
+if [[ -n "$PENDING_BRANCH" ]]; then
+  log "Retrying PR create for pending branch $PENDING_BRANCH"
+  git fetch origin "$PENDING_BRANCH" 2>/dev/null || true
+  git checkout "$PENDING_BRANCH" 2>/dev/null || true
+  TASK="$(jq -r '.pending_pr.task_id // "unknown"' "$STATE")"
+  SHA_SHORT="$(orchestrator_short_sha)"
+  PR_BODY="Autonomous loop v2 — resumed after GHA policy block.
+
+- Task: \`${TASK}\`
+- Branch: \`${PENDING_BRANCH}\`
+
+Evidence: \`orchestrator/autonomy-evidence.jsonl\`"
+  set +e
+  PR_OUT="$(gh pr create --base main --head "$PENDING_BRANCH" \
+    --title "auto(${TASK}): autonomous loop ${SHA_SHORT} (resumed)" \
+    --body "$PR_BODY" 2>&1)"
+  PR_EXIT=$?
+  set -e
+  if [[ "$PR_EXIT" -ne 0 ]]; then
+    if echo "$PR_OUT" | grep -qiE 'not permitted to create|not accessible by integration'; then
+      bash "$EVIDENCE" pr_create_blocked "{\"branch\":\"$PENDING_BRANCH\",\"reason\":\"gha_policy_retry\"}"
+      log "PR create still blocked"
+      exit 2
+    fi
+    bash "$EVIDENCE" pr_create_fail "{\"branch\":\"$PENDING_BRANCH\"}"
+    exit 4
+  fi
+  PR_NUM="$(echo "$PR_OUT" | grep -oE '[0-9]+$')"
+  jq --argjson pr "$PR_NUM" --arg branch "$PENDING_BRANCH" --arg task "$TASK" \
+    'del(.pending_pr) | .active_pr = {number: $pr, branch: $branch, task_id: $task}' \
+    "$STATE" > "${STATE}.tmp" && mv "${STATE}.tmp" "$STATE"
+  bash "$EVIDENCE" pr_created "{\"pr\":$PR_NUM,\"branch\":\"$PENDING_BRANCH\",\"resumed\":true}"
+  if poll_and_merge_pr "$PR_NUM"; then
+    finalize_iteration "$TASK" "$PR_NUM"
+    exit 0
+  fi
+  exit 2
 fi
 
 # ── 5. Discover + select task ───────────────────────────────
@@ -220,9 +260,32 @@ PR_BODY="Autonomous loop v2 iteration.
 
 Evidence: \`orchestrator/autonomy-evidence.jsonl\`"
 
-PR_URL="$(gh pr create --base main --head "$BRANCH" \
+set +e
+PR_OUT="$(gh pr create --base main --head "$BRANCH" \
   --title "auto(${TASK}): autonomous loop ${SHA_SHORT}" \
-  --body "$PR_BODY")"
+  --body "$PR_BODY" 2>&1)"
+PR_EXIT=$?
+set -e
+
+if [[ "$PR_EXIT" -ne 0 ]]; then
+  if echo "$PR_OUT" | grep -qiE 'not permitted to create|not accessible by integration'; then
+    bash "$EVIDENCE" pr_create_blocked "{\"branch\":\"$BRANCH\",\"reason\":\"gha_policy\",\"output\":$(jq -Rs . <<<"$PR_OUT")}"
+    log "PR create blocked (founder policy) — branch pushed: $BRANCH"
+    jq --arg branch "$BRANCH" --arg task "$TASK" --arg run "$RUN_ID" \
+      '.pending_pr = {branch: $branch, task_id: $task, run_id: $run, reason: "gha_pr_create_blocked"}' \
+      "$STATE" > "${STATE}.tmp" && mv "${STATE}.tmp" "$STATE"
+    persist_loop_artifacts
+    git add -A 2>/dev/null || true
+    git commit -m "auto: iteration pending PR (GHA policy block)" --allow-empty 2>/dev/null || true
+    git push 2>/dev/null || true
+    exit 2
+  fi
+  echo "$PR_OUT" >&2
+  bash "$EVIDENCE" pr_create_fail "{\"branch\":\"$BRANCH\",\"output\":$(jq -Rs . <<<"$PR_OUT")}"
+  exit 4
+fi
+
+PR_URL="$PR_OUT"
 PR_NUM="$(echo "$PR_URL" | grep -oE '[0-9]+$')"
 bash "$EVIDENCE" pr_created "{\"pr\":$PR_NUM,\"branch\":\"$BRANCH\"}"
 log "PR #$PR_NUM"
