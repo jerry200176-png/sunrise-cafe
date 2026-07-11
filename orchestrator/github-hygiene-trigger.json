@@ -1,4 +1,4 @@
 {
-  "triggered_at": "2026-07-11T17:10:00+08:00",
-  "reason": "one-time issue close after PR backlog cleanup (#59, #62, #60)"
+  "triggered_at": "2026-07-11T17:15:00+08:00",
+  "reason": "retry after workflow YAML fix"
 }

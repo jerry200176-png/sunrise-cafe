@@ -1,8 +1,5 @@
 name: GitHub Hygiene
 
-# Closes triaged issues with evidence comments. Uses GITHUB_TOKEN (issues: write).
-# Trigger: manual (workflow_dispatch) or weekly schedule after governance review.
-
 on:
   workflow_dispatch:
     inputs:
@@ -18,8 +15,8 @@ on:
     branches: [main]
     paths:
       - "orchestrator/github-hygiene-trigger.json"
+      - "scripts/github-hygiene-close.sh"
   schedule:
-    # Sunday 21:00 UTC = Mon 05:00 Taipei — after weekly review window
     - cron: "0 21 * * 0"
 
 permissions:
@@ -35,65 +32,16 @@ jobs:
     name: Close triaged issues
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Close shipped / duplicate issues
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
-        run: |
-          set -euo pipefail
-          close_issue() {
-            local num="$1"
-            local body="$2"
-            if [[ "$DRY_RUN" == "true" ]]; then
-              echo "[dry-run] would close issue #$num"
-              return 0
-            fi
-            state="$(gh issue view "$num" --json state -q .state 2>/dev/null || echo unknown)"
-            if [[ "$state" != "OPEN" ]]; then
-              echo "Issue #$num already $state — skip"
-              return 0
-            fi
-            gh issue close "$num" --comment "$body"
-            echo "Closed issue #$num"
-          }
+        run: bash scripts/github-hygiene-close.sh
 
-          close_issue 59 "$(cat <<'EOF'
-**Closed by github-hygiene workflow** — evidence on \`main\`:
-
-- Playwright E2E: \`e2e/critical-flows.spec.ts\` (public pages + admin payment/executive smoke)
-- Shipped: #97, expanded #118
-- Optional CI: set \`E2E_ADMIN_PASSWORD\` repo secret for admin flows
-
-See \`docs/GITHUB_TRIAGE.md\`.
-EOF
-)"
-
-          close_issue 62 "$(cat <<'EOF'
-**Closed by github-hygiene workflow** — duplicate scope.
-
-Bank CSV reconcile MVP shipped: \`/api/admin/payments/reconcile\` + admin UI.
-
-See \`docs/PAYMENT_STATE_MODEL.md\`.
-EOF
-)"
-
-          close_issue 60 "$(cat <<'EOF'
-**Closed by github-hygiene workflow** — webhook observability shipped on \`main\`:
-
-- \`webhook.event_ok\` / \`webhook.event_error\` / \`webhook.event_handled\` in \`src/lib/ops-log.ts\`
-- Sentry breadcrumbs when \`NEXT_PUBLIC_SENTRY_DSN\` set (#118)
-- Cron: \`job-runs.ts\` structured logging
-
-Residual: payment-log Sentry breadcrumbs — track as follow-up if needed.
-EOF
-)"
-
-      - name: Summary
+      - name: Open PR summary
         if: always()
-        run: |
-          echo "Open issues:"
-          gh issue list --state open --limit 20 || true
-          echo "Open PRs:"
-          gh pr list --state open --limit 10 || true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr list --state open --limit 10 || true
