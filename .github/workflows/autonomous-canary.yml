@@ -1,0 +1,83 @@
+name: Autonomous Canary
+
+# Dedicated unattended proof — no workflow_dispatch inputs (avoids GHA push phantom bug)
+on:
+  schedule:
+    # Daily 07:00 UTC = 15:00 Taipei — proof without Cursor session
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+  issues: write
+
+concurrency:
+  group: autonomous-canary
+  cancel-in-progress: false
+
+jobs:
+  gha-canary:
+    name: Unattended loop proof (gha-canary)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Probe capabilities
+        run: bash scripts/orchestrator/capabilities.sh
+
+      - name: Run gha-canary loop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          PROD_URL: https://sunrise-cafe-six.vercel.app
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          MAX_CI_WAIT_SEC: "1200"
+          DEPLOY_WAIT_SEC: "300"
+          CI_FIX_ATTEMPTS: "1"
+          LOOP_BOOTSTRAP: "1"
+        run: bash scripts/orchestrator/loop.sh gha-canary
+        continue-on-error: true
+        id: loop
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gha-canary-evidence-${{ github.run_id }}
+          path: |
+            orchestrator/autonomy-evidence.jsonl
+            orchestrator/capabilities.json
+            orchestrator/discovered-work.json
+            orchestrator/state.json
+            orchestrator/priority.json
+            docs/AUTONOMY_STATUS.md
+          retention-days: 90
+
+      - name: Report outcome
+        if: always()
+        run: |
+          echo "## GHA Canary Outcome" >> "$GITHUB_STEP_SUMMARY"
+          echo "Loop exit: ${{ steps.loop.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          jq '{codex,vercel,github}' orchestrator/capabilities.json >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tail -5 orchestrator/autonomy-evidence.jsonl >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+      - name: Fail if loop hard-failed
+        if: steps.loop.outcome == 'failure'
+        run: exit 1
