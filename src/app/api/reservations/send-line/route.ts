@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
 
   const { data: r, error: fetchErr } = await supabaseAdmin()
     .from("reservations")
-    .select("line_user_id, customer_name, start_time, end_time, total_price, rooms(name, branches(id, name))")
+    .select("line_user_id, customer_name, booking_code, start_time, end_time, total_price, rooms(name, branches(id, name))")
     .eq("id", id)
     .single();
 
@@ -73,6 +73,7 @@ export async function POST(request: NextRequest) {
     endTime: r.end_time,
     total: Number(r.total_price),
     branch,
+    bookingCode: r.booking_code,
   });
 
   try {

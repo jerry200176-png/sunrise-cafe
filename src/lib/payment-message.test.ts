@@ -28,6 +28,7 @@ describe("buildPaymentMessage", () => {
   it("含分店匯款資訊與 LINE Pay 時組出完整話術", () => {
     const msg = buildPaymentMessage({
       ...base,
+      bookingCode: "ABC123",
       branch: {
         display_name: "昇昇咖啡 (大安店)",
         payment_info: "【匯款資訊】\n銀行：台北富邦銀行 (012)",
@@ -38,15 +39,18 @@ describe("buildPaymentMessage", () => {
     expect(msg).toContain("台北富邦銀行");
     expect(msg).toContain("https://pay.example/abc");
     expect(msg).toContain("末五碼");
+    expect(msg).toContain("ABC123");
+    expect(msg).toContain("ABC123 12345");
     expect(msg).toContain("10:00–12:00"); // 時區正確
     expect(msg).toContain("訂金 $500"); // 進位一半
   });
 
   it("無付款資訊時降級為通用指示，不外洩任何分店帳號", () => {
-    const msg = buildPaymentMessage({ ...base, branch: { name: "信義" } });
+    const msg = buildPaymentMessage({ ...base, bookingCode: "XYZ999", branch: { name: "信義" } });
     expect(msg).toContain("昇昇咖啡 (信義)");
     expect(msg).toContain("請依照官網或現場指示完成付款");
-    expect(msg).not.toContain("末五碼");
+    expect(msg).toContain("XYZ999");
+    expect(msg).toContain("末五碼");
     expect(msg).not.toContain("台北富邦銀行");
   });
 
