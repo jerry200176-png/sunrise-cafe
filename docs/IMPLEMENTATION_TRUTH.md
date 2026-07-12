@@ -1,7 +1,7 @@
 # Implementation Truth — Single Source of Technical State
 
 **Owner:** CTO Operating System v2  
-**Updated:** 2026-07-12 (Round 19 — ADM-002, CX-007, CX-006 merged; prod deploy pending)  
+**Updated:** 2026-07-12 (Round 25 — doc drift sync; prod + DB verified)  
 **Rule:** If this doc disagrees with other docs, **this doc wins**. Verify against `main` branch code.  
 **Daily ops:** [`EXECUTIVE_DASHBOARD.md`](./EXECUTIVE_DASHBOARD.md) · snapshot: `npm run cto:snapshot`
 
@@ -13,6 +13,8 @@
 |------|-------|
 | URL | https://sunrise-cafe-six.vercel.app |
 | Branch | `main` |
+| `main` SHA | `278837c` |
+| Production SHA | `278837c` (parity ✅ — verified `GET /api/version` 2026-07-12) |
 | Release tag | `v2.2.0` |
 | Verify | `GET /api/version` → `commit` SHA |
 
@@ -32,10 +34,10 @@
 | RBAC reservation routes | ✅ | #85 `reservation-access.ts` |
 | Per-branch `closed_dates` | ✅ | #86 `branch-closed-dates.ts` |
 | Cron failure alerting | ✅ | #87 `cron-alert.ts` |
-| Cron job_runs persistence | ✅ | `job-runs.ts` + migration (apply optional) |
+| Cron job_runs persistence | ✅ | `job-runs.ts` + `migration-job-runs.sql` |
 | Next.js security patch | 🟡 | #88 → 15.5.20 |
 | `verify:migrations` in CI | ✅ | `npm run verify:migrations` + optional drift gate |
-| Playwright E2E (mocked flows) | ✅ | `e2e/critical-flows.spec.ts` — public + admin smoke (#97, #118) |
+| Playwright E2E (mocked flows) | ✅ | `e2e/critical-flows.spec.ts`, `e2e/booking-flow.spec.ts` |
 | LINE bind phone verification | ✅ | `line-bind.ts` + webhook/OAuth |
 | Payment LINE text → review | ✅ | ADR-008 Phase 2 (`payment-events.ts`) |
 | Cron partial-failure alerts | ✅ | `job-runs.ts` + `errors` in deposit-deadline |
@@ -46,6 +48,10 @@
 | Executive BI dashboard | ✅ | `/admin/executive` + `business-snapshot.json` (#116) |
 | Query auto-search post-booking | ✅ | `/book/query` prefilled search (#118) |
 | Booking wizard stepper/a11y | ✅ | `/book` step progress + aria (#119) |
+| Booking form mobile UX | ✅ | CX-008 sticky CTA + field errors + `noValidate` (#153, #156) |
+| Dashboard trend single API | ✅ | ADM-005 `/api/admin/stats/trend` (#157) |
+| Staff toast/dialog UX | ✅ | ADM-002b/c/d — payments, dashboard, waitlist (#155–#159) |
+| Gmail failure scan | ✅ | `npm run gmail:scan` (#151) |
 | GitHub hygiene automation | ✅ | `github-hygiene.yml` + `github-hygiene-close.sh` (#120–#122) |
 | Staff: no duplicate LINE reminders | ✅ | Manual send-line `force: false` |
 | Staff: reservation PATCH error feedback | ✅ | `ReservationList` rollback + alert |
@@ -54,16 +60,28 @@
 
 ---
 
-## Database Migrations (manual apply)
+## Database Migrations
+
+**Production verified:** 2026-07-12 (Supabase REST against production project; see `scripts/check-migration-drift.mjs`).
 
 | Migration | Required | Applied? |
 |-----------|----------|----------|
-| `migration-schema-versions.sql` | Yes | Operator verify |
-| `migration-reservations-no-overlap.sql` | Yes (#79) | Pending |
-| `migration-phase7-rbac.sql` | Yes (#81) | Pending |
-| `migration-branches-closed-dates.sql` | After #86 | Pending |
+| `migration-schema-versions.sql` | Yes | ✅ |
+| `migration-reservations-no-overlap.sql` | Yes (#79) | ✅ `20260710-reservations-no-overlap` |
+| `migration-phase7-rbac.sql` | Yes (#81) | ✅ `20260710-phase7-rbac` |
+| `migration-branches-closed-dates.sql` | Yes (#86) | ✅ `closed_dates` column present |
+| `migration-job-runs.sql` | Recommended | ✅ `20260711-job-runs` |
+| `migration-payment-events.sql` | Yes (ADR-008) | ✅ `payment_events` table present |
+| `migration-branches-line-group-id.sql` | Optional (multi-branch LINE) | 🟡 Not applied — env `LINE_GROUP_ID` fallback still works |
 
-Check: `SELECT * FROM schema_migrations ORDER BY applied_at;`
+Re-verify anytime:
+
+```bash
+# Requires production Supabase env (e.g. vercel env pull)
+node scripts/check-migration-drift.mjs .env.vercel.prod
+```
+
+Or in SQL Editor: `SELECT * FROM schema_migrations ORDER BY applied_at;`
 
 ---
 
@@ -71,21 +89,34 @@ Check: `SELECT * FROM schema_migrations ORDER BY applied_at;`
 
 | Type | Count | Action |
 |------|-------|--------|
-| Open PRs | 2 | ✅ Cleaned 2026-07-11 |
+| Open PRs | 2 draft (#152, #154 — dev env docs) | Low priority |
 | Open Issues | 4 | Strategic: #53 #54 #95 #99; defer #61 #63 — see `GITHUB_TRIAGE.md` |
-| Tests on main | 158 unit + 8 E2E (2 skip) | `npm run cto:governance` verifies drift |
-| Governance gate | `cto:governance` | Target 100: see `FOUNDER_PERMISSIONS.md` |
+| Tests on main | 167 unit + 9 E2E (2 skip) | `npm test` · `npm run test:e2e` |
+| Governance gate | `cto:governance` | PASS — re-run after doc sync |
 | AI orchestrator | `cto:orchestrator` | `ORCHESTRATOR.md` — discover/prioritize/plan |
+
+---
+
+## Why docs drift (and how we fix it)
+
+Several docs describe the same facts (migrations, SHAs, inbox signals). They go stale when:
+
+1. **Migrations applied in Supabase Dashboard** without a same-day doc PR — code and DB move ahead of `IMPLEMENTATION_TRUTH.md`.
+2. **Parallel update surfaces** — `orchestrator/state.json`, `AUTONOMOUS_LOOP_STATE.md`, and `EXECUTIVE_INBOX.md` are updated in different PRs; autonomous `doc-drift-fix` only patches a subset.
+3. **Auto-generated snapshots not re-run** — `GOVERNANCE_STATUS.md` / `cto:governance` lag until someone runs the script.
+4. **Deploy catch-up** — Vercel Hobby rate limits can delay preview checks while production already matches `main`; inbox may still show SHA drift.
+
+**Prevention:** After any manual Supabase migration or production deploy verification, update this file + `EXECUTIVE_INBOX.md` in the same PR. Use `node scripts/check-migration-drift.mjs` before marking migrations ✅.
 
 ---
 
 ## Priority Stack (company value order)
 
-1. **Production stability** — migrations applied
+1. **Production stability** — ✅ migrations applied; SHA parity
 2. **Security** — ✅ reservation RBAC (#85)
-3. **Revenue** — deposit flow, waitlist
-4. **Customer experience** — per-branch closed dates (#86)
-5. **Developer experience** — dashboard SSOT, snapshot script
+3. **Revenue** — deposit flow, waitlist, KPI measurement (OUTCOME_LOG)
+4. **Customer experience** — booking mobile UX (#153), per-branch closed dates (#86)
+5. **Developer experience** — dashboard SSOT, snapshot script, doc accuracy
 
 ---
 

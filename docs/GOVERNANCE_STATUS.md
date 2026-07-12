@@ -1,8 +1,8 @@
 # Governance Status (auto-generated)
 
-**Last run:** 2026-07-11 18:57 CST  
-**Gate:** PASS  
-**main:** `73d33f4`
+**Last run:** 2026-07-13 06:53 CST  
+**Gate:** BLOCK  
+**main:** `278837c`
 
 > Regenerate: `npm run cto:governance`  
 > Policy: [`ENGINEERING_GOVERNANCE.md`](./ENGINEERING_GOVERNANCE.md)
@@ -13,20 +13,22 @@
 
 | Metric | Value | Threshold |
 |--------|------:|-----------|
-| Overall health | 70 | ≥ 70 |
-| GitHub governance | 97 | ≥ 60 |
-| Production stability | 55 | ≥ 50 |
-| Open issues | 4 | triage weekly |
+| Overall health | 82 | ≥ 70 |
+| GitHub governance | 90 | ≥ 60 |
+| Production stability | 100 | ≥ 50 |
+| Open issues | 1 | triage weekly |
 | Open PRs (non-dep) | 2 | ≤ 3 |
-| Draft PRs | 0 | 0 |
-| cursor/* branches | 2 | ≤ 2 |
+| Draft PRs | 2 | 0 |
+| cursor/* branches | 21 | ≤ 2 |
 | Doc drift failures | 0 | 0 |
 
 ## Gate verdict
 
-✅ Repository healthy — feature development may proceed
+🛑 Governance iteration required before feature work
 
-
+### Blocking reasons
+- Draft PRs: 2 (phase ghosts should be closed)
+- cursor/* branches: 21 > 2
 
 ## Next actions
 

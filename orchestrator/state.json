@@ -1,13 +1,13 @@
 {
   "version": 2,
-  "iteration_count": 24,
+  "iteration_count": 25,
   "last_iteration": {
-    "id": "iter-024",
-    "task_id": "ADM-002d",
-    "outcome": "waitlist ConfirmDialog + toast merged #159",
-    "completed_at": "2026-07-12T14:13:48+00:00",
-    "sha": "b6460c1",
-    "pr": "159",
+    "id": "iter-025",
+    "task_id": "doc-drift-sync",
+    "outcome": "IMPLEMENTATION_TRUTH + inbox synced; migrations verified applied on prod",
+    "completed_at": "2026-07-12T22:55:00+00:00",
+    "sha": "278837c",
+    "pr": null,
     "deploy_status": "deployed"
   },
   "current_task": null,
@@ -17,12 +17,6 @@
       "owner": "platform",
       "reason": "Vercel Hobby deploy rate limit — preview checks fail for 24h",
       "action": "Wait or upgrade plan; production already at main"
-    },
-    {
-      "id": "founder-ops-migrations",
-      "owner": "founder",
-      "reason": "Supabase migrations require dashboard access",
-      "action": "docs/OPS_MIGRATION_RUNBOOK.md"
     },
     {
       "id": "outcome-unmeasured",
@@ -40,9 +34,9 @@
   "deploy": {
     "status": "deployed",
     "reason": "sha_match",
-    "main_sha": "b6460c1",
-    "prod_sha": "b6460c1",
-    "checked_at": "2026-07-12T20:40:00+00:00"
+    "main_sha": "278837c",
+    "prod_sha": "278837c",
+    "checked_at": "2026-07-12T22:55:00+00:00"
   },
   "next_candidates": ["OPS-004b", "payment-review-images", "ADM-002e-admin-page-dialogs"]
 }
