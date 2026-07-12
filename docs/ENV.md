@@ -76,6 +76,32 @@
 |------|------|
 | `CRON_SECRET` | Vercel Cron 呼叫 send-line 時的驗證 token，未設定則跳過驗證 |
 
+## CTO Outcome Pipeline
+
+| 變數 | 說明 | 設定位置 |
+|------|------|----------|
+| `CTO_OUTCOME_SECRET` | `GET /api/cto/outcomes` 的 Bearer token；`npm run cto:outcomes` 自動寫入 `OUTCOME_LOG.md` | Vercel production + GitHub Actions Secrets |
+
+> 可與 `CRON_SECRET` 共用同一字串。Agent 用 production 憑證呼叫 API 即可同步 baseline，不需手動開儀表板。
+
+## Gmail（Cloud Agent 掃失敗通知）
+
+用於 `npm run gmail:scan` — 掃最近 48 小時 **Vercel / GitHub 部署失敗** 通知（非客人來信）。
+
+| 變數 | 說明 | 設定位置 |
+|------|------|----------|
+| `GMAIL_USER` | Gmail 帳號（例如 `you@gmail.com`） | **Cursor Cloud** → [Environments](https://cursor.com/dashboard/cloud-agents/environments/r/github.com/jerry200176-png/sunrise-cafe) → Secrets |
+| `GMAIL_APP_PASSWORD` | Google **應用程式密碼**（16 碼，不是登入密碼） | 同上 |
+
+### 申請應用程式密碼（約 2 分鐘）
+
+1. Google 帳號須開啟 [兩步驟驗證](https://myaccount.google.com/security)
+2. 前往 [應用程式密碼](https://myaccount.google.com/apppasswords) → 選「郵件」→ 產生
+3. 複製 16 碼密碼 → 貼到 Cursor Secrets 的 `GMAIL_APP_PASSWORD`
+4. 在 Agent 對話說「掃 Gmail」→ 會跑 `npm run gmail:scan` 並回報要處理的信
+
+> **安全：** 勿把應用程式密碼貼在 GitHub issue；只用 Cursor Secrets。若要撤銷，到 Google 刪除該組應用程式密碼即可。
+
 ---
 
 ## 更新流程
