@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, RefreshCw, LogOut, Clock, Bell, Trash2 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 
 type WaitlistItem = {
   id: string;
@@ -32,6 +34,18 @@ export default function AdminWaitlistPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const toastId = useRef(0);
+
+  const showToast = useCallback((message: string, variant: ToastVariant = "info") => {
+    const id = ++toastId.current;
+    setToasts((prev) => [...prev, { id, message, variant }]);
+  }, []);
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -58,18 +72,19 @@ export default function AdminWaitlistPage() {
   }, [load]);
 
   const remove = async (id: string) => {
-    if (!confirm("確定移除此等位紀錄？客人將不再收到此時段的通知。")) return;
     setRemovingId(id);
     try {
       const res = await fetch(`/api/admin/waitlist/${id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) {
-        alert(data.error ?? "移除失敗");
+        showToast(data.error ?? "移除失敗", "error");
         return;
       }
       setItems((prev) => prev.filter((i) => i.id !== id));
+      showToast("已移除等位紀錄", "success");
     } finally {
       setRemovingId(null);
+      setConfirmRemoveId(null);
     }
   };
 
@@ -179,7 +194,7 @@ export default function AdminWaitlistPage() {
                   <button
                     type="button"
                     disabled={removingId === item.id}
-                    onClick={() => remove(item.id)}
+                    onClick={() => setConfirmRemoveId(item.id)}
                     className="inline-flex items-center gap-1 self-start rounded border border-gray-300 text-gray-600 px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
                   >
                     <Trash2 className="w-4 h-4" /> 移除
@@ -198,6 +213,16 @@ export default function AdminWaitlistPage() {
           查看 <code className="bg-gray-100 px-1 rounded">waitlist_conversion_pct</code>
         </p>
       </main>
+      <ConfirmDialog
+        open={confirmRemoveId !== null}
+        title="移除等位紀錄"
+        message="確定移除此等位紀錄？客人將不再收到此時段的通知。"
+        confirmLabel="移除"
+        variant="danger"
+        onConfirm={() => confirmRemoveId && void remove(confirmRemoveId)}
+        onCancel={() => setConfirmRemoveId(null)}
+      />
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }
