@@ -28,6 +28,7 @@ const client = new ImapFlow({
   port: 993,
   secure: true,
   auth: { user, pass },
+  logger: false,
 });
 
 function looksRelevant(subject, from) {
