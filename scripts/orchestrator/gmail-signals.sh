@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Collect Gmail deploy/CI failure signals for orchestrator (non-blocking).
+# Collect Gmail signals + archive inbox noise (non-blocking).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,4 +30,13 @@ if ! node scripts/gmail-scan-failures.mjs >"$TMP" 2>"$ERR"; then
 fi
 
 jq --arg at "$(orchestrator_now_iso)" '. + {collected_at: $at}' "$TMP" >"$OUT"
-echo "gmail-signals: ok count=$(jq -r '.count // 0' "$OUT")"
+ACTIONABLE="$(jq -r '.actionable_count // .count // 0' "$OUT")"
+echo "gmail-signals: ok actionable=${ACTIONABLE}"
+
+# Archive PR-thread / preview / stale CI noise (opt-out with GMAIL_TRIAGE_APPLY=0)
+if [[ "${GMAIL_TRIAGE_APPLY:-1}" != "0" ]]; then
+  TRIAGE_JSON="$(node scripts/gmail-triage-inbox.mjs --apply 2>/dev/null || echo '{}')"
+  ARCHIVED="$(echo "$TRIAGE_JSON" | jq -r '.archived // 0' 2>/dev/null || echo 0)"
+  jq --argjson archived "$ARCHIVED" '. + {inbox_archived: $archived}' "$OUT" >"${OUT}.tmp" && mv "${OUT}.tmp" "$OUT"
+  echo "gmail-triage: archived=${ARCHIVED}"
+fi

@@ -78,7 +78,7 @@ GMAIL_PROD_FAILS=0
 GMAIL_PREVIEW_FAILS=0
 if [[ -f orchestrator/gmail-signals.json ]]; then
   GMAIL_OK="$(jq -r 'if .ok == true then 1 else 0 end' orchestrator/gmail-signals.json 2>/dev/null || echo 0)"
-  GMAIL_COUNT="$(jq -r '.count // 0' orchestrator/gmail-signals.json 2>/dev/null || echo 0)"
+  GMAIL_COUNT="$(jq -r '.actionable_count // .count // 0' orchestrator/gmail-signals.json 2>/dev/null || echo 0)"
   GMAIL_PROD_FAILS="$(jq -r '.by_kind.vercel_production // 0' orchestrator/gmail-signals.json 2>/dev/null || echo 0)"
   GMAIL_PREVIEW_FAILS="$(jq -r '.by_kind.vercel_preview // 0' orchestrator/gmail-signals.json 2>/dev/null || echo 0)"
 fi

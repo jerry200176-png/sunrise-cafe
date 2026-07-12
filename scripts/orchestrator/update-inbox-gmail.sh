@@ -18,18 +18,23 @@ fi
 PREVIEW="$(jq -r '.by_kind.vercel_preview // 0' "$SIGNALS")"
 PROD_FAIL="$(jq -r '.by_kind.vercel_production // 0' "$SIGNALS")"
 CI_FAIL="$(jq -r '.by_kind.github_ci // 0' "$SIGNALS")"
-COUNT="$(jq -r '.count // 0' "$SIGNALS")"
+ACTIONABLE="$(jq -r '.actionable_count // .count // 0' "$SIGNALS")"
+ARCHIVED="$(jq -r '.inbox_archived // 0' "$SIGNALS")"
+SCAN_DAYS="$(jq -r '.scan_days // 7' "$SIGNALS")"
+SHA_PARITY="$(jq -r 'if .sha_parity == true then "match" elif .sha_parity == false then "mismatch" else "unknown" end' "$SIGNALS")"
 SCAN_AT="$(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M %Z')"
 
 PREVIEW_STATUS="🟢"
 PREVIEW_NOTE="preview skipped — GHA CI only"
 if [[ "$PREVIEW" -ge 3 ]]; then
   PREVIEW_STATUS="🟡"
-  PREVIEW_NOTE="Hobby rate limit (${PREVIEW} fails/48h); prod uses GHA + deploy-health cron"
+  PREVIEW_NOTE="preview fails auto-archived (${PREVIEW} in ${SCAN_DAYS}d)"
 fi
 
 SHA_STATUS="🟢"
-if [[ "$PROD_FAIL" -gt 0 ]]; then
+if [[ "$SHA_PARITY" == "mismatch" ]]; then
+  SHA_STATUS="🔴"
+elif [[ "$PROD_FAIL" -gt 0 ]]; then
   SHA_STATUS="🟠"
 fi
 
@@ -40,7 +45,7 @@ PROD_SHA="${PROD_SHA:-unknown}"
 
 sed -i "s#^\\*\\*Last reviewed:\\*\\*.*#**Last reviewed:** ${SCAN_AT} (Gmail scan auto-sync)#" "$INBOX"
 sed -i "s#| Vercel preview | [🟢🟡🟠🔴] | .*#| Vercel preview | ${PREVIEW_STATUS} | ${PREVIEW_NOTE} |#" "$INBOX"
-sed -i "s#| SHA parity | [🟢🟠🔴] | main \`[0-9a-f]\{7\}\` · prod \`[0-9a-f]\{7\}\`.*#| SHA parity | ${SHA_STATUS} | main \`${MAIN_SHA}\` · prod \`${PROD_SHA}\` (Gmail: ${PROD_FAIL} prod fail / ${CI_FAIL} CI fail, 48h) |#" "$INBOX"
-sed -i "s#| 客訴 / bug 回報 | [🟢🟡🟠🔴] .*#| 客訴 / bug 回報 | 🟢 無新回報（Gmail deploy scan ${COUNT} signals, 不含客人信） |#" "$INBOX"
+sed -i "s#| SHA parity | [🟢🟠🔴] | main \`[0-9a-f]\{7\}\` · prod \`[0-9a-f]\{7\}\`.*#| SHA parity | ${SHA_STATUS} | main \`${MAIN_SHA}\` · prod \`${PROD_SHA}\` (${SCAN_DAYS}d scan: ${ACTIONABLE} actionable, archived ${ARCHIVED}) |#" "$INBOX"
+sed -i "s#| 客訴 / bug 回報 | [🟢🟡🟠🔴] .*#| 客訴 / bug 回報 | 🟢 無新回報（${ACTIONABLE} actionable deploy signals / ${SCAN_DAYS}d） |#" "$INBOX"
 
-echo "update-inbox-gmail: preview=${PREVIEW_STATUS} prod_fails=${PROD_FAIL} ci=${CI_FAIL}"
+echo "update-inbox-gmail: preview=${PREVIEW_STATUS} actionable=${ACTIONABLE} archived=${ARCHIVED}"
