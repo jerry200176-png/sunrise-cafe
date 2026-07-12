@@ -7,6 +7,7 @@ import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { parseLineImageMessageId } from "@/lib/payment-event-payload";
 import type { AdminPaymentInteraction } from "@/lib/ops-log";
+import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 
 type PendingItem = {
   id: string;
@@ -48,6 +49,17 @@ export default function AdminPaymentsPage() {
   const [reconcileResult, setReconcileResult] = useState<ReconcileResult | null>(null);
   const rejectInputRef = useRef<HTMLInputElement>(null);
   const itemRefs = useRef<(HTMLLIElement | null)[]>([]);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const toastId = useRef(0);
+
+  const showToast = useCallback((message: string, variant: ToastVariant = "info") => {
+    const id = ++toastId.current;
+    setToasts((prev) => [...prev, { id, message, variant }]);
+  }, []);
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -111,15 +123,16 @@ export default function AdminPaymentsPage() {
     });
     if (!res.ok) {
       const d = await res.json();
-      alert(d.error ?? "核准失敗");
+      showToast(d.error ?? "核准失敗", "error");
       return;
     }
+    showToast("已核准付款", "success");
     setItems((prev) => prev.filter((i) => i.id !== id));
-  }, []);
+  }, [showToast]);
 
   const reject = useCallback(async (id: string, interaction: AdminPaymentInteraction = "click") => {
     if (!rejectNote.trim()) {
-      alert("請填寫駁回原因");
+      showToast("請填寫駁回原因", "error");
       return;
     }
     const res = await fetch(`/api/admin/payments/${id}/reject`, {
@@ -129,13 +142,14 @@ export default function AdminPaymentsPage() {
     });
     if (!res.ok) {
       const d = await res.json();
-      alert(d.error ?? "駁回失敗");
+      showToast(d.error ?? "駁回失敗", "error");
       return;
     }
+    showToast("已駁回", "success");
     setRejectId(null);
     setRejectNote("");
     setItems((prev) => prev.filter((i) => i.id !== id));
-  }, [rejectNote]);
+  }, [rejectNote, showToast]);
 
   const openReject = useCallback((id: string) => {
     setRejectId(id);
@@ -206,7 +220,7 @@ export default function AdminPaymentsPage() {
     const res = await fetch("/api/admin/payments/reconcile", { method: "POST", body: form });
     const data = await res.json();
     if (!res.ok) {
-      alert(data.error ?? "對帳失敗");
+      showToast(data.error ?? "對帳失敗", "error");
       return;
     }
     setReconcileResult(data);
@@ -407,6 +421,7 @@ export default function AdminPaymentsPage() {
           )}
         </section>
       </main>
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }
