@@ -1,39 +1,28 @@
 {
   "version": 2,
-  "iteration_count": 16,
+  "iteration_count": 24,
   "last_iteration": {
-    "id": "iter-016",
-    "task_id": "CX-007",
-    "outcome": "sticky payment CTA merged PR #147",
-    "completed_at": "2026-07-12T11:28:00+0800",
-    "sha": "f4c2fb3",
-    "pr": "147",
-    "deploy_status": "awaiting_deploy"
+    "id": "iter-024",
+    "task_id": "ADM-002d",
+    "outcome": "waitlist ConfirmDialog + toast merged #159",
+    "completed_at": "2026-07-12T14:13:48+00:00",
+    "sha": "b6460c1",
+    "pr": "159",
+    "deploy_status": "deployed"
   },
-  "current_task": {
-    "id": "CX-006",
-    "title": "Waitlist confirm page i18n",
-    "branch": "cursor/waitlist-confirm-i18n-bb51",
-    "status": "implementing"
-  },
+  "current_task": null,
   "blockers": [
     {
-      "id": "vercel-deploy",
-      "owner": "founder",
-      "reason": "Production SHA b516013 != main f4c2fb3; VERCEL_TOKEN unset in agent env",
-      "action": "Vercel redeploy production from main"
+      "id": "vercel-rate-limit",
+      "owner": "platform",
+      "reason": "Vercel Hobby deploy rate limit — preview checks fail for 24h",
+      "action": "Wait or upgrade plan; production already at main"
     },
     {
       "id": "founder-ops-migrations",
       "owner": "founder",
       "reason": "Supabase migrations require dashboard access",
       "action": "docs/OPS_MIGRATION_RUNBOOK.md"
-    },
-    {
-      "id": "founder-github-close",
-      "owner": "founder",
-      "reason": "Bot cannot close issues/PRs (integration restriction)",
-      "action": "docs/FOUNDER_ACTION_LIST.md"
     },
     {
       "id": "outcome-unmeasured",
@@ -44,18 +33,16 @@
   ],
   "signals": {
     "gate": "PASS",
-    "overall_health": 72,
+    "overall_health": 85,
     "github_score": 97
   },
   "operational_mode": "ACTIVE_LOOP",
   "deploy": {
-    "status": "awaiting_deploy",
-    "reason": "sha_mismatch",
-    "main_sha": "f4c2fb3",
-    "prod_sha": "b516013",
-    "main_full": "f4c2fb3",
-    "prod_full": "b516013fb7f7857f6214675789af7f0fad28ed8a",
-    "checked_at": "2026-07-12T11:33:00+0800"
+    "status": "deployed",
+    "reason": "sha_match",
+    "main_sha": "b6460c1",
+    "prod_sha": "b6460c1",
+    "checked_at": "2026-07-12T20:40:00+00:00"
   },
-  "next_candidates": ["ADM-005", "doc-drift-fix", "OPS-004"]
+  "next_candidates": ["OPS-004b", "payment-review-images", "ADM-002e-admin-page-dialogs"]
 }
