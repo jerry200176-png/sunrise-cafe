@@ -217,6 +217,9 @@ const zhTW: Dict = {
   "query.depositDeadlineSoon": "⏰ 訂金即將到期！請於 {{deadline}} 前完成繳費並回傳 LINE",
   "query.depositDeadlinePast": "訂金期限已過（{{deadline}}），訂位可能已被釋出，請聯繫店家",
   "query.paymentInfoFallback": "付款資訊請參考 LINE 繳費通知，或聯繫店家確認匯款帳號。",
+  "query.paymentStickyTitle": "訂金 NT$ {{amount}} · 完成付款後請回傳 LINE",
+  "query.paymentStickyLinePay": "LINE Pay 付款",
+  "query.paymentStickyOfficialLine": "加官方 LINE",
 };
 
 const en: Dict = {
@@ -426,6 +429,9 @@ const en: Dict = {
   "query.depositDeadlineSoon": "⏰ Deposit due soon! Pay and message us on LINE by {{deadline}}",
   "query.depositDeadlinePast": "Deposit deadline passed ({{deadline}}) — your slot may have been released; please contact us",
   "query.paymentInfoFallback": "See our LINE payment message for bank details, or contact us to confirm.",
+  "query.paymentStickyTitle": "Deposit NT$ {{amount}} · Message us on LINE after paying",
+  "query.paymentStickyLinePay": "Pay with LINE Pay",
+  "query.paymentStickyOfficialLine": "Official LINE",
 };
 
 const ja: Dict = {
@@ -635,6 +641,9 @@ const ja: Dict = {
   "query.depositDeadlineSoon": "⏰ まもなく期限です！{{deadline}} までにお支払いとLINE連絡をお願いします",
   "query.depositDeadlinePast": "デポジット期限を過ぎています（{{deadline}}）。枠が解放された可能性があります。店舗へご連絡ください",
   "query.paymentInfoFallback": "お支払い情報はLINEの案内をご確認いただくか、店舗にお問い合わせください。",
+  "query.paymentStickyTitle": "デポジット NT$ {{amount}} · お支払い後にLINEでご連絡ください",
+  "query.paymentStickyLinePay": "LINE Pay で支払う",
+  "query.paymentStickyOfficialLine": "公式LINE",
 };
 
 export const translations: Record<Locale, Dict> = { "zh-TW": zhTW, en, ja };
