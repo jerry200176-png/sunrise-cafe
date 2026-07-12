@@ -1,8 +1,8 @@
 # Founder Action List
 
-**Updated:** 2026-07-13 06:53 CST  
-**Gate:** BLOCK · Overall **82** / 100  
-**SSOT:** [`FOUNDER_PERMISSIONS.md`](./FOUNDER_PERMISSIONS.md) — 權限與 secret 清單（目標分數 100）
+**Updated:** 2026-07-13 07:00 CST  
+**Gate:** PASS（doc drift 0）· Overall **79** / 100  
+**SSOT:** [`FOUNDER_PERMISSIONS.md`](./FOUNDER_PERMISSIONS.md)
 
 ---
 
@@ -10,31 +10,50 @@
 
 | 項目 | 現況 | 解法 |
 |------|------|------|
-| Production SHA | `278837c` vs prod — see drift check | Founder: `vercel deploy --prod` 或提供 `VERCEL_TOKEN` |
-| OUTCOME_LOG | 未測量 | 設定 `CTO_OUTCOME_SECRET` → 自動同步；或手動開 Executive 儀表板 |
-| DB migrations | 3 pending | [`OPS_MIGRATION_RUNBOOK.md`](./OPS_MIGRATION_RUNBOOK.md) |
-| Open issues | 1 | 策略性保留 #53/#54/#95/#99；#61/#63 已登記 CAPABILITY_GAPS |
+| Production SHA | ✅ `3bb16dc` = prod | — |
+| OUTCOME_LOG | ✅ **已量測** 2026-07-12（訂金率 82.4%） | 每週 `npm run cto:outcomes` 或等 cron |
+| DB migrations | ✅ 核心已套用 | 選用：`line_group_id` |
+| Gmail 自動掃信 | 🟡 Secrets 未設 | 見下方 **Gmail 兩步設定** |
+| 幽靈 PR #152 #154 | 🟡 分支已刪，PR 仍開 | **你點兩下關閉**（見下方） |
 
 ## GitHub 狀態（本輪）
 
 | 指標 | 值 |
 |------|---:|
-| Open PRs (non-dep) | 2 |
-| Draft PRs | 2 |
-| cursor/* branches | 21 |
-| Bot can close issues | no — use github-hygiene workflow |
+| Open PRs | 2（#152 #154 幽靈 — 分支已刪） |
+| cursor/* branches | **0**（已清） |
+| Bot can close PRs | **no** — 需 Founder 手動關 PR |
+
+### 關閉幽靈 PR（約 10 秒，Agent 無權限代關）
+
+分支已刪，直接關 PR 即可：
+
+- https://github.com/jerry200176-png/sunrise-cafe/pull/152 → Close pull request
+- https://github.com/jerry200176-png/sunrise-cafe/pull/154 → Close pull request
+
+---
+
+## Gmail 兩步設定（讓 Agent 幫你掃信）
+
+1. **Google** → [應用程式密碼](https://myaccount.google.com/apppasswords) → 產生一組（郵件 / 其他裝置）
+2. **Cursor** → [Cloud Agent 環境 Secrets](https://cursor.com/dashboard/cloud-agents/environments/r/github.com/jerry200176-png/sunrise-cafe) → 新增：
+   - `GMAIL_USER` = 你的 Gmail
+   - `GMAIL_APP_PASSWORD` = 剛產生的 16 碼
+
+設好後在對話說「掃 Gmail」，Agent 會跑 `npm run gmail:scan` 並整理 Vercel/GitHub 失敗信。
+
+詳見 [`ENV.md`](./ENV.md) § Gmail。
+
+---
 
 ## 一鍵指令
 
 ```bash
-# 關閉已 triage 的 issue（若 workflow 未跑）
-gh workflow run github-hygiene.yml
-
-# 治理重算
-npm run cto:governance
+npm run cto:outcomes   # 同步 OUTCOME_LOG（需 CTO_OUTCOME_SECRET）
 npm run cto:health
+npm run gmail:scan     # 需 Cursor Secrets 的 GMAIL_*
 ```
 
 ---
 
-_完整權限清單與「開了能加幾分」見 [`FOUNDER_PERMISSIONS.md`](./FOUNDER_PERMISSIONS.md)._
+_完整權限清單見 [`FOUNDER_PERMISSIONS.md`](./FOUNDER_PERMISSIONS.md)._

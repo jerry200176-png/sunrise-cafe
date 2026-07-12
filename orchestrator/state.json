@@ -1,13 +1,13 @@
 {
   "version": 2,
-  "iteration_count": 25,
+  "iteration_count": 26,
   "last_iteration": {
-    "id": "iter-025",
-    "task_id": "doc-drift-sync",
-    "outcome": "IMPLEMENTATION_TRUTH + inbox synced; migrations verified applied on prod",
-    "completed_at": "2026-07-12T22:55:00+00:00",
-    "sha": "278837c",
-    "pr": null,
+    "id": "iter-026",
+    "task_id": "outcome-baseline",
+    "outcome": "OUTCOME_LOG measured via cto:outcomes — deposit 82.4%",
+    "completed_at": "2026-07-12T23:00:00+00:00",
+    "sha": "3bb16dc",
+    "pr": "163",
     "deploy_status": "deployed"
   },
   "current_task": null,
@@ -19,10 +19,10 @@
       "action": "Wait or upgrade plan; production already at main"
     },
     {
-      "id": "outcome-unmeasured",
+      "id": "cursor-gmail-secrets",
       "owner": "founder",
-      "reason": "OUTCOME_LOG has no measured date",
-      "action": "Open /admin/executive and record baseline"
+      "reason": "GMAIL_USER + GMAIL_APP_PASSWORD not in Cursor Cloud Secrets",
+      "action": "docs/FOUNDER_ACTION_LIST.md § Gmail 兩步設定"
     }
   ],
   "signals": {
@@ -34,9 +34,9 @@
   "deploy": {
     "status": "deployed",
     "reason": "sha_match",
-    "main_sha": "278837c",
-    "prod_sha": "278837c",
-    "checked_at": "2026-07-12T22:55:00+00:00"
+    "main_sha": "3bb16dc",
+    "prod_sha": "3bb16dc",
+    "checked_at": "2026-07-12T23:00:00+00:00"
   },
   "next_candidates": ["OPS-004b", "payment-review-images", "ADM-002e-admin-page-dialogs"]
 }

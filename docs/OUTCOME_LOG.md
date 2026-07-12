@@ -14,18 +14,17 @@
 _Update weekly via [`OPS_WEEKLY_BUSINESS_REVIEW.md`](./OPS_WEEKLY_BUSINESS_REVIEW.md) § Outcome Review._
 
 ```outcome
-date: null
-deposit_rate_pct: null
+date: 2026-07-12
+deposit_rate_pct: 82.4
 waitlist_conversion_pct: null
 payment_review_oldest_hours: null
-migrations_all_applied: null
-overlap_constraint_active: null
-evidence_source: null
-reviewer: null
+migrations_all_applied: yes
+overlap_constraint_active: yes
+evidence_source: outcome-pipeline:/api/cto/outcomes
+reviewer: automated
 ```
 
-**Status:** 🔴 **UNMEASURED** — no production evidence logged yet.  
-Business-outcome health scores are **frozen at baseline** until first entry.
+**Status:** 🟢 **MEASURED** — auto-sync via Outcome Pipeline (baseline 2026-07-12).
 
 ---
 
@@ -33,7 +32,7 @@ Business-outcome health scores are **frozen at baseline** until first entry.
 
 | Week | 訂金率 | 候補轉換 | 審核最舊(h) | Migrations | Δ 訂金率 | 決策 |
 |------|--------|----------|-------------|------------|----------|------|
-| _pending_ | — | — | — | — | — | 首週 Review 後填入 |
+| 2026-07-12 | 82.4% | — (0 候補) | — (0 待審) | yes | — | Baseline；訂金率略低於目標 85% |
 
 ---
 
