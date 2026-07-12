@@ -878,13 +878,12 @@ export default function BookPage() {
               )}
               <p className="mt-2 text-xs text-amber-900/90">{t("book.form.summaryHint")}</p>
             </div>
-            <form id="booking-form" onSubmit={handleSubmit} className="space-y-4">
+            <form id="booking-form" noValidate onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label htmlFor="booking-name" className="mb-1 block text-sm font-medium text-gray-700">{t("book.form.name")}</label>
                 <input
                   id="booking-name"
                   type="text"
-                  required
                   autoComplete="name"
                   value={name}
                   onChange={(e) => {
@@ -913,7 +912,6 @@ export default function BookPage() {
                 <input
                   id="booking-phone"
                   type="tel"
-                  required
                   autoComplete="tel"
                   inputMode="tel"
                   value={phone}
