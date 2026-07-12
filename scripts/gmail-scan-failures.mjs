@@ -5,8 +5,11 @@
  */
 import { ImapFlow } from "imapflow";
 
-const user = process.env.GMAIL_USER?.trim();
-const pass = process.env.GMAIL_APP_PASSWORD?.trim();
+// Strip all whitespace — Google app passwords are often pasted as "xxxx xxxx xxxx xxxx",
+// and GMAIL_USER may accidentally include a space before "@".
+const normalize = (s) => s?.trim().replace(/\s+/g, "") ?? "";
+const user = normalize(process.env.GMAIL_USER);
+const pass = normalize(process.env.GMAIL_APP_PASSWORD);
 
 if (!user || !pass) {
   console.error(
@@ -78,11 +81,22 @@ try {
     )
   );
 } catch (err) {
+  const authFailed =
+    err &&
+    typeof err === "object" &&
+    "authenticationFailed" in err &&
+    err.authenticationFailed;
   console.error(
     JSON.stringify({
       ok: false,
       error: err instanceof Error ? err.message : String(err),
-      hint: "Use a Google App Password, not your normal Gmail password",
+      code:
+        err && typeof err === "object" && "serverResponseCode" in err
+          ? err.serverResponseCode
+          : undefined,
+      hint: authFailed
+        ? "Use a Google App Password (not login password). Check GMAIL_USER has no spaces and the 16-char app password is correct."
+        : "IMAP connection failed — retry or check network",
     })
   );
   process.exit(1);
