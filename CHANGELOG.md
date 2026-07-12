@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+### Guest (CX-007)
+- Query page (`/book/query`): sticky bottom payment CTA on mobile when deposit unpaid
+- Telemetry: `payment_sticky_viewed`, `payment_sticky_line_pay_click`, `payment_sticky_line_official_click`
+
 ### Staff (ADM-002)
 - Replace `alert()` / `window.prompt()` in `ReservationList` with mobile-friendly toast + prompt dialog
 - Cron `job_runs` degrades gracefully when Supabase API key is invalid (CI + misconfigured env)

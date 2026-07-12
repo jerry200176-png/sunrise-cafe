@@ -85,6 +85,17 @@ function BookQueryContent() {
   const [rescheduleError, setRescheduleError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const depositViewedRef = useRef<Set<string>>(new Set());
+  const stickyViewedRef = useRef(false);
+
+  const unpaidDepositItem = list.find((item) => {
+    const isConfirmed = item.status === "confirmed" || item.status === "checked_in";
+    return (
+      item.deposit_required &&
+      isConfirmed &&
+      !item.is_deposit_paid &&
+      item.status !== "cancelled"
+    );
+  });
 
   const trackGuestEvent = useCallback(
     (event: string) => {
@@ -252,6 +263,12 @@ function BookQueryContent() {
     }
   }, [list, trackGuestEvent]);
 
+  useEffect(() => {
+    if (!unpaidDepositItem || stickyViewedRef.current) return;
+    stickyViewedRef.current = true;
+    trackGuestEvent("payment_sticky_viewed");
+  }, [unpaidDepositItem, trackGuestEvent]);
+
   const fetchRescheduleSlots = async (date: string) => {
     if (!reschedulingItem?.branch_id || !date) return;
     setRescheduleDate(date);
@@ -355,7 +372,7 @@ function BookQueryContent() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-lg px-4 py-6">
+      <div className={`mx-auto max-w-lg px-4 py-6 ${unpaidDepositItem ? "pb-28" : ""}`}>
         <form onSubmit={search} className="mb-6 space-y-3">
           <div className="flex gap-2">
             <label htmlFor="query-phone" className="sr-only">{t("query.phonePlaceholder")}</label>
@@ -761,6 +778,57 @@ function BookQueryContent() {
           })}
         </ul>
       </div>
+
+      {unpaidDepositItem && (
+        <div
+          className="fixed inset-x-0 bottom-0 z-20 border-t border-amber-200 bg-white/95 px-4 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.08)] backdrop-blur-sm"
+          role="region"
+          aria-label={t("query.depositNeededTitle")}
+        >
+          <p className="mb-2 text-center text-xs font-medium text-amber-900">
+            {t("query.paymentStickyTitle", {
+              amount: unpaidDepositItem.deposit_amount ?? "—",
+            })}
+          </p>
+          <div className="flex gap-2">
+            {unpaidDepositItem.line_pay_url?.trim() ? (
+              <a
+                href={unpaidDepositItem.line_pay_url.trim()}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => trackGuestEvent("payment_sticky_line_pay_click")}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[#06C755] px-3 py-3 text-sm font-bold text-white shadow hover:bg-[#05b34c]"
+              >
+                <span className="rounded bg-white px-1 py-0.5 text-[10px] font-black text-[#06C755]">
+                  LINE Pay
+                </span>
+                {t("query.paymentStickyLinePay")}
+              </a>
+            ) : (
+              <a
+                href={OFFICIAL_LINE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => trackGuestEvent("payment_sticky_line_official_click")}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border-2 border-[#06C755] bg-white px-3 py-3 text-sm font-bold text-[#06C755] hover:bg-green-50"
+              >
+                💬 {t("query.paymentStickyOfficialLine")}
+              </a>
+            )}
+            <a
+              href={OFFICIAL_LINE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => trackGuestEvent("payment_sticky_line_official_click")}
+              className={`flex items-center justify-center rounded-lg border-2 border-[#06C755] bg-white px-3 py-3 text-sm font-bold text-[#06C755] hover:bg-green-50 ${
+                unpaidDepositItem.line_pay_url?.trim() ? "min-w-[7rem]" : "hidden"
+              }`}
+            >
+              💬 {t("query.paymentStickyOfficialLine")}
+            </a>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

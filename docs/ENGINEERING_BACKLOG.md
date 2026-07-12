@@ -25,7 +25,7 @@
 |----|------|-----|
 | OPS-004 | North Star log aggregation (ops-log → ratios) | Enable booking_conversion & payment_completion_rate |
 | CX-006 | Waitlist confirm page i18n | EN/JA waitlist flow completion |
-| CX-007 | Payment CTA sticky bar on mobile query | `payment_completion_rate` |
+| CX-007 | Payment CTA sticky bar on mobile query | `payment_completion_rate` | **Done** (PR — sticky bar + telemetry) |
 | CX-008 | Booking form a11y audit (focus order, labels) | Permanent a11y lane |
 
 ## P2 — Staff Efficiency
