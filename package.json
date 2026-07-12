@@ -25,7 +25,8 @@
     "cto:deploy-gate": "bash scripts/orchestrator/deploy-gate.sh",
     "verify:migrations": "bash scripts/verify-migrations.sh",
     "executive:review": "npx tsx scripts/generate-executive-review.ts",
-    "migrate:reminded-7d": "node scripts/apply-migration-reminded-7d.mjs"
+    "migrate:reminded-7d": "node scripts/apply-migration-reminded-7d.mjs",
+    "gmail:scan": "node scripts/gmail-scan-failures.mjs"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.65.0",
@@ -52,6 +53,7 @@
     "dotenv": "^16.4.5",
     "eslint": "^9",
     "eslint-config-next": "15.5.20",
+    "imapflow": "^1.4.7",
     "postcss": "^8.5.10",
     "postgres": "^3.4.9",
     "tailwindcss": "^3.4.1",
