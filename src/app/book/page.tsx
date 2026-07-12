@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import Image from "next/image";
 import type { Branch, Room, RentalNoteSection } from "@/types";
 import { getDurationOptions, getDepositAmount, isWeekendDate } from "@/lib/booking-utils";
+import { normalizePhone } from "@/lib/phone-utils";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
@@ -44,6 +45,30 @@ export default function BookPage() {
   const [depositInfo, setDepositInfo] = useState<string | null>(null);
   const [lineUserId, setLineUserId] = useState<string | null>(null);
   const [availabilityRetry, setAvailabilityRetry] = useState(0);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const errorBannerRef = useRef<HTMLDivElement>(null);
+
+  const scrollToField = useCallback((fieldId: string) => {
+    requestAnimationFrame(() => {
+      const el = document.getElementById(fieldId);
+      el?.scrollIntoView({ block: "center", behavior: "smooth" });
+      if (el instanceof HTMLInputElement || el instanceof HTMLSelectElement) {
+        el.focus();
+      }
+    });
+  }, []);
+
+  const changeStep = useCallback((next: Step) => {
+    setStep(next);
+    setError(null);
+    setFieldErrors({});
+    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
+  }, []);
+
+  const clearFormErrors = useCallback(() => {
+    setError(null);
+    setFieldErrors({});
+  }, []);
 
   // 這裡確保介面包含 image_url
   const [branchRoomsAvailability, setBranchRoomsAvailability] = useState<{
@@ -76,7 +101,7 @@ export default function BookPage() {
         setBranches(branchesData);
         if (branchesData.length === 1 && !branchId) {
           setBranchId(branchesData[0].id);
-          setStep("date");
+          changeStep("date");
         }
       })
       .catch(() => setBranches([]));
@@ -265,11 +290,32 @@ export default function BookPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedStart || !name.trim() || !phone.trim()) return;
+    if (!selectedStart) return;
+
+    const nextFieldErrors: Record<string, string> = {};
+    if (!name.trim()) {
+      nextFieldErrors["booking-name"] = t("book.error.nameRequired");
+    }
+    if (!phone.trim()) {
+      nextFieldErrors["booking-phone"] = t("book.error.phoneRequired");
+    } else if (!/^09\d{8}$/.test(normalizePhone(phone))) {
+      nextFieldErrors["booking-phone"] = t("book.error.phoneInvalid");
+    }
+    if (rentalNotes.length > 0 && !agreeToTerms) {
+      nextFieldErrors["booking-agree-terms"] = t("book.error.agreeRequired");
+    }
+
+    if (Object.keys(nextFieldErrors).length > 0) {
+      setFieldErrors(nextFieldErrors);
+      setError(t("book.error.formInvalid"));
+      scrollToField(Object.keys(nextFieldErrors)[0]);
+      return;
+    }
+
     const start = new Date(selectedStart);
     const end = new Date(start.getTime() + duration * 60 * 60 * 1000);
     setSubmitting(true);
-    setError(null);
+    clearFormErrors();
 
     // Validate guest count against room capacity
     if (guestCount !== "") {
@@ -277,22 +323,20 @@ export default function BookPage() {
       const rm = rooms.find((r) => r.id === roomId);
       if (rm) {
         if (rm.min_capacity && gC < rm.min_capacity) {
+          setFieldErrors({ "booking-guest-count": t("book.error.minCapacity", { min: rm.min_capacity }) });
           setError(t("book.error.minCapacity", { min: rm.min_capacity }));
+          scrollToField("booking-guest-count");
           setSubmitting(false);
           return;
         }
         if (gC > rm.capacity) {
+          setFieldErrors({ "booking-guest-count": t("book.error.maxCapacity", { max: rm.capacity }) });
           setError(t("book.error.maxCapacity", { max: rm.capacity }));
+          scrollToField("booking-guest-count");
           setSubmitting(false);
           return;
         }
       }
-    }
-
-    if (rentalNotes.length > 0 && !agreeToTerms) {
-      setError(t("book.error.agreeRequired"));
-      setSubmitting(false);
-      return;
     }
 
     try {
@@ -316,10 +360,12 @@ export default function BookPage() {
       setSubmitting(false);
       if (res.status === 409) {
         setError((data as { error?: string })?.error ?? t("book.error.slotTaken"));
+        errorBannerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
         return;
       }
       if (!res.ok) {
         setError((data as { error?: string })?.error ?? t("book.error.bookingFailed"));
+        errorBannerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
         return;
       }
       const code = (data as { booking_code?: string })?.booking_code;
@@ -333,6 +379,7 @@ export default function BookPage() {
     } catch (e) {
       setSubmitting(false);
       setError(e instanceof Error ? e.message : t("book.error.connectionFailed"));
+      errorBannerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
     }
   };
 
@@ -372,6 +419,9 @@ export default function BookPage() {
       setBranchId("");
     }
     setStep(target);
+    setError(null);
+    setFieldErrors({});
+    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
   };
 
   const today = new Date().toISOString().slice(0, 10);
@@ -439,9 +489,10 @@ export default function BookPage() {
         })}
       </nav>
 
-      <div className="mx-auto max-w-lg px-4 py-6">
+      <div className={`mx-auto max-w-lg px-4 py-6 ${step === "form" ? "pb-28" : ""}`}>
         {error && (
           <div
+            ref={errorBannerRef}
             role="alert"
             className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
           >
@@ -459,7 +510,7 @@ export default function BookPage() {
                     type="button"
                     onClick={() => {
                       setBranchId(b.id);
-                      setStep("date");
+                      changeStep("date");
                     }}
                     className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-sm hover:border-amber-400 hover:bg-amber-50/50"
                   >
@@ -503,7 +554,7 @@ export default function BookPage() {
               <button
                 type="button"
                 disabled={!date}
-                onClick={() => setStep("room")}
+                onClick={() => changeStep("room")}
                 className="rounded-lg bg-amber-600 px-4 py-2 text-white disabled:opacity-50"
               >
                 {t("book.date.next")}
@@ -564,7 +615,7 @@ export default function BookPage() {
                             setRoomId(r.roomId);
                             setRoomName(r.roomName);
                             setBranchName(branchRoomsAvailability.branchName);
-                            setStep("slot");
+                            changeStep("slot");
                           }}
                           className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-sm hover:border-amber-400 hover:bg-amber-50/50"
                         >
@@ -701,10 +752,11 @@ export default function BookPage() {
 
                 {/* 步驟 1：時數 */}
                 <div className="mb-4">
-                  <div className="mb-2 flex items-center justify-between">
-                    <h3 className="text-sm font-bold text-gray-800">{t("book.slot.durationTitle")}</h3>
-                  </div>
+                  <label htmlFor="booking-duration" className="mb-2 block text-sm font-bold text-gray-800">
+                    {t("book.slot.durationTitle")}
+                  </label>
                   <select
+                    id="booking-duration"
                     value={duration}
                     onChange={(e) => {
                       setDuration(Number(e.target.value));
@@ -755,6 +807,7 @@ export default function BookPage() {
                           type="button"
                           disabled={!available}
                           aria-pressed={selectedStart === s.start}
+                          aria-label={`${formatSlotTime(s.start)}${available ? "" : ` (${t("book.slot.legendFull")})`}`}
                           onClick={() => setSelectedStart(s.start)}
                           className={`rounded-lg border py-3 text-sm font-medium ${selectedStart === s.start
                             ? "border-amber-600 bg-amber-600 text-white"
@@ -782,7 +835,7 @@ export default function BookPage() {
                   <button
                     type="button"
                     disabled={!selectedStart || !canSelectDuration(selectedStart)}
-                    onClick={() => setStep("form")}
+                    onClick={() => changeStep("form")}
                     className="rounded-lg bg-amber-600 px-4 py-2 text-white disabled:opacity-50"
                   >
                     {t("book.slot.nextStep")}
@@ -825,7 +878,7 @@ export default function BookPage() {
               )}
               <p className="mt-2 text-xs text-amber-900/90">{t("book.form.summaryHint")}</p>
             </div>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form id="booking-form" onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label htmlFor="booking-name" className="mb-1 block text-sm font-medium text-gray-700">{t("book.form.name")}</label>
                 <input
@@ -834,10 +887,26 @@ export default function BookPage() {
                   required
                   autoComplete="name"
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    if (fieldErrors["booking-name"]) {
+                      setFieldErrors((prev) => {
+                        const next = { ...prev };
+                        delete next["booking-name"];
+                        return next;
+                      });
+                    }
+                  }}
+                  aria-invalid={Boolean(fieldErrors["booking-name"])}
+                  aria-describedby={fieldErrors["booking-name"] ? "booking-name-error" : undefined}
+                  className={`w-full rounded-lg border px-3 py-2.5 ${fieldErrors["booking-name"] ? "border-red-400 bg-red-50" : "border-gray-300"}`}
                   placeholder={t("book.form.namePlaceholder")}
                 />
+                {fieldErrors["booking-name"] && (
+                  <p id="booking-name-error" className="mt-1 text-xs text-red-600" role="alert">
+                    {fieldErrors["booking-name"]}
+                  </p>
+                )}
               </div>
               <div>
                 <label htmlFor="booking-phone" className="mb-1 block text-sm font-medium text-gray-700">{t("book.form.phone")}</label>
@@ -846,14 +915,32 @@ export default function BookPage() {
                   type="tel"
                   required
                   autoComplete="tel"
+                  inputMode="tel"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
+                  onChange={(e) => {
+                    setPhone(e.target.value);
+                    if (fieldErrors["booking-phone"]) {
+                      setFieldErrors((prev) => {
+                        const next = { ...prev };
+                        delete next["booking-phone"];
+                        return next;
+                      });
+                    }
+                  }}
+                  aria-invalid={Boolean(fieldErrors["booking-phone"])}
+                  aria-describedby={fieldErrors["booking-phone"] ? "booking-phone-error booking-phone-hint" : "booking-phone-hint"}
+                  className={`w-full rounded-lg border px-3 py-2.5 ${fieldErrors["booking-phone"] ? "border-red-400 bg-red-50" : "border-gray-300"}`}
                   placeholder={t("book.form.phonePlaceholder")}
                 />
-                <p className="mt-1 text-xs text-gray-500">
-                  {t("book.form.phoneHint")}
-                </p>
+                {fieldErrors["booking-phone"] ? (
+                  <p id="booking-phone-error" className="mt-1 text-xs text-red-600" role="alert">
+                    {fieldErrors["booking-phone"]}
+                  </p>
+                ) : (
+                  <p id="booking-phone-hint" className="mt-1 text-xs text-gray-500">
+                    {t("book.form.phoneHint")}
+                  </p>
+                )}
               </div>
               <div>
                 <label htmlFor="booking-email" className="mb-1 block text-sm font-medium text-gray-700">{t("book.form.email")}</label>
@@ -874,12 +961,26 @@ export default function BookPage() {
                   type="number"
                   min={1}
                   value={guestCount === "" ? "" : guestCount}
-                  onChange={(e) =>
-                    setGuestCount(e.target.value === "" ? "" : Number(e.target.value))
-                  }
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
+                  onChange={(e) => {
+                    setGuestCount(e.target.value === "" ? "" : Number(e.target.value));
+                    if (fieldErrors["booking-guest-count"]) {
+                      setFieldErrors((prev) => {
+                        const next = { ...prev };
+                        delete next["booking-guest-count"];
+                        return next;
+                      });
+                    }
+                  }}
+                  aria-invalid={Boolean(fieldErrors["booking-guest-count"])}
+                  aria-describedby={fieldErrors["booking-guest-count"] ? "booking-guest-count-error" : undefined}
+                  className={`w-full rounded-lg border px-3 py-2.5 ${fieldErrors["booking-guest-count"] ? "border-red-400 bg-red-50" : "border-gray-300"}`}
                   placeholder={t("book.form.guestCountPlaceholder")}
                 />
+                {fieldErrors["booking-guest-count"] && (
+                  <p id="booking-guest-count-error" className="mt-1 text-xs text-red-600" role="alert">
+                    {fieldErrors["booking-guest-count"]}
+                  </p>
+                )}
               </div>
 
               {rentalNotes.length > 0 && (
@@ -899,16 +1000,31 @@ export default function BookPage() {
                     ))}
                   </div>
 
-                  <label htmlFor="booking-agree-terms" className="flex items-start gap-2 cursor-pointer pt-3 mt-3 border-t border-amber-200/50">
+                  <label htmlFor="booking-agree-terms" className={`flex items-start gap-2 cursor-pointer pt-3 mt-3 border-t border-amber-200/50 ${fieldErrors["booking-agree-terms"] ? "rounded-lg border border-red-300 bg-red-50/50 p-2" : ""}`}>
                     <input
                       id="booking-agree-terms"
                       type="checkbox"
                       checked={agreeToTerms}
-                      onChange={(e) => setAgreeToTerms(e.target.checked)}
+                      onChange={(e) => {
+                        setAgreeToTerms(e.target.checked);
+                        if (fieldErrors["booking-agree-terms"]) {
+                          setFieldErrors((prev) => {
+                            const next = { ...prev };
+                            delete next["booking-agree-terms"];
+                            return next;
+                          });
+                        }
+                      }}
+                      aria-invalid={Boolean(fieldErrors["booking-agree-terms"])}
                       className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
                     />
                     <span className="font-medium">{t("book.form.agreeNotes")}</span>
                   </label>
+                  {fieldErrors["booking-agree-terms"] && (
+                    <p className="mt-1 text-xs text-red-600" role="alert">
+                      {fieldErrors["booking-agree-terms"]}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -934,18 +1050,34 @@ export default function BookPage() {
                   </button>
                 )}
               </div>
-
-              <button
-                type="submit"
-                disabled={submitting || (rentalNotes.length > 0 && !agreeToTerms)}
-                className="w-full rounded-lg bg-amber-600 py-3 text-white hover:bg-amber-700 disabled:opacity-50"
-              >
-                {submitting ? t("book.form.submitting") : t("book.form.submit")}
-              </button>
             </form>
           </>
         )}
       </div>
+
+      {step === "form" && (
+        <div
+          className="fixed inset-x-0 bottom-0 z-20 border-t border-amber-200 bg-white/95 px-4 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.08)] backdrop-blur-sm"
+          role="region"
+          aria-label={t("book.form.submit")}
+        >
+          {getTotalPrice() != null && (
+            <p className="mb-2 text-center text-xs font-medium text-amber-900">
+              {t("book.form.stickyDeposit", {
+                deposit: getDepositAmount(getTotalPrice()!).toLocaleString(),
+              })}
+            </p>
+          )}
+          <button
+            type="submit"
+            form="booking-form"
+            disabled={submitting || (rentalNotes.length > 0 && !agreeToTerms)}
+            className="w-full rounded-lg bg-amber-600 py-3.5 text-base font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+          >
+            {submitting ? t("book.form.submitting") : t("book.form.submit")}
+          </button>
+        </div>
+      )}
     </main>
   );
 }
