@@ -185,29 +185,21 @@ export default function AdminDashboardPage() {
     }
     setTrendLoading(true);
     setTrendError(null);
-    const endDate = new Date(`${date}T00:00:00`);
-    const days = Array.from({ length: 7 }, (_, idx) => {
-      const d = new Date(endDate);
-      d.setDate(endDate.getDate() - (6 - idx));
-      return d.toISOString().slice(0, 10);
-    });
-    Promise.all(
-      days.map(async (day) => {
-        const res = await fetch(
-          `/api/admin/stats?branchId=${encodeURIComponent(branchId)}&date=${encodeURIComponent(day)}`
-        );
-        const data = await res.json();
-        if (!res.ok || data.error) {
-          throw new Error((data as { error?: string })?.error ?? "無法載入統計");
-        }
-        return {
-          date: day,
-          count: Number(data.todayCount) || 0,
-          revenue: Number(data.todayRevenue) || 0,
-        } as TrendPoint;
-      })
+    fetch(
+      `/api/admin/stats/trend?branchId=${encodeURIComponent(branchId)}&endDate=${encodeURIComponent(date)}`
     )
-      .then((points) => setTrend(points))
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.error) throw new Error(data.error);
+        const points = Array.isArray(data.points) ? data.points : [];
+        setTrend(
+          points.map((p: { date: string; count: number; revenue: number }) => ({
+            date: p.date,
+            count: Number(p.count) || 0,
+            revenue: Number(p.revenue) || 0,
+          }))
+        );
+      })
       .catch((e) => {
         setTrend([]);
         setTrendError(e instanceof Error ? e.message : "載入統計失敗");
