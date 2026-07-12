@@ -4,7 +4,11 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle2, Clock, XCircle } from "lucide-react";
+import { format, parseISO } from "date-fns";
+import { enUS, ja, zhTW } from "date-fns/locale";
 import { CopyBookingCodeButton } from "@/components/CopyBookingCodeButton";
+import { useLocale } from "@/lib/i18n/LocaleContext";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 interface WaitlistDetail {
   status: "notified" | "waiting" | "booked" | "expired";
@@ -15,18 +19,18 @@ interface WaitlistDetail {
   branch_name: string;
 }
 
-function formatRange(startIso: string, endIso: string) {
-  const toTaipei = (s: string) =>
-    new Date(new Date(s).toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
-  const start = toTaipei(startIso);
-  const end = toTaipei(endIso);
-  const dateLabel = start.toLocaleDateString("zh-TW", { month: "numeric", day: "numeric", weekday: "short" });
-  const startLabel = start.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
-  const endLabel = end.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
+function formatRange(startIso: string, endIso: string, locale: "zh-TW" | "en" | "ja") {
+  const dateFnsLocale = locale === "en" ? enUS : locale === "ja" ? ja : zhTW;
+  const start = parseISO(startIso);
+  const end = parseISO(endIso);
+  const dateLabel = format(start, "M/d (EEE)", { locale: dateFnsLocale });
+  const startLabel = format(start, "HH:mm");
+  const endLabel = format(end, "HH:mm");
   return `${dateLabel} ${startLabel}–${endLabel}`;
 }
 
 function ConfirmContent() {
+  const { t, locale } = useLocale();
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
 
@@ -38,7 +42,7 @@ function ConfirmContent() {
 
   useEffect(() => {
     if (!token) {
-      setError("缺少確認連結參數");
+      setError(t("waitlistConfirm.missingToken"));
       setLoading(false);
       return;
     }
@@ -51,9 +55,9 @@ function ConfirmContent() {
         }
         setDetail(d as WaitlistDetail);
       })
-      .catch(() => setError("無法載入候補資訊"))
+      .catch(() => setError(t("waitlistConfirm.loadFailed")))
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [token, t]);
 
   const handleConfirm = async () => {
     setConfirming(true);
@@ -66,12 +70,12 @@ function ConfirmContent() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "確認失敗，請稍後再試");
+        setError(data.error ?? t("waitlistConfirm.confirmFailed"));
         return;
       }
       setBookingCode(data.booking_code ?? null);
     } catch {
-      setError("網路錯誤，請稍後再試");
+      setError(t("waitlistConfirm.networkError"));
     } finally {
       setConfirming(false);
     }
@@ -79,32 +83,37 @@ function ConfirmContent() {
 
   return (
     <main className="min-h-screen bg-gray-50">
-      <div className="mx-auto max-w-lg px-4 py-12">
+      <header className="flex justify-end px-4 py-3">
+        <LanguageSwitcher />
+      </header>
+      <div className="mx-auto max-w-lg px-4 py-8">
         <div className="rounded-2xl border border-amber-200 bg-white p-6 shadow-lg">
           {loading ? (
-            <p className="text-center text-gray-500">載入中…</p>
+            <p className="text-center text-gray-500">{t("waitlistConfirm.loading")}</p>
           ) : bookingCode ? (
             <>
               <div className="flex justify-center text-green-600">
                 <CheckCircle2 className="h-14 w-14" />
               </div>
-              <h1 className="mt-4 text-center text-xl font-bold text-gray-900">候補確認成功！</h1>
-              <p className="mt-2 text-center text-sm text-gray-500">已為您完成訂位申請，請保存訂位代號</p>
+              <h1 className="mt-4 text-center text-xl font-bold text-gray-900">
+                {t("waitlistConfirm.successTitle")}
+              </h1>
+              <p className="mt-2 text-center text-sm text-gray-500">{t("waitlistConfirm.successDesc")}</p>
               <div className="mt-6 rounded-xl bg-amber-50 p-4 text-center">
-                <p className="text-sm text-amber-800">訂位代號</p>
+                <p className="text-sm text-amber-800">{t("waitlistConfirm.bookingCodeLabel")}</p>
                 <p className="mt-1 font-mono text-2xl font-bold tracking-wider text-amber-900">{bookingCode}</p>
                 <div className="mt-3 flex justify-center">
                   <CopyBookingCodeButton code={bookingCode} />
                 </div>
               </div>
               <p className="mt-4 text-center text-xs text-gray-500">
-                店家確認後將主動聯繫通知您繳納訂金，請勿提前匯款。
+                {t("waitlistConfirm.successDepositNote")}
               </p>
               <Link
                 href="/book/query"
                 className="mt-5 block w-full rounded-lg bg-amber-600 py-3 text-center font-medium text-white hover:bg-amber-700"
               >
-                查詢我的訂位
+                {t("waitlistConfirm.queryCta")}
               </Link>
             </>
           ) : error ? (
@@ -112,13 +121,15 @@ function ConfirmContent() {
               <div className="flex justify-center text-rose-500">
                 <XCircle className="h-14 w-14" />
               </div>
-              <h1 className="mt-4 text-center text-xl font-bold text-gray-900">無法確認候補</h1>
+              <h1 className="mt-4 text-center text-xl font-bold text-gray-900">
+                {t("waitlistConfirm.errorTitle")}
+              </h1>
               <p className="mt-2 text-center text-sm text-gray-600">{error}</p>
               <Link
                 href="/book/waitlist"
                 className="mt-5 block w-full rounded-lg bg-amber-600 py-3 text-center font-medium text-white hover:bg-amber-700"
               >
-                重新加入候補
+                {t("waitlistConfirm.rejoinCta")}
               </Link>
             </>
           ) : detail && detail.status === "notified" ? (
@@ -126,21 +137,21 @@ function ConfirmContent() {
               <div className="flex justify-center text-amber-500">
                 <Clock className="h-14 w-14" />
               </div>
-              <h1 className="mt-4 text-center text-xl font-bold text-gray-900">確認您的候補訂位</h1>
+              <h1 className="mt-4 text-center text-xl font-bold text-gray-900">
+                {t("waitlistConfirm.pendingTitle")}
+              </h1>
               <div className="mt-5 space-y-1 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">
                 <p>👤 {detail.customer_name}</p>
                 <p>🏠 {detail.branch_name} — {detail.room_name}</p>
-                <p>📅 {formatRange(detail.start_time, detail.end_time)}</p>
+                <p>📅 {formatRange(detail.start_time, detail.end_time, locale)}</p>
               </div>
-              <p className="mt-4 text-center text-xs text-gray-500">
-                此時段目前保留給您，確認後將直接送出訂位申請，店家確認後會通知您繳納訂金。
-              </p>
+              <p className="mt-4 text-center text-xs text-gray-500">{t("waitlistConfirm.pendingNote")}</p>
               <button
                 onClick={handleConfirm}
                 disabled={confirming}
                 className="mt-5 w-full rounded-lg bg-amber-600 py-3 text-center font-medium text-white hover:bg-amber-700 disabled:opacity-50"
               >
-                {confirming ? "確認中…" : "立即確認訂位"}
+                {confirming ? t("waitlistConfirm.confirming") : t("waitlistConfirm.confirmCta")}
               </button>
             </>
           ) : detail && detail.status === "booked" ? (
@@ -148,13 +159,15 @@ function ConfirmContent() {
               <div className="flex justify-center text-green-600">
                 <CheckCircle2 className="h-14 w-14" />
               </div>
-              <h1 className="mt-4 text-center text-xl font-bold text-gray-900">此候補已完成訂位</h1>
-              <p className="mt-2 text-center text-sm text-gray-600">您已確認過此候補，無需再次操作。</p>
+              <h1 className="mt-4 text-center text-xl font-bold text-gray-900">
+                {t("waitlistConfirm.alreadyBookedTitle")}
+              </h1>
+              <p className="mt-2 text-center text-sm text-gray-600">{t("waitlistConfirm.alreadyBookedDesc")}</p>
               <Link
                 href="/book/query"
                 className="mt-5 block w-full rounded-lg bg-amber-600 py-3 text-center font-medium text-white hover:bg-amber-700"
               >
-                查詢我的訂位
+                {t("waitlistConfirm.queryCta")}
               </Link>
             </>
           ) : detail ? (
@@ -162,15 +175,15 @@ function ConfirmContent() {
               <div className="flex justify-center text-rose-500">
                 <XCircle className="h-14 w-14" />
               </div>
-              <h1 className="mt-4 text-center text-xl font-bold text-gray-900">候補連結已失效</h1>
-              <p className="mt-2 text-center text-sm text-gray-600">
-                此候補連結已逾時或已被其他候補取代，請重新加入候補清單。
-              </p>
+              <h1 className="mt-4 text-center text-xl font-bold text-gray-900">
+                {t("waitlistConfirm.expiredTitle")}
+              </h1>
+              <p className="mt-2 text-center text-sm text-gray-600">{t("waitlistConfirm.expiredDesc")}</p>
               <Link
                 href="/book/waitlist"
                 className="mt-5 block w-full rounded-lg bg-amber-600 py-3 text-center font-medium text-white hover:bg-amber-700"
               >
-                重新加入候補
+                {t("waitlistConfirm.rejoinCta")}
               </Link>
             </>
           ) : null}
@@ -181,12 +194,16 @@ function ConfirmContent() {
 }
 
 export default function WaitlistConfirmPage() {
+  const { t } = useLocale();
+
   return (
-    <Suspense fallback={
-      <main className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-gray-500">載入中...</p>
-      </main>
-    }>
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <p className="text-gray-500">{t("waitlistConfirm.loading")}</p>
+        </main>
+      }
+    >
       <ConfirmContent />
     </Suspense>
   );

@@ -6,6 +6,9 @@
 
 ## [Unreleased]
 
+### Guest (CX-006)
+- Waitlist confirm page (`/book/waitlist/confirm`): full zh/en/ja i18n + language switcher
+
 ### Guest (CX-007)
 - Query page (`/book/query`): sticky bottom payment CTA on mobile when deposit unpaid
 - Telemetry: `payment_sticky_viewed`, `payment_sticky_line_pay_click`, `payment_sticky_line_official_click`
