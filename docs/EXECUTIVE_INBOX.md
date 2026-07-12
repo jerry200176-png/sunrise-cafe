@@ -2,38 +2,39 @@
 
 **CTO Operating System v2 · Company-first**  
 **Review cadence:** Every iteration **before** selecting work  
-**Last reviewed:** 2026-07-11 15:30 CST (Round 12 — doc drift + rate-limit observability)
+**Last reviewed:** 2026-07-12 22:55 CST (Round 25 — doc drift sync + migration verification)
 
 > **`cto:orchestrator`** → auto-select next task → execute → verify → record  
-> Governance gate still BLOCK; agent runs independent tasks until Founder clears GitHub.
+> Governance gate **PASS** — feature work may proceed.
 
 ---
 
-## 本輪審查（Round 12 · Governance sync + observability）
+## 本輪審查（Round 25 · Doc drift sync）
 
 ### Governance Gate
 
 | 信號 | 狀態 | 證據 |
 |------|------|------|
-| `cto:governance` | 🔴 **BLOCK** | Overall 57, GitHub 47, prod SHA drift |
-| Founder blockers | 🟠 | GHA PR-create policy, Vercel deploy, GitHub batch |
+| `cto:governance` | 🟢 **PASS** | GitHub 97, open PRs ≤ 3 |
+| Founder blockers | 🟡 | OUTCOME_LOG baseline, optional `line_group_id` migration |
 
 ### Production & Deployment
 
 | 信號 | 狀態 | 證據 |
 |------|------|------|
 | Health | 🟢 | `/api/booking-health` ok |
-| SHA parity | 🟠 | main `73d33f4` · prod `b516013` `f083d10` `f083d10` `f083d10` (#102) |
-| CI main | 🟢 | 10/10 success |
-| Tests | 🟢 | 158 unit + 7 E2E (1 skip) |
+| SHA parity | 🟢 | main `278837c` · prod `278837c` (`GET /api/version`) |
+| CI main | 🟢 | green |
+| Tests | 🟢 | 167 unit + 9 E2E (2 skip) |
+| Vercel preview | 🟡 | Hobby rate limit may block PR checks ~24h; prod unaffected |
 
 ### Customer Feedback
 
 | 信號 | 狀態 |
 |------|------|
-| 客訴 / bug 回報 | 🟢 無新回報 |
+| 客訴 / bug 回報 | 🟢 無新回報（Gmail scan #151） |
 | 付款糾紛 | 🟡 潛在 — 審核 SLA 未量測 |
-| 訂位錯誤 | 🟡 overlap constraint 待 migration |
+| 訂位錯誤 | 🟢 overlap constraint 已套用（DB verified） |
 
 ### Business KPIs & Financial
 
@@ -50,64 +51,64 @@
 | 信號 | 狀態 |
 |------|------|
 | npm audit high+ | 🟢 0 (#88) |
-| Dependabot #90/#91 | 🟠 Next 16 — 拒絕 (DL-012) |
+| Dependabot | 🟢 closed / rejected per DL-012 |
 
 ### GitHub Activity
 
 | 信號 | 數量 |
 |------|------:|
-| Open PRs | 11（8 draft + #89 docs + #90/#91 dependabot） |
-| Open Issues | 7 |
-| Ghost PRs #70–77 | 仍開放 — Founder |
+| Open PRs | 2 draft (#152, #154) |
+| Open Issues | 4 strategic |
+| Ghost PRs | 🟢 cleaned 2026-07-11 |
 
 ### Operational Risks（持續追蹤至關閉）
 
 | ID | 風險 | 嚴重度 | 狀態 |
 |----|------|--------|------|
-| R-001 | Migration 未套用 | 🔴 | OPEN — ART-001 |
-| R-002 | 幽靈 PR | 🟠 | OPEN |
-| R-004 | KPI 盲飛 | 🟡 | OPEN — **首週 Outcome Review 待執行** |
-| R-005 | Cron 成功率未知 | 🟡 | OPEN |
+| R-001 | Migration 未套用 | — | **CLOSED** 2026-07-12 — prod DB verified |
+| R-002 | 幽靈 PR | — | **CLOSED** |
+| R-004 | KPI 盲飛 | 🟡 | OPEN — Outcome baseline 待 Founder |
+| R-005 | Cron 成功率未知 | 🟡 | OPEN — `job_runs` table ready; await cron cycle |
 
 ---
 
 ## 🔴 Critical
 
-| ID | Signal | Owner |
-|----|--------|-------|
-| INB-001 | 3 DB migrations unapplied | **Ops** — 使用 `OPS_MIGRATION_RUNBOOK.md` |
+*（無）*
 
 ## 🟠 High
 
 | ID | Signal | Owner |
 |----|--------|-------|
-| INB-003 | 7 ghost PRs + #90/#91 dependabot | Founder |
 | INB-005 | KPIs unmeasured | **Ops** — 使用 `OPS_WEEKLY_BUSINESS_REVIEW.md` |
 | INB-009 | #53 訂金流程 — **流程優先於 code** | 店長 — `OPS_PAYMENT_SOP.md` |
 
 ## 🟡 Medium
 
-| INB-006 | Cron success rate unverified | Eng (later) |
+| INB-006 | Cron success rate unverified | Eng — check `/admin/executive` after cron |
+| INB-010 | `branches.line_group_id` optional migration | Eng — multi-branch LINE without env fallback |
 | INB-008 | esbuild/postcss moderate (dev) | Eng (defer) |
 
 ## 🟢 Resolved
 
 | ID | Resolution |
 |----|------------|
+| INB-001 | 3 core DB migrations applied — verified 2026-07-12 |
+| INB-003 | Ghost PRs closed |
 | INB-R8 | #88 security + Inbox system |
-| INB-R9 | Production f0be69f deployed |
+| INB-R9 | Production SHA parity `278837c` |
 
 ---
 
-## 本輪 MDU 判定（Round 11 · AI Orchestrator）
+## 本輪 MDU 判定（Round 25）
 
 | 候選 | 類型 | ROI | 選擇 |
 |------|------|-----|------|
-| **AI Engineering Orchestrator** | **平台** | **最高** — autonomous OS | ✅ **執行** |
-| doc-drift + inbox sync | 治理 | 高 — measurable doc accuracy | ✅ **同輪** |
-| Founder GitHub batch | 營運 | 高 — unblocks gate | **Founder** |
-| payment-review-images | 產品 | 高 — gate requires PASS | 延後 |
+| **doc-drift sync** | **治理** | **高** — stop false migration alarms | ✅ **執行** |
+| OPS-004b funnel aggregation | 產品 | 高 — unlock KPIs | 下一輪 |
+| ADM-002e admin page dialogs | UX | 中 — remaining alert/confirm | 下一輪 |
+| outcome-unmeasured | 營運 | 高 — Founder baseline | **Founder** |
 
 ---
 
-*Next: merge orchestrator PR → `cto:orchestrator -- complete` → auto-plan iter-012*
+*Next: OPS-004b or ADM-002e → `cto:orchestrator -- complete` → auto-plan iter-026*

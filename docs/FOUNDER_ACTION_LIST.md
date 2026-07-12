@@ -1,7 +1,7 @@
 # Founder Action List
 
-**Updated:** 2026-07-11 18:57 CST  
-**Gate:** PASS · Overall **70** / 100  
+**Updated:** 2026-07-13 06:53 CST  
+**Gate:** BLOCK · Overall **82** / 100  
 **SSOT:** [`FOUNDER_PERMISSIONS.md`](./FOUNDER_PERMISSIONS.md) — 權限與 secret 清單（目標分數 100）
 
 ---
@@ -10,19 +10,19 @@
 
 | 項目 | 現況 | 解法 |
 |------|------|------|
-| Production SHA | `73d33f4` vs prod — see drift check | Founder: `vercel deploy --prod` 或提供 `VERCEL_TOKEN` |
+| Production SHA | `278837c` vs prod — see drift check | Founder: `vercel deploy --prod` 或提供 `VERCEL_TOKEN` |
 | OUTCOME_LOG | 未測量 | 設定 `CTO_OUTCOME_SECRET` → 自動同步；或手動開 Executive 儀表板 |
 | DB migrations | 3 pending | [`OPS_MIGRATION_RUNBOOK.md`](./OPS_MIGRATION_RUNBOOK.md) |
-| Open issues | 4 | 策略性保留 #53/#54/#95/#99；#61/#63 已登記 CAPABILITY_GAPS |
+| Open issues | 1 | 策略性保留 #53/#54/#95/#99；#61/#63 已登記 CAPABILITY_GAPS |
 
 ## GitHub 狀態（本輪）
 
 | 指標 | 值 |
 |------|---:|
 | Open PRs (non-dep) | 2 |
-| Draft PRs | 0 |
-| cursor/* branches | 2 |
-| Bot can close issues | yes |
+| Draft PRs | 2 |
+| cursor/* branches | 21 |
+| Bot can close issues | no — use github-hygiene workflow |
 
 ## 一鍵指令
 

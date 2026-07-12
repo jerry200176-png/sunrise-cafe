@@ -3,17 +3,36 @@
 **CTO OS v2 · Company-first**  
 **Artifact ID:** ART-001 · Registry: [`OPS_ARTIFACT_REGISTRY.md`](./OPS_ARTIFACT_REGISTRY.md)  
 **Owner:** Ops / Founder  
-**Review cadence:** 每週一 Inbox R-001 檢查；部署含 migration 的 commit 後 24hr 內  
-**Success metric:** `IMPLEMENTATION_TRUTH.md` 三項 migration 皆 ✅ Applied  
-**Retirement:** 三項皆 Applied 且驗證通過 30 天 → 移至 `docs/archive/` 或標 **RETIRED**  
-**風險:** INB-001 · R-001 — 程式已上線，DB 未同步 = 雙重訂位、RBAC 無法建帳、公休日無效
+**Status:** **CORE STEPS COMPLETE** (verified 2026-07-12) — retain as reference for future migrations  
+**Review cadence:** 新 migration 上線前；否則每季抽查 `schema_migrations`  
+**Success metric:** `IMPLEMENTATION_TRUTH.md` critical migrations ✅ Applied — **met**  
+**Retirement:** Core trio + job_runs applied → runbook is archival; optional `line_group_id` below
 
 > 在 Supabase Dashboard → **SQL Editor** 執行。每步完成後打勾。  
 > 估計時間：**20–30 分鐘**（含驗證）
 
 ---
 
-## 執行前
+## 目前狀態（2026-07-12）
+
+| Step | Migration | Status |
+|------|-----------|--------|
+| 1 | `migration-reservations-no-overlap.sql` | ✅ Applied |
+| 2 | `migration-phase7-rbac.sql` | ✅ Applied |
+| 3 | `migration-branches-closed-dates.sql` | ✅ Applied |
+| 4 | `migration-job-runs.sql` | ✅ Applied |
+| — | `migration-payment-events.sql` | ✅ Applied (ADR-008) |
+| Optional | `migration-branches-line-group-id.sql` | 🟡 Not applied — `LINE_GROUP_ID` env fallback OK |
+
+驗證指令（需 production Supabase 憑證）：
+
+```bash
+node scripts/check-migration-drift.mjs .env.vercel.prod
+```
+
+---
+
+## 執行前（新 migration 時）
 
 - [ ] 選擇**低流量時段**（非週五晚、假日尖峰）
 - [ ] 確認 Supabase 專案為 **production**（非 staging）
@@ -31,7 +50,7 @@ ORDER BY applied_at;
 
 ---
 
-## Step 1 — 雙重訂位防護（必做 · 營收＋CX）
+## Step 1 — 雙重訂位防護（必做 · 營收＋CX） ✅ DONE
 
 **檔案：** `supabase/migration-reservations-no-overlap.sql`
 
@@ -45,99 +64,66 @@ WHERE a.status <> 'cancelled' AND b.status <> 'cancelled'
   AND a.start_time < b.end_time AND a.end_time > b.start_time;
 ```
 
-- **若有列** → 先聯絡客人協調取消其中一筆，再重跑預檢
-- **0 筆** → 繼續
-
-### 1b. 執行 migration 檔案全文
-
-複製 `migration-reservations-no-overlap.sql` 內容 → Run
-
-### 1c. 驗證
+### 1b–1c. 驗證
 
 ```sql
 SELECT version FROM schema_migrations
 WHERE version = '20260710-reservations-no-overlap';
 ```
 
-- [ ] 有列 = 成功
-
-**業務影響：** 杜絕同一包廂同時段兩組客人 → 避免客訴與營收損失
-
 ---
 
-## Step 2 — RBAC 帳號表（必做 · 可安全聘請員工）
+## Step 2 — RBAC 帳號表（必做 · 可安全聘請員工） ✅ DONE
 
 **檔案：** `supabase/migration-phase7-rbac.sql`
 
-### 2a. 執行 migration 檔案全文
-
-### 2b. 驗證
-
 ```sql
 SELECT version FROM schema_migrations WHERE version = '20260710-phase7-rbac';
-SELECT COUNT(*) FROM admin_users;  -- 可為 0，表存在即可
+SELECT COUNT(*) FROM admin_users;
 ```
 
-### 2c. 建立第一位店長帳號
-
-1. 登入後台 `/admin/login`（沿用 `ADMIN_PASSWORD` owner session）
-2. 前往 `/admin/users` → 新增帳號（role: `branch_manager` 或 `staff`）
-3. 登出 → 用新帳號登入測試
-
-- [ ] `/admin/users` 可開啟、可新增
-- [ ] staff 帳號無法改價格（安全測試）
-
-**業務影響：** 店員可分工，老闆不需共享密碼
+後台：`/admin/users` 可新增 staff / branch_manager 帳號。
 
 ---
 
-## Step 3 — 分店公休日（必做 · 多分店 CX）
+## Step 3 — 分店公休日（必做 · 多分店 CX） ✅ DONE
 
 **檔案：** `supabase/migration-branches-closed-dates.sql`
-
-### 3a. 執行
-
-```sql
-ALTER TABLE branches ADD COLUMN IF NOT EXISTS closed_dates JSONB DEFAULT '[]';
-```
-
-（或執行完整 migration 檔案）
-
-### 3b. 驗證
 
 ```sql
 SELECT id, name, closed_dates FROM branches LIMIT 5;
 ```
 
-### 3c. 後台設定
-
-1. `/admin` → 選擇分店 → **公休日設定** → 新增日期 → 儲存
-2. 客人端 `/book` 選該日 → 應顯示不可訂
-
-- [ ] 公休日無法完成訂位
-
-**業務影響：** A 店公休不影響 B 店營收
+後台 `/admin` → 公休日設定；客人 `/book` 該日不可訂。
 
 ---
 
-## Step 4 — Cron 執行紀錄（建議 · 可觀測性）
+## Step 4 — Cron 執行紀錄（建議 · 可觀測性） ✅ DONE
 
-**檔案：** `supabase/migration-job-runs.sql`  
-**時間：** 約 2 分鐘
+**檔案：** `supabase/migration-job-runs.sql`
 
-- [ ] SQL Editor 執行全文
-- [ ] 驗證：`SELECT * FROM job_runs ORDER BY started_at DESC LIMIT 5;`（次日 cron 後應有資料）
-- [ ] `/admin/executive` → Cron 區塊 `job_runs_ready: true`
+```sql
+SELECT * FROM job_runs ORDER BY started_at DESC LIMIT 5;
+```
 
-**業務影響：** 明日提醒是否成功送出可查證，不需翻 Vercel logs
+`/admin/executive` → Cron 區塊應顯示 `job_runs_ready: true`。
 
 ---
 
-## 完成後
+## Step 5 — 分店 LINE 群組 ID（選用 · 多分店推播）
 
-- [ ] 更新 `docs/EXECUTIVE_INBOX.md` — 關閉 INB-001
-- [ ] 通知團隊：可開始使用員工帳號
-- [ ] 下週一執行 [`OPS_WEEKLY_BUSINESS_REVIEW.md`](./OPS_WEEKLY_BUSINESS_REVIEW.md)
+**檔案：** `supabase/migration-branches-line-group-id.sql`  
+**狀態：** 🟡 未套用 — 系統仍以 `LINE_GROUP_ID` 環境變數 fallback
+
+套用後可在後台「分店管理」為各店設定 `line_group_id`，Cron 明日提醒會分店推播。
+
+---
+
+## 完成後（任何新 migration）
+
+- [ ] 更新 `docs/IMPLEMENTATION_TRUTH.md` 同一 PR
+- [ ] 更新 `docs/EXECUTIVE_INBOX.md` 若關閉/開啟風險項
+- [ ] 執行 `node scripts/check-migration-drift.mjs` 驗證
 
 ---
 
@@ -151,4 +137,4 @@ SELECT id, name, closed_dates FROM branches LIMIT 5;
 
 ---
 
-*對應風險 R-001 · Executive Dashboard Rank 1*
+*R-001 / INB-001 closed 2026-07-12. See `IMPLEMENTATION_TRUTH.md` for live status.*

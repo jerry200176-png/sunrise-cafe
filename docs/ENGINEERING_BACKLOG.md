@@ -40,7 +40,7 @@
 | ID | Item | Why |
 |----|------|-----|
 | OPS-001 | Verify Production SHA parity | Founder deploy only |
-| OPS-002 | Supabase pending migrations (#95) | Data integrity |
+| OPS-002 | Supabase pending migrations (#95) | Data integrity | **Done** — prod verified 2026-07-12 |
 | OPS-003 | OUTCOME_LOG auto-sync | `deposit_rate_pct` baseline for A/B |
 
 ## P4 — Permanent lanes (always on)
