@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Calendar, DollarSign, Users, LogOut, Bell, RefreshCw } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import type { Branch } from "@/types";
+import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 
 interface Stats {
   date: string;
@@ -114,6 +115,17 @@ export default function AdminDashboardPage() {
   const [remindersUpdating, setRemindersUpdating] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const toastId = useRef(0);
+
+  const showToast = useCallback((message: string, variant: ToastVariant = "info") => {
+    const id = ++toastId.current;
+    setToasts((prev) => [...prev, { id, message, variant }]);
+  }, []);
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
 
   useEffect(() => {
     fetch("/api/branches")
@@ -415,9 +427,9 @@ export default function AdminDashboardPage() {
                                     document.execCommand("copy");
                                     document.body.removeChild(textarea);
                                   }
-                                  alert("已複製提醒內容");
+                                  showToast("已複製提醒內容", "success");
                                 } catch {
-                                  alert("複製失敗，請手動複製。");
+                                  showToast("複製失敗，請手動複製。", "error");
                                 }
                               }}
                               className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
@@ -528,6 +540,7 @@ export default function AdminDashboardPage() {
           </>
         )}
       </div>
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </main>
   );
 }
