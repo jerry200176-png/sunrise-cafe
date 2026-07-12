@@ -9,6 +9,8 @@ import { isDepositRequired, isWeekendDate } from "@/lib/booking-utils";
 import { buildPaymentMessage, type BranchPaymentConfig } from "@/lib/payment-message";
 import type { Reservation, ReservationStatus, Room } from "@/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { PromptDialog } from "@/components/PromptDialog";
+import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 
 function getPricePerHour(room: Room, dateStr: string): number {
   return isWeekendDate(dateStr) ? Number(room.price_weekend) : Number(room.price_weekday);
@@ -78,6 +80,39 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   const [branchConfig, setBranchConfig] = useState<BranchPaymentConfig | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string } | null>(null);
   const confirmResolver = useRef<((value: boolean) => void) | null>(null);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const toastId = useRef(0);
+  const [promptDialog, setPromptDialog] = useState<{
+    title: string;
+    message: string;
+    placeholder?: string;
+  } | null>(null);
+  const promptResolver = useRef<((value: string | null) => void) | null>(null);
+
+  const showToast = useCallback((message: string, variant: ToastVariant = "info") => {
+    const id = ++toastId.current;
+    setToasts((prev) => [...prev, { id, message, variant }]);
+  }, []);
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const openPrompt = useCallback(
+    (title: string, message: string, placeholder?: string) => {
+      return new Promise<string | null>((resolve) => {
+        promptResolver.current = resolve;
+        setPromptDialog({ title, message, placeholder });
+      });
+    },
+    []
+  );
+
+  const closePrompt = useCallback((value: string | null) => {
+    promptResolver.current?.(value);
+    promptResolver.current = null;
+    setPromptDialog(null);
+  }, []);
 
   const openConfirm = useCallback((title: string, message: string) => {
     return new Promise<boolean>((resolve) => {
@@ -257,13 +292,13 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
       if (!res.ok) {
         setReservations(prev);
         const data = (await res.json().catch(() => ({}))) as { error?: string };
-        alert(data.error ?? "狀態更新失敗，請重新整理後再試");
+        showToast(data.error ?? "狀態更新失敗，請重新整理後再試", "error");
         return;
       }
       fetchReservations(false);
     } catch {
       setReservations(prev);
-      alert("連線失敗，狀態未更新");
+      showToast("連線失敗，狀態未更新", "error");
     }
   };
 
@@ -291,13 +326,13 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
       if (!res.ok) {
         setReservations(prev);
         const data = (await res.json().catch(() => ({}))) as { error?: string };
-        alert(data.error ?? "訂金狀態更新失敗，請重新整理後再試");
+        showToast(data.error ?? "訂金狀態更新失敗，請重新整理後再試", "error");
         return;
       }
       fetchReservations(false);
     } catch {
       setReservations(prev);
-      alert("連線失敗，訂金狀態未更新");
+      showToast("連線失敗，訂金狀態未更新", "error");
     }
   };
 
@@ -312,10 +347,10 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
       const res = await fetch("/api/admin/reminders/send-line", { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "發送失敗");
-      alert(data.message || `成功發送，共 ${data.sent} 筆`);
+      showToast(data.message || `成功發送，共 ${data.sent} 筆`, "success");
       fetchReservations(false);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "發生未知錯誤");
+      showToast(err instanceof Error ? err.message : "發生未知錯誤", "error");
     } finally {
       setSendingLine(false);
     }
@@ -600,9 +635,11 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                     {isDepositRequired(r.start_time.slice(0, 10)) && !r.is_deposit_paid && (
                       <button
                         type="button"
-                        onClick={() => {
-                          const note = window.prompt(
-                            "請輸入付款備註（選填）\n例如：末五碼 12345、LINE Pay 截圖已收"
+                        onClick={async () => {
+                          const note = await openPrompt(
+                            "標記已付訂金",
+                            "請輸入付款備註（選填）",
+                            "例如：末五碼 12345、LINE Pay 截圖已收"
                           );
                           if (note === null) return;
                           updateDepositStatus(r.id, true, note || null);
@@ -637,9 +674,9 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                               document.execCommand("copy");
                               document.body.removeChild(textarea);
                             }
-                            alert("已複製通知內容");
+                            showToast("已複製通知內容", "success");
                           } catch {
-                            alert("複製失敗，請手動複製。");
+                            showToast("複製失敗，請手動複製。", "error");
                           }
                         }}
                         className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
@@ -660,10 +697,10 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                               body: JSON.stringify({ id: r.id }),
                             });
                             const data = await res.json();
-                            if (!res.ok) alert(`傳送失敗：${(data as { error?: string }).error}`);
-                            else alert("✅ 已成功傳送繳費通知給客人 LINE！");
+                            if (!res.ok) showToast(`傳送失敗：${(data as { error?: string }).error}`, "error");
+                            else showToast("已成功傳送繳費通知給客人 LINE！", "success");
                           } catch {
-                            alert("傳送失敗，請確認網路連線");
+                            showToast("傳送失敗，請確認網路連線", "error");
                           } finally {
                             setSendingLinePaymentTo(null);
                           }
@@ -697,9 +734,11 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                     {isDepositRequired(r.start_time.slice(0, 10)) && !r.is_deposit_paid && (
                       <button
                         type="button"
-                        onClick={() => {
-                          const note = window.prompt(
-                            "請輸入付款備註（選填）\n例如：末五碼 12345、LINE Pay 截圖已收"
+                        onClick={async () => {
+                          const note = await openPrompt(
+                            "標記已付訂金",
+                            "請輸入付款備註（選填）",
+                            "例如：末五碼 12345、LINE Pay 截圖已收"
                           );
                           if (note === null) return;
                           updateDepositStatus(r.id, true, note || null);
@@ -722,10 +761,10 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                               body: JSON.stringify({ id: r.id }),
                             });
                             const data = await res.json();
-                            if (!res.ok) alert(`傳送失敗：${(data as { error?: string }).error}`);
-                            else alert("✅ 已成功傳送繳費通知給客人 LINE！");
+                            if (!res.ok) showToast(`傳送失敗：${(data as { error?: string }).error}`, "error");
+                            else showToast("已成功傳送繳費通知給客人 LINE！", "success");
                           } catch {
-                            alert("傳送失敗，請確認網路連線");
+                            showToast("傳送失敗，請確認網路連線", "error");
                           } finally {
                             setSendingLinePaymentTo(null);
                           }
@@ -768,12 +807,12 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                           const res = await fetch(`${RESERVATIONS_API}/${r.id}`, { method: "DELETE" });
                           if (!res.ok) {
                             const data = (await res.json().catch(() => ({}))) as { error?: string };
-                            alert(data.error ?? "刪除失敗");
+                            showToast(data.error ?? "刪除失敗", "error");
                             return;
                           }
                           fetchReservations(false);
                         } catch {
-                          alert("連線失敗，刪除未完成");
+                          showToast("連線失敗，刪除未完成", "error");
                         }
                       }}
                       className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
@@ -803,12 +842,12 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                           const res = await fetch(`${RESERVATIONS_API}/${r.id}`, { method: "DELETE" });
                           if (!res.ok) {
                             const data = (await res.json().catch(() => ({}))) as { error?: string };
-                            alert(data.error ?? "刪除失敗");
+                            showToast(data.error ?? "刪除失敗", "error");
                             return;
                           }
                           fetchReservations(false);
                         } catch {
-                          alert("連線失敗，刪除未完成");
+                          showToast("連線失敗，刪除未完成", "error");
                         }
                       }}
                       className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
@@ -999,6 +1038,17 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
         onConfirm={() => closeConfirm(true)}
         onCancel={() => closeConfirm(false)}
       />
+
+      <PromptDialog
+        open={promptDialog != null}
+        title={promptDialog?.title ?? ""}
+        message={promptDialog?.message ?? ""}
+        placeholder={promptDialog?.placeholder}
+        onConfirm={(value) => closePrompt(value)}
+        onCancel={() => closePrompt(null)}
+      />
+
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </>
   );
 }

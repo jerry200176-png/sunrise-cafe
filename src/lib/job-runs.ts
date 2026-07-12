@@ -34,6 +34,7 @@ export async function isJobRunsTableReady(): Promise<boolean> {
   if (!error) return true;
   const code = (error as { code?: string }).code;
   if (code === "PGRST205" || /job_runs/i.test(error.message)) return false;
+  if (/invalid api key/i.test(error.message)) return false;
   throw error;
 }
 

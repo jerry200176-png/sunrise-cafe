@@ -1,6 +1,6 @@
 # Engineering Backlog (Continuous Product Improvement)
 
-**Updated:** 2026-07-11  
+**Updated:** 2026-07-12  
 **Mode:** ROI-ranked by real user value — re-sorted after each delivery.  
 **Loop:** [`PRODUCT_IMPROVEMENT_LOOP.md`](./PRODUCT_IMPROVEMENT_LOOP.md) · [`HYPOTHESES.md`](./HYPOTHESES.md) · Metrics: [`NORTH_STAR_METRICS.md`](./NORTH_STAR_METRICS.md)
 
@@ -17,7 +17,7 @@
 
 | ID | Item | ROI rationale | Status |
 |----|------|---------------|--------|
-| ADM-002 | ReservationList: replace alert/confirm/prompt | Daily ops friction; mobile confirm broken | **In progress** (confirm slice) |
+| ADM-002 | ReservationList: replace alert/confirm/prompt | Daily ops friction; mobile confirm broken | **Done** (PR — toast + prompt dialog) |
 
 ## P1 — Measurement & Guest
 

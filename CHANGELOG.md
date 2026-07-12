@@ -4,6 +4,14 @@
 
 ---
 
+## [Unreleased]
+
+### Staff (ADM-002)
+- Replace `alert()` / `window.prompt()` in `ReservationList` with mobile-friendly toast + prompt dialog
+- Cron `job_runs` degrades gracefully when Supabase API key is invalid (CI + misconfigured env)
+
+---
+
 ## [2.2.0] — 2026-07-10 (pending)
 
 ### Security — RBAC foundation (Wave 2)
