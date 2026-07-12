@@ -63,6 +63,28 @@ test.describe("訂位流程（API mock）", () => {
   });
 });
 
+test.describe("CX-008 mobile form UX", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  async function goToFormStep(page: import("@playwright/test").Page, date: string) {
+    await setupBookingApiMocks(page, date);
+    await page.goto("/book");
+    await page.locator("#booking-date").fill(date);
+    await page.getByRole("button", { name: "下一步" }).click();
+    await page.getByRole("button", { name: new RegExp(MOCK_ROOM.roomName) }).click();
+    await page.locator("div.grid button:not([disabled])").first().click();
+    await page.getByRole("button", { name: /下一步 · 填寫資料/ }).click();
+  }
+
+  test("空表單 sticky 送出顯示姓名錯誤", async ({ page }) => {
+    await goToFormStep(page, bookingDateOffset(2));
+    const sticky = page.getByRole("region", { name: "確認預約" });
+    await expect(sticky).toBeVisible();
+    await sticky.getByRole("button", { name: "確認預約" }).click();
+    await expect(page.locator("#booking-name-error")).toBeVisible();
+  });
+});
+
 test.describe("公開 API smoke", () => {
   test("version 回傳 deployed 標記", async ({ request }) => {
     const res = await request.get("/api/version");
