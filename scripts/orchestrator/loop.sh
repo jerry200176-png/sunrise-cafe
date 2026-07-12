@@ -89,7 +89,8 @@ finalize_iteration() {
 
 persist_loop_artifacts() {
   git add "$STATE" orchestrator/autonomy-evidence.jsonl orchestrator/capabilities.json \
-    orchestrator/discovered-work.json orchestrator/canary-marker.json 2>/dev/null || true
+    orchestrator/discovered-work.json orchestrator/canary-marker.json \
+    orchestrator/gmail-signals.json docs/EXECUTIVE_INBOX.md 2>/dev/null || true
   git add "$STATE" orchestrator/autonomy-evidence.jsonl 2>/dev/null || true
 }
 
@@ -111,6 +112,9 @@ if bash "$SCRIPT_DIR/deploy-gate.sh" 2>/dev/null; then
 fi
 bash "$EVIDENCE" deploy_gate "{\"mode\":\"$DEPLOY_MODE\"}"
 log "Deploy gate: $DEPLOY_MODE (implementation workstream independent)"
+
+bash "$SCRIPT_DIR/gmail-signals.sh" 2>/dev/null || true
+bash "$SCRIPT_DIR/update-inbox-gmail.sh" 2>/dev/null || true
 
 # Non-blocking deploy resolution attempt
 bash "$SCRIPT_DIR/deploy.sh" 2>/dev/null || true

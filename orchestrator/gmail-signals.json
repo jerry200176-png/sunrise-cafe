@@ -1,0 +1,292 @@
+{
+  "ok": true,
+  "scanned_since": "2026-07-10T23:50:40.401Z",
+  "repo_filter": "sunrise-cafe",
+  "inbox_messages_in_window": 507,
+  "count": 32,
+  "by_kind": {
+    "vercel_preview": 9,
+    "vercel_production": 2,
+    "github_ci": 18,
+    "github_thread": 3
+  },
+  "recommendations": [
+    {
+      "priority": "high",
+      "signal": "vercel_production_failure",
+      "action": "Run deploy-gate: curl /api/version vs origin/main. If mismatch >30m, manual vercel deploy --prod.",
+      "count": 2
+    },
+    {
+      "priority": "medium",
+      "signal": "vercel_preview_rate_limit",
+      "action": "Hobby deploy quota — rely on GitHub Actions CI (already green). Preview checks may fail ~24h; prod unaffected.",
+      "count": 9
+    },
+    {
+      "priority": "high",
+      "signal": "github_ci_failure",
+      "action": "Inspect failed workflow on main or open PRs; fix before merge.",
+      "count": 18
+    }
+  ],
+  "messages": [
+    {
+      "date": "2026-07-12T13:22:17.000Z",
+      "from": "notifications@vercel.com",
+      "subject": "Failed preview deployment on team 'jerry200176-6960's projects'",
+      "kind": "vercel_preview",
+      "severity": "medium",
+      "action": "monitor_rate_limit"
+    },
+    {
+      "date": "2026-07-12T13:19:41.000Z",
+      "from": "notifications@vercel.com",
+      "subject": "Failed preview deployment on team 'jerry200176-6960's projects'",
+      "kind": "vercel_preview",
+      "severity": "medium",
+      "action": "monitor_rate_limit"
+    },
+    {
+      "date": "2026-07-12T13:18:16.000Z",
+      "from": "notifications@vercel.com",
+      "subject": "Failed preview deployment on team 'jerry200176-6960's projects'",
+      "kind": "vercel_preview",
+      "severity": "medium",
+      "action": "monitor_rate_limit"
+    },
+    {
+      "date": "2026-07-12T13:15:27.000Z",
+      "from": "notifications@vercel.com",
+      "subject": "Failed preview deployment on team 'jerry200176-6960's projects'",
+      "kind": "vercel_preview",
+      "severity": "medium",
+      "action": "monitor_rate_limit"
+    },
+    {
+      "date": "2026-07-12T13:13:52.000Z",
+      "from": "notifications@vercel.com",
+      "subject": "Failed preview deployment on team 'jerry200176-6960's projects'",
+      "kind": "vercel_preview",
+      "severity": "medium",
+      "action": "monitor_rate_limit"
+    },
+    {
+      "date": "2026-07-12T13:01:44.000Z",
+      "from": "notifications@vercel.com",
+      "subject": "Failed production deployment on team 'jerry200176-6960's projects'",
+      "kind": "vercel_production",
+      "severity": "high",
+      "action": "verify_prod_sha"
+    },
+    {
+      "date": "2026-07-12T12:01:49.000Z",
+      "from": "notifications@vercel.com",
+      "subject": "Failed production deployment on team 'jerry200176-6960's projects'",
+      "kind": "vercel_production",
+      "severity": "high",
+      "action": "verify_prod_sha"
+    },
+    {
+      "date": "2026-07-11T11:36:12.000Z",
+      "from": "notifications@github.com",
+      "subject": "[jerry200176-png/sunrise-cafe] PR run failed: CI - feat(book): deposit deadline UX + guest payment funnel telemetry (0766ab1)",
+      "kind": "github_ci",
+      "severity": "high",
+      "action": "check_github_actions"
+    },
+    {
+      "date": "2026-07-11T11:01:57.000Z",
+      "from": "notifications@github.com",
+      "subject": "[jerry200176-png/sunrise-cafe] Run failed: Autonomous Engineering Loop - main (73d33f4)",
+      "kind": "github_ci",
+      "severity": "high",
+      "action": "check_github_actions"
+    },
+    {
+      "date": "2026-07-11T10:51:50.000Z",
+      "from": "notifications@github.com",
+      "subject": "[jerry200176-png/sunrise-cafe] Run failed: Autonomous Engineering Loop - main (b282a52)",
+      "kind": "github_ci",
+      "severity": "high",
+      "action": "check_github_actions"
+    },
+    {
+      "date": "2026-07-11T10:42:55.000Z",
+      "from": "notifications@github.com",
+      "subject": "[jerry200176-png/sunrise-cafe] Run failed: Autonomous Engineering Loop - main (b9c26ac)",
+      "kind": "github_ci",
+      "severity": "high",
+      "action": "check_github_actions"
+    },
+    {
+      "date": "2026-07-11T09:57:21.000Z",
+      "from": "notifications@github.com",
+      "subject": "[jerry200176-png/sunrise-cafe] Run failed: Autonomous Engineering Loop - main (b516013)",
+      "kind": "github_ci",
+      "severity": "high",
+      "action": "check_github_actions"
+    },
+    {
+      "date": "2026-07-11T09:14:05.000Z",
+      "from": "notifications@github.com",
+      "subject": "[jerry200176-png/sunrise-cafe] Run failed: Autonomous Engineering Loop - main (ffaec4f)",
+      "kind": "github_ci",
+      "severity": "high",
+      "action": "check_github_actions"
+    },
+    {
+      "date": "2026-07-11T09:09:37.000Z",
+      "from": "notifications@github.com",
+      "subject": "[jerry200176-png/sunrise-cafe] Run failed: Autonomous Engineering Loop - main (858749c)",
+      "kind": "github_ci",
+      "severity": "high",
+      "action": "check_github_actions"
+    },
+    {
+      "date": "2026-07-11T08:41:44.000Z",
+      "from": "notifications@github.com",
+      "subject": "[jerry200176-png/sunrise-cafe] Run failed: Autonomous Engineering Loop - main (06157a5)",
+      "kind": "github_ci",
+      "severity": "high",
+      "action": "check_github_actions"
+    },
+    {
+      "date": "2026-07-11T08:13:48.000Z",
+      "from": "notifications@vercel.com",
+      "subject": "Failed preview deployments on team 'jerry200176-6960's projects'",
+      "kind": "vercel_preview",
+      "severity": "medium",
+      "action": "monitor_rate_limit"
+    },
+    {
+      "date": "2026-07-11T08:10:57.000Z",
+      "from": "notifications@github.com",
+      "subject": "[jerry200176-png/sunrise-cafe] PR run failed: CI - feat(bi): business intelligence snapshot + executive risk dashboard (810abb1)",
+      "kind": "github_ci",
+      "severity": "high",
+      "action": "check_github_actions"
+    },
+    {
+      "date": "2026-07-11T07:41:52.000Z",
+      "from": "notifications@github.com",
+      "subject": "[jerry200176-png/sunrise-cafe] Run failed: Autonomous Engineering Loop - main (a08ca60)",
+      "kind": "github_ci",
+      "severity": "high",
+      "action": "check_github_actions"
+    },
+    {
+      "date": "2026-07-11T07:36:18.000Z",
+      "from": "notifications@github.com",
+      "subject": "[jerry200176-png/sunrise-cafe] Run failed: Autonomous Engineering Loop - main (4d084be)",
+      "kind": "github_ci",
+      "severity": "high",
+      "action": "check_github_actions"
+    },
+    {
+      "date": "2026-07-11T07:09:03.000Z",
+      "from": "notifications@github.com",
+      "subject": "[jerry200176-png/sunrise-cafe] Run failed: Autonomous Engineering Loop - main (4b0eea0)",
+      "kind": "github_ci",
+      "severity": "high",
+      "action": "check_github_actions"
+    },
+    {
+      "date": "2026-07-11T07:01:25.000Z",
+      "from": "notifications@github.com",
+      "subject": "[jerry200176-png/sunrise-cafe] Run failed: Autonomous Engineering Loop - main (1c9800a)",
+      "kind": "github_ci",
+      "severity": "high",
+      "action": "check_github_actions"
+    },
+    {
+      "date": "2026-07-11T04:26:00.000Z",
+      "from": "notifications@vercel.com",
+      "subject": "Failed preview deployments on team 'jerry200176-6960's projects'",
+      "kind": "vercel_preview",
+      "severity": "medium",
+      "action": "monitor_rate_limit"
+    },
+    {
+      "date": "2026-07-11T04:23:14.000Z",
+      "from": "notifications@github.com",
+      "subject": "[jerry200176-png/sunrise-cafe] PR run failed: CI - fix(security): LINE bind verification, payment Phase 2, cron alerts (97c2da5)",
+      "kind": "github_ci",
+      "severity": "high",
+      "action": "check_github_actions"
+    },
+    {
+      "date": "2026-07-11T01:41:25.000Z",
+      "from": "notifications@github.com",
+      "subject": "Re: [jerry200176-png/sunrise-cafe] feat(ops): Cron failure LINE alerting (Wave 4) (PR #87)",
+      "kind": "github_thread",
+      "severity": "medium",
+      "action": "review_pr_checks"
+    },
+    {
+      "date": "2026-07-11T01:41:21.000Z",
+      "from": "notifications@github.com",
+      "subject": "Re: [jerry200176-png/sunrise-cafe] feat(ops): Cron failure LINE alerting (Wave 4) (PR #87)",
+      "kind": "github_thread",
+      "severity": "medium",
+      "action": "review_pr_checks"
+    },
+    {
+      "date": "2026-07-11T01:37:22.000Z",
+      "from": "notifications@github.com",
+      "subject": "Re: [jerry200176-png/sunrise-cafe] feat(ops): Cron failure LINE alerting (Wave 4) (PR #87)",
+      "kind": "github_thread",
+      "severity": "medium",
+      "action": "review_pr_checks"
+    },
+    {
+      "date": "2026-07-11T01:30:45.000Z",
+      "from": "notifications@vercel.com",
+      "subject": "Failed preview deployments on team 'jerry200176-6960's projects'",
+      "kind": "vercel_preview",
+      "severity": "medium",
+      "action": "monitor_rate_limit"
+    },
+    {
+      "date": "2026-07-10T19:54:45.000Z",
+      "from": "notifications@github.com",
+      "subject": "[jerry200176-png/sunrise-cafe] PR run failed: CI - fix(security): guest auth hardening + double-booking protection (Wave 1) (15e19b6)",
+      "kind": "github_ci",
+      "severity": "high",
+      "action": "check_github_actions"
+    },
+    {
+      "date": "2026-07-10T13:18:38.000Z",
+      "from": "notifications@github.com",
+      "subject": "[jerry200176-png/sunrise-cafe] PR run failed: CI - Phase 4: Business Intelligence + Growth Platform (e1d7f72)",
+      "kind": "github_ci",
+      "severity": "high",
+      "action": "check_github_actions"
+    },
+    {
+      "date": "2026-07-10T13:10:51.000Z",
+      "from": "notifications@vercel.com",
+      "subject": "Failed preview deployments on team 'jerry200176-6960's projects'",
+      "kind": "vercel_preview",
+      "severity": "medium",
+      "action": "monitor_rate_limit"
+    },
+    {
+      "date": "2026-07-10T13:07:29.000Z",
+      "from": "notifications@github.com",
+      "subject": "[jerry200176-png/sunrise-cafe] PR run failed: CI - Phase 3: Product Intelligence + Enterprise Readiness (56dc3bf)",
+      "kind": "github_ci",
+      "severity": "high",
+      "action": "check_github_actions"
+    },
+    {
+      "date": "2026-07-10T12:39:36.000Z",
+      "from": "notifications@github.com",
+      "subject": "[jerry200176-png/sunrise-cafe] PR run failed: CI - feat(Phase2): guest auth, double-booking protection, waitlist CTA, timezone + CI (7e770e4)",
+      "kind": "github_ci",
+      "severity": "high",
+      "action": "check_github_actions"
+    }
+  ],
+  "collected_at": "2026-07-13T07:50:41+0800"
+}
