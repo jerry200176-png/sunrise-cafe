@@ -1,22 +1,58 @@
 #!/usr/bin/env node
 /**
  * Scan Gmail for recent Vercel / GitHub failure notifications.
- * Requires Cursor secrets: GMAIL_USER, GMAIL_APP_PASSWORD (Google App Password).
+ * Requires Cursor secrets: GMAIL_USER + app password (GMAIL_APP_PASSWORD or Gmail).
  */
 import { ImapFlow } from "imapflow";
 
-const user = process.env.GMAIL_USER?.trim();
-const pass = process.env.GMAIL_APP_PASSWORD?.trim();
+function resolveCredentials() {
+  const user = (
+    process.env.GMAIL_USER ??
+    process.env.GMAIL_EMAIL ??
+    process.env.GMAIL_ACCOUNT
+  )?.trim();
+
+  const rawPass =
+    process.env.GMAIL_APP_PASSWORD ??
+    process.env.Gmail ??
+    process.env.GMAIL_PASSWORD;
+  const pass = rawPass?.trim().replace(/\s/g, "");
+
+  return { user, pass };
+}
+
+const { user, pass } = resolveCredentials();
 
 if (!user || !pass) {
+  const injected =
+    process.env.CLOUD_AGENT_INJECTED_SECRET_NAMES?.split(",").map((s) =>
+      s.trim()
+    ) ?? [];
+  const gmailSecrets = injected.filter((s) => /gmail/i.test(s));
+
+  let hint = "Add GMAIL_USER (email) and GMAIL_APP_PASSWORD (16-char app password).";
+  if (gmailSecrets.includes("Gmail") && !user) {
+    hint =
+      "Found Cursor secret「Gmail」(app password). Add GMAIL_USER with your Gmail address.";
+  } else if (user && !pass) {
+    hint =
+      "GMAIL_USER is set but app password missing. Add GMAIL_APP_PASSWORD or rename secret to match.";
+  }
+
   console.error(
     JSON.stringify({
       ok: false,
       error: "missing_credentials",
       need: ["GMAIL_USER", "GMAIL_APP_PASSWORD"],
+      missing: [
+        !user && "GMAIL_USER",
+        !pass && "GMAIL_APP_PASSWORD",
+      ].filter(Boolean),
+      found_gmail_secrets: gmailSecrets,
+      hint,
       setup: "https://myaccount.google.com/apppasswords",
       cursor:
-        "https://cursor.com/dashboard/cloud-agents → Environments → sunrise-cafe → Secrets",
+        "https://cursor.com/dashboard/cloud-agents/environments/r/github.com/jerry200176-png/sunrise-cafe",
     })
   );
   process.exit(2);
