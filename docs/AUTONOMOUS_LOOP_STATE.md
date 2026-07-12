@@ -1,7 +1,7 @@
 # Autonomous Improvement Loop — Durable State
 
-**Last updated:** 2026-07-12T11:40:00Z  
-**Mode:** Continuous Product Improvement Loop
+**Last updated:** 2026-07-12T14:12:00Z  
+**Mode:** Continuous Product Improvement Loop (overnight run)
 
 ---
 
@@ -9,26 +9,29 @@
 
 | Ref | SHA | Status |
 |-----|-----|--------|
-| `origin/main` | `bcad111` | ADM-002 + CX-007 + CX-006 merged |
-| Production | `b516013` | **awaiting_deploy** — Founder Vercel redeploy required |
+| `origin/main` | `8b71188` | CX-008 + ADM-005 + ADM-002b/c merged |
+| Production | `39b253b` | deploying newer commits |
 
 ---
 
-## Completed this session (merged · awaiting_deploy)
+## Completed this session (merged)
 
 | Task | PR | Impact |
 |------|-----|--------|
-| ADM-002 | #146 | Staff mobile toast/prompt in ReservationList |
-| CX-007 | #147 | Guest sticky payment CTA on `/book/query` |
-| CX-006 | #148 | Waitlist confirm i18n zh/en/ja |
+| CX-008 | #153 | Booking form sticky CTA + field validation |
+| CX-008 fix | #156 | noValidate — mobile empty submit shows errors |
+| Gmail scan | #151 | `npm run gmail:scan` ops tooling |
+| ADM-002b | #155 | Payment review toast |
+| ADM-005 | #157 | Dashboard trend 7→1 API + mobile E2E |
+| ADM-002c | #158 | Dashboard copy toast |
 
 ---
 
-## Current task
+## In flight
 
-| ID | Title | Status |
-|----|-------|--------|
-| doc-drift-fix | IMPLEMENTATION_TRUTH + loop state sync | implementing → PR #149 |
+| ID | PR | Status |
+|----|-----|--------|
+| ADM-002d | #159 | waitlist ConfirmDialog + toast |
 
 ---
 
@@ -36,17 +39,18 @@
 
 | ID | Action |
 |----|--------|
-| **vercel-deploy** | Redeploy production — prod stuck at `b516013` since before #145 |
-| founder-ops-migrations | `OPS_MIGRATION_RUNBOOK.md` — 3 SQL migrations |
-| outcome-unmeasured | Record baseline at `/admin/executive` |
+| founder-ops-migrations | 3 SQL migrations per OPS_MIGRATION_RUNBOOK |
+| outcome-unmeasured | Baseline at `/admin/executive` |
+| cursor-gmail-secrets | GMAIL_USER + APP_PASSWORD in Cloud Secrets |
 
 ---
 
 ## Next candidates
 
-1. ADM-005 — Dashboard trend single API
-2. OPS-004 — North Star log aggregation
+1. AddReservationForm / admin branches — remaining alert/confirm
+2. OPS-004b — ops-log funnel aggregation
+3. payment-review-images — LINE screenshot persistence
 
 ---
 
-*CI: all merged PRs green. Autonomous loop workflow triggers on CI complete.*
+*Production healthy. Vercel ghost `workspace` project deleted.*
