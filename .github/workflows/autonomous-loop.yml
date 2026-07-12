@@ -6,9 +6,8 @@ on:
     - cron: "0 */6 * * *"
   workflow_dispatch:
     # No inputs — avoids GitHub Actions phantom push validation bug (actions/runner#4001)
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
+  # NOTE: workflow_run on CI was removed — it caused a feedback loop (loop → push → CI → loop)
+  # every ~2 min, exhausting Vercel Hobby deploy quota (24h rate limit).
 
 concurrency:
   group: autonomous-engineering-loop
@@ -27,8 +26,7 @@ jobs:
     timeout-minutes: 45
     if: >-
       github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+      github.event_name == 'workflow_dispatch'
 
     steps:
       - uses: actions/checkout@v4
