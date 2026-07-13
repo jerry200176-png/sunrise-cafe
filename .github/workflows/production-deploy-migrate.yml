@@ -62,11 +62,15 @@ jobs:
           set -euo pipefail
           if [ -z "${SUPABASE_DB_URL:-}" ] && [ -n "${VERCEL_TOKEN:-}" ]; then
             bash scripts/vercel-production-env.sh .env.vercel.prod
-            for key in POSTGRES_URL POSTGRES_URL_NON_POOLING SUPABASE_DB_URL DATABASE_URL; do
+            for key in POSTGRES_URL POSTGRES_URL_NON_POOLING POSTGRES_PRISMA_URL SUPABASE_DB_URL DATABASE_URL POSTGRES_HOST POSTGRES_USER POSTGRES_PASSWORD; do
               val=$(grep -E "^${key}=" .env.vercel.prod 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
               if [ -n "$val" ]; then export "$key=$val"; fi
             done
-            export SUPABASE_DB_URL="${SUPABASE_DB_URL:-${POSTGRES_URL_NON_POOLING:-${POSTGRES_URL:-}}}"
+            if [ -z "${SUPABASE_DB_URL:-}" ] && [ -n "${POSTGRES_HOST:-}" ] && [ -n "${POSTGRES_PASSWORD:-}" ]; then
+              export SUPABASE_DB_URL="postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT:-5432}/${POSTGRES_DATABASE:-postgres}"
+            fi
+            export SUPABASE_DB_URL="${SUPABASE_DB_URL:-${POSTGRES_URL_NON_POOLING:-${POSTGRES_URL:-${POSTGRES_PRISMA_URL:-}}}}"
+            echo "Postgres env keys present: $(grep -E '^(POSTGRES|DATABASE|SUPABASE_DB)' .env.vercel.prod | cut -d= -f1 | tr '\n' ' ' || true)"
           fi
           node scripts/apply-migration-ops-events.mjs && exit 0
           if [ -n "${CRON_SECRET:-}" ]; then
