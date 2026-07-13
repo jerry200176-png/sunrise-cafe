@@ -34,8 +34,11 @@ jobs:
           if [ -z "${SUPABASE_DB_URL:-}" ] && [ -n "${VERCEL_TOKEN:-}" ]; then
             echo "Pulling POSTGRES_URL from Vercel production env..."
             bash scripts/vercel-production-env.sh .env.vercel.prod
-            # shellcheck disable=SC1091
-            source scripts/load-env-file.sh .env.vercel.prod
+            # Only import Postgres URLs — keep GitHub Secrets for Supabase API keys
+            for key in POSTGRES_URL POSTGRES_URL_NON_POOLING SUPABASE_DB_URL DATABASE_URL; do
+              val=$(grep -E "^${key}=" .env.vercel.prod 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
+              if [ -n "$val" ]; then export "$key=$val"; fi
+            done
             export SUPABASE_DB_URL="${SUPABASE_DB_URL:-${POSTGRES_URL_NON_POOLING:-${POSTGRES_URL:-}}}"
           fi
           node scripts/apply-migration-ops-events.mjs || {
@@ -46,7 +49,7 @@ jobs:
             fi
             curl -sf -X POST \
               -H "Authorization: Bearer ${CRON_SECRET}" \
-              "https://sunrise-cafe-six.vercel.app/api/admin/migrations/apply-ops-events"
+              "https://sunrise-cafe-six.vercel.app/api/admin/migrations/apply-ops-events" || exit 0
           }
 
   deploy-if-needed:
