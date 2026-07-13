@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  buildDashboardTimeline,
+  type DashboardReservation,
+  type DashboardRoom,
+} from "@/lib/admin-dashboard-data";
+import {
   fetchReservationsAdmin,
   fetchRooms,
   fetchBranch,
@@ -19,8 +24,6 @@ export async function GET(request: NextRequest) {
     );
   }
   const date = dateParam || new Date().toISOString().slice(0, 10);
-  const dayStart = `${date}T00:00:00.000Z`;
-  const dayEnd = `${date}T23:59:59.999Z`;
 
   try {
     const [reservations, rooms, branch] = await Promise.all([
@@ -28,35 +31,10 @@ export async function GET(request: NextRequest) {
       fetchRooms(branchId),
       fetchBranch(branchId),
     ]);
-    const list = (reservations as { room_id: string; start_time: string; end_time: string; customer_name: string; status: string; total_price: number | null }[]) ?? [];
-    const roomList = await Promise.all(
-      (rooms as { id: string; name: string }[]).map(async (rm) => {
-        const dayReservations = list.filter(
-          (r) =>
-            r.room_id === rm.id &&
-            r.start_time < dayEnd &&
-            r.end_time > dayStart
-        );
-        return {
-          roomId: rm.id,
-          roomName: rm.name,
-          reservations: dayReservations.map((r) => ({
-            start_time: r.start_time,
-            end_time: r.end_time,
-            customer_name: r.customer_name,
-            status: r.status,
-            total_price: r.total_price,
-          })),
-        };
-      })
-    );
-    return NextResponse.json({
-      date,
-      branchName: branch?.name ?? "",
-      openTime: branch?.open_time ?? "09:00",
-      closeTime: branch?.close_time ?? "21:00",
-      rooms: roomList,
-    });
+    const list = (Array.isArray(reservations) ? reservations : []) as DashboardReservation[];
+    const roomList = (Array.isArray(rooms) ? rooms : []) as DashboardRoom[];
+
+    return NextResponse.json(buildDashboardTimeline(date, list, roomList, branch));
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法載入時間軸";
     return NextResponse.json({ error: message }, { status: 500 });
