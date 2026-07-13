@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateReservationAdmin, deleteReservationAdmin, isAdminConfigured } from "@/lib/supabase-admin";
-import { sendLineFlexMessage, buildPaymentFlex, sendLineMessage, buildReviewInviteMessage } from "@/lib/line";
+import { sendLineFlexMessage, buildPaymentFlex, buildReviewInviteFlex } from "@/lib/line";
 import { type BranchPaymentConfig } from "@/lib/payment-message";
 import { notifyWaitlist } from "@/lib/waitlist";
 import { isWeekendDate } from "@/lib/booking-utils";
@@ -238,12 +238,12 @@ export async function PATCH(
           if (settings.google_review_url) {
             const roomInfo = (r.room_with_branch as RoomWithBranch | null)?.[0];
             const branchName = (roomInfo?.branch ?? [])[0]?.name ?? "";
-            const text = buildReviewInviteMessage({
+            const flex = buildReviewInviteFlex({
               customerName: r.customer_name,
               branchName,
               reviewUrl: settings.google_review_url,
             });
-            await sendLineMessage(r.line_user_id, text);
+            await sendLineFlexMessage(r.line_user_id, "感謝光臨昇昇咖啡", flex);
             await updateReservationAdmin(id, { review_invited_at: new Date().toISOString() });
           }
         }
