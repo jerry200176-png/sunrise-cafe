@@ -18,6 +18,7 @@ function SuccessContent() {
   const code = searchParams.get("code") ?? "";
   const lineBound = searchParams.get("line_bound") === "1";
   const lineError = searchParams.get("line_error") === "1";
+  const isPaid = searchParams.get("paid") === "1";
   const [bindPhone, setBindPhone] = useState("");
 
   useEffect(() => {
@@ -74,6 +75,19 @@ function SuccessContent() {
                 <CopyBookingCodeButton code={code} />
               </div>
               <p className="mt-3 text-xs text-amber-700">{t("success.codeHint")}</p>
+            </div>
+          )}
+
+          {/* 付款成功提示 */}
+          {isPaid && (
+            <div className="mt-5 rounded-xl border border-green-200 bg-green-50 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                <p className="font-semibold text-green-800">訂金已支付</p>
+              </div>
+              <p className="text-sm text-green-700 leading-relaxed">
+                您的訂金已透過 Stripe 安全支付完成 ☀️
+              </p>
             </div>
           )}
 

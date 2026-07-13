@@ -9,6 +9,8 @@ import { getDurationOptions, getDepositAmount, isWeekendDate } from "@/lib/booki
 import { normalizePhone } from "@/lib/phone-utils";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { PaymentModal } from "@/components/payment/PaymentModal";
+import { getBranchDepositConfig } from "@/lib/constants";
 import { taipeiDateString, taipeiDatePlusMonths } from "@/lib/datetime";
 
 type Step = "branch" | "room" | "date" | "slot" | "form";
@@ -49,6 +51,12 @@ export default function BookPage() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const errorBannerRef = useRef<HTMLDivElement>(null);
   const stepPanelRef = useRef<HTMLDivElement>(null);
+
+  // ── Stripe 支付 Modal 狀態 ──
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [pendingReservationId, setPendingReservationId] = useState("");
+  const [pendingReservationCode, setPendingReservationCode] = useState("");
+  const paymentModalTriggered = useRef(false);
 
   const focusStepPanel = useCallback(() => {
     requestAnimationFrame(() => {
@@ -384,9 +392,31 @@ export default function BookPage() {
         errorBannerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
         return;
       }
-      const code = (data as { booking_code?: string })?.booking_code;
+      const code = (data as { booking_code?: string; id?: string })?.booking_code;
+      const reservationId = (data as { id?: string })?.id;
+
       if (code) {
         sessionStorage.setItem("booking_success_phone", phone.trim());
+
+        // 判斷是否需要 Stripe 線上付款（假日 + 分店啟用 stripeEnabled + 訂金 > 0）
+        const depositConfig = getBranchDepositConfig(branchId);
+        const totalPrice = getTotalPrice();
+        const depositAmount = totalPrice != null ? getDepositAmount(totalPrice) : 0;
+
+        if (
+          depositConfig.stripeEnabled &&
+          depositConfig.isDepositRequired &&
+          depositAmount > 0 &&
+          reservationId &&
+          !paymentModalTriggered.current
+        ) {
+          paymentModalTriggered.current = true;
+          setPendingReservationId(reservationId);
+          setPendingReservationCode(code);
+          setPaymentModalOpen(true);
+          return;
+        }
+
         const weekendFlag = isWeekendDate(date) ? "1" : "0";
         window.location.href = `/book/success?code=${encodeURIComponent(code)}&weekend=${weekendFlag}${lineUserId ? "&line_bound=1" : ""}`;
       } else {
@@ -413,6 +443,27 @@ export default function BookPage() {
     });
     window.location.href = `https://access.line.me/oauth2/v2.1/authorize?${qs}`;
   };
+
+  // ── Stripe 付款 Modal callbacks ──
+  const handlePaymentComplete = useCallback((_paymentIntentId: string) => {
+    // 延遲一小段讓使用者看到成功畫面後再跳轉
+    setTimeout(() => {
+      const weekendFlag = isWeekendDate(date) ? "1" : "0";
+      window.location.href = `/book/success?code=${encodeURIComponent(pendingReservationCode)}&weekend=${weekendFlag}&paid=1${lineUserId ? "&line_bound=1" : ""}`;
+    }, 1500);
+  }, [date, pendingReservationCode, lineUserId]);
+
+  const handlePaymentClose = useCallback(() => {
+    setPaymentModalOpen(false);
+    // 使用者選擇稍後再付 → 直接跳到成功頁
+    const weekendFlag = isWeekendDate(date) ? "1" : "0";
+    window.location.href = `/book/success?code=${encodeURIComponent(pendingReservationCode)}&weekend=${weekendFlag}${lineUserId ? "&line_bound=1" : ""}`;
+  }, [date, pendingReservationCode, lineUserId]);
+
+  const depositAmount = (() => {
+    const totalPrice = getTotalPrice();
+    return totalPrice != null ? getDepositAmount(totalPrice) : 0;
+  })();
 
   const formatSlotTime = (iso: string) =>
     new Date(iso).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" });
@@ -1100,6 +1151,18 @@ export default function BookPage() {
             {submitting ? t("book.form.submitting") : t("book.form.submit")}
           </button>
         </div>
+      )}
+
+      {/* Stripe 支付 Modal */}
+      {paymentModalOpen && depositAmount > 0 && (
+        <PaymentModal
+          open={paymentModalOpen}
+          reservationId={pendingReservationId}
+          branchId={branchId}
+          amount={depositAmount}
+          onClose={handlePaymentClose}
+          onPaymentComplete={handlePaymentComplete}
+        />
       )}
     </main>
   );
