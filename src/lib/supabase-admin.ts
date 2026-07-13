@@ -349,6 +349,41 @@ export async function fetchReservationsByPhone(phone: string) {
   return data;
 }
 
+/**
+ * Forgot-code recovery: phone + Taipei calendar date of the booking.
+ * Loads that day's reservations then matches phone via phonesMatch
+ * (stored phones may include dashes / +886).
+ */
+export async function fetchActiveReservationsByPhoneAndDate(
+  phoneNorm: string,
+  dateYYYYMMDD: string
+) {
+  const startRange = `${dateYYYYMMDD}T00:00:00+08:00`;
+  const endRange = `${dateYYYYMMDD}T23:59:59.999+08:00`;
+  const now = new Date().toISOString();
+
+  const { data, error } = await supabaseAdmin()
+    .from("reservations")
+    .select(`
+      *,
+      room:rooms (
+        name,
+        branch:branches (
+          name
+        )
+      )
+    `)
+    .gte("start_time", startRange)
+    .lte("start_time", endRange)
+    .neq("status", "cancelled")
+    .neq("status", "completed")
+    .gte("end_time", now)
+    .order("start_time", { ascending: true });
+
+  if (error) throw error;
+  return (data ?? []).filter((r) => phonesMatch(r.phone, phoneNorm));
+}
+
 // ✅ 取得明天所有的訂位（不論是否已發送通知），供儀表板顯示
 export async function fetchTomorrowsReservations() {
   const nowTW = new Date(

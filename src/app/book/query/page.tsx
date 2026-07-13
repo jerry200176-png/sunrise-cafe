@@ -72,6 +72,8 @@ function BookQueryContent() {
   };
   const [phone, setPhone] = useState("");
   const [bookingCode, setBookingCode] = useState("");
+  const [bookingDate, setBookingDate] = useState("");
+  const [forgotMode, setForgotMode] = useState(false);
   const [list, setList] = useState<BookingItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,15 +115,16 @@ function BookQueryContent() {
   }, [unpaidDepositItems.length, phone, bookingCode]);
 
   const trackGuestEvent = useCallback(
-    (event: string) => {
-      if (!phone.trim() || !bookingCode.trim()) return;
+    (event: string, code?: string) => {
+      const codeVal = (code ?? bookingCode).trim();
+      if (!phone.trim() || !codeVal) return;
       fetch("/api/guest-events", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           event,
           phone: phone.trim(),
-          booking_code: bookingCode.trim(),
+          booking_code: codeVal,
         }),
       }).catch(() => {});
     },
@@ -129,26 +132,33 @@ function BookQueryContent() {
   );
 
   const runSearch = useCallback(
-    async (phoneVal: string, codeVal: string) => {
-      if (!phoneVal.trim() || !codeVal.trim()) return;
+    async (phoneVal: string, codeOrDate: string, mode: "code" | "date") => {
+      if (!phoneVal.trim() || !codeOrDate.trim()) return;
       setLoading(true);
       setError(null);
       setList([]);
       try {
+        const body =
+          mode === "code"
+            ? { phone: phoneVal.trim(), booking_code: codeOrDate.trim() }
+            : { phone: phoneVal.trim(), booking_date: codeOrDate.trim() };
         const res = await fetch("/api/my-bookings", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            phone: phoneVal.trim(),
-            booking_code: codeVal.trim(),
-          }),
+          body: JSON.stringify(body),
         });
         const data = await res.json();
         if (!res.ok) {
           setError((data as { error?: string })?.error ?? t("query.searchFailed"));
           return;
         }
-        setList(Array.isArray(data) ? data : []);
+        const items = Array.isArray(data) ? (data as BookingItem[]) : [];
+        setList(items);
+        // After date recovery, seed form code so cancel/reschedule auth works
+        if (mode === "date" && items[0]?.booking_code) {
+          setBookingCode(items[0].booking_code);
+          setForgotMode(false);
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : t("query.connectionFailed"));
       } finally {
@@ -168,16 +178,20 @@ function BookQueryContent() {
     if (savedPhone) setPhone(savedPhone);
 
     if (savedPhone && codeVal) {
-      runSearch(savedPhone, codeVal);
+      runSearch(savedPhone, codeVal, "code");
     }
   }, [searchParams, runSearch]);
 
   const search = async (e: React.FormEvent) => {
     e.preventDefault();
-    await runSearch(phone, bookingCode);
+    if (forgotMode) {
+      await runSearch(phone, bookingDate, "date");
+    } else {
+      await runSearch(phone, bookingCode, "code");
+    }
   };
 
-  const cancel = async (id: string) => {
+  const cancel = async (id: string, code: string) => {
     setCancellingId(id);
     setConfirmingCancelId(null);
     setError(null);
@@ -187,7 +201,7 @@ function BookQueryContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id,
-          booking_code: bookingCode.trim(),
+          booking_code: code.trim(),
           phone: phone.trim(),
         }),
       });
@@ -273,7 +287,7 @@ function BookQueryContent() {
         !depositViewedRef.current.has(item.id)
       ) {
         depositViewedRef.current.add(item.id);
-        trackGuestEvent("deposit_instructions_viewed");
+        trackGuestEvent("deposit_instructions_viewed", item.booking_code);
       }
     }
   }, [list, trackGuestEvent]);
@@ -281,7 +295,7 @@ function BookQueryContent() {
   useEffect(() => {
     if (!unpaidDepositItem || stickyViewedRef.current) return;
     stickyViewedRef.current = true;
-    trackGuestEvent("payment_sticky_viewed");
+    trackGuestEvent("payment_sticky_viewed", unpaidDepositItem.booking_code);
   }, [unpaidDepositItem, trackGuestEvent]);
 
   const fetchRescheduleSlots = async (date: string) => {
@@ -332,7 +346,7 @@ function BookQueryContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: reschedulingItem.id,
-          booking_code: bookingCode.trim(),
+          booking_code: reschedulingItem.booking_code.trim(),
           phone: phone.trim(),
           start_time: start,
           end_time: end,
@@ -402,29 +416,68 @@ function BookQueryContent() {
               autoComplete="tel"
             />
           </div>
-          <div className="flex gap-2">
-            <label htmlFor="query-booking-code" className="sr-only">{t("query.bookingCodePlaceholder")}</label>
-            <input
-              id="query-booking-code"
-              type="text"
-              value={bookingCode}
-              onChange={(e) => setBookingCode(e.target.value.toUpperCase())}
-              placeholder={t("query.bookingCodePlaceholder")}
-              className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 font-mono uppercase tracking-wider"
-              required
-              maxLength={6}
-              autoComplete="off"
-              spellCheck={false}
-            />
+          {forgotMode ? (
+            <div className="flex gap-2">
+              <label htmlFor="query-booking-date" className="sr-only">
+                {t("query.bookingDatePlaceholder")}
+              </label>
+              <input
+                id="query-booking-date"
+                type="date"
+                value={bookingDate}
+                onChange={(e) => setBookingDate(e.target.value)}
+                className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5"
+                required
+              />
+              <button
+                type="submit"
+                disabled={loading}
+                className="rounded-lg bg-amber-600 px-4 py-2.5 text-white disabled:opacity-50 shrink-0"
+              >
+                {loading ? t("query.searching") : t("query.searchButton")}
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <label htmlFor="query-booking-code" className="sr-only">{t("query.bookingCodePlaceholder")}</label>
+              <input
+                id="query-booking-code"
+                type="text"
+                value={bookingCode}
+                onChange={(e) => setBookingCode(e.target.value.toUpperCase())}
+                placeholder={t("query.bookingCodePlaceholder")}
+                className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 font-mono uppercase tracking-wider"
+                required
+                maxLength={6}
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <button
+                type="submit"
+                disabled={loading}
+                className="rounded-lg bg-amber-600 px-4 py-2.5 text-white disabled:opacity-50 shrink-0"
+              >
+                {loading ? t("query.searching") : t("query.searchButton")}
+              </button>
+            </div>
+          )}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-gray-500">
+              {forgotMode ? t("query.bookingDateHint") : t("query.bookingCodeHint")}
+            </p>
             <button
-              type="submit"
-              disabled={loading}
-              className="rounded-lg bg-amber-600 px-4 py-2.5 text-white disabled:opacity-50 shrink-0"
+              type="button"
+              onClick={() => {
+                setForgotMode((v) => !v);
+                setError(null);
+                setHasSearched(false);
+                setList([]);
+              }}
+              className="text-xs font-medium text-amber-700 underline-offset-2 hover:underline"
             >
-              {loading ? t("query.searching") : t("query.searchButton")}
+              {forgotMode ? t("query.useCodeInstead") : t("query.forgotCode")}
             </button>
           </div>
-          <p className="text-xs text-gray-500">{t("query.bookingCodeHint")}</p>
         </form>
 
         {error && (
@@ -436,7 +489,11 @@ function BookQueryContent() {
           </div>
         )}
 
-        {hasSearched && list.length === 0 && !loading && phone && bookingCode && (
+        {hasSearched &&
+          list.length === 0 &&
+          !loading &&
+          phone &&
+          (forgotMode ? bookingDate : bookingCode) && (
           <p className="text-center text-gray-500">{t("query.empty")}</p>
         )}
 
@@ -650,7 +707,7 @@ function BookQueryContent() {
                           <button
                             type="button"
                             disabled={cancellingId === item.id}
-                            onClick={() => cancel(item.id)}
+                            onClick={() => cancel(item.id, item.booking_code)}
                             className="flex-1 rounded-lg bg-red-600 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50"
                           >
                             {cancellingId === item.id ? t("query.cancelling") : t("query.cancelConfirmProceed")}
@@ -834,7 +891,12 @@ function BookQueryContent() {
                 href={unpaidDepositItem.line_pay_url.trim()}
                 target="_blank"
                 rel="noopener noreferrer"
-                onClick={() => trackGuestEvent("payment_sticky_line_pay_click")}
+                onClick={() =>
+                  trackGuestEvent(
+                    "payment_sticky_line_pay_click",
+                    unpaidDepositItem.booking_code
+                  )
+                }
                 className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[#06C755] px-3 py-3 text-sm font-bold text-white shadow hover:bg-[#05b34c]"
               >
                 <span className="rounded bg-white px-1 py-0.5 text-[10px] font-black text-[#06C755]">

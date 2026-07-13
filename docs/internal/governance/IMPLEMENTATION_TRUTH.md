@@ -28,6 +28,7 @@
 | Deny-by-default admin in production | ✅ | #69 |
 | Server-side booking price/status | ✅ | #69 |
 | Guest phone + booking_code auth | ✅ | #79 |
+| Forgot-code recovery (phone + date) | ✅ | `lookupGuestBookingsByDate` · `/book/query` |
 | Double-book app handling | ✅ | #79 |
 | RBAC tables + login | ✅ | #81 |
 | RBAC payment routes | ✅ | #82 |
