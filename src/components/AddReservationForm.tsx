@@ -28,12 +28,16 @@ for (let i = 2; i <= 10; i += 0.5) {
   DURATION_OPTIONS.push(i);
 }
 
+export type AddReservationSuccess = {
+  created?: number;
+};
+
 interface AddReservationFormProps {
   branchId: string | null;
   rooms: Room[];
   open: boolean;
   onClose: () => void;
-  onSuccess?: () => void;
+  onSuccess?: (result?: AddReservationSuccess) => void;
 }
 
 export function AddReservationForm({
@@ -160,8 +164,7 @@ export function AddReservationForm({
 
         const created = data.created ?? 0;
         handleClose();
-        onSuccess?.();
-        alert(`成功建立 ${created} 筆預約！`);
+        onSuccess?.({ created });
         return;
 
       } else {
@@ -200,7 +203,7 @@ export function AddReservationForm({
         }
 
         handleClose();
-        onSuccess?.();
+        onSuccess?.({});
       }
     } catch (e) {
       setSubmitting(false);

@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { ArrowLeft, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, LogOut } from "lucide-react";
 import type { Branch, MenuItem, MenuCategory } from "@/types";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 
 interface MenuItemWithCategory extends MenuItem {
   category?: { name: string } | null;
@@ -31,6 +33,19 @@ export default function AdminMenuPage() {
   // 分類表單
   const [catFormOpen, setCatFormOpen] = useState(false);
   const [catName, setCatName] = useState("");
+
+  const [confirmDeleteItemId, setConfirmDeleteItemId] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const toastId = useRef(0);
+
+  const showToast = useCallback((message: string, variant: ToastVariant = "info") => {
+    const id = ++toastId.current;
+    setToasts((prev) => [...prev, { id, message, variant }]);
+  }, []);
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
 
   useEffect(() => {
     fetch("/api/branches")
@@ -127,9 +142,16 @@ export default function AdminMenuPage() {
   };
 
   const deleteItem = async (id: string) => {
-    if (!confirm("確定要刪除此餐點嗎？")) return;
-    await fetch(`/api/admin/menu-items/${id}`, { method: "DELETE" });
-    loadData(branchId);
+    try {
+      const res = await fetch(`/api/admin/menu-items/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json()).error ?? "刪除失敗");
+      loadData(branchId);
+      showToast("已刪除餐點", "success");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "刪除失敗";
+      setError(msg);
+      showToast(msg, "error");
+    }
   };
 
   const toggleAvailable = async (item: MenuItem) => {
@@ -298,7 +320,7 @@ export default function AdminMenuPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => deleteItem(item.id)}
+                      onClick={() => setConfirmDeleteItemId(item.id)}
                       className="rounded border border-red-200 p-1 text-red-600 hover:bg-red-50"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -427,6 +449,20 @@ export default function AdminMenuPage() {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={confirmDeleteItemId !== null}
+        title="刪除餐點"
+        message="確定要刪除此餐點嗎？"
+        confirmLabel="刪除"
+        variant="danger"
+        onConfirm={() => {
+          const id = confirmDeleteItemId;
+          setConfirmDeleteItemId(null);
+          if (id) void deleteItem(id);
+        }}
+        onCancel={() => setConfirmDeleteItemId(null)}
+      />
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </main>
   );
 }
