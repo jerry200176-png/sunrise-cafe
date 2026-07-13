@@ -52,6 +52,8 @@ describe("buildHealthBlock", () => {
         deposit_eligible_30d: 10,
         pending_reviews: 1,
         payment_review_oldest_hours: 2.5,
+        payment_review_median_hours_7d: 2,
+        payment_review_sla_compliance_pct_7d: 90,
         payment_events_ready: true,
         deposit_at_risk: 3,
       },
@@ -84,6 +86,18 @@ describe("buildHealthBlock", () => {
         rbac_tables: false,
       },
       support: { pending_payment_reviews: 1, rejected_events_7d: 0, note: "proxy" },
+      funnel: {
+        ops_events_ready: true,
+        booking_flow_entered_7d: 20,
+        booking_created_7d: 16,
+        booking_conversion_pct: 80,
+        deposit_instructions_viewed_7d: 10,
+        payment_clicks_7d: 8,
+        payment_completion_pct: 80,
+        payment_approved_7d: 4,
+        payment_approved_keyboard_7d: 2,
+        keyboard_adoption_pct: 50,
+      },
     });
 
     expect(block.date).toBe("2026-07-11");

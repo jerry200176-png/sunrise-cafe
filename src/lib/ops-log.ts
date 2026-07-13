@@ -1,9 +1,10 @@
 /**
  * Structured operational logs (cron, webhook, guest API).
- * Extends payment-log pattern — JSON lines for Vercel / log drains.
+ * Persists to ops_events when table is available (OPS-004b).
  */
-
 import * as Sentry from "@sentry/nextjs";
+import { createClient } from "@supabase/supabase-js";
+import { isAdminConfigured } from "@/lib/supabase-admin";
 
 export type OpsLogDomain = "cron" | "webhook" | "guest" | "admin";
 
@@ -61,4 +62,27 @@ export function logOps(
       ...detail,
     })
   );
+  persistOpsEvent(domain, action, detail).catch(() => {
+    /* fail-open */
+  });
+}
+
+async function persistOpsEvent(
+  domain: OpsLogDomain,
+  action: OpsLogAction,
+  detail: Record<string, unknown>
+): Promise<void> {
+  if (!isAdminConfigured()) return;
+  const db = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+  const { error } = await db.from("ops_events").insert({
+    domain,
+    action,
+    detail,
+  });
+  if (error && !/ops_events/i.test(error.message)) {
+    throw error;
+  }
 }

@@ -189,7 +189,7 @@ ORDER BY 1;
 3. **是否需工程介入？** 僅當 SOP 無法解決時才開 Issue
 
 記錄至 `docs/DECISION_LOG.md`（若改變優先級）。  
-Outcome 證據寫入 `docs/OUTCOME_LOG.md`（驅動 health outcome 分數）。
+Outcome 證據寫入 `docs/internal/executive/OUTCOME_LOG.md`（驅動 health outcome 分數）。
 
 ---
 

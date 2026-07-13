@@ -90,7 +90,7 @@ finalize_iteration() {
 persist_loop_artifacts() {
   git add "$STATE" orchestrator/autonomy-evidence.jsonl orchestrator/capabilities.json \
     orchestrator/discovered-work.json orchestrator/canary-marker.json \
-    orchestrator/gmail-signals.json docs/EXECUTIVE_INBOX.md 2>/dev/null || true
+    orchestrator/gmail-signals.json docs/internal/executive/EXECUTIVE_INBOX.md 2>/dev/null || true
   git add "$STATE" orchestrator/autonomy-evidence.jsonl 2>/dev/null || true
 }
 

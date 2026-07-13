@@ -122,7 +122,7 @@ SELECT * FROM job_runs ORDER BY started_at DESC LIMIT 5;
 ## 完成後（任何新 migration）
 
 - [ ] 更新 `docs/IMPLEMENTATION_TRUTH.md` 同一 PR
-- [ ] 更新 `docs/EXECUTIVE_INBOX.md` 若關閉/開啟風險項
+- [ ] 更新 `docs/internal/executive/EXECUTIVE_INBOX.md` 若關閉/開啟風險項
 - [ ] 執行 `node scripts/check-migration-drift.mjs` 驗證
 
 ---

@@ -40,7 +40,7 @@ jobs:
         with:
           name: orchestrator-${{ github.run_id }}
           path: |
-            docs/ORCHESTRATOR_PLAN.md
+            docs/internal/automation/ORCHESTRATOR_PLAN.md
             orchestrator/priority.json
             orchestrator/discover.env
             orchestrator/state.json

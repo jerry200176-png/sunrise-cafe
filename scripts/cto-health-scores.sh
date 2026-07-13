@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Calculate health scores — Capability vs Outcome (HEALTH_SCORES.md)
 # Usage: npm run cto:health
-# Outcome scores require evidence in docs/OUTCOME_LOG.md
+# Outcome scores require evidence in docs/internal/executive/OUTCOME_LOG.md
 
 set -euo pipefail
 
@@ -9,7 +9,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 PROD_URL="${PROD_URL:-https://sunrise-cafe-six.vercel.app}"
-OUTCOME_FILE="docs/OUTCOME_LOG.md"
+OUTCOME_FILE="docs/internal/executive/OUTCOME_LOG.md"
 
 parse_outcome() {
   local key="$1"
@@ -94,7 +94,7 @@ NON_DEP=$((OPEN_PRS - DRAFT_PRS))
 [[ $GH -lt 0 ]] && GH=0
 
 PROD_Q=85
-TRUTH_FILE="docs/IMPLEMENTATION_TRUTH.md"
+TRUTH_FILE="docs/internal/governance/IMPLEMENTATION_TRUTH.md"
 if [[ -f "$TRUTH_FILE" ]]; then
   TRUTH_DONE="$(grep -cE '^\| .+ \| ✅' "$TRUTH_FILE" 2>/dev/null || echo 0)"
   TRUTH_PARTIAL="$(grep -cE '^\| .+ \| 🟡' "$TRUTH_FILE" 2>/dev/null || echo 0)"

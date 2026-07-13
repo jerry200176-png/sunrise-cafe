@@ -47,11 +47,11 @@ export const NORTH_STAR_TARGETS: Record<NorthStarMetricId, NorthStarTargetDef> =
       "Users who view deposit instructions are high-intent; 70% CTA click is conservative vs e-commerce add-to-cart→checkout (~65–80%).",
   },
   admin_payment_review_sla: {
-    target: 4,
-    direction: "down",
-    unit: "h",
+    target: 90,
+    direction: "up",
+    unit: "%",
     rationale:
-      "Defined in outcome-metrics SLA (payment_review_sla_breached); deposit must confirm same business day for weekend holds.",
+      "≥90% of payment reviews completed within 4h keeps weekend deposit holds reliable; oldest-pending hours tracked separately for alerts.",
   },
   admin_keyboard_adoption: {
     target: 30,

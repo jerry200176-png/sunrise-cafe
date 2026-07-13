@@ -10,7 +10,7 @@ import { collectOutcomeMetrics } from "../src/lib/outcome-metrics";
 import { buildNorthStarSnapshot } from "../src/lib/north-star-metrics";
 import { buildExecutiveReview } from "../src/lib/executive-review";
 
-const OUT_PATH = join(process.cwd(), "docs/WEEKLY_EXECUTIVE_REVIEW.md");
+const OUT_PATH = join(process.cwd(), "docs/internal/executive/WEEKLY_EXECUTIVE_REVIEW.md");
 const weekArg = process.argv.find((a) => a.startsWith("--week="))?.split("=")[1];
 
 async function main() {
@@ -42,6 +42,8 @@ async function main() {
         deposit_eligible_30d: 0,
         pending_reviews: 0,
         payment_review_oldest_hours: null,
+        payment_review_median_hours_7d: null,
+        payment_review_sla_compliance_pct_7d: null,
         payment_events_ready: false,
         deposit_at_risk: 0,
       },
@@ -76,6 +78,18 @@ async function main() {
         rbac_tables: false,
       },
       support: { pending_payment_reviews: 0, rejected_events_7d: 0, note: "" },
+      funnel: {
+        ops_events_ready: false,
+        booking_flow_entered_7d: 0,
+        booking_created_7d: 0,
+        booking_conversion_pct: null,
+        deposit_instructions_viewed_7d: 0,
+        payment_clicks_7d: 0,
+        payment_completion_pct: null,
+        payment_approved_7d: 0,
+        payment_approved_keyboard_7d: 0,
+        keyboard_adoption_pct: null,
+      },
     });
   }
 

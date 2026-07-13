@@ -44,7 +44,7 @@ fi
 
 # Rate limit fail-open documentation in middleware
 if grep -q 'fail-open\|fail open' src/middleware.ts 2>/dev/null || grep -q 'UPSTASH' src/middleware.ts 2>/dev/null; then
-  if ! grep -q 'rate_limit_mode' docs/IMPLEMENTATION_TRUTH.md 2>/dev/null; then
+  if ! grep -q 'rate_limit_mode' docs/internal/governance/IMPLEMENTATION_TRUTH.md 2>/dev/null; then
     add_item "rate-limit-truth" "Document Upstash rate-limit mode in IMPLEMENTATION_TRUTH" "capability-gap CG-006" 58 true \
       "Add one row to docs/IMPLEMENTATION_TRUTH.md documenting guest rate limits: enforced when Upstash env set, fail-open otherwise. No code changes unless a single comment in middleware.ts helps."
   fi

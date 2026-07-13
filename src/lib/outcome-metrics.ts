@@ -10,6 +10,7 @@ import {
 } from "@/lib/migration-verify";
 import { fetchCronJobSummaries, type JobRunSummary } from "@/lib/job-runs";
 import { fetchProductionVersion, deploymentShaParity } from "@/lib/production-version";
+import { fetchFunnelMetrics, type FunnelMetrics } from "@/lib/ops-metrics";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
@@ -49,6 +50,8 @@ export type OutcomeSnapshot = {
     deposit_eligible_30d: number;
     pending_reviews: number;
     payment_review_oldest_hours: number | null;
+    payment_review_median_hours_7d: number | null;
+    payment_review_sla_compliance_pct_7d: number | null;
     payment_events_ready: boolean;
     deposit_at_risk: number;
   };
@@ -98,6 +101,7 @@ export type OutcomeSnapshot = {
     rejected_events_7d: number;
     note: string;
   };
+  funnel: FunnelMetrics;
 };
 
 export function calcDepositRate(paid: number, eligible: number): number | null {
@@ -246,6 +250,8 @@ async function fetchPaymentMetrics(
   let pendingReviews = 0;
   let oldestHours: number | null = null;
   let rejected7d = 0;
+  let medianHours: number | null = null;
+  let slaCompliance: number | null = null;
 
   if (paymentEventsReady) {
     const { data: pending, error } = await db()
@@ -267,6 +273,27 @@ async function fetchPaymentMetrics(
       .eq("status", "rejected")
       .gte("created_at", since7);
     rejected7d = count ?? 0;
+
+    const { data: reviewed, error: reviewedErr } = await db()
+      .from("payment_events")
+      .select("created_at, reviewed_at")
+      .in("status", ["approved", "rejected"])
+      .not("reviewed_at", "is", null)
+      .gte("reviewed_at", since7);
+    if (reviewedErr) throw reviewedErr;
+
+    if (reviewed?.length) {
+      const durations = reviewed
+        .map((r) => hoursSince(r.created_at as string, new Date(r.reviewed_at as string)))
+        .sort((a, b) => a - b);
+      const mid = Math.floor(durations.length / 2);
+      medianHours =
+        durations.length % 2 === 0
+          ? Math.round(((durations[mid - 1] + durations[mid]) / 2) * 10) / 10
+          : durations[mid];
+      const withinSla = durations.filter((h) => h <= 4).length;
+      slaCompliance = Math.round((withinSla / durations.length) * 1000) / 10;
+    }
   }
 
   const { count: atRisk } = await db()
@@ -281,6 +308,8 @@ async function fetchPaymentMetrics(
     deposit_eligible_30d: depositEligible.length,
     pending_reviews: pendingReviews,
     payment_review_oldest_hours: oldestHours,
+    payment_review_median_hours_7d: paymentEventsReady ? medianHours : null,
+    payment_review_sla_compliance_pct_7d: paymentEventsReady ? slaCompliance : null,
     payment_events_ready: paymentEventsReady,
     deposit_at_risk: atRisk ?? 0,
     rejected_events_7d: rejected7d,
@@ -321,6 +350,7 @@ async function fetchCronProxies(now: Date) {
       "/api/admin/reminders/send-line",
       "/api/admin/reminders/send-line-7d",
       "/api/admin/reminders/deposit-deadline",
+      "/api/admin/reminders/deploy-health",
     ],
     deposit_reminders_7d: reminders7d ?? 0,
     tomorrow_reminders_pending: pendingTomorrow ?? 0,
@@ -379,6 +409,8 @@ export async function collectOutcomeMetrics(
         deposit_eligible_30d: 0,
         pending_reviews: 0,
         payment_review_oldest_hours: null,
+        payment_review_median_hours_7d: null,
+        payment_review_sla_compliance_pct_7d: null,
         payment_events_ready: false,
         deposit_at_risk: 0,
       },
@@ -412,15 +444,17 @@ export async function collectOutcomeMetrics(
         rejected_events_7d: 0,
         note: "No ticket system — payment review queue is support proxy",
       },
+      funnel: await fetchFunnelMetrics(now),
     };
   }
 
   try {
-    const [booking, waitlist, migrations, cron] = await Promise.all([
+    const [booking, waitlist, migrations, cron, funnel] = await Promise.all([
       fetchBookingMetrics(now),
       fetchWaitlistMetrics(now),
       fetchMigrationStatus(),
       buildCronMetrics(now),
+      fetchFunnelMetrics(now),
     ]);
 
     const payment = await fetchPaymentMetrics(
@@ -446,6 +480,8 @@ export async function collectOutcomeMetrics(
         deposit_eligible_30d: payment.deposit_eligible_30d,
         pending_reviews: payment.pending_reviews,
         payment_review_oldest_hours: payment.payment_review_oldest_hours,
+        payment_review_median_hours_7d: payment.payment_review_median_hours_7d,
+        payment_review_sla_compliance_pct_7d: payment.payment_review_sla_compliance_pct_7d,
         payment_events_ready: payment.payment_events_ready,
         deposit_at_risk: payment.deposit_at_risk,
       },
@@ -467,6 +503,7 @@ export async function collectOutcomeMetrics(
         rejected_events_7d: payment.rejected_events_7d,
         note: "No ticket system — payment review queue is support proxy",
       },
+      funnel,
     };
 
     return {
@@ -501,6 +538,8 @@ export async function collectOutcomeMetrics(
         deposit_eligible_30d: 0,
         pending_reviews: 0,
         payment_review_oldest_hours: null,
+        payment_review_median_hours_7d: null,
+        payment_review_sla_compliance_pct_7d: null,
         payment_events_ready: false,
         deposit_at_risk: 0,
       },
@@ -534,6 +573,7 @@ export async function collectOutcomeMetrics(
         rejected_events_7d: 0,
         note: "Collection error",
       },
+      funnel: await fetchFunnelMetrics(now),
     };
   }
 }

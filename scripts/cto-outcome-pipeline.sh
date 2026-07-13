@@ -9,7 +9,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 PROD_URL="${PROD_URL:-https://sunrise-cafe-six.vercel.app}"
-OUTCOME_FILE="docs/OUTCOME_LOG.md"
+OUTCOME_FILE="docs/internal/executive/OUTCOME_LOG.md"
 SECRET="${CTO_OUTCOME_SECRET:-${CRON_SECRET:-}}"
 
 if [[ -z "$SECRET" ]]; then
@@ -91,5 +91,5 @@ if grep -q 'UNMEASURED' "$OUTCOME_FILE" 2>/dev/null; then
   sed -i '' 's/\*\*Status:\*\*.*$/\*\*Status:\*\* 🟢 **MEASURED** — auto-sync via Outcome Pipeline/' "$OUTCOME_FILE"
 fi
 
-echo "✅ Synced docs/OUTCOME_LOG.md"
+echo "✅ Synced docs/internal/executive/OUTCOME_LOG.md"
 echo "   Run: npm run cto:health"

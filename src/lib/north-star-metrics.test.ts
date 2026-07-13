@@ -30,6 +30,8 @@ function minimalSnapshot(overrides: Partial<OutcomeSnapshot> = {}): OutcomeSnaps
       deposit_eligible_30d: 50,
       pending_reviews: 2,
       payment_review_oldest_hours: 2,
+      payment_review_median_hours_7d: 1.5,
+      payment_review_sla_compliance_pct_7d: 95,
       payment_events_ready: true,
       deposit_at_risk: 1,
     },
@@ -64,6 +66,18 @@ function minimalSnapshot(overrides: Partial<OutcomeSnapshot> = {}): OutcomeSnaps
       rbac_tables: true,
     },
     support: { pending_payment_reviews: 2, rejected_events_7d: 0, note: "" },
+    funnel: {
+      ops_events_ready: true,
+      booking_flow_entered_7d: 100,
+      booking_created_7d: 80,
+      booking_conversion_pct: 80,
+      deposit_instructions_viewed_7d: 50,
+      payment_clicks_7d: 40,
+      payment_completion_pct: 80,
+      payment_approved_7d: 10,
+      payment_approved_keyboard_7d: 6,
+      keyboard_adoption_pct: 60,
+    },
     ...overrides,
   };
 }

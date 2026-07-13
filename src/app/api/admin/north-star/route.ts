@@ -18,10 +18,12 @@ export async function GET(request: NextRequest) {
       improvement_loop: "Hypothesis → Baseline → Implement → Measure → Compare → Iterate",
       executive_review: "/api/admin/executive-review",
       docs: {
-        loop: "/docs/PRODUCT_IMPROVEMENT_LOOP.md",
-        metrics: "/docs/NORTH_STAR_METRICS.md",
-        hypotheses: "/docs/HYPOTHESES.md",
-        weekly_review: "/docs/WEEKLY_EXECUTIVE_REVIEW.md",
+        loop: "/docs/internal/automation/PRODUCT_IMPROVEMENT_LOOP.md",
+        metrics: "/docs/internal/executive/NORTH_STAR_METRICS.md",
+        hypotheses: "/docs/internal/automation/HYPOTHESES.md",
+        weekly_review: "/docs/internal/executive/WEEKLY_EXECUTIVE_REVIEW.md",
+        product: "/docs/PRODUCT.md",
+        roadmap: "/docs/ROADMAP.md",
       },
     },
     { headers: { "Cache-Control": "no-store" } }

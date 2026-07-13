@@ -20,7 +20,7 @@ if [[ -z "$TASK_ID" || -z "$OUTCOME" ]]; then
 fi
 
 STATE="orchestrator/state.json"
-LOG="docs/ORCHESTRATOR_LOG.md"
+LOG="docs/internal/automation/ORCHESTRATOR_LOG.md"
 DATE="$(orchestrator_now_iso)"
 SHA="$(orchestrator_short_sha)"
 

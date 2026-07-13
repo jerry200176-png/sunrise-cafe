@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # CTO Operating System v2 — daily GitHub + production snapshot
 # Usage: npm run cto:snapshot
-# Paste output into docs/EXECUTIVE_DASHBOARD.md §9 (Daily Snapshot)
+# Paste output into docs/internal/executive/EXECUTIVE_DASHBOARD.md §9 (Daily Snapshot)
 
 set -euo pipefail
 
@@ -161,4 +161,4 @@ Blockers：$BLOCKER_TEXT
 EOF
 
 echo
-echo "Next: update docs/EXECUTIVE_DASHBOARD.md §5–§9 with snapshot data."
+echo "Next: update docs/internal/executive/EXECUTIVE_DASHBOARD.md §5–§9 with snapshot data."

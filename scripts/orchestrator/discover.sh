@@ -48,8 +48,8 @@ BOT_CAN_CLOSE="${GITHUB_BOT_CAN_CLOSE:-1}"
 
 # Outcome measurement
 OUTCOME_MEASURED=0
-if [[ -f docs/OUTCOME_LOG.md ]]; then
-  OD="$(sed -n '/^```outcome$/,/^```$/p' docs/OUTCOME_LOG.md | grep -E '^date:' | head -1 | sed 's/.*:[[:space:]]*//' | tr -d ' ')"
+if [[ -f docs/internal/executive/OUTCOME_LOG.md ]]; then
+  OD="$(sed -n '/^```outcome$/,/^```$/p' docs/internal/executive/OUTCOME_LOG.md | grep -E '^date:' | head -1 | sed 's/.*:[[:space:]]*//' | tr -d ' ')"
   [[ -n "$OD" && "$OD" != "null" ]] && OUTCOME_MEASURED=1
 fi
 
@@ -67,7 +67,7 @@ SHA_MATCH=0
 [[ "$PROD_SHA" != "unknown" && "$SHA" != "unknown" && "$PROD_SHA" == "$SHA" ]] && SHA_MATCH=1
 
 ORCH_SHIPPED=0
-[[ -f docs/ORCHESTRATOR.md && -x scripts/cto-orchestrator.sh ]] && ORCH_SHIPPED=1
+[[ -f docs/internal/automation/ORCHESTRATOR.md && -x scripts/cto-orchestrator.sh ]] && ORCH_SHIPPED=1
 
 # Gmail deploy/CI signals (optional — skip if credentials missing)
 bash scripts/orchestrator/gmail-signals.sh >/dev/null 2>&1 || true

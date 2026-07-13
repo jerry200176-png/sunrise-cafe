@@ -14,7 +14,7 @@ mkdir -p orchestrator
 echo "{\"canary\":true,\"ts\":\"$TS\",\"run\":\"$RUN_ID\",\"note\":\"autonomous loop canary marker\"}" \
   > "orchestrator/canary-marker.json"
 
-cat > docs/AUTONOMY_STATUS.md <<EOF
+cat > docs/internal/automation/AUTONOMY_STATUS.md <<EOF
 # Autonomy Status
 
 **Updated:** $(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M %Z')  

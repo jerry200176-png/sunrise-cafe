@@ -112,7 +112,7 @@ jobs:
             orchestrator/state.json
             orchestrator/lease.json
             orchestrator/priority.json
-            docs/AUTONOMY_STATUS.md
+            docs/internal/automation/AUTONOMY_STATUS.md
           retention-days: 90
 
       - name: Report blocked iteration (expected founder policy)

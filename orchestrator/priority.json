@@ -78,7 +78,7 @@
       "executable": true,
       "blocked_reason": null,
       "evidence": "deploy-gate sha_mismatch",
-      "verify": "docs/AUTONOMY_STATUS.md updated"
+      "verify": "docs/internal/automation/AUTONOMY_STATUS.md updated"
     },
     {
       "id": "gha-novel-canary",
@@ -90,7 +90,7 @@
       "score": 48,
       "executable": true,
       "blocked_reason": null,
-      "evidence": "docs/AUTONOMY_AUDIT.md",
+      "evidence": "docs/internal/automation/AUTONOMY_AUDIT.md",
       "verify": "autonomy-evidence.jsonl has gha_canary phase"
     },
     {
@@ -129,7 +129,7 @@
       "score": 0,
       "executable": false,
       "blocked_reason": "completed_last_iteration",
-      "evidence": "docs/AUTONOMY_AUDIT.md",
+      "evidence": "docs/internal/automation/AUTONOMY_AUDIT.md",
       "verify": "orchestrator/autonomy-evidence.jsonl has complete phase"
     },
     {
@@ -142,7 +142,7 @@
       "score": 0,
       "executable": false,
       "blocked_reason": "orchestrator_v1_shipped",
-      "evidence": "docs/ORCHESTRATOR.md",
+      "evidence": "docs/internal/automation/ORCHESTRATOR.md",
       "verify": "npm run cto:orchestrator produces ORCHESTRATOR_PLAN.md"
     },
     {

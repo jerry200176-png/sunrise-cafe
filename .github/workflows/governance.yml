@@ -41,7 +41,7 @@ jobs:
         with:
           name: governance-report
           path: |
-            docs/GOVERNANCE_STATUS.md
-            docs/GITHUB_TRIAGE.md
-            docs/FOUNDER_ACTION_LIST.md
+            docs/internal/governance/GOVERNANCE_STATUS.md
+            docs/internal/governance/GITHUB_TRIAGE.md
+            docs/internal/governance/FOUNDER_ACTION_LIST.md
           retention-days: 30

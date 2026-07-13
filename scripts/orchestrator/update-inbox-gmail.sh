@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 SIGNALS="orchestrator/gmail-signals.json"
-INBOX="docs/EXECUTIVE_INBOX.md"
+INBOX="docs/internal/executive/EXECUTIVE_INBOX.md"
 [[ -f "$SIGNALS" && -f "$INBOX" ]] || exit 0
 
 command -v jq >/dev/null 2>&1 || exit 0

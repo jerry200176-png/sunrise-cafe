@@ -150,6 +150,7 @@ const CRON_JOB_NAMES = [
   "send-line",
   "send-line-7d",
   "deposit-deadline",
+  "deploy-health",
 ] as const;
 
 /** Latest run per cron job (7-day window stats). */

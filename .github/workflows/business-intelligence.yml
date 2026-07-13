@@ -2,12 +2,9 @@ name: Business Intelligence
 
 on:
   schedule:
-    # Daily 08:00 UTC = 16:00 Taipei — CEO evidence refresh
+    # Daily 08:00 UTC = 16:00 Taipei
     - cron: "0 8 * * *"
   workflow_dispatch:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
 
 permissions:
   contents: write
@@ -23,8 +20,7 @@ jobs:
     timeout-minutes: 15
     if: >-
       github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+      github.event_name == 'workflow_dispatch'
 
     steps:
       - uses: actions/checkout@v4
@@ -48,7 +44,7 @@ jobs:
           name: business-snapshot-${{ github.run_id }}
           path: |
             orchestrator/business-snapshot.json
-            docs/OUTCOME_LOG.md
+            docs/internal/executive/OUTCOME_LOG.md
           retention-days: 90
 
       - name: Commit snapshot to repo
@@ -57,7 +53,7 @@ jobs:
         run: |
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git add orchestrator/business-snapshot.json docs/OUTCOME_LOG.md 2>/dev/null || true
+          git add orchestrator/business-snapshot.json docs/internal/executive/OUTCOME_LOG.md 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "No snapshot changes"
             exit 0

@@ -170,7 +170,7 @@ New dependabot PRs still target Next 16.2.10. Founder 關閉；controlled minors
 ### DL-010: Health scores must use `cto-health-scores.sh`
 
 **Decision:** Replace manual estimates in Dashboard §2 with script output.  
-**Formula doc:** `docs/HEALTH_SCORES.md`
+**Formula doc:** `docs/internal/executive/HEALTH_SCORES.md`
 
 ---
 

@@ -37,7 +37,7 @@
       "base_score": 50,
       "gate_block_bonus": 0,
       "handler": "scripts/orchestrator/handlers/autonomy-canary.sh",
-      "evidence": "docs/AUTONOMY_AUDIT.md",
+      "evidence": "docs/internal/automation/AUTONOMY_AUDIT.md",
       "verify": "orchestrator/autonomy-evidence.jsonl has complete phase"
     },
     {
@@ -49,7 +49,7 @@
       "independent": true,
       "base_score": 110,
       "gate_block_bonus": 10,
-      "evidence": "docs/ORCHESTRATOR.md",
+      "evidence": "docs/internal/automation/ORCHESTRATOR.md",
       "verify": "npm run cto:orchestrator produces ORCHESTRATOR_PLAN.md"
     },
     {
@@ -103,7 +103,7 @@
       "gate_block_bonus": 0,
       "handler": "scripts/orchestrator/handlers/deploy-status-sync.sh",
       "evidence": "deploy-gate sha_mismatch",
-      "verify": "docs/AUTONOMY_STATUS.md updated"
+      "verify": "docs/internal/automation/AUTONOMY_STATUS.md updated"
     },
     {
       "id": "gha-novel-canary",
@@ -115,7 +115,7 @@
       "base_score": 48,
       "gate_block_bonus": 0,
       "handler": "scripts/orchestrator/handlers/deploy-status-sync.sh",
-      "evidence": "docs/AUTONOMY_AUDIT.md",
+      "evidence": "docs/internal/automation/AUTONOMY_AUDIT.md",
       "verify": "autonomy-evidence.jsonl has gha_canary phase"
     },
     {
