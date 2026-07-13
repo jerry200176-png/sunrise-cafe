@@ -1,7 +1,7 @@
 # GitHub Triage Registry
 
-**Updated:** 2026-07-13 06:50 CST  
-**Gate:** PASS (doc drift sync)
+**Updated:** 2026-07-13 15:25 CST  
+**Gate:** PASS (Round 27 boss execution)
 
 Curated issue/PR actions. See live state: `bash scripts/cto-github-hygiene.sh`
 
@@ -25,9 +25,11 @@ Recent merged:
 
 | # | Title |
 |--:|-------|
+| 181 | OPS-004b funnel metrics on Executive dashboard |
+| 180 | Deploy verify + LINE validation SOP (Round 26) |
+| 179 | GitHub/doc cleanup |
 | 178 | LINE Flex cards unified |
 | 177 | AI-company orchestrator patterns |
-| 176 | 15 QA UX/a11y fixes |
 
 ---
 
