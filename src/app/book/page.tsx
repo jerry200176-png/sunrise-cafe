@@ -47,6 +47,13 @@ export default function BookPage() {
   const [availabilityRetry, setAvailabilityRetry] = useState(0);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const errorBannerRef = useRef<HTMLDivElement>(null);
+  const stepPanelRef = useRef<HTMLDivElement>(null);
+
+  const focusStepPanel = useCallback(() => {
+    requestAnimationFrame(() => {
+      stepPanelRef.current?.focus({ preventScroll: true });
+    });
+  }, []);
 
   const scrollToField = useCallback((fieldId: string) => {
     requestAnimationFrame(() => {
@@ -63,7 +70,8 @@ export default function BookPage() {
     setError(null);
     setFieldErrors({});
     requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
-  }, []);
+    focusStepPanel();
+  }, [focusStepPanel]);
 
   const clearFormErrors = useCallback(() => {
     setError(null);
@@ -112,8 +120,7 @@ export default function BookPage() {
         if (d?.deposit_info) setDepositInfo(d.deposit_info);
       })
       .catch(() => { });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [branchId, changeStep]);
 
   useEffect(() => {
     fetch("/api/booking-funnel", {
@@ -241,7 +248,15 @@ export default function BookPage() {
       } catch { /* 略過 */ }
     }
     window.history.replaceState({}, "", "/book");
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (step === "form") {
+      requestAnimationFrame(() => document.getElementById("booking-name")?.focus());
+    } else if (step === "date") {
+      requestAnimationFrame(() => document.getElementById("booking-date")?.focus());
+    }
+  }, [step]);
 
   const canSelectDuration = (slotStart: string): boolean => {
     const startIdx = slots.findIndex((s) => s.start === slotStart);
@@ -422,6 +437,7 @@ export default function BookPage() {
     setError(null);
     setFieldErrors({});
     requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
+    focusStepPanel();
   };
 
   const today = new Date().toISOString().slice(0, 10);
@@ -489,7 +505,12 @@ export default function BookPage() {
         })}
       </nav>
 
-      <div className={`mx-auto max-w-lg px-4 py-6 ${step === "form" ? "pb-28" : ""}`}>
+      <div
+        ref={stepPanelRef}
+        tabIndex={-1}
+        aria-labelledby={`booking-step-${step}-heading`}
+        className={`mx-auto max-w-lg px-4 py-6 outline-none ${step === "form" ? "pb-28" : ""}`}
+      >
         {error && (
           <div
             ref={errorBannerRef}
@@ -502,7 +523,7 @@ export default function BookPage() {
 
         {step === "branch" && (
           <>
-            <h2 className="mb-3 text-sm font-medium text-gray-700">{t("book.branch.title")}</h2>
+            <h2 id="booking-step-branch-heading" className="mb-3 text-sm font-medium text-gray-700">{t("book.branch.title")}</h2>
             <ul className="space-y-2">
               {branches.map((b) => (
                 <li key={b.id}>
@@ -537,7 +558,7 @@ export default function BookPage() {
             >
               {t("book.date.reselectBranch")}
             </button>
-            <label htmlFor="booking-date" className="mb-3 block text-sm font-medium text-gray-700">{t("book.date.title")}</label>
+            <label id="booking-step-date-heading" htmlFor="booking-date" className="mb-3 block text-sm font-medium text-gray-700">{t("book.date.title")}</label>
             <input
               id="booking-date"
               type="date"
@@ -572,7 +593,7 @@ export default function BookPage() {
             >
               {t("book.room.reselectDate")}
             </button>
-            <h2 className="mb-2 text-sm font-medium text-gray-700">{t("book.room.title")}</h2>
+            <h2 id="booking-step-room-heading" className="mb-2 text-sm font-medium text-gray-700">{t("book.room.title")}</h2>
             <p className="mb-3 text-xs text-gray-500">
               {t("book.room.subtitle", { date })}
             </p>
@@ -712,7 +733,7 @@ export default function BookPage() {
             >
               {t("book.slot.reselectRoom")}
             </button>
-            <h2 className="mb-2 text-sm font-medium text-gray-700">{t("book.slot.title")}</h2>
+            <h2 id="booking-step-slot-heading" className="mb-2 text-sm font-medium text-gray-700">{t("book.slot.title")}</h2>
             <p className="mb-3 text-xs text-gray-500">
               {branchName} · {roomName} · {date}
             </p>
@@ -848,6 +869,7 @@ export default function BookPage() {
 
         {step === "form" && (
           <>
+            <h2 id="booking-step-form-heading" className="sr-only">{t("book.steps.form")}</h2>
             <button
               type="button"
               onClick={() => setStep("slot")}

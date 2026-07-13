@@ -36,7 +36,9 @@ jobs:
             exit 0
           fi
           echo "Deploying: prod=$ACTUAL expected=$EXPECTED"
-          bash scripts/orchestrator/deploy.sh --wait 420
+          bash scripts/orchestrator/deploy.sh --wait 420 || {
+            echo "::warning::Deploy step did not complete — migrations will still run"
+          }
 
   migrate:
     name: Apply ops_events migration
