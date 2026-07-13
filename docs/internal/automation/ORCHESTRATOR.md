@@ -126,16 +126,32 @@ Tasks live in [`orchestrator/task-catalog.json`](../orchestrator/task-catalog.js
 | Artifact | Purpose |
 |----------|---------|
 | `orchestrator/state.json` | Resume after interruption |
+| `orchestrator/task-wall.json` | Ranked work queue snapshot (task wall) |
+| `orchestrator/stall.json` | Loop stagnation warnings |
+| `orchestrator/failure-learnings.jsonl` | Failure alchemy (antibody/vaccine/catalyst) |
 | `orchestrator/discover.env` | Last signal snapshot |
 | `docs/ORCHESTRATOR_PLAN.md` | Current iteration instructions |
 | `docs/ORCHESTRATOR_LOG.md` | Append-only audit trail |
+| `GET /api/admin/orchestrator` | Executive task wall API |
 | CI `orchestrator.yml` | Daily heartbeat + plan artifact |
 
 After any interruption: `npm run cto:orchestrator` regenerates plan from live signals.
 
 ---
 
-## 7. Industry comparison (evidence-based only)
+## 7. External patterns (AI-company)
+
+Lightweight ports from [AI-company](https://github.com/CronusL-1141/AI-company): task wall, failure alchemy, stall detection.  
+Full gap analysis: [`AI_COMPANY_ADOPTION.md`](./AI_COMPANY_ADOPTION.md).
+
+| Command | Action |
+|---------|--------|
+| `npm run cto:task-wall` | Regenerate `orchestrator/task-wall.json` |
+| `npm run cto:stall-check` | Detect loop stagnation |
+
+---
+
+## 8. Industry comparison (evidence-based only)
 
 See [`CAPABILITY_GAPS.md`](./CAPABILITY_GAPS.md). Adopt practices from Stripe, Vercel, Linear, etc. **only** when:
 
