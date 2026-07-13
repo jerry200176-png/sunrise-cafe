@@ -19,6 +19,7 @@ jobs:
         env:
           PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
           EXPECTED_SHA: ${{ github.sha }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           echo "Expected: $EXPECTED_SHA"
           for i in $(seq 1 30); do
@@ -31,6 +32,11 @@ jobs:
             sleep 30
           done
           echo "::error::Production commit ($ACTUAL) did not match main ($EXPECTED_SHA) within 15 minutes."
+          if [ -n "${VERCEL_TOKEN:-}" ]; then
+            echo "Attempting auto deploy via VERCEL_TOKEN..."
+            npm ci
+            bash scripts/orchestrator/deploy.sh --wait 300 && exit 0
+          fi
           echo "Run: vercel deploy --prod --yes (see docs/RUNBOOK.md)"
           exit 1
 
