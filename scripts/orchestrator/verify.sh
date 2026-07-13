@@ -41,7 +41,7 @@ done
 
 [[ -f orchestrator/task-catalog.json ]] && pass "task-catalog.json" || fail "task-catalog.json"
 [[ -f orchestrator/state.json ]] && pass "state.json" || fail "state.json"
-[[ -f docs/ORCHESTRATOR.md ]] && pass "ORCHESTRATOR.md" || fail "ORCHESTRATOR.md"
+[[ -f docs/internal/automation/ORCHESTRATOR.md ]] && pass "ORCHESTRATOR.md" || fail "ORCHESTRATOR.md"
 
 # Governance + plan freshness
 if npm run cto:governance >/dev/null 2>&1; then
@@ -50,7 +50,7 @@ else
   warn "cto:governance gate BLOCK (expected until Founder/GitHub clean)"
 fi
 
-[[ -f docs/ORCHESTRATOR_PLAN.md ]] && pass "ORCHESTRATOR_PLAN.md exists" || fail "ORCHESTRATOR_PLAN.md missing"
+[[ -f docs/internal/automation/ORCHESTRATOR_PLAN.md ]] && pass "ORCHESTRATOR_PLAN.md exists" || fail "ORCHESTRATOR_PLAN.md missing"
 
 # Production health
 PROD_URL="${PROD_URL:-https://sunrise-cafe-six.vercel.app}"

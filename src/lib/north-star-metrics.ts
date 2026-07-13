@@ -99,7 +99,7 @@ const TREND_PENDING: MetricTrend = {
   d7: null,
   d30: null,
   d90: null,
-  note: "Weekly snapshots required — see docs/WEEKLY_EXECUTIVE_REVIEW.md",
+  note: "Weekly snapshots required — see docs/internal/executive/WEEKLY_EXECUTIVE_REVIEW.md",
 };
 
 function metric(
@@ -151,11 +151,11 @@ export function buildNorthStarSnapshot(snapshot: OutcomeSnapshot): NorthStarSnap
     metric(
       "booking_conversion",
       "Booking Conversion",
-      null,
-      "ops-log: booking_flow_entered / booking_created",
+      snapshot.funnel.booking_conversion_pct,
+      "ops_events: booking_created / booking_flow_entered (7d)",
       collectedAt,
-      undefined,
-      "Telemetry added; ratio computed after 7d log volume"
+      { d7: snapshot.funnel.booking_conversion_pct },
+      snapshot.funnel.ops_events_ready ? undefined : "Apply migration-ops-events.sql"
     ),
     metric(
       "deposit_conversion",
@@ -177,28 +177,31 @@ export function buildNorthStarSnapshot(snapshot: OutcomeSnapshot): NorthStarSnap
     metric(
       "payment_completion_rate",
       "Payment Completion Rate",
-      null,
-      "ops-log: deposit_instructions_viewed / payment_*_click",
+      snapshot.funnel.payment_completion_pct,
+      "ops_events: payment clicks / deposit_instructions_viewed (7d)",
       collectedAt,
-      undefined,
-      "Telemetry added; ratio after deploy"
+      { d7: snapshot.funnel.payment_completion_pct },
+      snapshot.funnel.ops_events_ready ? undefined : "Apply migration-ops-events.sql"
     ),
     metric(
       "admin_payment_review_sla",
-      "Payment Review SLA (oldest h)",
-      snapshot.payment.payment_review_oldest_hours,
-      "outcome-pipeline: payment_review_oldest_hours",
+      "Payment Review SLA (% within 4h)",
+      snapshot.payment.payment_review_sla_compliance_pct_7d,
+      "outcome-pipeline: payment_review_sla_compliance_pct_7d",
       collectedAt,
-      { d7: snapshot.payment.payment_review_oldest_hours }
+      { d7: snapshot.payment.payment_review_sla_compliance_pct_7d },
+      snapshot.payment.payment_review_oldest_hours != null
+        ? `Oldest pending: ${snapshot.payment.payment_review_oldest_hours}h`
+        : undefined
     ),
     metric(
       "admin_keyboard_adoption",
       "Keyboard Approval Adoption",
-      null,
-      "ops-log: admin.payment_approved interaction=keyboard",
+      snapshot.funnel.keyboard_adoption_pct,
+      "ops_events: keyboard / payment_approved (7d)",
       collectedAt,
-      undefined,
-      "Telemetry added; ratio after staff adoption period"
+      { d7: snapshot.funnel.keyboard_adoption_pct },
+      snapshot.funnel.ops_events_ready ? undefined : "Apply migration-ops-events.sql"
     ),
     metric(
       "customer_support_proxy",

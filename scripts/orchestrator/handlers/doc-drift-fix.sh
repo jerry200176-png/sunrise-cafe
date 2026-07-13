@@ -19,20 +19,20 @@ PROD_SHA="${PROD_SHA:-unknown}"
 SHA_STATUS="🟢"
 [[ "$PROD_SHA" != "$MAIN_SHA" && "$PROD_SHA" != "unknown" ]] && SHA_STATUS="🟠"
 
-if [[ -f docs/IMPLEMENTATION_TRUTH.md ]]; then
-  sed -i "s/| Tests on main | [0-9]* unit/| Tests on main | ${TEST_COUNT} unit/" docs/IMPLEMENTATION_TRUTH.md
+if [[ -f docs/internal/governance/IMPLEMENTATION_TRUTH.md ]]; then
+  sed -i "s/| Tests on main | [0-9]* unit/| Tests on main | ${TEST_COUNT} unit/" docs/internal/governance/IMPLEMENTATION_TRUTH.md
   OPEN_PRS="$(gh pr list --state open --limit 100 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
   OPEN_ISSUES="$(gh issue list --state open --limit 100 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
-  sed -i "s/| Open PRs | [0-9]* |/| Open PRs | ${OPEN_PRS} |/" docs/IMPLEMENTATION_TRUTH.md
-  sed -i "s/| Open Issues | [0-9]* |/| Open Issues | ${OPEN_ISSUES} |/" docs/IMPLEMENTATION_TRUTH.md
+  sed -i "s/| Open PRs | [0-9]* |/| Open PRs | ${OPEN_PRS} |/" docs/internal/governance/IMPLEMENTATION_TRUTH.md
+  sed -i "s/| Open Issues | [0-9]* |/| Open Issues | ${OPEN_ISSUES} |/" docs/internal/governance/IMPLEMENTATION_TRUTH.md
 fi
 
-if [[ -f docs/EXECUTIVE_INBOX.md ]]; then
-  sed -i "s/| Tests | 🟢 | [0-9]* unit/| Tests | 🟢 | ${TEST_COUNT} unit/" docs/EXECUTIVE_INBOX.md
-  sed -i "s/| SHA parity | [🟢🟠🔴] | main \`[0-9a-f]\{7\}\` · prod \`[0-9a-f]\{7\}\`/| SHA parity | ${SHA_STATUS} | main \`${MAIN_SHA}\` · prod \`${PROD_SHA}\`/" docs/EXECUTIVE_INBOX.md
+if [[ -f docs/internal/executive/EXECUTIVE_INBOX.md ]]; then
+  sed -i "s/| Tests | 🟢 | [0-9]* unit/| Tests | 🟢 | ${TEST_COUNT} unit/" docs/internal/executive/EXECUTIVE_INBOX.md
+  sed -i "s/| SHA parity | [🟢🟠🔴] | main \`[0-9a-f]\{7\}\` · prod \`[0-9a-f]\{7\}\`/| SHA parity | ${SHA_STATUS} | main \`${MAIN_SHA}\` · prod \`${PROD_SHA}\`/" docs/internal/executive/EXECUTIVE_INBOX.md
 fi
 
-cat > docs/AUTONOMY_STATUS.md <<EOF
+cat > docs/internal/automation/AUTONOMY_STATUS.md <<EOF
 # Autonomy Status
 
 **Updated:** $(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M %Z')  

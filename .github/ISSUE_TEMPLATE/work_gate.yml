@@ -7,7 +7,7 @@ body:
     value: |
       **CTO Operating System v2** — 每個新工作必須回答四問。
       若四問皆無法具體回答 → 降為 P3 或延後。
-      詳見 [`docs/CTO_WORK_GATE.md`](../../docs/CTO_WORK_GATE.md)
+      詳見 [`docs/internal/governance/CTO_WORK_GATE.md`](../../docs/internal/governance/CTO_WORK_GATE.md)
 
   - type: textarea
     id: summary

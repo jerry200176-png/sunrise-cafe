@@ -17,6 +17,11 @@ export const TRACKED_MIGRATIONS = [
     file: "migration-phase7-rbac.sql",
     critical: true,
   },
+  {
+    version: "20260713-ops-events",
+    file: "migration-ops-events.sql",
+    critical: false,
+  },
 ] as const;
 
 export const CLOSED_DATES_FILE = "migration-branches-closed-dates.sql";

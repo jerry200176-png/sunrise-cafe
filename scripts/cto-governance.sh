@@ -10,9 +10,9 @@ cd "$ROOT"
 
 DATE="$(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M %Z')"
 DATE_SHORT="$(TZ=Asia/Taipei date '+%Y-%m-%d')"
-STATUS_FILE="docs/GOVERNANCE_STATUS.md"
-FOUNDER_FILE="docs/FOUNDER_ACTION_LIST.md"
-TRIAGE_FILE="docs/GITHUB_TRIAGE.md"
+STATUS_FILE="docs/internal/governance/GOVERNANCE_STATUS.md"
+FOUNDER_FILE="docs/internal/governance/FOUNDER_ACTION_LIST.md"
+TRIAGE_FILE="docs/internal/governance/GITHUB_TRIAGE.md"
 
 GATE_FAIL=0
 REASONS=()
@@ -152,7 +152,7 @@ cat > "$FOUNDER_FILE" <<EOF
 | 項目 | 現況 | 解法 |
 |------|------|------|
 | Production SHA | \`$LOCAL_SHA\` vs prod — see drift check | Founder: \`vercel deploy --prod\` 或提供 \`VERCEL_TOKEN\` |
-| OUTCOME_LOG | $(grep -q 'date: null' docs/OUTCOME_LOG.md 2>/dev/null && echo '未測量' || echo '已填') | 設定 \`CTO_OUTCOME_SECRET\` → 自動同步；或手動開 Executive 儀表板 |
+| OUTCOME_LOG | $(grep -q 'date: null' docs/internal/executive/OUTCOME_LOG.md 2>/dev/null && echo '未測量' || echo '已填') | 設定 \`CTO_OUTCOME_SECRET\` → 自動同步；或手動開 Executive 儀表板 |
 | DB migrations | 3 pending | [\`OPS_MIGRATION_RUNBOOK.md\`](./OPS_MIGRATION_RUNBOOK.md) |
 | Open issues | $ISSUE_COUNT | 策略性保留 #53/#54/#95/#99；#61/#63 已登記 CAPABILITY_GAPS |
 

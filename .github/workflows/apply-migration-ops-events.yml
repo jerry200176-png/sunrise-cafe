@@ -1,0 +1,45 @@
+name: Apply migration ops_events
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - supabase/migration-ops-events.sql
+      - scripts/apply-migration-ops-events.mjs
+
+jobs:
+  apply:
+    name: Create ops_events table
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - name: Apply migration
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "${SUPABASE_SERVICE_ROLE_KEY}" ] || [ -z "${NEXT_PUBLIC_SUPABASE_URL}" ]; then
+            echo "::error::Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in repo Secrets"
+            exit 1
+          fi
+          if [ -n "${SUPABASE_DB_URL}" ]; then
+            node scripts/apply-migration-ops-events.mjs
+            exit $?
+          fi
+          echo "SUPABASE_DB_URL not set — calling production API..."
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "::error::Add SUPABASE_DB_URL or CRON_SECRET to repo Secrets"
+            exit 1
+          fi
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "https://sunrise-cafe-six.vercel.app/api/admin/migrations/apply-ops-events"

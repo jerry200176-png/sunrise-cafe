@@ -16,13 +16,7 @@
       "id": "vercel-rate-limit",
       "owner": "platform",
       "reason": "Vercel Hobby deploy rate limit — preview checks fail for 24h",
-      "action": "Wait or upgrade plan; production already at main"
-    },
-    {
-      "id": "cursor-gmail-secrets",
-      "owner": "founder",
-      "reason": "GMAIL_USER + GMAIL_APP_PASSWORD not in Cursor Cloud Secrets",
-      "action": "docs/FOUNDER_ACTION_LIST.md § Gmail 兩步設定"
+      "action": "Preview builds skipped via ignoreCommand; production uses GHA + deploy-health cron"
     }
   ],
   "signals": {

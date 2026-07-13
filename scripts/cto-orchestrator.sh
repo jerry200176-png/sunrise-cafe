@@ -27,7 +27,7 @@ case "$CMD" in
     bash "$ORCH/plan.sh"
     echo
     echo "═══════════════════════════════════════════════════════════"
-    echo "  Next: read docs/ORCHESTRATOR_PLAN.md and execute"
+    echo "  Next: read docs/internal/automation/ORCHESTRATOR_PLAN.md and execute"
     echo "═══════════════════════════════════════════════════════════"
     ;;
   verify)

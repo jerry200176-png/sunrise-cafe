@@ -2,8 +2,8 @@ name: Autonomous Engineering Loop
 
 on:
   schedule:
-    # Every 6 hours — unattended wake-up (uses gha-canary via script default)
-    - cron: "0 */6 * * *"
+    # Daily 06:00 UTC = 14:00 Taipei — one unattended iteration (was */6, caused email storm)
+    - cron: "0 6 * * *"
   workflow_dispatch:
     # No inputs — avoids GitHub Actions phantom push validation bug (actions/runner#4001)
   # NOTE: workflow_run on CI was removed — it caused a feedback loop (loop → push → CI → loop)
@@ -11,7 +11,7 @@ on:
 
 concurrency:
   group: autonomous-engineering-loop
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -41,15 +41,40 @@ jobs:
 
       - run: npm ci
 
+      - name: Cooldown — skip rapid workflow_dispatch (reduces GitHub email storm)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LAST_ISO=$(gh run list --workflow autonomous-loop.yml --event workflow_dispatch \
+            --status success --limit 1 --json createdAt -q '.[0].createdAt' 2>/dev/null || echo "")
+          if [[ -z "$LAST_ISO" || "$LAST_ISO" == "null" ]]; then
+            echo "No prior dispatch — continue"
+            exit 0
+          fi
+          LAST_EPOCH=$(date -d "$LAST_ISO" +%s 2>/dev/null || echo 0)
+          NOW=$(date +%s)
+          GAP=$((NOW - LAST_EPOCH))
+          MIN_GAP="${LOOP_DISPATCH_MIN_SEC:-1800}"
+          if [[ "$GAP" -lt "$MIN_GAP" ]]; then
+            echo "::notice::Skipping loop — last dispatch ${GAP}s ago (< ${MIN_GAP}s cooldown)"
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+        id: cooldown
+
       - name: Configure git identity
+        if: steps.cooldown.outputs.skipped != 'true'
         run: |
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
 
       - name: Probe capabilities (audit)
+        if: github.event_name != 'workflow_dispatch' || steps.cooldown.outputs.skipped != 'true'
         run: bash scripts/orchestrator/capabilities.sh
 
       - name: Run autonomous loop
+        if: github.event_name != 'workflow_dispatch' || steps.cooldown.outputs.skipped != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_RUN_ID: ${{ github.run_id }}
@@ -87,33 +112,21 @@ jobs:
             orchestrator/state.json
             orchestrator/lease.json
             orchestrator/priority.json
-            docs/AUTONOMY_STATUS.md
+            docs/internal/automation/AUTONOMY_STATUS.md
           retention-days: 90
 
-      - name: Chain next iteration (schedule only)
-        if: >-
-          steps.loop.outcome == 'success' &&
-          github.event_name == 'schedule'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          npm run cto:orchestrator >/dev/null
-          TASK=$(jq -r '.next_task.id // empty' orchestrator/priority.json)
-          if [[ -n "$TASK" && "$TASK" != "null" ]]; then
-            gh workflow run autonomous-loop.yml || \
-              echo "workflow_dispatch blocked — will retry on next schedule"
-          else
-            echo "Idle — no chain"
-          fi
-
       - name: Report blocked iteration (expected founder policy)
-        if: steps.loop.outputs.exit_code == '2'
+        if: >-
+          (github.event_name != 'workflow_dispatch' || steps.cooldown.outputs.skipped != 'true') &&
+          steps.loop.outputs.exit_code == '2'
         run: |
           echo "::notice::Loop blocked at push/PR create or external gate — see evidence artifact"
           echo "Founder: enable 'Allow GitHub Actions to create pull requests' in repo Settings"
 
       - name: Fail job if loop validation failed
-        if: steps.loop.outputs.exit_code == '4'
+        if: >-
+          (github.event_name != 'workflow_dispatch' || steps.cooldown.outputs.skipped != 'true') &&
+          steps.loop.outputs.exit_code == '4'
         run: |
           echo "Loop validation failed (exit 4) — see evidence artifact"
           echo "::notice::Common causes: handler pipefail, npm test/lint in loop validation"

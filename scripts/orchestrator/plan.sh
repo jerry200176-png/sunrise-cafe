@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Generate human + agent iteration plan from discover + priority
-# Output: docs/ORCHESTRATOR_PLAN.md
+# Output: docs/internal/automation/ORCHESTRATOR_PLAN.md
 
 set -euo pipefail
 
@@ -12,7 +12,7 @@ orchestrator_root
 
 DISCOVER_FILE="orchestrator/discover.env"
 PRIORITY_FILE="orchestrator/priority.json"
-OUT="docs/ORCHESTRATOR_PLAN.md"
+OUT="docs/internal/automation/ORCHESTRATOR_PLAN.md"
 STATE="orchestrator/state.json"
 
 [[ -f "$PRIORITY_FILE" ]] || bash "$SCRIPT_DIR/prioritize.sh" >/dev/null

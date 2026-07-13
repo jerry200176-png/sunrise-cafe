@@ -1,4 +1,5 @@
 {
+    "ignoreCommand": "bash scripts/vercel-ignored-build.sh",
     "crons": [
         {
             "path": "/api/admin/reminders/send-line",
@@ -11,6 +12,10 @@
         {
             "path": "/api/admin/reminders/deposit-deadline",
             "schedule": "0 13 * * *"
+        },
+        {
+            "path": "/api/admin/reminders/deploy-health",
+            "schedule": "0 */2 * * *"
         }
     ]
 }

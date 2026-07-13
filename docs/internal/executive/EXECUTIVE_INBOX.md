@@ -2,7 +2,7 @@
 
 **CTO Operating System v2 · Company-first**  
 **Review cadence:** Every iteration **before** selecting work  
-**Last reviewed:** 2026-07-12 22:55 CST (Round 25 — doc drift sync + migration verification)
+**Last reviewed:** 2026-07-13 07:57 CST (Gmail scan auto-sync)
 
 > **`cto:orchestrator`** → auto-select next task → execute → verify → record  
 > Governance gate **PASS** — feature work may proceed.
@@ -23,16 +23,16 @@
 | 信號 | 狀態 | 證據 |
 |------|------|------|
 | Health | 🟢 | `/api/booking-health` ok |
-| SHA parity | 🟢 | main `278837c` · prod `278837c` (`GET /api/version`) |
+| SHA parity | 🟠 | main `b1c7dd2` · prod `6a2276f` (7d scan: 3 actionable, archived 542) |
 | CI main | 🟢 | green |
 | Tests | 🟢 | 167 unit + 9 E2E (2 skip) |
-| Vercel preview | 🟡 | Hobby rate limit may block PR checks ~24h; prod unaffected |
+| Vercel preview | 🟢 | preview skipped — GHA CI only |
 
 ### Customer Feedback
 
 | 信號 | 狀態 |
 |------|------|
-| 客訴 / bug 回報 | 🟢 無新回報（Gmail scan #151） |
+| 客訴 / bug 回報 | 🟢 無新回報（3 actionable deploy signals / 7d） |
 | 付款糾紛 | 🟡 潛在 — 審核 SLA 未量測 |
 | 訂位錯誤 | 🟢 overlap constraint 已套用（DB verified） |
 

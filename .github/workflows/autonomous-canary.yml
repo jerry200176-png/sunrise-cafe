@@ -3,8 +3,8 @@ name: Autonomous Canary
 # Dedicated unattended proof — no workflow_dispatch inputs (avoids GHA push phantom bug)
 on:
   schedule:
-    # Daily 07:00 UTC = 15:00 Taipei — proof without Cursor session
-    - cron: "0 7 * * *"
+    # Disabled — use autonomous-loop.yml daily run instead
+    - cron: "0 7 1 1 *"
   workflow_dispatch:
 
 permissions:
@@ -70,7 +70,7 @@ jobs:
             orchestrator/discovered-work.json
             orchestrator/state.json
             orchestrator/priority.json
-            docs/AUTONOMY_STATUS.md
+            docs/internal/automation/AUTONOMY_STATUS.md
           retention-days: 90
 
       - name: Report outcome

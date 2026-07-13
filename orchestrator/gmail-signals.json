@@ -1,0 +1,73 @@
+{
+  "ok": true,
+  "scanned_since": "2026-07-05T23:55:21.617Z",
+  "scan_days": 7,
+  "repo_filter": "sunrise-cafe",
+  "inbox_messages_in_window": 673,
+  "sha_parity": true,
+  "raw_matches": 21,
+  "deduped_count": 4,
+  "actionable_count": 3,
+  "by_kind": {
+    "vercel_production": 1,
+    "github_ci": 3
+  },
+  "recommendations": [
+    {
+      "priority": "high",
+      "signal": "github_ci_failure_recent",
+      "action": "Inspect failed workflow in last 48h on sunrise-cafe.",
+      "count": 2
+    },
+    {
+      "priority": "low",
+      "signal": "vercel_production_failure_resolved",
+      "action": "Historical prod fail emails — prod SHA now matches main.",
+      "count": 1
+    },
+    {
+      "priority": "low",
+      "signal": "github_ci_failure_stale",
+      "action": "1 CI fail emails older than 48h — safe to archive.",
+      "count": 1
+    }
+  ],
+  "actionable": [
+    {
+      "date": "2026-07-12T13:01:44.000Z",
+      "from": "notifications@vercel.com",
+      "subject": "Failed production deployment on team 'jerry200176-6960's projects'",
+      "kind": "vercel_production",
+      "severity": "high",
+      "action": "verify_prod_sha"
+    },
+    {
+      "date": "2026-07-11T11:36:12.000Z",
+      "from": "notifications@github.com",
+      "subject": "[jerry200176-png/sunrise-cafe] PR run failed: CI - feat(book): deposit deadline UX + guest payment funnel telemetry (0766ab1)",
+      "kind": "github_ci",
+      "severity": "high",
+      "action": "check_github_actions"
+    },
+    {
+      "date": "2026-07-11T11:01:57.000Z",
+      "from": "notifications@github.com",
+      "subject": "[jerry200176-png/sunrise-cafe] Run failed: Autonomous Engineering Loop - main (73d33f4)",
+      "kind": "github_ci",
+      "severity": "high",
+      "action": "check_github_actions"
+    }
+  ],
+  "historical": [
+    {
+      "date": "2026-07-09T09:19:45.000Z",
+      "from": "notifications@github.com",
+      "subject": "[jerry200176-png/sunrise-cafe] Run failed: Verify Production - main (5a42c39)",
+      "kind": "github_ci",
+      "severity": "high",
+      "action": "check_github_actions"
+    }
+  ],
+  "collected_at": "2026-07-13T07:55:23+0800",
+  "inbox_archived": 542
+}

@@ -49,7 +49,7 @@ else
 fi
 
 # Executive inbox round staleness
-INBOX_ROUND="$(grep -oE 'Round [0-9]+' docs/EXECUTIVE_INBOX.md 2>/dev/null | head -1 || echo '')"
+INBOX_ROUND="$(grep -oE 'Round [0-9]+' docs/internal/executive/EXECUTIVE_INBOX.md 2>/dev/null | head -1 || echo '')"
 if [[ -z "$INBOX_ROUND" ]]; then
   warn "EXECUTIVE_INBOX missing round marker"
 else

@@ -26,7 +26,12 @@
     "verify:migrations": "bash scripts/verify-migrations.sh",
     "executive:review": "npx tsx scripts/generate-executive-review.ts",
     "migrate:reminded-7d": "node scripts/apply-migration-reminded-7d.mjs",
-    "gmail:scan": "node scripts/gmail-scan-failures.mjs"
+    "migrate:ops-events": "node scripts/apply-migration-ops-events.mjs",
+    "gmail:scan": "node scripts/gmail-scan-failures.mjs",
+    "gmail:triage": "node scripts/gmail-triage-inbox.mjs",
+    "repo:cleanup": "bash scripts/repo-hygiene-cleanup.sh",
+    "repo:cleanup:apply": "bash scripts/repo-hygiene-cleanup.sh --apply",
+    "cto:gmail-signals": "bash scripts/orchestrator/gmail-signals.sh"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.65.0",

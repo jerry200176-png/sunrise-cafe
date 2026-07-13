@@ -58,7 +58,7 @@ fi
 
 # Legacy: bare codex without novel_prompt
 if [[ -n "${OPENAI_API_KEY:-}" ]] && command -v npx >/dev/null; then
-  PLAN="$(cat docs/ORCHESTRATOR_PLAN.md 2>/dev/null || echo "Execute task $TASK")"
+  PLAN="$(cat docs/internal/automation/ORCHESTRATOR_PLAN.md 2>/dev/null || echo "Execute task $TASK")"
   echo "Invoking codex exec for $TASK (legacy)"
   npx --yes @openai/codex exec --full-auto "$PLAN" || exit 1
   exit 0
