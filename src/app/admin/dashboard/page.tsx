@@ -165,45 +165,25 @@ export default function AdminDashboardPage() {
     if (!branchId) {
       setStats(null);
       setTimeline(null);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    Promise.all([
-      fetch(`/api/admin/stats?branchId=${encodeURIComponent(branchId)}&date=${encodeURIComponent(date)}`).then((r) => r.json()),
-      fetch(`/api/admin/timeline?branchId=${encodeURIComponent(branchId)}&date=${encodeURIComponent(date)}`).then((r) => r.json()),
-    ])
-      .then(([statsData, timelineData]) => {
-        if (statsData.error) throw new Error(statsData.error);
-        if (timelineData.error) throw new Error(timelineData.error);
-        setStats(statsData);
-        setTimeline(timelineData);
-      })
-      .catch((e) => {
-        setError(e instanceof Error ? e.message : "載入失敗");
-        setStats(null);
-        setTimeline(null);
-      })
-      .finally(() => setLoading(false));
-  }, [branchId, date]);
-
-  useEffect(() => {
-    if (!branchId) {
       setTrend([]);
+      setLoading(false);
       setTrendLoading(false);
       setTrendError(null);
       return;
     }
+    setLoading(true);
     setTrendLoading(true);
+    setError(null);
     setTrendError(null);
     fetch(
-      `/api/admin/stats/trend?branchId=${encodeURIComponent(branchId)}&endDate=${encodeURIComponent(date)}`
+      `/api/admin/dashboard?branchId=${encodeURIComponent(branchId)}&date=${encodeURIComponent(date)}`
     )
       .then((r) => r.json())
       .then((data) => {
         if (data.error) throw new Error(data.error);
-        const points = Array.isArray(data.points) ? data.points : [];
+        setStats(data.stats ?? null);
+        setTimeline(data.timeline ?? null);
+        const points = Array.isArray(data.trend?.points) ? data.trend.points : [];
         setTrend(
           points.map((p: { date: string; count: number; revenue: number }) => ({
             date: p.date,
@@ -213,10 +193,17 @@ export default function AdminDashboardPage() {
         );
       })
       .catch((e) => {
+        const msg = e instanceof Error ? e.message : "載入失敗";
+        setError(msg);
+        setTrendError(msg);
+        setStats(null);
+        setTimeline(null);
         setTrend([]);
-        setTrendError(e instanceof Error ? e.message : "載入統計失敗");
       })
-      .finally(() => setTrendLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setTrendLoading(false);
+      });
   }, [branchId, date]);
 
   const axis = buildAxis(date, timeline?.openTime, timeline?.closeTime);
