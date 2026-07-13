@@ -26,6 +26,9 @@ case "$CMD" in
     echo
     bash "$ORCH/plan.sh"
     echo
+    bash "$ORCH/stall-check.sh" >/dev/null 2>&1 || true
+    bash "$ORCH/task-wall.sh" >/dev/null 2>&1 || true
+    echo
     echo "═══════════════════════════════════════════════════════════"
     echo "  Next: read docs/internal/automation/ORCHESTRATOR_PLAN.md and execute"
     echo "═══════════════════════════════════════════════════════════"
@@ -37,6 +40,12 @@ case "$CMD" in
     shift
     bash "$ORCH/record.sh" "$@"
     ;;
+  task-wall)
+    bash "$ORCH/task-wall.sh"
+    ;;
+  stall-check)
+    bash "$ORCH/stall-check.sh" || true
+    ;;
   discover)
     bash "$ORCH/discover.sh"
     ;;
@@ -45,7 +54,7 @@ case "$CMD" in
     ;;
   *)
     echo "Unknown command: $CMD" >&2
-    echo "Usage: cto-orchestrator [plan|verify|complete|discover|prioritize]" >&2
+    echo "Usage: cto-orchestrator [plan|verify|complete|discover|prioritize|task-wall|stall-check]" >&2
     exit 1
     ;;
 esac

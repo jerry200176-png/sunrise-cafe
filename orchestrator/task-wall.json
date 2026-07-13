@@ -1,0 +1,148 @@
+{
+  "generated_at": "2026-07-13T14:21:57+0800",
+  "source": "sunrise-orchestrator",
+  "reference": "AI-company task_wall pattern (lightweight port)",
+  "next_task": {
+    "id": "doc-drift-fix",
+    "title": "Fix documentation drift (IMPLEMENTATION_TRUTH, inbox, stale refs)",
+    "role": "documenter",
+    "type": "governance",
+    "owner": "agent",
+    "novel": false,
+    "score": 85,
+    "executable": true,
+    "blocked_reason": null,
+    "evidence": "cto-doc-drift.sh warnings",
+    "verify": "DOC_DRIFT_WARNINGS=0 or documented founder-blocked"
+  },
+  "ranked_executable": [
+    {
+      "id": "doc-drift-fix",
+      "title": "Fix documentation drift (IMPLEMENTATION_TRUTH, inbox, stale refs)",
+      "role": "documenter",
+      "type": "governance",
+      "owner": "agent",
+      "novel": false,
+      "score": 85,
+      "executable": true,
+      "blocked_reason": null,
+      "evidence": "cto-doc-drift.sh warnings",
+      "verify": "DOC_DRIFT_WARNINGS=0 or documented founder-blocked"
+    },
+    {
+      "id": "payment-review-images",
+      "title": "Persist LINE payment screenshots for staff review UI",
+      "role": "implementer",
+      "type": "product",
+      "owner": "agent",
+      "novel": false,
+      "score": 80,
+      "executable": true,
+      "blocked_reason": null,
+      "evidence": "EXECUTIVE_INBOX staff friction",
+      "verify": "payment review UI shows stored image URL"
+    },
+    {
+      "id": "webhook-ops-log",
+      "title": "Add webhook.event_ok structured log on LINE webhook success (#60)",
+      "role": "implementer",
+      "type": "observability",
+      "owner": "agent",
+      "novel": true,
+      "score": 72,
+      "executable": true,
+      "blocked_reason": null,
+      "evidence": "issue #60, CAPABILITY_GAPS CG-005",
+      "verify": "grep webhook.event_ok src/lib/ops-log.ts && npm test"
+    },
+    {
+      "id": "ops-log-cron-extend",
+      "title": "Extend structured ops-log to all cron routes (#60)",
+      "role": "implementer",
+      "type": "observability",
+      "owner": "agent",
+      "novel": false,
+      "score": 65,
+      "executable": true,
+      "blocked_reason": null,
+      "evidence": "issue #60, partial ops-log.ts",
+      "verify": "all cron routes call opsLog"
+    },
+    {
+      "id": "capability-gap-close",
+      "title": "Close top evidence-based capability gap from CAPABILITY_GAPS.md",
+      "role": "planner",
+      "type": "platform",
+      "owner": "agent",
+      "novel": false,
+      "score": 60,
+      "executable": true,
+      "blocked_reason": null,
+      "evidence": "docs/CAPABILITY_GAPS.md rank 1 open",
+      "verify": "gap row marked closed with PR link"
+    },
+    {
+      "id": "deploy-status-sync",
+      "title": "Sync AUTONOMY_STATUS deploy blockers (STANDBY independent work)",
+      "role": "documenter",
+      "type": "platform",
+      "owner": "agent",
+      "novel": false,
+      "score": 55,
+      "executable": true,
+      "blocked_reason": null,
+      "evidence": "deploy-gate sha_mismatch",
+      "verify": "docs/internal/automation/AUTONOMY_STATUS.md updated"
+    },
+    {
+      "id": "gha-novel-canary",
+      "title": "GHA unattended canary — full loop proof from Actions",
+      "role": "implementer",
+      "type": "platform",
+      "owner": "agent",
+      "novel": false,
+      "score": 48,
+      "executable": true,
+      "blocked_reason": null,
+      "evidence": "docs/internal/automation/AUTONOMY_AUDIT.md",
+      "verify": "autonomy-evidence.jsonl has gha_canary phase"
+    }
+  ],
+  "top_blocked": [],
+  "gate_block": false,
+  "state": {
+    "iteration_count": 26,
+    "operational_mode": "ACTIVE_LOOP",
+    "current_task": null,
+    "last_iteration": {
+      "id": "iter-026",
+      "task_id": "outcome-baseline",
+      "outcome": "OUTCOME_LOG measured via cto:outcomes — deposit 82.4%",
+      "completed_at": "2026-07-12T23:00:00+00:00",
+      "sha": "3bb16dc",
+      "pr": "163",
+      "deploy_status": "deployed"
+    },
+    "blockers": [
+      {
+        "id": "vercel-rate-limit",
+        "owner": "platform",
+        "reason": "Vercel Hobby deploy rate limit — preview checks fail for 24h",
+        "action": "Preview builds skipped via ignoreCommand; production uses GHA + deploy-health cron"
+      }
+    ],
+    "deploy": {
+      "status": "deployed",
+      "reason": "sha_match",
+      "main_sha": "3bb16dc",
+      "prod_sha": "3bb16dc",
+      "checked_at": "2026-07-12T23:00:00+00:00"
+    }
+  },
+  "stall": {
+    "checked_at": "2026-07-13T14:21:57+0800",
+    "stalled": false,
+    "warnings": []
+  },
+  "recent_learnings": []
+}

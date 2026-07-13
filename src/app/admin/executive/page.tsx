@@ -13,6 +13,7 @@ import {
   Bell,
   Database,
   Headphones,
+  ListTodo,
 } from "lucide-react";
 
 type OutcomeSnapshot = {
@@ -70,6 +71,17 @@ type OutcomeSnapshot = {
     closed_dates_column: boolean;
   };
   support: { pending_payment_reviews: number; rejected_events_7d: number };
+};
+
+type OrchestratorWall = {
+  status: string;
+  iteration_count: number;
+  operational_mode: string;
+  gate_block: boolean;
+  next_task: { id: string; title: string; score: number; role: string } | null;
+  ranked_executable: { id: string; title: string; score: number; role: string }[];
+  stall: { stalled: boolean; warnings: { code: string; message: string }[] };
+  recent_learnings: { phase: string; task_id: string; antibody: string }[];
 };
 
 function Metric({
@@ -149,6 +161,7 @@ export default function ExecutiveDashboardPage() {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [orchestrator, setOrchestrator] = useState<OrchestratorWall | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -164,6 +177,9 @@ export default function ExecutiveDashboardPage() {
 
       const nsRes = await fetch("/api/admin/north-star", { cache: "no-store" });
       if (nsRes.ok) setNorthStar(await nsRes.json());
+
+      const orchRes = await fetch("/api/admin/orchestrator", { cache: "no-store" });
+      if (orchRes.ok) setOrchestrator(await orchRes.json());
     } catch (e) {
       setError(e instanceof Error ? e.message : "載入失敗");
     } finally {
@@ -449,6 +465,67 @@ export default function ExecutiveDashboardPage() {
                 </p>
               )}
             </section>
+
+            {orchestrator && (
+              <section>
+                <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold text-stone-700">
+                  <ListTodo size={16} />
+                  Engineering Task Wall
+                </h2>
+                <p className="mb-3 text-xs text-stone-500">
+                  自主工程佇列 · 迭代 #{orchestrator.iteration_count} · {orchestrator.operational_mode}
+                  {orchestrator.gate_block && " · Gate BLOCK"}
+                </p>
+                {orchestrator.stall.stalled && (
+                  <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    <p className="font-semibold">Loop 停滯警告</p>
+                    <ul className="mt-1 list-disc pl-4">
+                      {orchestrator.stall.warnings.map((w) => (
+                        <li key={w.code}>{w.message}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {orchestrator.next_task ? (
+                  <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50/40 px-4 py-3">
+                    <p className="text-xs text-stone-500">Next task</p>
+                    <p className="font-semibold text-stone-800">
+                      {orchestrator.next_task.title}
+                    </p>
+                    <p className="mt-1 font-mono text-xs text-stone-600">
+                      {orchestrator.next_task.id} · score {orchestrator.next_task.score} ·{" "}
+                      {orchestrator.next_task.role}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="mb-3 text-sm text-stone-500">無可執行任務（idle）</p>
+                )}
+                {orchestrator.ranked_executable.length > 1 && (
+                  <ul className="space-y-1 text-xs text-stone-600">
+                    {orchestrator.ranked_executable.slice(1, 5).map((t) => (
+                      <li key={t.id} className="flex justify-between gap-2 rounded-lg border border-stone-100 bg-white px-3 py-2">
+                        <span className="truncate">{t.title}</span>
+                        <span className="shrink-0 font-mono text-stone-400">{t.score}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {orchestrator.recent_learnings.length > 0 && (
+                  <details className="mt-3 text-xs text-stone-600">
+                    <summary className="cursor-pointer text-stone-500">
+                      最近失敗學習（{orchestrator.recent_learnings.length}）
+                    </summary>
+                    <ul className="mt-2 space-y-2">
+                      {orchestrator.recent_learnings.map((l, i) => (
+                        <li key={`${l.task_id}-${i}`} className="rounded border border-stone-100 bg-stone-50 px-2 py-1">
+                          <span className="font-mono text-stone-500">{l.phase}</span> — {l.antibody}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </section>
+            )}
 
             <section className="rounded-2xl border border-stone-200 bg-white p-4 text-sm text-stone-600">
               <p className="font-medium text-stone-800">決策用 — 不需手動更新文件</p>
