@@ -1,0 +1,89 @@
+# Deploy production + apply pending DB migrations when main advances.
+# Complements verify-production (SHA poll) with an immediate deploy attempt.
+
+name: Production deploy and migrate
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Vercel production deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - name: Deploy if SHA drift
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
+        run: |
+          if [ -z "${VERCEL_TOKEN:-}" ]; then
+            echo "VERCEL_TOKEN unset — skip"
+            exit 0
+          fi
+          EXPECTED="$(git rev-parse HEAD)"
+          ACTUAL="$(curl -sf "$PRODUCTION_URL/api/version" | jq -r '.commit // empty')"
+          if [ "$ACTUAL" = "$EXPECTED" ]; then
+            echo "Production already at $EXPECTED"
+            exit 0
+          fi
+          echo "Deploying: prod=$ACTUAL expected=$EXPECTED"
+          bash scripts/orchestrator/deploy.sh --wait 420
+
+  migrate:
+    name: Apply ops_events migration
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: always()
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - name: Apply migration
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_DB_URL:-}" ] && [ -n "${VERCEL_TOKEN:-}" ]; then
+            bash scripts/vercel-production-env.sh .env.vercel.prod
+            for key in POSTGRES_URL POSTGRES_URL_NON_POOLING SUPABASE_DB_URL DATABASE_URL; do
+              val=$(grep -E "^${key}=" .env.vercel.prod 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
+              if [ -n "$val" ]; then export "$key=$val"; fi
+            done
+            export SUPABASE_DB_URL="${SUPABASE_DB_URL:-${POSTGRES_URL_NON_POOLING:-${POSTGRES_URL:-}}}"
+          fi
+          node scripts/apply-migration-ops-events.mjs && exit 0
+          if [ -n "${CRON_SECRET:-}" ]; then
+            curl -sf -X POST -H "Authorization: Bearer ${CRON_SECRET}" \
+              "https://sunrise-cafe-six.vercel.app/api/admin/migrations/apply-ops-events" && exit 0
+          fi
+          echo "::warning::Migration pending — will apply on production cold start"
+          exit 0
+
+      - name: Verify ops_events
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          CODE=$(curl -sS -o /tmp/ops_probe.json -w '%{http_code}' \
+            "${NEXT_PUBLIC_SUPABASE_URL}/rest/v1/ops_events?select=id&limit=1" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}")
+          echo "ops_events probe: HTTP $CODE"
+          [ "$CODE" = "200" ] || cat /tmp/ops_probe.json

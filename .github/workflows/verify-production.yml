@@ -12,32 +12,39 @@ jobs:
   verify-sha:
     name: Production /api/version matches main
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
 
     steps:
-      - name: Poll production version
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+
+      - name: Poll production version (auto-deploy on drift)
         env:
           PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
           EXPECTED_SHA: ${{ github.sha }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           echo "Expected: $EXPECTED_SHA"
-          for i in $(seq 1 30); do
+          DEPLOYED=0
+          for i in $(seq 1 40); do
             ACTUAL=$(curl -sf "$PRODUCTION_URL/api/version" | jq -r '.commit // empty')
             echo "Attempt $i: $ACTUAL"
             if [ "$ACTUAL" = "$EXPECTED_SHA" ]; then
               echo "Production matches main HEAD."
               exit 0
             fi
+            if [ "$i" -ge 3 ] && [ "$DEPLOYED" -eq 0 ] && [ -n "${VERCEL_TOKEN:-}" ]; then
+              echo "SHA drift — triggering vercel deploy --prod"
+              DEPLOYED=1
+              bash scripts/orchestrator/deploy.sh --wait 420 || true
+            fi
             sleep 30
           done
-          echo "::error::Production commit ($ACTUAL) did not match main ($EXPECTED_SHA) within 15 minutes."
-          if [ -n "${VERCEL_TOKEN:-}" ]; then
-            echo "Attempting auto deploy via VERCEL_TOKEN..."
-            npm ci
-            bash scripts/orchestrator/deploy.sh --wait 300 && exit 0
-          fi
-          echo "Run: vercel deploy --prod --yes (see docs/RUNBOOK.md)"
+          echo "::error::Production ($ACTUAL) ≠ main ($EXPECTED_SHA) after polling + deploy"
           exit 1
 
       - name: Smoke — auth on reservation PATCH
