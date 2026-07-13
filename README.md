@@ -208,6 +208,7 @@ npm run cto:outcomes        # 擷取 Executive KPI 快照
 ```bash
 npm test                  # Vitest 單元測試（180+）
 npm run lint              # ESLint
+npm run design:audit      # Anti-AI-slop 掃描（Hallmark-inspired）
 npm run verify:migrations # DB migration 一致性
 npm run build && npm run test:e2e   # Playwright E2E
 ```
@@ -258,7 +259,7 @@ vercel --prod   # 手動部署（見 docs/RUNBOOK.md）
 | [PRODUCT.md](docs/PRODUCT.md) | 產品價值與能力 |
 | [ROADMAP.md](docs/ROADMAP.md) | 公開路線圖 |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 模組、API、資料表 |
-| [DESIGN.md](DESIGN.md) | UI/UX 設計規範 |
+| [DESIGN.md](DESIGN.md) | UI/UX 設計規範 + anti-slop 稽核 |
 | [ENV.md](docs/ENV.md) | 環境變數 |
 | [RUNBOOK.md](docs/RUNBOOK.md) | 維運手冊 |
 | [PAYMENT_STATE_MODEL.md](docs/PAYMENT_STATE_MODEL.md) | 付款狀態機 |

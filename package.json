@@ -33,7 +33,8 @@
     "gmail:triage": "node scripts/gmail-triage-inbox.mjs",
     "repo:cleanup": "bash scripts/repo-hygiene-cleanup.sh",
     "repo:cleanup:apply": "bash scripts/repo-hygiene-cleanup.sh --apply",
-    "cto:gmail-signals": "bash scripts/orchestrator/gmail-signals.sh"
+    "cto:gmail-signals": "bash scripts/orchestrator/gmail-signals.sh",
+    "design:audit": "bash scripts/design-slop-audit.sh"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.65.0",

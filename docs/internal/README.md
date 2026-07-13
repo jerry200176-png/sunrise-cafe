@@ -19,6 +19,17 @@
 
 ---
 
+## Design
+
+| Doc | Purpose |
+|-----|---------|
+| [DESIGN.md](../../DESIGN.md) | Brand SSOT (public) |
+| [HALLMARK_ADOPTION.md](./design/HALLMARK_ADOPTION.md) | Hallmark anti-slop audit (optional skill) |
+
+**Commands:** `npm run design:audit`
+
+---
+
 ## Executive / BI
 
 | Doc | Purpose |
