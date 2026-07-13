@@ -508,7 +508,8 @@ export default function BookPage() {
       <div
         ref={stepPanelRef}
         tabIndex={-1}
-        aria-labelledby={`booking-step-${step}-heading`}
+        role="region"
+        aria-label={`${t("book.headerTitle")} — ${t(`book.steps.${step}` as "book.steps.branch")}`}
         className={`mx-auto max-w-lg px-4 py-6 outline-none ${step === "form" ? "pb-28" : ""}`}
       >
         {error && (
