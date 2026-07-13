@@ -14,6 +14,7 @@ import {
   Database,
   Headphones,
   ListTodo,
+  GitBranch,
 } from "lucide-react";
 
 type OutcomeSnapshot = {
@@ -71,6 +72,18 @@ type OutcomeSnapshot = {
     closed_dates_column: boolean;
   };
   support: { pending_payment_reviews: number; rejected_events_7d: number };
+  funnel: {
+    ops_events_ready: boolean;
+    booking_flow_entered_7d: number;
+    booking_created_7d: number;
+    booking_conversion_pct: number | null;
+    deposit_instructions_viewed_7d: number;
+    payment_clicks_7d: number;
+    payment_completion_pct: number | null;
+    payment_approved_7d: number;
+    payment_approved_keyboard_7d: number;
+    keyboard_adoption_pct: number | null;
+  };
 };
 
 type OrchestratorWall = {
@@ -208,6 +221,14 @@ export default function ExecutiveDashboardPage() {
   if (migrationsPending) topRisks.push("DB migrations 未套用 — 雙重訂位風險");
   if (reviewSla) topRisks.push("付款審核超過 4 小時 SLA");
   if (depositLow) topRisks.push("訂金率低於 75% 目標");
+  if (
+    data?.funnel.ops_events_ready &&
+    data.funnel.payment_completion_pct != null &&
+    data.funnel.payment_completion_pct < 40 &&
+    data.funnel.deposit_instructions_viewed_7d >= 5
+  ) {
+    topRisks.push("付款 CTA 點擊率偏低（7d）— 檢視查詢頁 sticky bar");
+  }
 
   return (
     <div className="min-h-screen bg-stone-50">
@@ -367,6 +388,64 @@ export default function ExecutiveDashboardPage() {
                   alert={data.payment.deposit_at_risk > 0}
                 />
               </div>
+            </section>
+
+            <section>
+              <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold text-stone-700">
+                <GitBranch size={16} />
+                轉換漏斗 (7d)
+              </h2>
+              <p className="mb-3 text-xs text-stone-500">
+                OPS-004b · ops_events 聚合 · 訂位完成率與付款 CTA 點擊率
+              </p>
+              {!data.funnel.ops_events_ready ? (
+                <p className="rounded-xl border border-amber-200 bg-amber-50/50 px-4 py-3 text-sm text-amber-800">
+                  ops_events 表未就緒 — 執行{" "}
+                  <code className="rounded bg-amber-100 px-1">migration-ops-events.sql</code>{" "}
+                  或 POST <code className="rounded bg-amber-100 px-1">/api/admin/migrations/apply-ops-events</code>
+                </p>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <Metric
+                    icon={GitBranch}
+                    label="訂位轉換"
+                    value={pct(data.funnel.booking_conversion_pct, 80)}
+                    sub={`${data.funnel.booking_created_7d}/${data.funnel.booking_flow_entered_7d} 完成`}
+                    alert={
+                      data.funnel.booking_conversion_pct != null &&
+                      data.funnel.booking_conversion_pct < 70 &&
+                      data.funnel.booking_flow_entered_7d >= 10
+                    }
+                  />
+                  <Metric
+                    icon={Wallet}
+                    label="付款 CTA 點擊率"
+                    value={pct(data.funnel.payment_completion_pct, 50)}
+                    sub={`${data.funnel.payment_clicks_7d}/${data.funnel.deposit_instructions_viewed_7d} 次點擊`}
+                    alert={
+                      data.funnel.payment_completion_pct != null &&
+                      data.funnel.payment_completion_pct < 40 &&
+                      data.funnel.deposit_instructions_viewed_7d >= 5
+                    }
+                  />
+                  <Metric
+                    icon={Headphones}
+                    label="審核核准 (7d)"
+                    value={String(data.funnel.payment_approved_7d)}
+                    sub={
+                      data.funnel.keyboard_adoption_pct != null
+                        ? `鍵盤 ${data.funnel.payment_approved_keyboard_7d} · ${data.funnel.keyboard_adoption_pct}%`
+                        : undefined
+                    }
+                  />
+                  <Metric
+                    icon={TrendingUp}
+                    label="漏斗樣本"
+                    value={String(data.funnel.booking_flow_entered_7d)}
+                    sub={`${data.funnel.deposit_instructions_viewed_7d} 次查看繳費說明`}
+                  />
+                </div>
+              )}
             </section>
 
             <section>
