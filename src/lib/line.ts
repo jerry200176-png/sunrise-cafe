@@ -5,8 +5,8 @@ import {
   buildReviewInviteFlex,
   buildReviewInviteMessage,
   WAITLIST_CONFIRM_WINDOW_MINUTES,
-  type LineFlexContainer,
 } from "@/lib/line-cards";
+import type { LineFlexContainer } from "@/lib/line-flex";
 
 export {
   buildPaymentFlex,
