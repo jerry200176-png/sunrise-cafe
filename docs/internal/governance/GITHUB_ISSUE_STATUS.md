@@ -1,16 +1,21 @@
 # GitHub Issue Status (living registry)
 
-**Updated:** 2026-07-11  
-**Note:** Cloud integration cannot post issue comments — status tracked here until Founder posts to GitHub.
+**Updated:** 2026-07-13  
+**Note:** Cloud agent updates this file; GitHub is SSOT for open/closed state.
 
 | # | Title | Status | Owner | Acceptance / next |
 |---|-------|--------|-------|-------------------|
-| 53 | Payment Flow Optimization | **OPEN P1** | Product | Needs OUTCOME_LOG baseline; child: deposit conversion UX |
-| 54 | Production Excellence epic | **OPEN** | Eng | Track via CAPABILITY_GAPS + orchestrator; defer phase drafts |
-| 61 | AI workflow docs | **CLOSED** | Eng | Shipped `docs/workflows/README.md` (hygiene 2026-07-11) |
-| 63 | PaymentProvider abstraction | **CLOSED deferred** | Eng | CAPABILITY_GAPS CG-003; re-open with #99 |
-| 95 | Founder Ops Batch | **OPEN P0** | Founder | GitHub ✅; autonomous loop handler fixed #126; remaining: Supabase migrations |
-| 99 | Integrated deposit capture | **OPEN strategic** | Product | After #53 KPI; Stripe/LINE Pay decision |
+| 99 | Integrated deposit capture (Stripe/LINE Pay) | **OPEN strategic** | Product | After deposit KPI stable; depends on #53 outcomes — manual gateway vs native |
+
+## Closed (reference — do not re-open without new evidence)
+
+| # | Title | Closed | Evidence |
+|---|-------|--------|----------|
+| 53 | Payment Flow Optimization | 2026-07-12+ | Shipped review queue + flex cards; KPI in OUTCOME_LOG |
+| 54 | Production Excellence epic | 2026-07-12+ | Orchestrator #177, QA #176, CI resilience #175 |
+| 61 | AI workflow docs | 2026-07-11 | `docs/workflows/README.md` |
+| 63 | PaymentProvider abstraction | 2026-07-11 | Deferred → track via #99 |
+| 95 | Founder Ops Batch | 2026-07-12+ | Migrations ✅; OUTCOME_LOG measured; Gmail optional |
 
 ## Completed (reference)
 

@@ -1,7 +1,7 @@
 # Implementation Truth — Single Source of Technical State
 
 **Owner:** CTO Operating System v2  
-**Updated:** 2026-07-12 (Round 25 — doc drift sync; prod + DB verified)  
+**Updated:** 2026-07-13 (Round 26 — #177/#178 merged; GitHub triage sync)  
 **Rule:** If this doc disagrees with other docs, **this doc wins**. Verify against `main` branch code.  
 **Daily ops:** [`EXECUTIVE_DASHBOARD.md`](./EXECUTIVE_DASHBOARD.md) · snapshot: `npm run cto:snapshot`
 
@@ -13,8 +13,8 @@
 |------|-------|
 | URL | https://sunrise-cafe-six.vercel.app |
 | Branch | `main` |
-| `main` SHA | `278837c` |
-| Production SHA | `278837c` (parity ✅ — verified `GET /api/version` 2026-07-12) |
+| `main` SHA | `2248d24` |
+| Production SHA | `f4830c9` (parity 🟡 — Vercel Hobby deploy quota; `main` ahead) |
 | Release tag | `v2.2.0` |
 | Verify | `GET /api/version` → `commit` SHA |
 
@@ -37,7 +37,11 @@
 | Cron job_runs persistence | ✅ | `job-runs.ts` + `migration-job-runs.sql` |
 | Next.js security patch | 🟡 | #88 → 15.5.20 |
 | `verify:migrations` in CI | ✅ | `npm run verify:migrations` + optional drift gate |
-| Playwright E2E (mocked flows) | ✅ | `e2e/critical-flows.spec.ts`, `e2e/booking-flow.spec.ts` |
+| Playwright E2E (mocked flows) | ✅ | 23 pass · `e2e/qa-audit.spec.ts` + booking/payment |
+| LINE Flex unified cards | ✅ | `line-cards.ts` + `flexBubble()` (#178) |
+| Engineering task wall API | ✅ | `/api/admin/orchestrator` + `cto:task-wall` (#177) |
+| Anti-slop design audit | ✅ | `npm run design:audit` + `HALLMARK_ADOPTION.md` |
+| QA multi-device fixes | ✅ | #176 — safe-area, Taipei dates, admin mobile |
 | LINE bind phone verification | ✅ | `line-bind.ts` + webhook/OAuth |
 | Payment LINE text → review | ✅ | ADR-008 Phase 2 (`payment-events.ts`) |
 | Cron partial-failure alerts | ✅ | `job-runs.ts` + `errors` in deposit-deadline |
@@ -89,11 +93,11 @@ Or in SQL Editor: `SELECT * FROM schema_migrations ORDER BY applied_at;`
 
 | Type | Count | Action |
 |------|-------|--------|
-| Open PRs | 2 draft (#152, #154 — dev env docs) | Low priority |
-| Open Issues | 4 | Strategic: #53 #54 #95 #99; defer #61 #63 — see `GITHUB_TRIAGE.md` |
-| Tests on main | 167 unit + 9 E2E (2 skip) | `npm test` · `npm run test:e2e` |
+| Open PRs | **0** | #177 #178 merged 2026-07-13 |
+| Open Issues | **1** | Strategic only: **#99** (integrated deposit capture) |
+| Tests on main | **186** unit + **23** E2E (2 skip) | `npm test` · `npm run test:e2e` |
 | Governance gate | `cto:governance` | PASS — re-run after doc sync |
-| AI orchestrator | `cto:orchestrator` | `ORCHESTRATOR.md` — discover/prioritize/plan |
+| AI orchestrator | `cto:orchestrator` | Task wall + stall-check + failure alchemy (#177) |
 
 ---
 
