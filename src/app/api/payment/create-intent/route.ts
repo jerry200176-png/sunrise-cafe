@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getStripe } from "@/lib/stripe";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getBranchDepositConfig } from "@/lib/constants";
 
 interface CreateIntentBody {
   reservationId: string;
@@ -54,6 +55,15 @@ export async function POST(request: Request) {
     if (new Date(reservation.start_time) < new Date()) {
       return NextResponse.json(
         { error: "此預約時段已過，無法付款" },
+        { status: 400 }
+      );
+    }
+
+    // 驗證付款金額符合分店設定，防止客戶竄改 amount
+    const depositConfig = getBranchDepositConfig(branchId);
+    if (amount !== depositConfig.defaultDepositAmount) {
+      return NextResponse.json(
+        { error: "付款金額不符合分店設定" },
         { status: 400 }
       );
     }
