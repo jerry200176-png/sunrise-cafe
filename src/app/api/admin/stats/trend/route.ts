@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildDashboardTrend } from "@/lib/admin-dashboard-data";
+import { buildDashboardTrend, type DashboardReservation } from "@/lib/admin-dashboard-data";
 import { fetchReservationsAdmin, isAdminConfigured } from "@/lib/supabase-admin";
 
 /** 7-day booking trend in one DB round-trip (ADM-005). */
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const reservations = await fetchReservationsAdmin(branchId);
-    const list = Array.isArray(reservations) ? reservations : [];
+    const list = (Array.isArray(reservations) ? reservations : []) as DashboardReservation[];
 
     return NextResponse.json(buildDashboardTrend(endDate, list));
   } catch (err) {

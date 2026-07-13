@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildDashboardStats } from "@/lib/admin-dashboard-data";
+import {
+  buildDashboardStats,
+  type DashboardReservation,
+  type DashboardRoom,
+} from "@/lib/admin-dashboard-data";
 import { fetchReservationsAdmin, fetchRooms, isAdminConfigured } from "@/lib/supabase-admin";
 
 export async function GET(request: NextRequest) {
@@ -21,8 +25,8 @@ export async function GET(request: NextRequest) {
       fetchReservationsAdmin(branchId),
       fetchRooms(branchId),
     ]);
-    const list = Array.isArray(reservations) ? reservations : [];
-    const roomList = Array.isArray(rooms) ? rooms : [];
+    const list = (Array.isArray(reservations) ? reservations : []) as DashboardReservation[];
+    const roomList = (Array.isArray(rooms) ? rooms : []) as DashboardRoom[];
 
     return NextResponse.json(buildDashboardStats(date, list, roomList));
   } catch (err) {

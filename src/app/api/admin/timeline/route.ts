@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildDashboardTimeline } from "@/lib/admin-dashboard-data";
+import {
+  buildDashboardTimeline,
+  type DashboardReservation,
+  type DashboardRoom,
+} from "@/lib/admin-dashboard-data";
 import {
   fetchReservationsAdmin,
   fetchRooms,
@@ -27,8 +31,8 @@ export async function GET(request: NextRequest) {
       fetchRooms(branchId),
       fetchBranch(branchId),
     ]);
-    const list = Array.isArray(reservations) ? reservations : [];
-    const roomList = Array.isArray(rooms) ? rooms : [];
+    const list = (Array.isArray(reservations) ? reservations : []) as DashboardReservation[];
+    const roomList = (Array.isArray(rooms) ? rooms : []) as DashboardRoom[];
 
     return NextResponse.json(buildDashboardTimeline(date, list, roomList, branch));
   } catch (err) {
