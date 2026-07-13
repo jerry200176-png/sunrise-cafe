@@ -17,6 +17,9 @@
 - Replace `alert()` / `window.prompt()` in `ReservationList` with mobile-friendly toast + prompt dialog
 - Cron `job_runs` degrades gracefully when Supabase API key is invalid (CI + misconfigured env)
 
+### Payment (PR #186)
+- **Idempotency key** on `POST /api/payment/create-intent`: adds `idempotencyKey: reservation_${reservationId}_deposit` to Stripe `paymentIntents.create()` call to prevent duplicate PaymentIntent creation on network retry (B-01 fix). No frontend changes required — idempotency protection is transparent and backward-compatible.
+
 ---
 
 ## [2.2.0] — 2026-07-10 (pending)
