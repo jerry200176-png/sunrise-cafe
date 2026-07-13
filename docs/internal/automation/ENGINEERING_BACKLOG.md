@@ -25,7 +25,7 @@
 
 | ID | Item | Why |
 |----|------|-----|
-| OPS-004 | North Star log aggregation (ops-log → ratios) | Enable booking_conversion & payment_completion_rate |
+| OPS-004 | North Star log aggregation (ops-log → ratios) | Enable booking_conversion & payment_completion_rate | **Done** — `ops-metrics.ts` + Executive funnel section (#181) |
 | CX-006 | Waitlist confirm page i18n | EN/JA waitlist flow completion |
 | CX-006 | Waitlist confirm page i18n | EN/JA waitlist flow completion | **Done** (PR) |
 | CX-007 | Payment CTA sticky bar on mobile query | `payment_completion_rate` | **Done** (merged #147) |
