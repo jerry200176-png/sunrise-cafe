@@ -31,4 +31,10 @@ jq -c -n \
   --arg sha "$(orchestrator_short_sha)" \
   '{ts: $ts, phase: $phase, run_id: $run, sha: $sha, data: {}}' >> "$FILE"
 
+# Failure alchemy — distill learnings on failure phases (AI-company pattern)
+if echo "$PHASE" | grep -qE 'fail|blocked|timeout'; then
+  TASK_ID="$(echo "$PAYLOAD" | jq -r '.task_id // .task // "unknown"' 2>/dev/null || echo "unknown")"
+  bash "$SCRIPT_DIR/failure-alchemy.sh" "$PHASE" "$TASK_ID" "$PAYLOAD" 2>/dev/null || true
+fi
+
 echo "evidence: $PHASE"

@@ -80,3 +80,26 @@
 > 「昇咖啡」風格：奶油紙底 `#faf6ef`、咖啡墨字 `#2b2018`、焦糖 accent `#c0832f`，
 > 標題用 Noto Serif TC / Fraunces 襯線、內文 Noto Sans TC，暖色晨光光暈 + 細顆粒紙紋，
 > 留白大、互動克制、進場由下淡入交錯。溫暖手作，不要科技冷調。
+
+## 11. Anti-Slop Audit（Hallmark-inspired）
+
+改 UI 前後可跑 `npm run design:audit`。規則參考 [Nutlope/hallmark](https://github.com/Nutlope/hallmark)，但**品牌以本文件為準**，不用 Hallmark 預設 theme。
+
+### 必須為「否」的檢查項（subset）
+
+| # | 問自己 | 昇咖啡正確做法 |
+|---|--------|----------------|
+| 1 | 標題是否用 Inter/Roboto/Poppins？ | Fraunces / Noto Serif TC |
+| 2 | 是否有紫藍漸層或 `bg-clip-text` 漸層標題？ | 焦糖實色或暖色漸層（僅按鈕） |
+| 3 | 是否三欄等寬 icon 卡網格？ | 打破對稱；單欄或不等寬 |
+| 4 | 是否 `transition-all`？ | 只 transition 需要的屬性 |
+| 5 | 互動是否用 `blue-600` 等冷色？ | caramel / stone / amber |
+| 6 | 是否純 `#000` / `#fff` 大面積底？ | paper / ink tokens |
+| 7 | 是否 emoji 當功能圖示？ | lucide-react，stroke 1.5 |
+
+### 允許的例外
+
+- **後台** `/admin/*` 可沿用 Tailwind `stone` / `amber`（營運密度優先）。
+- **訂位表單**內部元件逐步對齊焦糖色，不必一次大改。
+
+採用決策全文：[`docs/internal/design/HALLMARK_ADOPTION.md`](docs/internal/design/HALLMARK_ADOPTION.md)
