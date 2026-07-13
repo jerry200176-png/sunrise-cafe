@@ -1,7 +1,7 @@
 # Founder Action List
 
-**Updated:** 2026-07-13 07:00 CST  
-**Gate:** PASS（doc drift 0）· Overall **79** / 100  
+**Updated:** 2026-07-13 06:50 CST  
+**Gate:** PASS · Overall **~85** / 100  
 **SSOT:** [`FOUNDER_PERMISSIONS.md`](./FOUNDER_PERMISSIONS.md)
 
 ---
@@ -10,19 +10,21 @@
 
 | 項目 | 現況 | 解法 |
 |------|------|------|
-| Production SHA | ✅ `3bb16dc` = prod | — |
-| OUTCOME_LOG | ✅ **已量測** 2026-07-12（訂金率 82.4%） | 每週 `npm run cto:outcomes` 或等 cron |
+| Production SHA | 🟡 `main` `2248d24` ≠ prod `f4830c9` | Vercel Hobby 每日 deploy 額度；quota 重置後自動 deploy 或手動 `vercel --prod` |
+| OUTCOME_LOG | ✅ **已量測** 2026-07-12（訂金率 82.4%） | 每週 `npm run cto:outcomes` |
 | DB migrations | ✅ 核心已套用 | 選用：`line_group_id` |
-| Gmail 自動掃信 | 🟡 Secrets 未設 | 見下方 **Gmail 兩步設定** |
-| 幽靈 PR | ✅ 已清理 | — |
+| Gmail 自動掃信 | 🟡 Secrets 未設（可選） | 見下方 **Gmail 兩步設定** |
+| Open PRs / Issues | ✅ **0 PR** · **1 issue** (#99) | — |
 
 ## GitHub 狀態（本輪）
 
 | 指標 | 值 |
 |------|---:|
-| Open PRs | 依 GitHub 即時 |
-| cursor/* branches | 自動清理 |
-| Bot can merge PRs | yes（via agent PR tool） |
+| Open PRs | **0** |
+| Open issues | **1** (#99) |
+| `main` SHA | `2248d24` |
+| cursor/* branches | 清理 merged remote（見 `GITHUB_TRIAGE.md`） |
+| Bot can merge PRs | yes（agent PR tool） |
 
 ---
 

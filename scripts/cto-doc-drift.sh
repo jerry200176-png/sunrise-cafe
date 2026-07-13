@@ -20,7 +20,8 @@ echo
 
 # Test count
 ACTUAL_TESTS="$(npm test 2>&1 | sed -n 's/.*Tests[[:space:]]*\([0-9]*\) passed.*/\1/p' | tail -1 || echo 0)"
-DOC_TESTS="$(grep -E 'Tests on main|unit \+' docs/IMPLEMENTATION_TRUTH.md 2>/dev/null | grep -oE '[0-9]+' | head -1 || echo 0)"
+TRUTH="docs/internal/governance/IMPLEMENTATION_TRUTH.md"
+DOC_TESTS="$(grep -E 'Tests on main|unit \+' "$TRUTH" 2>/dev/null | grep -oE '[0-9]+' | head -1 || echo 0)"
 if [[ -n "$DOC_TESTS" && "$DOC_TESTS" != "$ACTUAL_TESTS" ]]; then
   warn "IMPLEMENTATION_TRUTH test count ($DOC_TESTS) ≠ actual ($ACTUAL_TESTS)"
 else
