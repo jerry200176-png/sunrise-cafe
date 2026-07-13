@@ -57,6 +57,22 @@
 
 ---
 
+## Flex 卡片（統一版型）
+
+所有營運通知盡量以 **Flex Bubble** 呈現（對齊 DESIGN.md 焦糖品牌色），並附「查看訂位」「開啟官網」等按鈕（類 inline 小站入口）。
+
+| 對象 | 情境 | 建構器 |
+|------|------|--------|
+| 客人 | 訂金、提醒、候補、綁定、付款回覆 | `src/lib/line-cards.ts` |
+| 群組 | 新訂位、付款待審、逾期釋放、改期 | `src/lib/line-cards.ts` |
+| 共用版型 | header / rows / CTA | `src/lib/line-flex.ts` → `flexBubble()` |
+
+**仍為純文字**：診斷測試、明日無訂位時的貓咪彩蛋（`CAT_MESSAGES`）。
+
+Webhook 客人回覆使用 `replyLineFlexMessage`（`src/lib/line.ts`）。
+
+---
+
 ## 每日自動提醒
 
 - **時間**：台灣時間每日 20:00（vercel.json cron: `"0 12 * * *"` UTC）

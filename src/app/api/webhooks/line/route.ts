@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { sendLineMessage } from "@/lib/line-notify";
+import { sendLineFlex, buildPaymentPendingReviewGroupFlex } from "@/lib/line-notify";
 import {
   DEFAULT_PAYMENT_KEYWORDS,
   isPaymentMessage,
@@ -10,7 +10,6 @@ import {
 import {
   getPaymentSubmissionOutcome,
   PAYMENT_IMAGE_PAYLOAD,
-  GUEST_REPLY_PAYMENT_PENDING_REVIEW,
   type PaymentEventSource,
 } from "@/lib/payment-events";
 import { buildLineImagePayload } from "@/lib/payment-event-payload";
@@ -20,11 +19,16 @@ import { logOps } from "@/lib/ops-log";
 import {
   parseLineBindPayload,
   phonesMatchReservation,
-  LINE_BIND_PHONE_PROMPT,
-  LINE_BIND_PHONE_MISMATCH,
 } from "@/lib/line-bind";
-
-const REPLY_URL = "https://api.line.me/v2/bot/message/reply";
+import {
+  replyLineFlexMessage,
+  replyLineTextMessage,
+} from "@/lib/line";
+import {
+  buildGuestBindSuccessFlex,
+  buildGuestBindErrorFlex,
+  buildGuestPaymentPendingFlex,
+} from "@/lib/line-cards";
 
 async function fetchPaymentKeywords(): Promise<string[]> {
   try {
@@ -55,22 +59,19 @@ function supabaseAdmin() {
 }
 
 async function replyMessage(replyToken: string, text: string) {
-  const token = process.env.LINE_CUSTOMER_ACCESS_TOKEN;
-  if (!token) return;
   try {
-    await fetch(REPLY_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        replyToken,
-        messages: [{ type: "text", text }],
-      }),
-    });
+    await replyLineTextMessage(replyToken, text);
   } catch (err) {
     console.error("[webhook] replyMessage failed:", err);
+  }
+}
+
+async function replyFlex(replyToken: string, altText: string, contents: Record<string, unknown>) {
+  try {
+    await replyLineFlexMessage(replyToken, altText, contents);
+  } catch (err) {
+    console.error("[webhook] replyFlex failed:", err);
+    await replyMessage(replyToken, altText);
   }
 }
 
@@ -100,18 +101,22 @@ async function handleBookingCode(userId: string, rawText: string, replyToken?: s
   if (error || !reservation) {
     console.log(`[webhook] booking code not found: ${payload.bookingCode}`);
     if (replyToken) {
-      await replyMessage(replyToken, "查無此訂位代號，請確認代號是否正確（請輸入6碼大寫英數字）。");
+      await replyFlex(replyToken, "查無此訂位代號", buildGuestBindErrorFlex("not_found"));
     }
     return;
   }
 
   if (!payload.phone) {
-    if (replyToken) await replyMessage(replyToken, LINE_BIND_PHONE_PROMPT);
+    if (replyToken) {
+      await replyFlex(replyToken, "請驗證手機號碼", buildGuestBindErrorFlex("phone_prompt"));
+    }
     return;
   }
 
   if (!reservation.phone || !phonesMatchReservation(reservation.phone, payload.phone)) {
-    if (replyToken) await replyMessage(replyToken, LINE_BIND_PHONE_MISMATCH);
+    if (replyToken) {
+      await replyFlex(replyToken, "手機號碼不符", buildGuestBindErrorFlex("phone_mismatch"));
+    }
     return;
   }
 
@@ -123,12 +128,14 @@ async function handleBookingCode(userId: string, rawText: string, replyToken?: s
   if (updateErr) console.error("[webhook] update line_user_id failed:", updateErr);
   else console.log(`[webhook] bound line_user_id for phone ${reservation.phone}`);
 
-  const statusMsg =
-    reservation.status === "confirmed"
-      ? "您的訂位已確認，繳款通知請查看稍早訊息。"
-      : "已收到您的訂位代號！店家確認後將自動傳送繳費通知給您，請稍候。";
-
-  if (replyToken) await replyMessage(replyToken, statusMsg);
+  const confirmed = reservation.status === "confirmed";
+  if (replyToken) {
+    await replyFlex(
+      replyToken,
+      confirmed ? "LINE 已連結" : "訂位代號已收到",
+      buildGuestBindSuccessFlex(confirmed)
+    );
+  }
 }
 
 type PaymentReservation = {
@@ -193,7 +200,7 @@ async function handlePaymentReport(
         pending_count: pending,
       });
       if (replyToken) {
-        await replyMessage(replyToken, GUEST_REPLY_PAYMENT_PENDING_REVIEW);
+        await replyFlex(replyToken, "付款已收到", buildGuestPaymentPendingFlex());
       }
       return;
     }
@@ -228,18 +235,17 @@ async function handlePaymentReport(
   });
 
   try {
-    await sendLineMessage(
-      `📋 付款待確認\n` +
-        `姓名：${reservation.customer_name}\n` +
-        `代號：${reservation.booking_code}\n` +
-        `請至後台「付款審核」核對`
-    );
+    const flex = buildPaymentPendingReviewGroupFlex({
+      customerName: reservation.customer_name,
+      bookingCode: reservation.booking_code,
+    });
+    await sendLineFlex(`付款待確認：${reservation.customer_name}`, flex);
   } catch (err) {
     console.error("[webhook] group pending-review notify failed:", err);
   }
 
   if (replyToken) {
-    await replyMessage(replyToken, GUEST_REPLY_PAYMENT_PENDING_REVIEW);
+    await replyFlex(replyToken, "付款已收到", buildGuestPaymentPendingFlex());
   }
 }
 
@@ -281,11 +287,10 @@ export async function POST(request: NextRequest) {
     try {
       const msgType = event.message?.type;
 
-      // 客人傳圖片 → 記錄待審核，不直接標記已付（ADR-008）
       if (msgType === "image") {
         const messageId = event.message?.id;
-        const payload = messageId ? buildLineImagePayload(messageId) : PAYMENT_IMAGE_PAYLOAD;
-        await handlePaymentReport(userId, payload, "line_image", replyToken, paymentKeywords);
+        const payloadText = messageId ? buildLineImagePayload(messageId) : PAYMENT_IMAGE_PAYLOAD;
+        await handlePaymentReport(userId, payloadText, "line_image", replyToken, paymentKeywords);
         logOps("webhook", "webhook.event_handled", {
           route: "line",
           msg_type: "image",
@@ -323,7 +328,6 @@ export async function POST(request: NextRequest) {
         error: err instanceof Error ? err.message : String(err),
       });
       console.error("[webhook] event processing error:", err);
-      // 不讓單一事件的錯誤影響整體回應
     }
   }
 

@@ -3,10 +3,7 @@ import { isWeekendDate } from "@/lib/booking-utils";
 import { SlotConflictError } from "@/lib/slot-conflict";
 import { createClient } from "@supabase/supabase-js";
 import { hasSlotConflict, insertReservationAdmin, isAdminConfigured } from "@/lib/supabase-admin";
-import { sendLineMessage } from "@/lib/line-notify";
-import { toTaipei } from "@/lib/datetime";
-import { format } from "date-fns";
-import { zhTW } from "date-fns/locale";
+import { sendLineFlex, buildWaitlistBookedGroupFlex } from "@/lib/line-notify";
 import { WAITLIST_CONFIRM_WINDOW_MINUTES } from "@/lib/waitlist";
 
 function supabaseAdmin() {
@@ -137,17 +134,16 @@ export async function POST(request: NextRequest) {
     await supabaseAdmin().from("waitlist").update({ status: "booked" }).eq("id", entry.id);
 
     try {
-      const startDate = toTaipei(entry.start_time);
-      const endDate = toTaipei(entry.end_time);
-      const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
-      const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
-      await sendLineMessage(
-        `📩 候補一鍵確認轉訂位\n` +
-        `姓名：${entry.customer_name}\n` +
-        `電話：${entry.phone}\n` +
-        `代號：${booking_code}\n` +
-        `包廂：${branch?.name ?? ""} — ${room?.name ?? ""}\n` +
-        `時間：${formattedDate} ${timeRange}`
+      await sendLineFlex(
+        `候補轉訂位：${entry.customer_name}`,
+        buildWaitlistBookedGroupFlex({
+          customerName: entry.customer_name,
+          phone: entry.phone,
+          bookingCode: booking_code,
+          roomLabel: `${branch?.name ?? ""} — ${room?.name ?? ""}`,
+          startTime: entry.start_time,
+          endTime: entry.end_time,
+        })
       );
     } catch (err) {
       console.error("[waitlist/confirm] 群組通知失敗:", err);

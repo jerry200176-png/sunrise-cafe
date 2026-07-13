@@ -4,24 +4,13 @@ import {
   hasSlotConflict,
   isAdminConfigured,
 } from "@/lib/supabase-admin";
-import { sendLineMessage as sendLineMessageToGroup } from "@/lib/line-notify";
+import { sendLineFlex, buildRescheduleGroupFlex } from "@/lib/line-notify";
 import { notifyWaitlist } from "@/lib/waitlist";
-import { toTaipei } from "@/lib/datetime";
-import { format } from "date-fns";
-import { zhTW } from "date-fns/locale";
 
 import { verifyGuestBookingById } from "@/lib/guest-auth";
 import { enforceGuestLookupLimit } from "@/lib/guest-rate-limit";
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
-
-function fmt(startTime: string, endTime: string) {
-  const startDate = toTaipei(startTime);
-  const endDate = toTaipei(endTime);
-  const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
-  const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
-  return `${formattedDate} ${timeRange}`;
-}
 
 export async function POST(request: NextRequest) {
   if (!isAdminConfigured()) {
@@ -108,13 +97,17 @@ export async function POST(request: NextRequest) {
     });
 
     try {
-      await sendLineMessageToGroup(
-        `📅 客人自行改期\n` +
-          `姓名：${match.customer_name}\n` +
-          `電話：${match.phone}\n` +
-          `代號：${match.booking_code}\n` +
-          `原時段：${fmt(oldStart, oldEnd)}\n` +
-          `新時段：${fmt(newStart, newEnd)}`
+      await sendLineFlex(
+        `客人改期：${match.customer_name}`,
+        buildRescheduleGroupFlex({
+          customerName: match.customer_name,
+          phone: match.phone,
+          bookingCode: match.booking_code,
+          oldStart,
+          oldEnd,
+          newStart,
+          newEnd,
+        })
       );
     } catch (err) {
       console.error("[reschedule-booking] 群組通知失敗:", err);

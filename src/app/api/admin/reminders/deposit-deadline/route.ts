@@ -4,8 +4,12 @@ import {
   updateReservationAdmin,
   isAdminConfigured,
 } from "@/lib/supabase-admin";
-import { sendLineMessage as sendLineMessageToUser } from "@/lib/line";
-import { sendLineMessage as sendLineMessageToGroup } from "@/lib/line-notify";
+import { sendLineFlexMessage } from "@/lib/line";
+import {
+  buildGuestDepositReminderFlex,
+  buildGuestDepositReleasedFlex,
+} from "@/lib/line-cards";
+import { sendLineFlex, buildDepositReleasedGroupFlex } from "@/lib/line-notify";
 import { computeDepositDeadline, shouldAutoRelease, shouldSendDepositReminder } from "@/lib/deposit-deadline";
 import { notifyWaitlist } from "@/lib/waitlist";
 import { toTaipei } from "@/lib/datetime";
@@ -54,27 +58,34 @@ async function handleRun() {
 
   for (const r of rows) {
     const deadline = computeDepositDeadline(r.created_at, r.start_time);
-    const { formattedDate, timeRange, branchName } = describe(r);
+    const { branchName } = describe(r);
 
     if (shouldAutoRelease(deadline, now)) {
       try {
         await updateReservationAdmin(r.id, { status: "cancelled" });
 
         if (r.line_user_id) {
-          await sendLineMessageToUser(
+          await sendLineFlexMessage(
             r.line_user_id,
-            `您好，這裡是${branchName}。\n\n` +
-              `很抱歉，您 ${formattedDate} ${timeRange} 的包廂預約（訂位代號 ${r.booking_code}）因逾期未收到訂金，座位已自動釋放。\n` +
-              `如仍需訂位，歡迎重新預約，謝謝！`
+            "訂位已釋放",
+            buildGuestDepositReleasedFlex({
+              branchName,
+              bookingCode: r.booking_code,
+              startTime: r.start_time,
+              endTime: r.end_time,
+            })
           ).catch((err) => console.error("[deposit-deadline] 客人通知失敗:", err));
         }
 
-        await sendLineMessageToGroup(
-          `⏰ 訂金逾期未付款，已自動取消並釋放\n` +
-            `姓名：${r.customer_name}\n` +
-            `電話：${r.phone}\n` +
-            `代號：${r.booking_code}\n` +
-            `時間：${formattedDate} ${timeRange}`
+        await sendLineFlex(
+          `訂金逾期釋放：${r.customer_name}`,
+          buildDepositReleasedGroupFlex({
+            customerName: r.customer_name,
+            phone: r.phone,
+            bookingCode: r.booking_code,
+            startTime: r.start_time,
+            endTime: r.end_time,
+          })
         ).catch((err) => console.error("[deposit-deadline] 群組通知失敗:", err));
 
         notifyWaitlist(r.room?.id ?? "", r.start_time, r.end_time).catch((err) =>
@@ -103,11 +114,15 @@ async function handleRun() {
 
     if (r.line_user_id && shouldSendDepositReminder(deadline, r.deposit_reminder_sent_at, now)) {
       try {
-        await sendLineMessageToUser(
+        await sendLineFlexMessage(
           r.line_user_id,
-          `您好，這裡是${branchName}。\n\n` +
-            `提醒您 ${formattedDate} ${timeRange} 的包廂預約（訂位代號 ${r.booking_code}）訂金尚未收到。\n` +
-            `請盡快完成匯款或 LINE Pay 付款（資訊請參考先前訊息），逾期座位將自動釋放，敬請留意，謝謝！`
+          "訂金提醒",
+          buildGuestDepositReminderFlex({
+            branchName,
+            bookingCode: r.booking_code,
+            startTime: r.start_time,
+            endTime: r.end_time,
+          })
         );
         await updateReservationAdmin(r.id, { deposit_reminder_sent_at: now.toISOString() });
         reminded++;

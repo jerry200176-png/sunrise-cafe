@@ -4,6 +4,8 @@ import { approvePaymentEvent } from "@/lib/payment-events-admin";
 import { isAdminConfigured } from "@/lib/supabase-admin";
 import { requirePermission } from "@/lib/admin-api-auth";
 import { sendLineFlex, buildPaymentConfirmedFlex } from "@/lib/line-notify";
+import { sendLineFlexMessage } from "@/lib/line";
+import { buildGuestPaymentApprovedFlex } from "@/lib/line-cards";
 import { logOps, type AdminPaymentInteraction } from "@/lib/ops-log";
 
 function db() {
@@ -47,7 +49,9 @@ export async function POST(request: NextRequest, { params }: Params) {
       if (event?.reservation_id) {
         const { data: r } = await db()
           .from("reservations")
-          .select("customer_name, booking_code, start_time, end_time, deposit_payment_note")
+          .select(
+            "customer_name, booking_code, start_time, end_time, deposit_payment_note, line_user_id"
+          )
           .eq("id", event.reservation_id)
           .single();
         if (r) {
@@ -62,6 +66,23 @@ export async function POST(request: NextRequest, { params }: Params) {
             await sendLineFlex(`💰 客人已付訂金：${r.customer_name}`, flex);
           } catch (notifyErr) {
             console.error("[payments/approve] group notify failed:", notifyErr);
+          }
+
+          if (r.line_user_id) {
+            try {
+              await sendLineFlexMessage(
+                r.line_user_id,
+                "訂金已確認",
+                buildGuestPaymentApprovedFlex({
+                  customerName: r.customer_name,
+                  bookingCode: r.booking_code,
+                  startTime: r.start_time,
+                  endTime: r.end_time,
+                })
+              );
+            } catch (guestErr) {
+              console.error("[payments/approve] guest notify failed:", guestErr);
+            }
           }
         }
       }

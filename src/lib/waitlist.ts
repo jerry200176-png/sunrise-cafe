@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { sendLineFlexMessage, buildWaitlistFlex, WAITLIST_CONFIRM_WINDOW_MINUTES } from "@/lib/line";
+import { sendLineFlexMessage, buildWaitlistFlex, WAITLIST_CONFIRM_WINDOW_MINUTES } from "@/lib/line-cards";
 
 export { WAITLIST_CONFIRM_WINDOW_MINUTES };
 
