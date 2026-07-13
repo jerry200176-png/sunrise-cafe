@@ -60,14 +60,19 @@ export async function POST(request: Request) {
 
     const stripe = getStripe();
 
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount, // Stripe 以分為單位 (TWD)
-      currency,
-      metadata: {
-        reservation_id: reservationId,
-        branch_id: branchId,
+    const paymentIntent = await stripe.paymentIntents.create(
+      {
+        amount, // Stripe 以分為單位 (TWD)
+        currency,
+        metadata: {
+          reservation_id: reservationId,
+          branch_id: branchId,
+        },
       },
-    });
+      {
+        idempotencyKey: `reservation_${reservationId}_deposit`,
+      },
+    );
 
     // 記錄 payment_intent 到 DB
     const { error: insertErr } = await sb.from("payment_intents").insert({
