@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense, useMemo } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import Image from "next/image";
@@ -42,15 +42,18 @@ interface AvailabilitySlot {
 const OFFICIAL_LINE_URL =
   process.env.NEXT_PUBLIC_OFFICIAL_LINE_URL?.trim() || "https://lin.ee/cxcV0lo";
 
+function QueryLoadingFallback() {
+  const { t } = useLocale();
+  return (
+    <main className="min-h-screen bg-gradient-to-b from-amber-50/40 to-white flex items-center justify-center">
+      <p className="text-gray-500">{t("common.loading")}</p>
+    </main>
+  );
+}
+
 export default function BookQueryPage() {
   return (
-    <Suspense
-      fallback={
-        <main className="min-h-screen bg-gradient-to-b from-amber-50/40 to-white flex items-center justify-center">
-          <p className="text-gray-500">載入中…</p>
-        </main>
-      }
-    >
+    <Suspense fallback={<QueryLoadingFallback />}>
       <BookQueryContent />
     </Suspense>
   );
@@ -87,15 +90,27 @@ function BookQueryContent() {
   const depositViewedRef = useRef<Set<string>>(new Set());
   const stickyViewedRef = useRef(false);
 
-  const unpaidDepositItem = list.find((item) => {
-    const isConfirmed = item.status === "confirmed" || item.status === "checked_in";
-    return (
-      item.deposit_required &&
-      isConfirmed &&
-      !item.is_deposit_paid &&
-      item.status !== "cancelled"
-    );
-  });
+  const unpaidDepositItems = useMemo(
+    () =>
+      list.filter((item) => {
+        const isConfirmed = item.status === "confirmed" || item.status === "checked_in";
+        return (
+          item.deposit_required &&
+          isConfirmed &&
+          !item.is_deposit_paid &&
+          item.status !== "cancelled"
+        );
+      }),
+    [list]
+  );
+
+  const [stickyDepositIndex, setStickyDepositIndex] = useState(0);
+  const unpaidDepositItem = unpaidDepositItems[stickyDepositIndex] ?? unpaidDepositItems[0] ?? null;
+
+  useEffect(() => {
+    setStickyDepositIndex(0);
+    stickyViewedRef.current = false;
+  }, [unpaidDepositItems.length, phone, bookingCode]);
 
   const trackGuestEvent = useCallback(
     (event: string) => {
@@ -372,7 +387,7 @@ function BookQueryContent() {
         </div>
       </header>
 
-      <div className={`mx-auto max-w-lg px-4 py-6 ${unpaidDepositItem ? "pb-28" : ""}`}>
+      <div className={`mx-auto max-w-lg px-4 py-6 ${unpaidDepositItem ? "pb-sticky-form" : ""}`}>
         <form onSubmit={search} className="mb-6 space-y-3">
           <div className="flex gap-2">
             <label htmlFor="query-phone" className="sr-only">{t("query.phonePlaceholder")}</label>
@@ -614,6 +629,7 @@ function BookQueryContent() {
                     {confirmingCancelId === item.id && (
                       <div
                         role="alertdialog"
+                        aria-modal="true"
                         aria-labelledby={`cancel-title-${item.id}`}
                         className="rounded-lg border border-red-200 bg-red-50 p-3 space-y-2"
                       >
@@ -781,10 +797,32 @@ function BookQueryContent() {
 
       {unpaidDepositItem && (
         <div
-          className="fixed inset-x-0 bottom-0 z-20 border-t border-amber-200 bg-white/95 px-4 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.08)] backdrop-blur-sm"
+          className="fixed inset-x-0 bottom-0 z-20 border-t border-amber-200 bg-white/95 px-4 pt-3 sticky-bottom-safe shadow-[0_-4px_12px_rgba(0,0,0,0.08)] backdrop-blur-sm"
           role="region"
           aria-label={t("query.depositNeededTitle")}
         >
+          {unpaidDepositItems.length > 1 && (
+            <div className="mb-2 flex flex-wrap items-center justify-center gap-2">
+              <p className="text-xs font-medium text-amber-800">
+                {t("query.paymentStickyCount", { count: unpaidDepositItems.length })}
+              </p>
+              {unpaidDepositItems.map((item, idx) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setStickyDepositIndex(idx)}
+                  aria-label={t("query.paymentStickySwitch", { code: item.booking_code ?? "" })}
+                  className={`min-h-[36px] rounded-full px-3 py-1 text-xs font-mono font-medium ${
+                    idx === stickyDepositIndex
+                      ? "bg-amber-600 text-white"
+                      : "border border-amber-300 bg-white text-amber-800"
+                  }`}
+                >
+                  {item.booking_code}
+                </button>
+              ))}
+            </div>
+          )}
           <p className="mb-2 text-center text-xs font-medium text-amber-900">
             {t("query.paymentStickyTitle", {
               amount: unpaidDepositItem.deposit_amount ?? "—",

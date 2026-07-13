@@ -40,22 +40,30 @@ export default function AdminLoginPage() {
       <div className="w-full max-w-sm">
         <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
           <div className="flex justify-center text-gray-500">
-            <Lock className="h-12 w-12" />
+            <Lock className="h-12 w-12" aria-hidden />
           </div>
           <h1 className="mt-4 text-center text-xl font-bold text-gray-900">後台登入</h1>
           <p className="mt-1 text-center text-sm text-gray-500">請輸入後台密碼</p>
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="密碼"
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 placeholder-gray-400 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-              autoComplete="current-password"
-              required
-            />
+            <div>
+              <label htmlFor="admin-password" className="mb-1.5 block text-sm font-medium text-gray-700">
+                密碼
+              </label>
+              <input
+                id="admin-password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="密碼"
+                className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 placeholder-gray-400 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                autoComplete="current-password"
+                required
+              />
+            </div>
             {error && (
-              <p className="text-sm text-red-600">{error}</p>
+              <p className="text-sm text-red-600" role="alert">
+                {error}
+              </p>
             )}
             <button
               type="submit"
@@ -67,9 +75,9 @@ export default function AdminLoginPage() {
           </form>
           <Link
             href="/"
-            className="mt-4 flex items-center justify-center gap-2 text-sm text-gray-500 hover:text-gray-700"
+            className="mt-4 flex min-h-[44px] items-center justify-center gap-2 rounded-lg text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-700"
           >
-            <ArrowLeft className="h-4 w-4" /> 返回首頁
+            <ArrowLeft className="h-4 w-4" aria-hidden /> 返回首頁
           </Link>
         </div>
       </div>

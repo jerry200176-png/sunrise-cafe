@@ -318,7 +318,8 @@ export default function AdminDashboardPage() {
               ) : trend.length === 0 ? (
                 <p className="text-sm text-gray-500">暫無統計資料</p>
               ) : (
-                <div className="grid grid-cols-7 gap-3">
+                <div className="-mx-1 overflow-x-auto px-1 sm:mx-0 sm:px-0">
+                <div className="flex gap-2 sm:grid sm:grid-cols-7 sm:gap-3">
                   {trend.map((p) => {
                     const revenuePercent = Math.max(
                       6,
@@ -329,7 +330,7 @@ export default function AdminDashboardPage() {
                       Math.round((p.count / maxTrendCount) * 100)
                     );
                     return (
-                      <div key={p.date} className="flex flex-col items-center gap-1">
+                      <div key={p.date} className="flex min-w-[3.25rem] shrink-0 flex-col items-center gap-1 sm:min-w-0">
                         <div className="flex h-24 w-full items-end gap-1">
                           <div
                             className="flex-1 rounded bg-amber-200"
@@ -349,6 +350,7 @@ export default function AdminDashboardPage() {
                       </div>
                     );
                   })}
+                </div>
                 </div>
               )}
               <p className="mt-2 text-xs text-gray-500">
@@ -462,7 +464,32 @@ export default function AdminDashboardPage() {
                 <h2 className="mb-4 text-lg font-semibold text-gray-900">
                   時間軸 · {timeline.branchName} · {format(parseISO(date), "yyyy/MM/dd (EEE)", { locale: zhTW })}
                 </h2>
-                <div className="overflow-x-auto">
+
+                {/* Mobile: 清單式 */}
+                <div className="space-y-3 md:hidden">
+                  {timeline.rooms.map((room) => (
+                    <div key={room.roomId} className="rounded-lg border border-gray-200 bg-gray-50/50 p-3">
+                      <p className="mb-2 text-sm font-semibold text-gray-800">{room.roomName}</p>
+                      {room.reservations.length === 0 ? (
+                        <p className="text-xs text-gray-400">今日無訂位</p>
+                      ) : (
+                        <ul className="space-y-2">
+                          {room.reservations.map((r, i) => (
+                            <li key={i} className="rounded-md border border-white bg-white px-2.5 py-2 text-sm">
+                              <span className="font-medium text-gray-900">{r.customer_name}</span>
+                              <span className="ml-2 text-xs text-gray-500">
+                                {format(parseISO(r.start_time), "HH:mm")}–{format(parseISO(r.end_time), "HH:mm")}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop: Gantt */}
+                <div className="hidden overflow-x-auto md:block">
                   <div className="min-w-[600px] space-y-3">
                     <div className="flex items-center gap-2 text-xs text-gray-500">
                       <div className="w-24 shrink-0">時間</div>
@@ -519,7 +546,7 @@ export default function AdminDashboardPage() {
                     ))}
                   </div>
                 </div>
-                <p className="mt-2 text-xs text-gray-500">
+                <p className="mt-2 hidden text-xs text-gray-500 md:block">
                   橫軸為營業時間；長條為預約時段（不含已取消）
                 </p>
               </section>

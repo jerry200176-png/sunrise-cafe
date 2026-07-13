@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { toTaipei } from "./datetime";
+import { toTaipei, taipeiDateString, reservationDateKey } from "./datetime";
 
 /**
  * toTaipei 把 UTC 瞬間轉成台灣（UTC+8）牆上時間。
@@ -25,5 +25,19 @@ describe("toTaipei", () => {
     const d = toTaipei("2026-06-19T16:00:00Z");
     expect(d.getDate()).toBe(20);
     expect(d.getHours()).toBe(0);
+  });
+});
+
+describe("taipeiDateString", () => {
+  it("returns YYYY-MM-DD in Taipei", () => {
+    const s = taipeiDateString(new Date("2026-06-19T20:00:00Z"));
+    expect(s).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(s).toBe("2026-06-20");
+  });
+});
+
+describe("reservationDateKey", () => {
+  it("uses Taipei local date not UTC slice", () => {
+    expect(reservationDateKey("2026-06-19T20:00:00Z")).toBe("2026-06-20");
   });
 });

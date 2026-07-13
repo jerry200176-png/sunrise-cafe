@@ -84,3 +84,13 @@
   .rise { animation: none; opacity: 1; }
   .sun-breathe { animation: none; }
 }
+
+/* Mobile sticky bars — iOS safe area (DESIGN.md) */
+@layer utilities {
+  .sticky-bottom-safe {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+  }
+  .pb-sticky-form {
+    padding-bottom: calc(7rem + env(safe-area-inset-bottom, 0px));
+  }
+}

@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { format, parseISO } from "date-fns";
+import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
+import { formatReservationDateKey, reservationDateKey, toTaipei } from "@/lib/datetime";
 import { Calendar, Clock, DoorOpen, Pencil, Users, X, Send } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { isDepositRequired, isWeekendDate } from "@/lib/booking-utils";
@@ -442,7 +443,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   if (showDateGroup) {
     let lastDate = "";
     sortedList.forEach((r) => {
-      const dateKey = r.start_time.slice(0, 10);
+      const dateKey = reservationDateKey(r.start_time);
       if (dateKey !== lastDate) {
         displayList.push({ type: "date", date: dateKey });
         lastDate = dateKey;
@@ -522,13 +523,19 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
         <span className="text-xs text-gray-500">共 {sortedList.length} 筆</span>
       </div>
 
+      {query && sortedList.length === 0 && (
+        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          找不到符合「{searchTerm.trim()}」的訂位，請調整關鍵字或切換分頁。
+        </p>
+      )}
+
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
         <ul className="divide-y divide-gray-100">
           {displayList.map((row) => {
             if (row.type === "date") {
               return (
                 <li key={`date-${row.date}`} className="bg-gray-50 px-4 py-2 text-xs text-gray-500">
-                  {format(parseISO(row.date), "yyyy/MM/dd (EEE)", { locale: zhTW })}
+                  {formatReservationDateKey(row.date)}
                 </li>
               );
             }
@@ -576,11 +583,11 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                   )}
                   <span className="flex items-center gap-1">
                     <Calendar className="h-3.5 w-3.5 text-gray-400" />
-                    {format(parseISO(r.start_time), "yyyy/MM/dd (EEE)", { locale: zhTW })}
+                    {format(toTaipei(r.start_time), "yyyy/MM/dd (EEE)", { locale: zhTW })}
                   </span>
                   <span className="flex items-center gap-1">
                     <Clock className="h-3.5 w-3.5 text-gray-400" />
-                    {format(parseISO(r.start_time), "HH:mm")}–{format(parseISO(r.end_time), "HH:mm")}
+                    {format(toTaipei(r.start_time), "HH:mm")}–{format(toTaipei(r.end_time), "HH:mm")}
                   </span>
                   {r.total_price != null && (
                     <span className="font-medium text-gray-800">${Number(r.total_price)}</span>
