@@ -24,13 +24,19 @@
     "overall_health": 85,
     "github_score": 97
   },
-  "operational_mode": "ACTIVE_LOOP",
+  "operational_mode": "STANDBY",
   "deploy": {
-    "status": "deployed",
-    "reason": "sha_match",
-    "main_sha": "3bb16dc",
-    "prod_sha": "3bb16dc",
-    "checked_at": "2026-07-12T23:00:00+00:00"
+    "status": "blocked",
+    "reason": "sha_mismatch",
+    "main_sha": "dc00592",
+    "prod_sha": "2248d24",
+    "main_full": "dc00592787ea729649016992a3d3ec9ae14fd697",
+    "prod_full": "2248d240efc62e249b4e6001e961384657e2a9c5",
+    "checked_at": "2026-07-13T15:22:42+0800"
   },
-  "next_candidates": ["OPS-004b", "payment-review-images", "ADM-002e-admin-page-dialogs"]
+  "next_candidates": [
+    "OPS-004b",
+    "payment-review-images",
+    "ADM-002e-admin-page-dialogs"
+  ]
 }

@@ -4,7 +4,8 @@
 **前置：** 後台已登入、客人 Bot 可加好友、群組 Bot 在店內群組內。  
 **程式對照：** `src/lib/line-cards.ts` · `src/lib/line-flex.ts`
 
-> **部署提醒：** 若 `/api/version` 的 `commit` 與 `main` 不一致，客人端可能仍為舊版純文字；請先等 Vercel quota 重置或 Founder 手動 `vercel deploy --prod` 後再驗收 #178 卡片。
+> **2026-07-13：** Production 已在 `2248d24`（#178 Flex）。**可立即跑店內驗收** — 見 [`OPS_LINE_CARD_VALIDATION.md`](./OPS_LINE_CARD_VALIDATION.md)。  
+> 若 `/api/version` 落後 `main`，僅影響後台漏斗 UI（#181）與文件；**不影響**已上線的 Flex 卡片。
 
 ---
 
@@ -66,7 +67,7 @@
 ## 判定
 
 - **PASS：** G1–G4 + S1–S3 皆為 Flex，CTA 可開啟官網／查詢頁。
-- **FAIL（常見）：** production SHA 落後 `main` → 先部署再測；或 `LINE_CUSTOMER_ACCESS_TOKEN` 未更新。
+- **FAIL（常見）：** `LINE_CUSTOMER_ACCESS_TOKEN` 未更新；或 prod SHA 低於 `2248d24`（無 Flex）。
 - **記錄：** 結果可貼在週會或 `OUTCOME_LOG` 備註，不取代 `npm run test:e2e`（mock 流程）。
 
 ---

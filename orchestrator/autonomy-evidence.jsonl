@@ -22,3 +22,4 @@
 {"ts":"2026-07-11T18:58:04+0800","phase":"task_selected","run_id":"29150133864","sha":"73d33f4","data":{"task_id":"doc-drift-fix","deploy_mode":"STANDBY"}}
 {"ts":"2026-07-11T18:58:10+0800","phase":"executed","run_id":"29150133864","sha":"73d33f4","data":{"task_id":"doc-drift-fix"}}
 {"ts":"2026-07-11T18:58:20+0800","phase":"validated","run_id":"29150133864","sha":"73d33f4","data":{"tests":"pass"}}
+{"ts":"2026-07-13T15:22:42+0800","phase":"deploy_skip","run_id":"local","sha":"dc00592","data":{"reason":"VERCEL_TOKEN unset — Founder: vercel deploy --prod"}}

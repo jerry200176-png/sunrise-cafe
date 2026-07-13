@@ -1,7 +1,7 @@
 # Implementation Truth — Single Source of Technical State
 
 **Owner:** CTO Operating System v2  
-**Updated:** 2026-07-13 (Round 26 — employee dispatch: deploy gate STANDBY, LINE validation SOP)  
+**Updated:** 2026-07-13 (Round 27 — #181 merged; #178 Flex live on prod `2248d24`)  
 **Rule:** If this doc disagrees with other docs, **this doc wins**. Verify against `main` branch code.  
 **Daily ops:** [`EXECUTIVE_DASHBOARD.md`](./EXECUTIVE_DASHBOARD.md) · snapshot: `npm run cto:snapshot`
 
@@ -13,8 +13,8 @@
 |------|-------|
 | URL | https://sunrise-cafe-six.vercel.app |
 | Branch | `main` |
-| `main` SHA | `a52f8d4` |
-| Production SHA | `f4830c9` (parity 🟡 — Vercel Hobby **daily deploy rate limit**; GHA deploy job `deploy_rate_limited` 2026-07-13) |
+| `main` SHA | `dc00592` |
+| Production SHA | `2248d24` (parity 🟡 — 3 commits behind; **#178 Flex LIVE** on prod; #181 funnel UI awaits deploy) |
 | Release tag | `v2.2.0` |
 | Verify | `GET /api/version` → `commit` SHA |
 
@@ -40,6 +40,7 @@
 | Playwright E2E (mocked flows) | ✅ | 23 pass · `e2e/qa-audit.spec.ts` + booking/payment |
 | LINE Flex unified cards | ✅ | `line-cards.ts` + `flexBubble()` (#178) |
 | Engineering task wall API | ✅ | `/api/admin/orchestrator` + `cto:task-wall` (#177) |
+| OPS-004b funnel dashboard | ✅ | Executive 轉換漏斗 section (#181; prod after deploy) |
 | Anti-slop design audit | ✅ | `npm run design:audit` + `HALLMARK_ADOPTION.md` |
 | QA multi-device fixes | ✅ | #176 — safe-area, Taipei dates, admin mobile |
 | LINE bind phone verification | ✅ | `line-bind.ts` + webhook/OAuth |

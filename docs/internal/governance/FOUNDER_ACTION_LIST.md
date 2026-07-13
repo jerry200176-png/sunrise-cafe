@@ -1,8 +1,20 @@
 # Founder Action List
 
-**Updated:** 2026-07-13 15:05 CST (employee dispatch — deploy verify)  
-**Gate:** PASS · Overall **~85** / 100  
+**Updated:** 2026-07-13 15:25 CST (Round 27 — boss execution: #181 merged, Flex live on prod)  
+**Gate:** PASS · Overall **~88** / 100  
 **SSOT:** [`FOUNDER_PERMISSIONS.md`](./FOUNDER_PERMISSIONS.md)
+
+---
+
+## 今日 P0（Founder／店長 — 工程無法代做）
+
+| # | 動作 | 時間 | 文件 |
+|---|------|------|------|
+| 1 | **手機跑 LINE Flex 驗收**（#178 已在 prod `2248d24`） | 15 min | [`OPS_LINE_CARD_VALIDATION.md`](../../OPS_LINE_CARD_VALIDATION.md) |
+| 2 | **店長會** — 未付訂金當日追蹤 | 5 min | [`OPS_PAYMENT_SOP.md`](../../OPS_PAYMENT_SOP.md) |
+| 3 | 清 `/admin/payments` 待審（維持 0） | 2 min | — |
+
+工程已完成：#180 驗收 SOP、#181 漏斗儀表板（等 deploy 上線後可在 `/admin/executive` 看轉換率）。
 
 ---
 
@@ -10,21 +22,22 @@
 
 | 項目 | 現況 | 解法 |
 |------|------|------|
-| Production SHA | 🟡 `main` `a52f8d4` ≠ prod `f4830c9` | Vercel Hobby 每日 deploy 額度（GHA 已觸發仍 `deploy_rate_limited`）；quota 重置後重跑 workflow 或手動 `vercel deploy --prod` |
-| OUTCOME_LOG | ✅ **已量測** 2026-07-12（訂金率 82.4%） | 每週 `npm run cto:outcomes` |
+| Production SHA | 🟡 `main` `dc00592` ≠ prod `2248d24`（差 3 commits，**客戶功能已含 #178 Flex**） | Vercel quota 重置後 deploy；或 `vercel deploy --prod` |
+| 訂金率 | 🟡 **82.4%** < 85% | **店務 SOP** 優先；deploy 後看漏斗 UI 再決定是否改 UX |
+| OUTCOME_LOG 自動同步 | 🟡 Agent 本地無 `CTO_OUTCOME_SECRET` | Vercel + GitHub Secrets 設同一組 → `npm run cto:outcomes` |
 | DB migrations | ✅ 核心已套用 | 選用：`line_group_id` |
 | Gmail 自動掃信 | 🟡 Secrets 未設（可選） | 見下方 **Gmail 兩步設定** |
-| Open PRs / Issues | ✅ **0 PR** · **1 issue** (#99) | — |
+| Open PRs / Issues | ✅ **0 PR** · **1 issue** (#99 deferred) | — |
 
 ## GitHub 狀態（本輪）
 
 | 指標 | 值 |
 |------|---:|
 | Open PRs | **0** |
-| Open issues | **1** (#99) |
-| `main` SHA | `a52f8d4` |
-| cursor/* branches | 清理 merged remote（見 `GITHUB_TRIAGE.md`） |
-| Bot can merge PRs | yes（agent PR tool） |
+| Open issues | **1** (#99 — defer) |
+| `main` SHA | `dc00592` (#181 funnel UI) |
+| Production SHA | `2248d24` (#178 Flex **已上線**) |
+| Merged this session | #180, #181 |
 
 ---
 
@@ -63,6 +76,19 @@ Cursor 的 Secrets **不在** GitHub、也不在 Vercel，要在 **cursor.com �
 設好後回對話說「掃 Gmail」。
 
 詳見 [`ENV.md`](../../ENV.md) § Gmail。
+
+---
+
+## CTO_OUTCOME_SECRET（KPI 自動同步 — 建議 5 分鐘）
+
+讓 `npm run cto:outcomes` 與 Agent 能自動寫入 `OUTCOME_LOG.md`。
+
+1. 產生隨機 32+ 字元字串  
+2. **Vercel** → Project → Settings → Environment Variables → `CTO_OUTCOME_SECRET`（Production）  
+3. **GitHub** → repo → Settings → Secrets → Actions → 同名 secret  
+4. Redeploy 後本地或 CI：`npm run cto:outcomes`
+
+詳見 [`ENV.md`](../../ENV.md) · [`FOUNDER_PERMISSIONS.md`](./FOUNDER_PERMISSIONS.md) § 最快路徑。
 
 ---
 
