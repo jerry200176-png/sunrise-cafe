@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { ArrowLeft, Plus, Pencil, Trash2, MapPin, LogOut, ChefHat, UtensilsCrossed, QrCode, Printer, Building2, LayoutGrid, ClipboardList, CalendarDays, CalendarX, BarChart2, Star, DollarSign, Activity, Clock } from "lucide-react";
@@ -8,6 +8,8 @@ import type { Branch, Room, RentalNoteSection } from "@/types";
 import { BranchSwitcher } from "@/components/BranchSwitcher";
 import { ReservationList } from "@/components/ReservationList";
 import { AddReservationForm } from "@/components/AddReservationForm";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 
 export default function AdminBranchesRoomsPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -61,6 +63,20 @@ export default function AdminBranchesRoomsPage() {
   const [keywordInput, setKeywordInput] = useState("");
   const [keywordsSaving, setKeywordsSaving] = useState(false);
   const [keywordsSaved, setKeywordsSaved] = useState(false);
+
+  const [confirmDeleteBranchId, setConfirmDeleteBranchId] = useState<string | null>(null);
+  const [confirmDeleteRoomId, setConfirmDeleteRoomId] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const toastId = useRef(0);
+
+  const showToast = useCallback((message: string, variant: ToastVariant = "info") => {
+    const id = ++toastId.current;
+    setToasts((prev) => [...prev, { id, message, variant }]);
+  }, []);
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
 
   const loadBranches = async () => {
     const res = await fetch("/api/branches");
@@ -204,14 +220,15 @@ export default function AdminBranchesRoomsPage() {
   };
 
   const deleteBranch = async (id: string) => {
-    if (!confirm("確定要刪除此分店嗎？底下的包廂與預約也會一併刪除。")) return;
     try {
       const res = await fetch(`/api/branches/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error((await res.json()).error ?? "刪除失敗");
       if (selectedBranchId === id) setSelectedBranchId(null);
       loadBranches();
+      showToast("已刪除分店", "success");
     } catch (err) {
       setError(err instanceof Error ? err.message : "刪除失敗");
+      showToast(err instanceof Error ? err.message : "刪除失敗", "error");
     }
   };
 
@@ -273,13 +290,14 @@ export default function AdminBranchesRoomsPage() {
   };
 
   const deleteRoom = async (id: string) => {
-    if (!confirm("確定要刪除此包廂嗎？")) return;
     try {
       const res = await fetch(`/api/rooms/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error((await res.json()).error ?? "刪除失敗");
       loadRooms();
+      showToast("已刪除包廂", "success");
     } catch (err) {
       setError(err instanceof Error ? err.message : "刪除失敗");
+      showToast(err instanceof Error ? err.message : "刪除失敗", "error");
     }
   };
 
@@ -541,7 +559,7 @@ export default function AdminBranchesRoomsPage() {
                       className="rounded-lg border border-stone-200 p-2 text-stone-500 hover:bg-stone-50 hover:text-stone-700 transition-colors">
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
-                    <button type="button" onClick={() => deleteBranch(b.id)} title="刪除"
+                    <button type="button" onClick={() => setConfirmDeleteBranchId(b.id)} title="刪除"
                       className="rounded-lg border border-red-100 p-2 text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -609,7 +627,7 @@ export default function AdminBranchesRoomsPage() {
                             className="rounded border border-stone-200 p-1.5 text-stone-500 hover:bg-stone-50 transition-colors">
                             <Pencil className="h-3 w-3" />
                           </button>
-                          <button type="button" onClick={() => deleteRoom(r.id)} title="刪除"
+                          <button type="button" onClick={() => setConfirmDeleteRoomId(r.id)} title="刪除"
                             className="rounded border border-red-100 p-1.5 text-red-400 hover:bg-red-50 transition-colors">
                             <Trash2 className="h-3 w-3" />
                           </button>
@@ -865,7 +883,14 @@ export default function AdminBranchesRoomsPage() {
         rooms={roomsForReservations}
         open={addFormOpen}
         onClose={() => setAddFormOpen(false)}
-        onSuccess={() => setAddFormOpen(false)}
+        onSuccess={(result) => {
+          setAddFormOpen(false);
+          if (result?.created != null && result.created > 0) {
+            showToast(`成功建立 ${result.created} 筆預約！`, "success");
+          } else {
+            showToast("預約建立成功", "success");
+          }
+        }}
       />
 
       {branchFormOpen && (
@@ -970,6 +995,33 @@ export default function AdminBranchesRoomsPage() {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={confirmDeleteBranchId !== null}
+        title="刪除分店"
+        message="確定要刪除此分店嗎？底下的包廂與預約也會一併刪除。"
+        confirmLabel="刪除"
+        variant="danger"
+        onConfirm={() => {
+          const id = confirmDeleteBranchId;
+          setConfirmDeleteBranchId(null);
+          if (id) void deleteBranch(id);
+        }}
+        onCancel={() => setConfirmDeleteBranchId(null)}
+      />
+      <ConfirmDialog
+        open={confirmDeleteRoomId !== null}
+        title="刪除包廂"
+        message="確定要刪除此包廂嗎？"
+        confirmLabel="刪除"
+        variant="danger"
+        onConfirm={() => {
+          const id = confirmDeleteRoomId;
+          setConfirmDeleteRoomId(null);
+          if (id) void deleteRoom(id);
+        }}
+        onCancel={() => setConfirmDeleteRoomId(null)}
+      />
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </main>
   );
 }
