@@ -18,7 +18,8 @@ function generateBookingCode(): string {
   return code;
 }
 
-const supabaseAdmin = () =>
+/** Service-role Supabase client (server-only). Exported for payment/webhook routes. */
+export const supabaseAdmin = () =>
   createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
