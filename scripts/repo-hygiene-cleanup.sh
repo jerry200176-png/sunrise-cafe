@@ -11,9 +11,11 @@ echo "## Repository branch cleanup"
 git fetch origin --prune -q
 
 STALE=()
+CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')"
 while IFS= read -r branch; do
   [[ -z "$branch" ]] && continue
   [[ "$branch" == "main" ]] && continue
+  [[ -n "$CURRENT_BRANCH" && "$branch" == "$CURRENT_BRANCH" ]] && continue
   if [[ "$branch" == cursor/auto-* ]] || [[ "$branch" == cursor/setup-dev-environment-* ]]; then
     STALE+=("$branch")
   fi
