@@ -4,9 +4,12 @@ import { fetchProductionVersion } from "@/lib/production-version";
 import { notifyDeployMismatch } from "@/lib/deploy-alert";
 import { errorToDetail } from "@/lib/cron-alert";
 import { runCronJob } from "@/lib/job-runs";
+import { runBootstrapMigrations } from "@/lib/bootstrap-migrations";
 
 async function handleRun() {
   try {
+    await runBootstrapMigrations();
+
     const [mainSha, prod] = await Promise.all([fetchMainCommitSha(), fetchProductionVersion()]);
 
     if (!mainSha) {
