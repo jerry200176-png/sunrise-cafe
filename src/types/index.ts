@@ -158,3 +158,49 @@ export interface OrderItem {
   selected_options: SelectedOption[] | null;
   special_notes: string | null;
 }
+
+// ── Stripe 支付模組 ──────────────────────────────────────────
+
+export type PaymentStatus = "pending" | "succeeded" | "failed" | "refunded";
+
+export interface PaymentIntentRecord {
+  id: string;
+  stripe_pi_id: string;
+  reservation_id: string;
+  branch_id: string;
+  amount: number;
+  currency: string;
+  status: PaymentStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateIntentRequest {
+  reservationId: string;
+  branchId: string;
+  amount: number;
+  currency?: string;
+}
+
+export interface CreateIntentResponse {
+  clientSecret: string;
+  paymentIntentId: string;
+  amount: number;
+}
+
+export interface ConfirmDepositRequest {
+  paymentIntentId: string;
+  reservationId: string;
+}
+
+export interface ConfirmDepositResponse {
+  status: string;
+  depositStatus: string;
+}
+
+/** 分店訂金設定 */
+export interface BranchDepositConfig {
+  isDepositRequired: boolean;
+  stripeEnabled: boolean;
+  defaultDepositAmount: number;
+}
