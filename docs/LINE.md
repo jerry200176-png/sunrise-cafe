@@ -71,6 +71,8 @@
 
 Webhook 客人回覆使用 `replyLineFlexMessage`（`src/lib/line.ts`）。
 
+**店內驗收：** 每次 production 部署後跑 [`OPS_LINE_CARD_VALIDATION.md`](./OPS_LINE_CARD_VALIDATION.md)（約 15 分鐘）。
+
 ---
 
 ## 每日自動提醒

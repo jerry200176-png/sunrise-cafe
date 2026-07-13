@@ -1,6 +1,6 @@
 # Founder Action List
 
-**Updated:** 2026-07-13 06:50 CST  
+**Updated:** 2026-07-13 15:05 CST (employee dispatch — deploy verify)  
 **Gate:** PASS · Overall **~85** / 100  
 **SSOT:** [`FOUNDER_PERMISSIONS.md`](./FOUNDER_PERMISSIONS.md)
 
@@ -10,7 +10,7 @@
 
 | 項目 | 現況 | 解法 |
 |------|------|------|
-| Production SHA | 🟡 `main` `2248d24` ≠ prod `f4830c9` | Vercel Hobby 每日 deploy 額度；quota 重置後自動 deploy 或手動 `vercel --prod` |
+| Production SHA | 🟡 `main` `a52f8d4` ≠ prod `f4830c9` | Vercel Hobby 每日 deploy 額度（GHA 已觸發仍 `deploy_rate_limited`）；quota 重置後重跑 workflow 或手動 `vercel deploy --prod` |
 | OUTCOME_LOG | ✅ **已量測** 2026-07-12（訂金率 82.4%） | 每週 `npm run cto:outcomes` |
 | DB migrations | ✅ 核心已套用 | 選用：`line_group_id` |
 | Gmail 自動掃信 | 🟡 Secrets 未設（可選） | 見下方 **Gmail 兩步設定** |
@@ -22,7 +22,7 @@
 |------|---:|
 | Open PRs | **0** |
 | Open issues | **1** (#99) |
-| `main` SHA | `2248d24` |
+| `main` SHA | `a52f8d4` |
 | cursor/* branches | 清理 merged remote（見 `GITHUB_TRIAGE.md`） |
 | Bot can merge PRs | yes（agent PR tool） |
 

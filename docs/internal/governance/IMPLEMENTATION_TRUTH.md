@@ -1,7 +1,7 @@
 # Implementation Truth — Single Source of Technical State
 
 **Owner:** CTO Operating System v2  
-**Updated:** 2026-07-13 (Round 26 — #177/#178 merged; GitHub triage sync)  
+**Updated:** 2026-07-13 (Round 26 — employee dispatch: deploy gate STANDBY, LINE validation SOP)  
 **Rule:** If this doc disagrees with other docs, **this doc wins**. Verify against `main` branch code.  
 **Daily ops:** [`EXECUTIVE_DASHBOARD.md`](./EXECUTIVE_DASHBOARD.md) · snapshot: `npm run cto:snapshot`
 
@@ -13,8 +13,8 @@
 |------|-------|
 | URL | https://sunrise-cafe-six.vercel.app |
 | Branch | `main` |
-| `main` SHA | `2248d24` |
-| Production SHA | `f4830c9` (parity 🟡 — Vercel Hobby deploy quota; `main` ahead) |
+| `main` SHA | `a52f8d4` |
+| Production SHA | `f4830c9` (parity 🟡 — Vercel Hobby **daily deploy rate limit**; GHA deploy job `deploy_rate_limited` 2026-07-13) |
 | Release tag | `v2.2.0` |
 | Verify | `GET /api/version` → `commit` SHA |
 
