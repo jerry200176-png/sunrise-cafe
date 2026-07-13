@@ -1,6 +1,6 @@
 # Engineering Backlog (Continuous Product Improvement)
 
-**Updated:** 2026-07-12  
+**Updated:** 2026-07-13  
 **Mode:** ROI-ranked by real user value — re-sorted after each delivery.  
 **Loop:** [`PRODUCT_IMPROVEMENT_LOOP.md`](./PRODUCT_IMPROVEMENT_LOOP.md) · [`HYPOTHESES.md`](./HYPOTHESES.md) · Metrics: [`NORTH_STAR_METRICS.md`](./NORTH_STAR_METRICS.md)
 
@@ -17,7 +17,9 @@
 
 | ID | Item | ROI rationale | Status |
 |----|------|---------------|--------|
-| ADM-002 | ReservationList: replace alert/confirm/prompt | Daily ops friction; mobile confirm broken | **Done** (PR — toast + prompt dialog) |
+| ADM-002 | ReservationList: replace alert/confirm/prompt | Daily ops friction; mobile confirm broken | **Done** (#173) |
+| ADM-002e | Admin pages: alert/confirm → toast + ConfirmDialog | Mobile admin UX | **Done** (#173) |
+| ADM-005b | Dashboard bundle API (3→1 fetch) | Morning latency | **Done** (#174) |
 
 ## P1 — Measurement & Guest
 
@@ -27,13 +29,13 @@
 | CX-006 | Waitlist confirm page i18n | EN/JA waitlist flow completion |
 | CX-006 | Waitlist confirm page i18n | EN/JA waitlist flow completion | **Done** (PR) |
 | CX-007 | Payment CTA sticky bar on mobile query | `payment_completion_rate` | **Done** (merged #147) |
-| CX-008 | Booking form a11y audit (focus order, labels) | Permanent a11y lane |
+| CX-008 | Booking form a11y audit (focus order, labels) | Permanent a11y lane | **Done** (PR — step focus + landmarks) |
 
 ## P2 — Staff Efficiency
 
 | ID | Item | Why |
 |----|------|-----|
-| ADM-005 | Dashboard trend: single API call (7→1) | Morning latency |
+| ADM-005 | Dashboard trend: single API call (7→1) | Morning latency | **Done** (#174) |
 
 ## P3 — Reliability / Observability
 

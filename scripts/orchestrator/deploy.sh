@@ -22,8 +22,18 @@ fi
 MAIN_SHA="$(git rev-parse HEAD)"
 echo "Deploying main @ $MAIN_SHA to Vercel production..."
 
-if npx vercel deploy --prod --yes --token "$VERCEL_TOKEN" 2>&1; then
+set +e
+DEPLOY_OUTPUT="$(npx vercel deploy --prod --yes --token "$VERCEL_TOKEN" 2>&1)"
+DEPLOY_EXIT=$?
+set -e
+echo "$DEPLOY_OUTPUT"
+
+if [ "$DEPLOY_EXIT" -eq 0 ]; then
   bash "$EVIDENCE" deploy_triggered "{\"sha\":\"$(git rev-parse --short HEAD)\"}"
+elif echo "$DEPLOY_OUTPUT" | grep -qiE 'api-deployments-free-per-day|rate.?limit|Resource is limited'; then
+  bash "$EVIDENCE" deploy_rate_limited '{"reason":"vercel daily deploy quota"}'
+  echo "::warning::Vercel deploy rate limited — production will catch up when quota resets"
+  exit 0
 else
   bash "$EVIDENCE" deploy_fail '{"reason":"vercel deploy command failed"}'
   exit 2
