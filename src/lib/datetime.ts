@@ -15,3 +15,35 @@
 export function toTaipei(s: string): Date {
   return new Date(new Date(s).toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
 }
+
+/** Calendar date in Asia/Taipei as YYYY-MM-DD (for date inputs min/max). */
+export function taipeiDateString(d = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(d);
+}
+
+/** Taipei calendar date + N months (for booking max date). */
+export function taipeiDatePlusMonths(months: number, from = new Date()): string {
+  const tw = toTaipei(from.toISOString());
+  tw.setMonth(tw.getMonth() + months);
+  return taipeiDateString(tw);
+}
+
+/** Group/display key for a reservation start_time in Taipei local date. */
+export function reservationDateKey(isoStartTime: string): string {
+  const tw = toTaipei(isoStartTime);
+  const y = tw.getFullYear();
+  const m = String(tw.getMonth() + 1).padStart(2, "0");
+  const day = String(tw.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Format YYYY-MM-DD date key for display (weekday in zh-TW). */
+export function formatReservationDateKey(dateKey: string): string {
+  const tw = toTaipei(`${dateKey}T12:00:00+08:00`);
+  return tw.toLocaleDateString("zh-TW", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+  });
+}

@@ -8,6 +8,7 @@ import type { Branch, Room, RentalNoteSection } from "@/types";
 import { BranchSwitcher } from "@/components/BranchSwitcher";
 import { ReservationList } from "@/components/ReservationList";
 import { AddReservationForm } from "@/components/AddReservationForm";
+import { AdminModal } from "@/components/AdminModal";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 
@@ -768,6 +769,29 @@ export default function AdminBranchesRoomsPage() {
             </button>
           </div>
           <div className="p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2.5">
+              <p className="text-sm text-amber-900">
+                設定分店：
+                <span className="ml-1 font-semibold">
+                  {reservationBranchId
+                    ? branches.find((b) => b.id === reservationBranchId)?.name ?? "—"
+                    : "請先選擇分店"}
+                </span>
+              </p>
+              <BranchSwitcher
+                branches={branches}
+                currentBranchId={reservationBranchId}
+                onBranchChange={(id) => {
+                  setReservationBranchId(id);
+                  fetch("/api/settings", {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ current_branch_id: id }),
+                  }).catch(() => {});
+                }}
+                disabled={loading || branches.length === 0}
+              />
+            </div>
             <div className="flex items-center gap-2">
               <input
                 type="date"
@@ -893,14 +917,13 @@ export default function AdminBranchesRoomsPage() {
         }}
       />
 
-      {branchFormOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
-            <div className="mb-4 flex items-center gap-2">
-              <Building2 className="h-4 w-4 text-blue-500" />
-              <h3 className="text-base font-semibold text-stone-800">{editingBranch ? "編輯分店" : "新增分店"}</h3>
-            </div>
-            <form onSubmit={submitBranch} className="space-y-3">
+      <AdminModal
+        open={branchFormOpen}
+        title={editingBranch ? "編輯分店" : "新增分店"}
+        onClose={() => setBranchFormOpen(false)}
+        icon={<Building2 className="h-4 w-4 text-blue-500" />}
+      >
+        <form onSubmit={submitBranch} className="space-y-3">
               <div>
                 <label className="block text-xs font-medium text-stone-500 mb-1.5 uppercase tracking-wide">名稱 *</label>
                 <input type="text" required value={branchName} onChange={(e) => setBranchName(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" placeholder="例：嘉義民雄店" />
@@ -947,18 +970,15 @@ export default function AdminBranchesRoomsPage() {
                 <button type="submit" className="flex-1 rounded-xl bg-amber-600 py-2.5 text-sm font-medium text-white hover:bg-amber-700 transition-colors">儲存</button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </AdminModal>
 
-      {roomFormOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
-            <div className="mb-4 flex items-center gap-2">
-              <LayoutGrid className="h-4 w-4 text-amber-500" />
-              <h3 className="text-base font-semibold text-stone-800">{editingRoom ? "編輯包廂" : "新增包廂"}</h3>
-            </div>
-            <form onSubmit={submitRoom} className="space-y-3">
+      <AdminModal
+        open={roomFormOpen}
+        title={editingRoom ? "編輯包廂" : "新增包廂"}
+        onClose={() => setRoomFormOpen(false)}
+        icon={<LayoutGrid className="h-4 w-4 text-amber-500" />}
+      >
+        <form onSubmit={submitRoom} className="space-y-3">
               <div>
                 <label className="block text-xs font-medium text-stone-500 mb-1.5 uppercase tracking-wide">名稱 *</label>
                 <input type="text" required value={roomName} onChange={(e) => setRoomName(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" placeholder="例：A包廂、B會議室" />
@@ -992,9 +1012,7 @@ export default function AdminBranchesRoomsPage() {
                 <button type="submit" className="flex-1 rounded-xl bg-amber-600 py-2.5 text-sm font-medium text-white hover:bg-amber-700 transition-colors">儲存</button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </AdminModal>
       <ConfirmDialog
         open={confirmDeleteBranchId !== null}
         title="刪除分店"

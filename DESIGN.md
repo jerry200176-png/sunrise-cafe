@@ -71,6 +71,7 @@
 
 - ✅ 襯線標題、寬字距品牌字、暖色光暈、慷慨留白。
 - ✅ 焦糖作為唯一鮮明 accent，其餘維持紙與墨。
+- ✅ 觸控目標 ≥44px；底部 sticky 使用 `sticky-bottom-safe`（iOS safe area）。
 - ❌ 冷色／藍紫漸層／純黑陰影／高彩度。
 - ❌ 用 Inter/Roboto/系統字當標題；標題請用襯線。
 

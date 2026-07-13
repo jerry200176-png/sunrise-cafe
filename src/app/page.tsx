@@ -39,12 +39,12 @@ export default function Home() {
               style={{ background: "radial-gradient(circle at 50% 60%, var(--amber-glow) 0%, rgba(240,194,122,0) 70%)" }}
             />
             <div className="relative overflow-hidden rounded-[1.75rem] bg-white ring-1 ring-ink/5 shadow-[0_16px_36px_-14px_rgba(157,101,25,0.4)]">
-              <Image src="/logo.webp" alt="昇咖啡" width={108} height={108} priority className="block" />
+              <Image src="/logo.webp" alt={t("home.brandName")} width={108} height={108} priority className="block" />
             </div>
           </div>
 
           <h1 className="rise font-serif text-[2.75rem] font-light leading-none tracking-[0.3em] text-ink" style={{ animationDelay: "120ms", paddingLeft: "0.3em" }}>
-            昇咖啡
+            {t("home.brandName")}
           </h1>
 
           <div className="rise my-5 flex items-center gap-3" style={{ animationDelay: "220ms" }}>
@@ -96,7 +96,7 @@ export default function Home() {
         {/* ───── 特色 ───── */}
         <section className="rise mt-14" style={{ animationDelay: "640ms" }}>
           <div className="mb-5 flex items-center gap-3">
-            <span className="font-display text-[0.65rem] uppercase tracking-[0.4em] text-ink-faint">What we offer</span>
+            <span className="font-display text-[0.65rem] uppercase tracking-[0.4em] text-ink-faint">{t("home.sectionLabel")}</span>
             <span className="h-px flex-1" style={{ background: "var(--line)" }} />
           </div>
           <ul className="grid grid-cols-3 gap-3">
@@ -113,7 +113,7 @@ export default function Home() {
         {/* ───── Footer ───── */}
         <footer className="rise mt-auto pt-16 text-center" style={{ animationDelay: "760ms" }}>
           <p className="font-display text-[0.6rem] uppercase tracking-[0.5em] text-ink-faint/70">
-            Sunrise Café · since 2024
+            {t("home.footer")}
           </p>
         </footer>
       </div>

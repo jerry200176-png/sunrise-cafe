@@ -9,6 +9,7 @@ import { getDurationOptions, getDepositAmount, isWeekendDate } from "@/lib/booki
 import { normalizePhone } from "@/lib/phone-utils";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { taipeiDateString, taipeiDatePlusMonths } from "@/lib/datetime";
 
 type Step = "branch" | "room" | "date" | "slot" | "form";
 
@@ -440,12 +441,8 @@ export default function BookPage() {
     focusStepPanel();
   };
 
-  const today = new Date().toISOString().slice(0, 10);
-  const maxDate = (() => {
-    const d = new Date();
-    d.setMonth(d.getMonth() + 1);
-    return d.toISOString().slice(0, 10);
-  })();
+  const today = taipeiDateString();
+  const maxDate = taipeiDatePlusMonths(1);
   const summary = getSelectedSummary(); // 取得當前選擇摘要
 
   return (
@@ -510,7 +507,7 @@ export default function BookPage() {
         tabIndex={-1}
         role="region"
         aria-label={`${t("book.headerTitle")} — ${t(`book.steps.${step}` as "book.steps.branch")}`}
-        className={`mx-auto max-w-lg px-4 py-6 outline-none ${step === "form" ? "pb-28" : ""}`}
+        className={`mx-auto max-w-lg px-4 py-6 outline-none ${step === "form" ? "pb-sticky-form" : ""}`}
       >
         {error && (
           <div
@@ -1078,10 +1075,15 @@ export default function BookPage() {
 
       {step === "form" && (
         <div
-          className="fixed inset-x-0 bottom-0 z-20 border-t border-amber-200 bg-white/95 px-4 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.08)] backdrop-blur-sm"
+          className="fixed inset-x-0 bottom-0 z-20 border-t border-amber-200 bg-white/95 px-4 pt-3 sticky-bottom-safe shadow-[0_-4px_12px_rgba(0,0,0,0.08)] backdrop-blur-sm"
           role="region"
           aria-label={t("book.form.submit")}
         >
+          {rentalNotes.length > 0 && !agreeToTerms && !submitting && (
+            <p className="mb-2 text-center text-xs font-medium text-amber-800" role="status">
+              {t("book.form.agreeHintSticky")}
+            </p>
+          )}
           {getTotalPrice() != null && (
             <p className="mb-2 text-center text-xs font-medium text-amber-900">
               {t("book.form.stickyDeposit", {
