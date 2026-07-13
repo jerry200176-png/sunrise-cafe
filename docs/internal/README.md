@@ -37,6 +37,7 @@
 | Doc | Purpose |
 |-----|---------|
 | [ORCHESTRATOR.md](./automation/ORCHESTRATOR.md) | Agent orchestrator |
+| [AI_COMPANY_ADOPTION.md](./automation/AI_COMPANY_ADOPTION.md) | AI-company pattern ports (task wall, failure alchemy) |
 | [CTO_OS_V2.md](./automation/CTO_OS_V2.md) | Company operating system |
 | [AUTONOMY_STATUS.md](./automation/AUTONOMY_STATUS.md) | Loop status |
 
