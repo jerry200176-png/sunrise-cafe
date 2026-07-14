@@ -53,7 +53,12 @@ export default function RootLayout({
   return (
     <html lang="zh-TW" className={`${fraunces.variable} ${notoSerifTC.variable} ${notoSansTC.variable}`}>
       <body className="antialiased">
-        <LocaleProvider>{children}</LocaleProvider>
+        <a href="#main-content" className="skip-link">
+          跳到主要內容
+        </a>
+        <LocaleProvider>
+          <div id="main-content">{children}</div>
+        </LocaleProvider>
       </body>
     </html>
   );
