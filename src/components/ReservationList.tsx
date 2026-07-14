@@ -714,7 +714,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                         }}
                         className="rounded-lg border border-green-300 bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 hover:bg-green-100 disabled:opacity-50"
                       >
-                        {sendingLinePaymentTo === r.id ? "傳送中…" : "💬 傳 LINE 給客人"}
+                        {sendingLinePaymentTo === r.id ? "傳送中…" : "💬 重送 LINE 繳費"}
                       </button>
                     )}
                   </div>
@@ -778,7 +778,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                         }}
                         className="rounded-lg border border-green-300 bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 hover:bg-green-100 disabled:opacity-50"
                       >
-                        {sendingLinePaymentTo === r.id ? "傳送中…" : "💬 傳 LINE 給客人"}
+                        {sendingLinePaymentTo === r.id ? "傳送中…" : "💬 重送 LINE 繳費"}
                       </button>
                     )}
                     {r.status !== "cancelled" && (

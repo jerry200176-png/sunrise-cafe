@@ -29,6 +29,7 @@ import {
   buildGuestBindErrorFlex,
   buildGuestPaymentPendingFlex,
 } from "@/lib/line-cards";
+import { sendDepositPaymentRequest } from "@/lib/payment-request-line";
 
 async function fetchPaymentKeywords(): Promise<string[]> {
   try {
@@ -128,12 +129,20 @@ async function handleBookingCode(userId: string, rawText: string, replyToken?: s
   if (updateErr) console.error("[webhook] update line_user_id failed:", updateErr);
   else console.log(`[webhook] bound line_user_id for phone ${reservation.phone}`);
 
-  const confirmed = reservation.status === "confirmed";
+  // If already confirmed with price, deliver the payment Flex now (once)
+  const payment = await sendDepositPaymentRequest(reservation.id, { force: false });
+  const paymentSentNow = payment.result === "sent";
+  const confirmed =
+    reservation.status === "confirmed" || paymentSentNow || payment.result === "skipped_already_sent";
+
   if (replyToken) {
     await replyFlex(
       replyToken,
       confirmed ? "LINE 已連結" : "訂位代號已收到",
-      buildGuestBindSuccessFlex(confirmed)
+      buildGuestBindSuccessFlex({
+        confirmed,
+        paymentSent: paymentSentNow,
+      })
     );
   }
 }
