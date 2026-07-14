@@ -131,7 +131,10 @@ export async function fetchMigrationDrift(): Promise<MigrationDriftReport> {
   }
 
   const pending = TRACKED_MIGRATIONS.map((m) => m.version).filter((v) => !applied.includes(v));
-  const ok = errors.length === 0 && pending.length === 0 && closedDatesColumn;
+  const pendingCritical = TRACKED_MIGRATIONS.filter((m) => m.critical)
+    .map((m) => m.version)
+    .filter((v) => !applied.includes(v));
+  const ok = errors.length === 0 && pendingCritical.length === 0 && closedDatesColumn;
 
   return {
     ok,
