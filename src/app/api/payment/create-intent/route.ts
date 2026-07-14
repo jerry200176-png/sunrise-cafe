@@ -15,7 +15,13 @@ export async function POST(request: Request) {
     const body = (await request.json()) as CreateIntentBody;
     const { reservationId, branchId, amount, currency = "twd" } = body;
 
-    if (!reservationId || !branchId || !amount) {
+    if (
+      !reservationId ||
+      !branchId ||
+      amount == null ||
+      typeof amount !== "number" ||
+      Number.isNaN(amount)
+    ) {
       return NextResponse.json(
         { error: "缺少 reservationId、branchId 或 amount 參數" },
         { status: 400 }
