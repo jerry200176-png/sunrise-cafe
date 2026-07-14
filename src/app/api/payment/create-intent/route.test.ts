@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 const mockStripePaymentIntentsCreate = vi.fn();
 const mockSupabaseFromSelectEqSingle = vi.fn();
 const mockSupabaseFromInsert = vi.fn();
+const mockSupabaseFromUpdateEq = vi.fn(() => Promise.resolve({ error: null }));
 const mockSupabaseFrom = vi.fn(() => ({
   select: vi.fn(() => ({
     eq: vi.fn(() => ({
@@ -11,19 +12,34 @@ const mockSupabaseFrom = vi.fn(() => ({
     })),
   })),
   insert: mockSupabaseFromInsert,
-}));
-
-vi.mock("@/lib/stripe", () => ({
-  getStripe: vi.fn(() => ({
-    paymentIntents: {
-      create: mockStripePaymentIntentsCreate,
-    },
+  update: vi.fn(() => ({
+    eq: mockSupabaseFromUpdateEq,
   })),
 }));
 
-vi.mock("@/lib/supabase-admin", () => ({
-  supabaseAdmin: vi.fn(() => ({
+vi.mock("@/lib/stripe", () => ({
+  stripe: {
+    paymentIntents: {
+      create: mockStripePaymentIntentsCreate,
+    },
+  },
+  isStripeEnabled: vi.fn(() => true),
+}));
+
+vi.mock("@supabase/supabase-js", () => ({
+  createClient: vi.fn(() => ({
     from: mockSupabaseFrom,
+  })),
+}));
+
+vi.mock("@/lib/ops-log", () => ({
+  logOps: vi.fn(),
+}));
+
+vi.mock("@/lib/constants", () => ({
+  getBranchDepositConfig: vi.fn((branchId: string) => ({
+    branchId,
+    defaultDepositAmount: branchId === "daan" ? 500 : 0,
   })),
 }));
 
@@ -143,7 +159,7 @@ describe("POST /api/payment/create-intent - amount validation", () => {
 
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toBe("付款金額不符合分店設定");
+    expect(body.error).toBe("金額必須為正整數（單位：分）");
   });
 
   it("returns 400 when amount is negative", async () => {

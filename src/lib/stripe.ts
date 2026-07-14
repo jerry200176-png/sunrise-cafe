@@ -1,16 +1,23 @@
 import Stripe from "stripe";
 
-let stripeInstance: Stripe | null = null;
-
-/** 取得 Stripe server-side 實例（僅 Server Component / API Route 使用） */
-export function getStripe(): Stripe {
-  if (stripeInstance) return stripeInstance;
+/**
+ * Stripe 伺服端實例（API routes / webhook handler 使用）。
+ * 僅在 STRIPE_SECRET_KEY 存在時初始化，避免 dev 環境無設定時 crash。
+ */
+function createStripeInstance(): Stripe | null {
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) {
-    throw new Error("Missing STRIPE_SECRET_KEY environment variable");
+    console.warn("[stripe] STRIPE_SECRET_KEY 未設定，Stripe 功能已停用");
+    return null;
   }
-  stripeInstance = new Stripe(key, {
-    apiVersion: "2025-02-24.acacia" as Stripe.LatestApiVersion,
+  return new Stripe(key, {
+    apiVersion: "2026-06-24.dahlia",
   });
-  return stripeInstance;
+}
+
+export const stripe = createStripeInstance();
+
+/** 檢查 Stripe 是否已啟用 */
+export function isStripeEnabled(): boolean {
+  return stripe !== null && Boolean(process.env.STRIPE_WEBHOOK_SECRET);
 }

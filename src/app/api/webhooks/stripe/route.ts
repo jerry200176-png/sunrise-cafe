@@ -1,143 +1,147 @@
-import { NextResponse } from "next/server";
-import Stripe from "stripe";
-import { getStripe } from "@/lib/stripe";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { NextRequest, NextResponse } from "next/server";
+import { stripe, isStripeEnabled } from "@/lib/stripe";
+import { createClient } from "@supabase/supabase-js";
+import { logOps } from "@/lib/ops-log";
 
-/** Vercel 上需關閉 bodyParser 以取得 raw body 驗證 webhook signature */
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
+/**
+ * Stripe webhook 需要 raw body 以驗證簽章。
+ * Vercel 上必須關閉內建 bodyParser。
+ */
+export const config = { api: { bodyParser: false } };
 
-export async function POST(request: Request) {
-  const signature = request.headers.get("stripe-signature");
+function supabaseAdmin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
 
-  if (!signature) {
+/**
+ * POST /api/webhooks/stripe
+ *
+ * 接收 Stripe 事件通知，處理：
+ * - payment_intent.succeeded  → 標記 reservation deposit_status = 'paid'
+ * - payment_intent.payment_failed → 更新 payment_intents.status = 'failed'
+ * - charge.refunded           → 標記 reservation deposit_status = 'refunded'
+ */
+export async function POST(request: NextRequest) {
+  if (!isStripeEnabled()) {
     return NextResponse.json(
-      { error: "Missing stripe-signature header" },
-      { status: 400 }
+      { error: "Stripe 支付尚未啟用" },
+      { status: 503 }
     );
   }
 
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-  if (!webhookSecret) {
-    console.error("Missing STRIPE_WEBHOOK_SECRET");
-    return NextResponse.json(
-      { error: "Webhook secret not configured" },
-      { status: 500 }
-    );
-  }
+  const rawBody = await request.text();
+  const signature = request.headers.get("stripe-signature") ?? "";
 
-  let event: Stripe.Event;
-
+  // ── 簽章驗證 ────────────────────────────────────────────────────
+  let event;
   try {
-    const rawBody = await request.text();
-    const stripe = getStripe();
-    event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+    event = stripe!.webhooks.constructEvent(
+      rawBody,
+      signature,
+      process.env.STRIPE_WEBHOOK_SECRET!
+    );
   } catch (err) {
-    console.error("Webhook signature verification failed:", err);
+    const message = err instanceof Error ? err.message : "無效的簽章";
+    console.error("[stripe-webhook] signature verification failed:", message);
+    logOps("webhook", "stripe.signature_failed", { error: message });
     return NextResponse.json(
-      { error: "Invalid signature" },
+      { error: "Webhook signature verification failed" },
       { status: 400 }
     );
   }
 
-  const sb = supabaseAdmin();
-
+  // ── 事件處理 ────────────────────────────────────────────────────
   try {
     switch (event.type) {
       case "payment_intent.succeeded": {
-        const pi = event.data.object as Stripe.PaymentIntent;
-        const reservationId = pi.metadata?.reservation_id;
+        const paymentIntent = event.data.object;
+        const { reservationId } = paymentIntent.metadata;
 
-        if (!reservationId) {
-          console.warn("payment_intent.succeeded without reservation_id metadata");
-          break;
-        }
-
-        // 更新 payment_intents 記錄
-        await sb
+        await supabaseAdmin()
           .from("payment_intents")
           .update({ status: "succeeded", updated_at: new Date().toISOString() })
-          .eq("stripe_pi_id", pi.id);
-
-        // 更新訂位狀態
-        await sb
-          .from("reservations")
-          .update({
-            is_deposit_paid: true,
-            deposit_payment_note: `Stripe ${pi.id}`,
-            status: "confirmed",
-          })
-          .eq("id", reservationId);
-
-        break;
-      }
-
-      case "payment_intent.payment_failed": {
-        const pi = event.data.object as Stripe.PaymentIntent;
-        const reservationId = pi.metadata?.reservation_id;
-
-        // 更新 payment_intents 記錄為 failed
-        await sb
-          .from("payment_intents")
-          .update({ status: "failed", updated_at: new Date().toISOString() })
-          .eq("stripe_pi_id", pi.id);
+          .eq("stripe_pi_id", paymentIntent.id);
 
         if (reservationId) {
-          await sb
+          await supabaseAdmin()
             .from("reservations")
             .update({
-              deposit_payment_note: `Stripe 付款失敗: ${pi.id} (${pi.last_payment_error?.message ?? "未知錯誤"})`,
+              deposit_status: "paid",
+              is_deposit_paid: true,
             })
             .eq("id", reservationId);
         }
 
+        logOps("webhook", "stripe.payment_intent_succeeded", {
+          stripe_pi_id: paymentIntent.id,
+          reservation_id: reservationId ?? null,
+        });
+        break;
+      }
+
+      case "payment_intent.payment_failed": {
+        const paymentIntent = event.data.object;
+
+        await supabaseAdmin()
+          .from("payment_intents")
+          .update({ status: "failed", updated_at: new Date().toISOString() })
+          .eq("stripe_pi_id", paymentIntent.id);
+
+        logOps("webhook", "stripe.payment_intent_failed", {
+          stripe_pi_id: paymentIntent.id,
+        });
         break;
       }
 
       case "charge.refunded": {
-        const charge = event.data.object as Stripe.Charge;
-        const piId = charge.payment_intent as string;
+        const charge = event.data.object;
+        const paymentIntentId =
+          typeof charge.payment_intent === "string"
+            ? charge.payment_intent
+            : null;
 
-        if (piId) {
-          await sb
+        if (paymentIntentId) {
+          await supabaseAdmin()
             .from("payment_intents")
             .update({ status: "refunded", updated_at: new Date().toISOString() })
-            .eq("stripe_pi_id", piId);
+            .eq("stripe_pi_id", paymentIntentId);
 
-          // 取得關聯的 reservation_id
-          const { data: piRecord } = await sb
+          const { data: pi } = await supabaseAdmin()
             .from("payment_intents")
             .select("reservation_id")
-            .eq("stripe_pi_id", piId)
+            .eq("stripe_pi_id", paymentIntentId)
             .single();
 
-          if (piRecord?.reservation_id) {
-            await sb
+          if (pi?.reservation_id) {
+            await supabaseAdmin()
               .from("reservations")
-              .update({
-                is_deposit_paid: false,
-                deposit_payment_note: `Stripe 已退款: ${piId}`,
-              })
-              .eq("id", piRecord.reservation_id);
+              .update({ deposit_status: "refunded" })
+              .eq("id", pi.reservation_id);
           }
         }
 
+        logOps("webhook", "stripe.charge_refunded", {
+          charge_id: charge.id,
+          stripe_pi_id: paymentIntentId,
+        });
         break;
       }
 
-      default:
-        console.log(`Unhandled Stripe event: ${event.type}`);
+      default: {
+        logOps("webhook", "stripe.event_unhandled", {
+          event_type: event.type,
+        });
+      }
     }
-  } catch (err) {
-    console.error("Webhook processing error:", err);
-    return NextResponse.json(
-      { error: "Webhook processing failed" },
-      { status: 500 }
-    );
-  }
 
-  return NextResponse.json({ received: true }, { status: 200 });
+    return NextResponse.json({ received: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "處理 webhook 失敗";
+    console.error("[stripe-webhook] processing error:", message);
+    logOps("webhook", "stripe.webhook_error", { error: message });
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }

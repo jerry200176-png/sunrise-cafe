@@ -1,26 +1,31 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// 模擬環境變數
-const mockEnv: Record<string, string | undefined> = {};
-
 beforeEach(() => {
   vi.resetModules();
-  mockEnv.STRIPE_SECRET_KEY = undefined;
+  vi.unstubAllEnvs();
 });
 
-describe("getStripe", () => {
-  it("throws when STRIPE_SECRET_KEY is missing", async () => {
+describe("stripe module", () => {
+  it("returns null stripe and isStripeEnabled=false when STRIPE_SECRET_KEY is missing", async () => {
     vi.stubEnv("STRIPE_SECRET_KEY", undefined as unknown as string);
-    // 動態 import 以觸發讀取 env
-    const { getStripe } = await import("./stripe");
-    expect(() => getStripe()).toThrow("Missing STRIPE_SECRET_KEY");
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_test");
+    const mod = await import("./stripe");
+    expect(mod.stripe).toBeNull();
+    expect(mod.isStripeEnabled()).toBe(false);
   });
 
-  it("returns singleton Stripe instance when key is set", async () => {
+  it("returns Stripe instance and isStripeEnabled=true when all keys are set", async () => {
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_fake_key_12345");
-    const { getStripe } = await import("./stripe");
-    const instance1 = getStripe();
-    const instance2 = getStripe();
-    expect(instance1).toBe(instance2);
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_fake");
+    const mod = await import("./stripe");
+    expect(mod.stripe).not.toBeNull();
+    expect(mod.stripe).toBeDefined();
+  });
+
+  it("isStripeEnabled returns false when webhook secret is missing even if key is set", async () => {
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_fake_key_12345");
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", undefined as unknown as string);
+    const mod = await import("./stripe");
+    expect(mod.isStripeEnabled()).toBe(false);
   });
 });
