@@ -363,7 +363,10 @@ export default function BookPage() {
       }
     }
 
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     try {
+      const controller = new AbortController();
+      timeoutId = setTimeout(() => controller.abort(), 20_000);
       const res = await fetch("/api/reservations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -379,7 +382,9 @@ export default function BookPage() {
           notes: null,
           line_user_id: lineUserId || null,
         }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       const data = await res.json();
       setSubmitting(false);
       if (res.status === 409) {
@@ -423,8 +428,10 @@ export default function BookPage() {
         setError(t("book.error.noBookingCode"));
       }
     } catch (e) {
+      clearTimeout(timeoutId);
       setSubmitting(false);
-      setError(e instanceof Error ? e.message : t("book.error.connectionFailed"));
+      const isTimeout = e instanceof DOMException && e.name === "AbortError";
+      setError(isTimeout ? "訂位請求逾時，請檢查網路後重試" : e instanceof Error ? e.message : t("book.error.connectionFailed"));
       errorBannerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
     }
   };
