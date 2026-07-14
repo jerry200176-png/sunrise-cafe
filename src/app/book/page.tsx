@@ -428,7 +428,7 @@ export default function BookPage() {
         setError(t("book.error.noBookingCode"));
       }
     } catch (e) {
-      clearTimeout(timeoutId);
+      if (timeoutId !== null) clearTimeout(timeoutId);
       setSubmitting(false);
       const isTimeout = e instanceof DOMException && e.name === "AbortError";
       setError(isTimeout ? "訂位請求逾時，請檢查網路後重試" : e instanceof Error ? e.message : t("book.error.connectionFailed"));
