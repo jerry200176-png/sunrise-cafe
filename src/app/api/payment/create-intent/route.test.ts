@@ -159,7 +159,7 @@ describe("POST /api/payment/create-intent - amount validation", () => {
 
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toBe("付款金額不符合分店設定");
+    expect(body.error).toBe("金額必須為正整數（單位：分）");
   });
 
   it("returns 400 when amount is negative", async () => {
