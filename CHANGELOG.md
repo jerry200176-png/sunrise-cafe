@@ -38,6 +38,9 @@
 - 驗證金額與分店訂金設定一致，不符則拒絕請求
 - 與測試案例 `route.test.ts`（158 行）確保覆蓋
 
+### Payment Security (PR #187)
+- **Server-side amount validation** on `POST /api/payment/create-intent`: validates `amount` against `getBranchDepositConfig(branchId).defaultDepositAmount` before calling Stripe API (B-02 fix). Prevents client-side payment amount tampering — malicious users can no longer pass arbitrary amounts. Adds 6 test cases covering edge cases (zero, negative, mismatched, unknown branch). 2 files changed (+168/-0). Backward-compatible — frontend unchanged.
+
 ---
 
 ## [2.2.0] — 2026-07-10 (pending)
