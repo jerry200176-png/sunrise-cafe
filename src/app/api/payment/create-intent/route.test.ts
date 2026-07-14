@@ -14,11 +14,12 @@ const mockSupabaseFrom = vi.fn(() => ({
 }));
 
 vi.mock("@/lib/stripe", () => ({
-  getStripe: vi.fn(() => ({
+  stripe: {
     paymentIntents: {
       create: mockStripePaymentIntentsCreate,
     },
-  })),
+  },
+  isStripeEnabled: vi.fn(() => true),
 }));
 
 vi.mock("@/lib/supabase-admin", () => ({
