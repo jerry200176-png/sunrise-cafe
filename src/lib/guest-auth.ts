@@ -1,11 +1,16 @@
 /**
  * Guest booking verification — phone + booking_code required for lookup and mutations.
+ * Forgot-code recovery: phone + booking date (Taipei calendar day).
  */
 import { fetchReservationByPhoneAndCode } from "@/lib/supabase-admin";
 import { normalizePhone } from "@/lib/phone-utils";
 
 /** Generic error — do not reveal whether phone or code was wrong */
 export const GUEST_BOOKING_NOT_FOUND = "找不到符合的訂位，請確認電話與訂位代號";
+
+/** Generic error for phone + date recovery — same phrasing as empty result UX */
+export const GUEST_BOOKING_DATE_NOT_FOUND =
+  "找不到符合的訂位，請確認電話與訂位日期";
 
 export type GuestReservation = Awaited<ReturnType<typeof fetchReservationByPhoneAndCode>>;
 
@@ -18,6 +23,36 @@ export function normalizeBookingCode(code: string): string {
 
 export function isValidBookingCodeFormat(code: string): boolean {
   return /^[A-Z0-9]{6}$/.test(normalizeBookingCode(code));
+}
+
+/** YYYY-MM-DD for phone + date recovery */
+export function isValidBookingDateFormat(date: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date.trim())) return false;
+  const [y, m, d] = date.trim().split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return (
+    dt.getUTCFullYear() === y &&
+    dt.getUTCMonth() === m - 1 &&
+    dt.getUTCDate() === d
+  );
+}
+
+/**
+ * Allow recovery for Taipei "today" through +90 days (not past / not far future).
+ */
+export function isRecoverableBookingDate(dateYYYYMMDD: string): boolean {
+  if (!isValidBookingDateFormat(dateYYYYMMDD)) return false;
+  const taipeiToday = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "Asia/Taipei" })
+  );
+  const y = taipeiToday.getFullYear();
+  const m = String(taipeiToday.getMonth() + 1).padStart(2, "0");
+  const d = String(taipeiToday.getDate()).padStart(2, "0");
+  const todayStr = `${y}-${m}-${d}`;
+  const max = new Date(taipeiToday);
+  max.setDate(max.getDate() + 90);
+  const maxStr = `${max.getFullYear()}-${String(max.getMonth() + 1).padStart(2, "0")}-${String(max.getDate()).padStart(2, "0")}`;
+  return dateYYYYMMDD >= todayStr && dateYYYYMMDD <= maxStr;
 }
 
 export type VerifyGuestBookingResult =

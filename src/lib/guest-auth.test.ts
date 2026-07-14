@@ -3,6 +3,8 @@ import {
   normalizePhone,
   normalizeBookingCode,
   isValidBookingCodeFormat,
+  isValidBookingDateFormat,
+  isRecoverableBookingDate,
   verifyGuestBooking,
   verifyGuestBookingById,
   GUEST_BOOKING_NOT_FOUND,
@@ -54,6 +56,46 @@ describe("isValidBookingCodeFormat", () => {
   it("rejects short or special chars", () => {
     expect(isValidBookingCodeFormat("AB12")).toBe(false);
     expect(isValidBookingCodeFormat("ABC-12")).toBe(false);
+  });
+});
+
+describe("isValidBookingDateFormat", () => {
+  it("accepts YYYY-MM-DD", () => {
+    expect(isValidBookingDateFormat("2026-08-01")).toBe(true);
+  });
+
+  it("rejects invalid calendar dates", () => {
+    expect(isValidBookingDateFormat("2026-13-01")).toBe(false);
+    expect(isValidBookingDateFormat("2026-02-30")).toBe(false);
+    expect(isValidBookingDateFormat("08/01/2026")).toBe(false);
+  });
+});
+
+describe("isRecoverableBookingDate", () => {
+  it("accepts Taipei today", () => {
+    const taipeiToday = new Date(
+      new Date().toLocaleString("en-US", { timeZone: "Asia/Taipei" })
+    );
+    const y = taipeiToday.getFullYear();
+    const m = String(taipeiToday.getMonth() + 1).padStart(2, "0");
+    const d = String(taipeiToday.getDate()).padStart(2, "0");
+    expect(isRecoverableBookingDate(`${y}-${m}-${d}`)).toBe(true);
+  });
+
+  it("rejects dates clearly in the past", () => {
+    expect(isRecoverableBookingDate("2020-01-01")).toBe(false);
+  });
+
+  it("rejects dates beyond 90 days", () => {
+    const taipeiToday = new Date(
+      new Date().toLocaleString("en-US", { timeZone: "Asia/Taipei" })
+    );
+    const far = new Date(taipeiToday);
+    far.setDate(far.getDate() + 120);
+    const y = far.getFullYear();
+    const m = String(far.getMonth() + 1).padStart(2, "0");
+    const d = String(far.getDate()).padStart(2, "0");
+    expect(isRecoverableBookingDate(`${y}-${m}-${d}`)).toBe(false);
   });
 });
 

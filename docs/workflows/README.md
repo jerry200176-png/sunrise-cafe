@@ -17,9 +17,11 @@ Machine- and human-readable booking system flows.
 |------|-----|------|
 | Availability | `GET /api/availability` | Public |
 | Create | `POST /api/bookings` | Public |
-| Query | `POST /api/my-bookings` | phone + booking_code |
+| Query | `POST /api/my-bookings` | phone + booking_code **or** phone + booking_date (forgot-code) |
 | Cancel | `POST /api/cancel-booking` | phone + booking_code |
 | Reschedule | `POST /api/reschedule-booking` | phone + booking_code |
+
+Forgot booking code: `/book/query` →「忘記訂位代號？」→ phone + reservation date (Taipei today…+90d) returns active bookings including `booking_code`.
 
 ## Payment (guest → staff)
 
