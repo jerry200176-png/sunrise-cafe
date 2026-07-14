@@ -417,7 +417,7 @@ function BookQueryContent() {
             />
           </div>
           {forgotMode ? (
-            <div className="flex gap-2">
+            <div>
               <label htmlFor="query-booking-date" className="sr-only">
                 {t("query.bookingDatePlaceholder")}
               </label>
@@ -426,19 +426,12 @@ function BookQueryContent() {
                 type="date"
                 value={bookingDate}
                 onChange={(e) => setBookingDate(e.target.value)}
-                className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5"
+                className="w-full rounded-lg border border-gray-300 px-4 py-2.5"
                 required
               />
-              <button
-                type="submit"
-                disabled={loading}
-                className="rounded-lg bg-amber-600 px-4 py-2.5 text-white disabled:opacity-50 shrink-0"
-              >
-                {loading ? t("query.searching") : t("query.searchButton")}
-              </button>
             </div>
           ) : (
-            <div className="flex gap-2">
+            <div>
               <label htmlFor="query-booking-code" className="sr-only">{t("query.bookingCodePlaceholder")}</label>
               <input
                 id="query-booking-code"
@@ -446,21 +439,21 @@ function BookQueryContent() {
                 value={bookingCode}
                 onChange={(e) => setBookingCode(e.target.value.toUpperCase())}
                 placeholder={t("query.bookingCodePlaceholder")}
-                className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 font-mono uppercase tracking-wider"
+                className="w-full rounded-lg border border-gray-300 px-4 py-2.5 font-mono uppercase tracking-wider"
                 required
                 maxLength={6}
                 autoComplete="off"
                 spellCheck={false}
               />
-              <button
-                type="submit"
-                disabled={loading}
-                className="rounded-lg bg-amber-600 px-4 py-2.5 text-white disabled:opacity-50 shrink-0"
-              >
-                {loading ? t("query.searching") : t("query.searchButton")}
-              </button>
             </div>
           )}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full rounded-lg bg-amber-600 px-4 py-2.5 text-white disabled:opacity-50"
+          >
+            {loading ? t("query.searching") : t("query.searchButton")}
+          </button>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-gray-500">
               {forgotMode ? t("query.bookingDateHint") : t("query.bookingCodeHint")}
