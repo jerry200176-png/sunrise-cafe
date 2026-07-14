@@ -1,12 +1,11 @@
 {
-  "generated_at": "2026-07-11T16:45:12+0800",
+  "generated_at": "2026-07-14T17:50:02+0800",
   "horizons": {
     "short_term": {
       "production_reachable": true,
-      "sha_parity": "false",
+      "sha_parity": "true",
       "booking_health": true,
       "risks": [
-        "production_sha_drift",
         "outcome_metrics_unavailable"
       ]
     },
@@ -19,14 +18,13 @@
     }
   },
   "deployment": {
-    "repository_commit": "858749c",
-    "repository_full": "858749c90696c1c6bd3f1e191014e25eecd4f26f",
-    "production_commit": "f083d10",
-    "sha_parity": "false"
+    "repository_commit": "987fecb",
+    "repository_full": "987fecbdaf1aa4ee42899a9c7b30ec2327b3f574",
+    "production_commit": "987fecb",
+    "sha_parity": "true"
   },
   "outcomes": {},
   "top_risks": [
-    "production_sha_drift",
     "outcome_metrics_unavailable"
   ]
 }
