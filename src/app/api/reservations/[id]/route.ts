@@ -19,6 +19,8 @@ function supabaseAdmin() {
   );
 }
 
+type RoomWithBranch = { name?: string; branch: { id?: string; name: string }[] }[];
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
