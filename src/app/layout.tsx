@@ -30,6 +30,20 @@ const notoSansTC = Noto_Sans_TC({
 export const metadata: Metadata = {
   title: "昇咖啡 · 包廂租借預約",
   description: "昇咖啡包廂租借訂位系統 — 線上預約包廂、自助點餐、LINE 即時通知。",
+  metadataBase: new URL("https://sunrise-cafe-six.vercel.app"),
+  openGraph: {
+    title: "昇咖啡 · 包廂租借預約",
+    description: "沐浴在晨光裡的精品咖啡館 — 包廂租借、自助點餐、LINE 即時通知",
+    url: "https://sunrise-cafe-six.vercel.app",
+    siteName: "昇咖啡 Sunrise Café",
+    locale: "zh_TW",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "昇咖啡 · 包廂租借預約",
+    description: "沐浴在晨光裡的精品咖啡館 — 包廂租借、自助點餐、LINE 即時通知",
+  },
   appleWebApp: {
     capable: true,
     title: "昇咖啡",
