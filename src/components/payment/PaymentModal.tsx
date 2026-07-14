@@ -47,18 +47,23 @@ export function PaymentModal({
   const [state, setState] = useState<ModalState>({ phase: "loading" });
   const [confirming, setConfirming] = useState(false);
 
-  // 建立 PaymentIntent
+  // 建立 PaymentIntent（含 timeout 保護）
   const createIntent = useCallback(async () => {
     if (!open) return;
     setState({ phase: "loading" });
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15_000); // 15 秒 timeout
 
     try {
       const res = await fetch("/api/payment/create-intent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reservationId, branchId, amount }),
+        signal: controller.signal,
       });
 
+      clearTimeout(timeoutId);
       const data = await res.json();
 
       if (!res.ok || !data.clientSecret) {
@@ -68,9 +73,15 @@ export function PaymentModal({
 
       setState({ phase: "ready", clientSecret: data.clientSecret });
     } catch (err) {
+      clearTimeout(timeoutId);
+      const isTimeout = err instanceof DOMException && err.name === "AbortError";
       setState({
         phase: "error",
-        message: err instanceof Error ? err.message : "無法建立付款連線",
+        message: isTimeout
+          ? "付款連線逾時，請檢查網路後重試"
+          : err instanceof Error
+          ? err.message
+          : "無法建立付款連線",
       });
     }
   }, [open, reservationId, branchId, amount]);
@@ -79,18 +90,23 @@ export function PaymentModal({
     createIntent();
   }, [createIntent]);
 
-  // 付款成功 → 呼叫 confirm-deposit
+  // 付款成功 → 呼叫 confirm-deposit（含 timeout 保護）
   const handlePaymentSuccess = useCallback(
     async (paymentIntentId: string) => {
       setConfirming(true);
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20_000); // 20 秒 timeout
 
       try {
         const res = await fetch("/api/payment/confirm-deposit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ paymentIntentId, reservationId }),
+          signal: controller.signal,
         });
 
+        clearTimeout(timeoutId);
         const data = await res.json();
 
         if (res.ok && data.depositStatus === "paid") {
@@ -103,9 +119,15 @@ export function PaymentModal({
           });
         }
       } catch (err) {
+        clearTimeout(timeoutId);
+        const isTimeout = err instanceof DOMException && err.name === "AbortError";
         setState({
           phase: "error",
-          message: err instanceof Error ? err.message : "付款確認失敗",
+          message: isTimeout
+            ? "付款確認逾時，您的付款可能已成功，請勿重複付款"
+            : err instanceof Error
+            ? err.message
+            : "付款確認失敗",
         });
       } finally {
         setConfirming(false);
