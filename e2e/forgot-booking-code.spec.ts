@@ -57,7 +57,7 @@ test.describe("忘記訂位代號", () => {
     await page.getByRole("button", { name: "忘記訂位代號？" }).click();
     await page.getByPlaceholder("輸入訂位電話").fill("0912345678");
     await page.locator("#query-booking-date").fill(date);
-    await page.locator("form").getByRole("button", { name: "查詢" }).click();
+    await page.locator("form").locator('button[type="submit"]').click();
 
     await expect(page.getByText("RCV001")).toBeVisible();
     await expect(page.getByText(/E2E 測試分店/)).toBeVisible();
