@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
       currency?: string;
     };
 
-    if (!reservationId || !branchId || !amount) {
+    if (!reservationId || !branchId || amount == null) {
       return NextResponse.json(
         { error: "缺少必填欄位（reservationId, branchId, amount）" },
         { status: 400 }
