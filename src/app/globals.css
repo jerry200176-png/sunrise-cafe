@@ -31,6 +31,8 @@
     background-color: var(--paper);
     color: var(--ink);
     font-family: var(--font-sans), system-ui, sans-serif;
+    /* 所有數字等寬 — 金額/價格不因數字不同而晃動 (P0) */
+    font-variant-numeric: tabular-nums;
     /* 晨光：右上角灑下的暖色光暈 + 左下淡焦糖 */
     background-image:
       radial-gradient(120% 80% at 85% -10%, rgba(240, 194, 122, 0.35) 0%, rgba(240, 194, 122, 0) 55%),
@@ -42,6 +44,24 @@
   h1, h2, h3 {
     font-family: var(--font-serif), var(--font-display), serif;
   }
+}
+
+/* ─────────── 輔助科技 ─────────── */
+
+/* Skip-to-content：鍵盤使用者可跳過導航直接到主要內容 (P0) */
+.skip-link {
+  position: absolute;
+  inset-inline-start: -9999px;
+  z-index: 999;
+  padding: 0.5rem 1rem;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 0.875rem;
+  text-decoration: none;
+  border-radius: 0 0 0.5rem 0;
+}
+.skip-link:focus {
+  inset-inline-start: 0;
 }
 
 /* 細微顆粒紙紋 overlay（疊在最上層，不擋互動） */
