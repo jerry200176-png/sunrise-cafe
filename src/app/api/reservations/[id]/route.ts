@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateReservationAdmin, deleteReservationAdmin, isAdminConfigured } from "@/lib/supabase-admin";
-import { sendLineFlexMessage, buildPaymentFlex, buildReviewInviteFlex } from "@/lib/line";
-import { type BranchPaymentConfig } from "@/lib/payment-message";
+import { sendLineFlexMessage, buildReviewInviteFlex } from "@/lib/line";
+import { sendDepositPaymentRequest } from "@/lib/payment-request-line";
 import { notifyWaitlist } from "@/lib/waitlist";
-import { isWeekendDate } from "@/lib/booking-utils";
 import { fetchSettings } from "@/lib/supabase-fetch";
 import { requireAdminApiAuth, getAdminContext } from "@/lib/admin-api-auth";
 import {
@@ -20,7 +19,7 @@ function supabaseAdmin() {
   );
 }
 
-type RoomWithBranch = { name: string; branch: { id: string; name: string }[] }[];
+type RoomWithBranch = { name?: string; branch: { id?: string; name: string }[] }[];
 
 export async function PATCH(
   request: NextRequest,
@@ -151,71 +150,14 @@ export async function PATCH(
       }
     }
 
-    // 確認訂位 or 填金額時，只要兩個條件都齊就自動傳 LINE 繳費通知
+    // 確認訂位 or 填金額時：自動推一次繳費通知（已送過則略過，避免雙則相同訊息）
     const triggerLine = patch.status === "confirmed" || patch.total_price !== undefined;
     let lineResult: string | null = null;
     if (triggerLine) {
-      try {
-        const { data: r } = await supabaseAdmin()
-          .from("reservations")
-            .select(`
-            line_user_id,
-            customer_name,
-            booking_code,
-            start_time,
-            end_time,
-            total_price,
-            room_with_branch:rooms(name, price_weekday, price_weekend, branch:branches(id, name))
-          `)
-          .eq("id", id)
-          .single();
-
-        if (!r?.line_user_id) {
-          lineResult = "no_line_id";
-        } else {
-          const roomInfo = (r.room_with_branch as RoomWithBranch | null)?.[0];
-          const branchRef = (roomInfo?.branch ?? [])[0];
-
-          // 若無金額，從房間定價自動計算
-          let total = r.total_price != null ? Number(r.total_price) : null;
-          if (total == null && roomInfo) {
-            const dateStr = r.start_time.slice(0, 10);
-            const pricePerHour = isWeekendDate(dateStr)
-              ? Number((roomInfo as Record<string, unknown>).price_weekend ?? 0)
-              : Number((roomInfo as Record<string, unknown>).price_weekday ?? 0);
-            const hours = (new Date(r.end_time).getTime() - new Date(r.start_time).getTime()) / 3_600_000;
-            total = Math.round(pricePerHour * hours);
-            await supabaseAdmin().from("reservations").update({ total_price: total }).eq("id", id);
-          }
-
-          if (total == null || total === 0) {
-            lineResult = "no_price";
-          } else {
-            // 以 select=* 取分店付款設定（容錯：欄位未建立時降級為通用話術）
-            let branch: BranchPaymentConfig = { name: branchRef?.name ?? null };
-            if (branchRef?.id) {
-              const { data: b } = await supabaseAdmin()
-                .from("branches")
-                .select("*")
-                .eq("id", branchRef.id)
-                .single();
-              if (b) branch = b as BranchPaymentConfig;
-            }
-            const flex = buildPaymentFlex({
-              customerName: r.customer_name,
-              startTime: r.start_time,
-              endTime: r.end_time,
-              total,
-              branch,
-              bookingCode: (r as { booking_code?: string | null }).booking_code,
-            });
-            await sendLineFlexMessage(r.line_user_id, "訂金繳費通知", flex);
-            lineResult = "sent";
-          }
-        }
-      } catch (err) {
-        lineResult = `error: ${err instanceof Error ? err.message : String(err)}`;
-        console.error("[confirm] LINE 推播失敗:", err);
+      const { result, detail } = await sendDepositPaymentRequest(id, { force: false });
+      lineResult = detail ? `${result}: ${detail}` : result;
+      if (result === "error") {
+        console.error("[confirm] LINE 推播失敗:", detail);
       }
     }
 

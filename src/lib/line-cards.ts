@@ -144,17 +144,26 @@ export function buildWaitlistFlex(params: {
   });
 }
 
-export function buildGuestBindSuccessFlex(confirmed: boolean): LineFlexContainer {
+export function buildGuestBindSuccessFlex(opts: {
+  confirmed: boolean;
+  paymentSent?: boolean;
+}): LineFlexContainer {
+  const { confirmed, paymentSent } = opts;
+  let paragraph: string;
+  if (paymentSent) {
+    paragraph = "已為您傳送訂金繳費通知，請依訊息完成付款。";
+  } else if (confirmed) {
+    paragraph = "您的訂位已確認，繳費通知請查看稍早訊息。";
+  } else {
+    paragraph = "店家確認後將自動傳送繳費通知，請稍候。";
+  }
+
   return flexBubble({
-    icon: confirmed ? "✅" : "🔗",
-    title: confirmed ? "LINE 已連結" : "訂位代號已收到",
+    icon: confirmed || paymentSent ? "✅" : "🔗",
+    title: confirmed || paymentSent ? "LINE 已連結" : "訂位代號已收到",
     subtitle: "昇昇咖啡",
     accentColor: LINE_BRAND.success,
-    paragraphs: [
-      confirmed
-        ? "您的訂位已確認，繳費通知請查看稍早訊息。"
-        : "店家確認後將自動傳送繳費通知，請稍候。",
-    ],
+    paragraphs: [paragraph],
     primaryAction: { label: "查看訂位狀態", uri: LINE_QUERY_URL },
     showSiteLink: true,
   });

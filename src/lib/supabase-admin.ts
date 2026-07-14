@@ -231,6 +231,7 @@ export async function updateReservationAdmin(
     is_deposit_paid?: boolean;
     deposit_payment_note?: string | null;
     deposit_reminder_sent_at?: string | null;
+    payment_request_sent_at?: string | null;
     notes?: string | null;
     customer_name?: string;
     phone?: string;

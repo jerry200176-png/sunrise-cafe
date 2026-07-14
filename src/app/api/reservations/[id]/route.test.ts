@@ -21,8 +21,13 @@ vi.mock("@/lib/supabase-admin", () => ({
 vi.mock("@/lib/line", () => ({
   sendLineFlexMessage: vi.fn(),
   buildPaymentFlex: vi.fn(),
+  buildReviewInviteFlex: vi.fn(),
   sendLineMessage: vi.fn(),
   buildReviewInviteMessage: vi.fn(),
+}));
+
+vi.mock("@/lib/payment-request-line", () => ({
+  sendDepositPaymentRequest: vi.fn(async () => ({ result: "sent" })),
 }));
 
 vi.mock("@/lib/waitlist", () => ({
