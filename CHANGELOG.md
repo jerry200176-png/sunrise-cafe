@@ -13,12 +13,30 @@
 - Query page (`/book/query`): sticky bottom payment CTA on mobile when deposit unpaid
 - Telemetry: `payment_sticky_viewed`, `payment_sticky_line_pay_click`, `payment_sticky_line_official_click`
 
+### Guest (CX-008) — PR #189
+- **忘記訂位代號**：客人可透過電話＋訂位日期找回訂位，不需要 6 碼訂位代號。主要驗證仍維持 phone+code，找回功能作為備用方案。
+- 同步更新 package-lock.json 以符合 Stripe 依賴完整性。
+
 ### Staff (ADM-002)
 - Replace `alert()` / `window.prompt()` in `ReservationList` with mobile-friendly toast + prompt dialog
 - Cron `job_runs` degrades gracefully when Supabase API key is invalid (CI + misconfigured env)
 
-### Payment (PR #186)
-- **Idempotency key** on `POST /api/payment/create-intent`: adds `idempotencyKey: reservation_${reservationId}_deposit` to Stripe `paymentIntents.create()` call to prevent duplicate PaymentIntent creation on network retry (B-01 fix). No frontend changes required — idempotency protection is transparent and backward-compatible.
+### Docs — PR #183
+- 建立 `docs/git-convention.md` — branch 命名規則 + Conventional Commits 規格
+- 建立 `docs/code-review-guide.md` — review 優先級、流程、標準與文化
+- 更新 `.github/PULL_REQUEST_TEMPLATE.md` — 全面性 PR 模板（含測試／安全／文件／部署 checklist）
+
+### Payment — Stripe 支付 UI 整合（PR #185）
+- **付款流程**：新增 `PaymentForm` + `PaymentModal` Stripe Elements 付款元件
+- **API**：`POST /api/payment/create-intent` 建立 Stripe PaymentIntent、`POST /api/payment/confirm-deposit` 確認付款
+- **Webhook**：`POST /api/webhooks/stripe` 處理付款成功／失敗／退款事件
+- **資料表**：`payment_intents` migration 記錄每筆付款狀態
+- **訂位流程**：假日訂位自動彈出付款確認，分店控制（僅大安啟用）
+
+### Payment — Server 端 amount 驗證（B-02）
+- **金額防竄改**：在 `POST /api/payment/create-intent` 加入 server 端 amount 驗證，防止客戶端竄改付款金額
+- 驗證金額與分店訂金設定一致，不符則拒絕請求
+- 與測試案例 `route.test.ts`（158 行）確保覆蓋
 
 ---
 
