@@ -7,8 +7,8 @@
 
 | ID | Dim | Now | Target | Root cause | Fix | Accept evidence (prod) | Autonomous? |
 |----|-----|-----|--------|------------|-----|------------------------|-------------|
-| G12 | D09 | B− | A− | Vercel Hobby deploy quota | Wait 24h or upgrade | `/api/version` == main SHA | Founder (quota/Pro) |
-| G05 | D05 | B− | A− | Catalog anon WRITE still on prod | Deploy then Environment `Production` migrate | anon PATCH 4xx + service PATCH 2xx | Blocked until G12 |
+| G12 | D09 | B | A− | Hobby CLI quota / preview burn | Prefer Actions; optional Pro | CLI deploy succeeds when needed | WATCH |
+| G05 | D05 | B− | A− | Catalog anon WRITE still on prod | Founder APPLY maturity migrate | anon PATCH 4xx + service PATCH 2xx | Preflight clear; Founder gate |
 | G05b | D05 | B (degraded) | A− | No distributed limiter | Keep memory fallback; enable Upstash | `booking-health.rate_limit_mode=upstash` | Founder sets Upstash |
 | G06 | D06 | C+ | A− | No checksummed drill artifact in prod | `db:backup`/`restore-drill` + Environment job | `drill-result.json` pass | Ops via Environment |
 | G07 | D07 | B− | A− | Contracts unmet; ops_events missing | Fix migration name; apply; accumulate 7d | `contract_satisfied` on gating metrics | Migration fix in loop-2 |

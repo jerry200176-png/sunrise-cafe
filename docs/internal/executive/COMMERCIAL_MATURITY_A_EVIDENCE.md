@@ -4,43 +4,49 @@
 **Baseline (frozen):** `COMMERCIAL_MATURITY_BASELINE_2026-07-15.md`  
 **Gaps (live):** `COMMERCIAL_MATURITY_A_GAPS.md`  
 **Rule:** Append scorecard rows; never overwrite baseline grades.  
-**SSOT sync:** 2026-07-15 loop-2 start — #213 merged; production deploy blocked by Vercel Hobby quota.
+**SSOT sync:** 2026-07-15 loop-2 evidence refresh — Maturity A app **live** on prod; RLS migrate awaiting Founder APPLY.
 
 ---
 
-## Loop 2 — post-merge (branch `cursor/maturity-loop2-a33b`)
+## Loop 2 — post-merge (evidence refresh)
 
 ### Production facts [FACT]
 
 | Check | Result |
 |-------|--------|
-| PR #213 | **MERGED** `f7d81f2` into `main` (2026-07-15) |
-| GH Actions CI on #213 | Lint & Build ✅ · Playwright smoke ✅ |
-| `GET /api/version` | Still `cfc940b…` — **not** `f7d81f2` |
-| Vercel deploy | `api-deployments-free-per-day` / Hobby rate-limit [FACT] |
-| `/api/payment/status` | **404** until deploy lands |
-| Catalog RLS / refund migrate | **Blocked by preflight** until Maturity A app live (correct) |
-| `ops_events` table | Missing; prior apply failed on `schema_migrations.name` NOT NULL — **fixed in this loop** |
-| Migrate Environment name | Corrected to existing **`Production`** (was lowercase `production`) |
-| Grade | **B− / B — not A** (no production evidence yet for P0 close) |
+| PR #213 | **MERGED** → `f7d81f2` |
+| PR #214 | **MERGED** → `6423f25` (ops_events name fix + Environment `Production`) |
+| GH Actions CI | #213 + #214 Lint/Playwright ✅ (Vercel Hobby preview noise ignored) |
+| `GET /api/version` | **`f7d81f2…`** [FACT] (Maturity A app live; tip `6423f25` is docs/SQL/workflow only) |
+| Vercel CLI | Still hit `api-deployments-free-per-day` mid-loop; prod SHA later advanced [FACT] |
+| `/api/payment/status` | **200** `{stripe_enabled:false, deposit_capture:manual_review}` |
+| `/api/booking-health` | `rate_limit_mode=memory`, `rate_limit_grade=degraded_per_isolate` — **not** A for D05b |
+| `/admin/today` unauth | **307 → /admin/login** [FACT] |
+| `ops_events` REST | **HTTP 200** [FACT] |
+| Catalog RLS / refund migrate | Preflight **unblocked** (status route live). Agent **cannot** `workflow_dispatch` (403). Founder must Run workflow `confirm=APPLY` |
+| Grade | **B− / B — not A** until `PROBES_OK` + Upstash + phone ops |
 
 ### Founder Decision Queue (updated)
 
 | ID | Decision | Default | Notes |
 |----|----------|---------|-------|
-| FD-Vercel | Wait ~24h quota reset **or** upgrade Vercel plan | Wait unless ops-critical | Blocks prod SHA / migrate / today phone verify |
-| FD-ENV | Ensure Environment **`Production`** has DB + anon + service secrets + required reviewers | Yes | Use existing Environment; do not paste secrets to Agent |
-| FD-2 | Upstash | Enable | A-grade rate-limit only after `rate_limit_mode=upstash` |
-| FD-1 | Supabase Pro/PITR | Optional paid | Scripts cover free-path DR artifacts |
+| FD-MIGRATE | Run **Production maturity migrate** (`confirm=APPLY`) on Environment `Production` | Yes | Closes CG-008 P0; agent cannot dispatch |
+| FD-ENV | Confirm Environment secrets + required reviewers on `Production` | Yes | Never paste secrets to Agent |
+| FD-Vercel | Hobby quota / Pro | Optional now | CLI still rate-limited; prod app already on `f7d81f2` |
+| FD-2 | Upstash | Enable | Needed for A-grade rate-limit |
+| FD-1 | Supabase Pro/PITR | Optional paid | Free-path drills remain |
 
 ### Next actions (ordered)
 
-1. Wait for Vercel quota **or** Founder upgrades → redeploy main `f7d81f2`(+loop2)  
-2. Confirm `/api/version` == main; `/api/payment/status` 200  
-3. Run **Production maturity migrate** (`confirm=APPLY`) on Environment `Production`  
-4. Expect `PROBES_OK`; phone-verify `/admin/today`  
-5. Re-apply `ops_events` via deploy-migrate (name column fixed)  
-6. Append scorecard only with production probe evidence  
+1. **Founder:** Actions → Production maturity migrate → `confirm=APPLY` → approve `Production`  
+2. Confirm logs `PREFLIGHT_OK` / `APPLY_OK` / `PROBES_OK`  
+3. Phone-verify `/admin/today` (unpaid / reviews / waitlist / hops)  
+4. Enable Upstash; re-check `rate_limit_mode=upstash`  
+5. Append Loop-3 scorecard with probe + phone evidence only  
+
+### Autonomous note
+
+Agent token cannot `workflow_dispatch` maturity migrate (HTTP 403). Do not ask Agent for production secrets.
 
 ---
 
