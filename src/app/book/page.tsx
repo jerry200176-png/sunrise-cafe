@@ -11,7 +11,11 @@ import { useLocale } from "@/lib/i18n/LocaleContext";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { PaymentModal } from "@/components/payment/PaymentModal";
 import { getBranchDepositConfig } from "@/lib/constants";
-import { taipeiDateString, taipeiDatePlusMonths } from "@/lib/datetime";
+import {
+  taipeiDateString,
+  taipeiDatePlusMonths,
+  formatTaipeiTime,
+} from "@/lib/datetime";
 import {
   clearBookingDraft,
   loadBookingDraft,
@@ -362,10 +366,15 @@ export default function BookPage() {
     const start = new Date(selectedStart);
     const end = new Date(start.getTime() + duration * 60 * 60 * 1000);
 
-    // 簡單格式化
-    const dateLabel = new Date(date).toLocaleDateString("zh-TW", { month: "numeric", day: "numeric", weekday: "short" });
-    const startLabel = start.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
-    const endLabel = end.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
+    // 簡單格式化（時段強制 Asia/Taipei，避免裝置在 UTC/海外時顯示偏移）
+    const dateLabel = new Date(`${date}T12:00:00+08:00`).toLocaleDateString("zh-TW", {
+      month: "numeric",
+      day: "numeric",
+      weekday: "short",
+      timeZone: "Asia/Taipei",
+    });
+    const startLabel = formatTaipeiTime(start.toISOString(), { hour12: false });
+    const endLabel = formatTaipeiTime(end.toISOString(), { hour12: false });
 
     return { dateLabel, startLabel, endLabel };
   };
@@ -546,8 +555,7 @@ export default function BookPage() {
     return totalPrice != null ? getDepositAmount(totalPrice) : 0;
   })();
 
-  const formatSlotTime = (iso: string) =>
-    new Date(iso).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" });
+  const formatSlotTime = (iso: string) => formatTaipeiTime(iso);
 
   const goToStep = (target: Step) => {
     const targetIdx = BOOKING_STEP_ORDER.indexOf(target);
@@ -880,7 +888,13 @@ export default function BookPage() {
               <>
                 {slots.length > 0 && (
                   <p className="mb-3 text-xs text-gray-600">
-                    {t("book.slot.totalSlots", { count: slots.length, free: slots.filter((s) => s.available).length })}
+                    {t("book.slot.totalSlots", {
+                      count: slots.length,
+                      // Match button state: duration>1 requires contiguous free slots
+                      free: slots.filter((s) =>
+                        duration === 1 ? s.available : canSelectDuration(s.start)
+                      ).length,
+                    })}
                   </p>
                 )}
                 {getTotalPrice() != null && (

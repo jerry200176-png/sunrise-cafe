@@ -47,3 +47,23 @@ export function formatReservationDateKey(dateKey: string): string {
     weekday: "short",
   });
 }
+
+/** Slot/clock label always in Asia/Taipei (never rely on device/UTC timezone). */
+export function formatTaipeiTime(
+  iso: string,
+  opts?: { hour12?: boolean }
+): string {
+  return new Date(iso).toLocaleTimeString("zh-TW", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: opts?.hour12,
+    timeZone: "Asia/Taipei",
+  });
+}
+
+/** Taipei calendar date + N days (YYYY-MM-DD). */
+export function taipeiDatePlusDays(days: number, from = new Date()): string {
+  const tw = toTaipei(from.toISOString());
+  tw.setDate(tw.getDate() + days);
+  return taipeiDateString(tw);
+}
