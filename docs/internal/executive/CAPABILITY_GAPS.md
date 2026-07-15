@@ -1,9 +1,10 @@
 # Capability Gaps — Evidence-Based Registry
 
 **Owner:** Orchestrator · Planner role  
-**Updated:** 2026-07-15  
+**Updated:** 2026-07-15 (Maturity A loop-1)  
 **Rule:** Gaps require **verified repo or production evidence** — not feature-parity wishlists.  
-**Full audit:** [`COMPETITIVE_AUDIT_2026-07-15.md`](./COMPETITIVE_AUDIT_2026-07-15.md)
+**Full audit:** [`COMPETITIVE_AUDIT_2026-07-15.md`](./COMPETITIVE_AUDIT_2026-07-15.md)  
+**Maturity SSOT:** [`COMMERCIAL_MATURITY_RUBRIC.md`](./COMMERCIAL_MATURITY_RUBRIC.md) · [`COMMERCIAL_MATURITY_A_EVIDENCE.md`](./COMMERCIAL_MATURITY_A_EVIDENCE.md)
 
 > Compare against mature orgs (Stripe, Vercel, GitHub, Linear, Cloudflare) to **identify** gaps; adopt only when evidence supports ROI for 昇昇咖啡.
 

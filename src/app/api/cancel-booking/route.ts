@@ -6,8 +6,8 @@ import {
 import { notifyWaitlist } from "@/lib/waitlist";
 import { verifyGuestBookingById } from "@/lib/guest-auth";
 import { enforceGuestLookupLimit } from "@/lib/guest-rate-limit";
-
-const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+import { evaluateGuestCancel } from "@/lib/cancel-refund-policy";
+import { logOps } from "@/lib/ops-log";
 
 export async function POST(request: NextRequest) {
   if (!isAdminConfigured()) {
@@ -40,20 +40,26 @@ export async function POST(request: NextRequest) {
     }
 
     const match = verified.reservation;
-    const start = new Date(match.start_time).getTime();
-    const now = Date.now();
-    if (start - now < TWENTY_FOUR_HOURS_MS) {
-      return NextResponse.json(
-        { error: "預約時間 24 小時內不可自行取消，請來電店家" },
-        { status: 400 }
-      );
-    }
     if (match.status === "cancelled") {
       return NextResponse.json({ error: "此訂位已取消" }, { status: 400 });
     }
-    if (match.is_deposit_paid) {
+
+    const decision = evaluateGuestCancel({
+      isDepositPaid: Boolean(match.is_deposit_paid),
+      startTimeMs: new Date(match.start_time).getTime(),
+    });
+
+    if (!decision.allowed) {
+      logOps("guest", "guest.cancel_blocked", {
+        eligibility: decision.eligibility,
+        reservation_id: match.id,
+      });
       return NextResponse.json(
-        { error: "已付訂金的訂位請來電店家協助取消" },
+        {
+          error: decision.message ?? "目前無法自行取消",
+          eligibility: decision.eligibility,
+          refund_request_available: decision.eligibility === "staff_review_required",
+        },
         { status: 400 }
       );
     }
@@ -64,6 +70,7 @@ export async function POST(request: NextRequest) {
       console.error("[cancel-booking] waitlist notify failed:", err)
     );
 
+    logOps("guest", "guest.cancel_ok", { reservation_id: match.id });
     return NextResponse.json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法取消";

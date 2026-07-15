@@ -2,10 +2,10 @@ import { describe, it, expect } from "vitest";
 import { getBranchDepositConfig, BRANCH_DEPOSIT_CONFIG } from "./constants";
 
 describe("getBranchDepositConfig", () => {
-  it("returns daan branch config with stripeEnabled true", () => {
+  it("returns daan branch config with Stripe UI closed until go-live", () => {
     const config = getBranchDepositConfig("daan");
     expect(config.isDepositRequired).toBe(true);
-    expect(config.stripeEnabled).toBe(true);
+    expect(config.stripeEnabled).toBe(false);
     expect(config.defaultDepositAmount).toBe(500);
   });
 
@@ -18,8 +18,8 @@ describe("getBranchDepositConfig", () => {
 });
 
 describe("BRANCH_DEPOSIT_CONFIG", () => {
-  it("daan is configured", () => {
+  it("daan deposit required without exposing half-finished Stripe", () => {
     expect(BRANCH_DEPOSIT_CONFIG).toHaveProperty("daan");
-    expect(BRANCH_DEPOSIT_CONFIG.daan.stripeEnabled).toBe(true);
+    expect(BRANCH_DEPOSIT_CONFIG.daan.stripeEnabled).toBe(false);
   });
 });

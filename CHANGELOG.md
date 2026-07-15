@@ -6,6 +6,15 @@
 
 ## [Unreleased]
 
+### Commercial Maturity A — Loop 1 (2026-07-15)
+- **Stripe 二元化**：大安 `stripeEnabled=false`；新增 `GET /api/payment/status`；訂位頁僅在 server `stripe_enabled` 時開 Modal（消除 503 半成品入口）
+- **Rate limit**：Upstash 未設定時改記憶體 sliding window（production 不再 fail-open）；`/api/booking-health` 回報 `rate_limit_mode`
+- **今日場控**：`/admin/today` + `GET /api/admin/today`（時間軸／未付／審核／候補／一鍵撥號）
+- **取消／退費模型**：`cancel-refund-policy` + `POST /api/refund-request` + `migration-refund-requests.sql`（不自動退款）
+- **Funnel**：擴充 step／submit 事件；E2E mock 改半小時格以修復 CI
+- **備份演練**：`npm run db:backup` / `db:restore-drill`；`docs/ops/BACKUP_RESTORE_DRILL.md`
+- **Rubric SSOT**：`COMMERCIAL_MATURITY_RUBRIC.md` + frozen baseline + gaps + evidence（整體仍誠實評為未達 A）
+
 ### Security — Catalog RLS harden (2026-07-15 audit)
 - **後台目錄寫入**改走 `SUPABASE_SERVICE_ROLE_KEY`（branches／rooms／settings／legacy reservation helpers），不再用公開 anon key 突變資料
 - 新增 `supabase/migration-rls-catalog-read-only.sql`：anon 僅 SELECT；**部署程式後須在 Supabase 執行**

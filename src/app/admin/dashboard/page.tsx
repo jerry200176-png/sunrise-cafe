@@ -237,6 +237,12 @@ export default function AdminDashboardPage() {
               <ArrowLeft className="h-5 w-5" />
             </Link>
             <h1 className="text-xl font-bold text-gray-900">儀表板</h1>
+            <Link
+              href="/admin/today"
+              className="rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700"
+            >
+              今日場控
+            </Link>
           </div>
           <button
             type="button"

@@ -5,6 +5,8 @@ import {
   getBlockedSlots,
 } from "@/lib/supabase-admin";
 import { hasValidAdminSession } from "@/lib/admin-api-auth";
+import { getRateLimitMode } from "@/lib/rate-limit";
+import { isStripeEnabled } from "@/lib/stripe";
 
 /**
  * 訂位後端健康檢查：確認 Vercel 上 SUPABASE_SERVICE_ROLE_KEY 與 get_blocked_slots 是否正常。
@@ -85,13 +87,19 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const defenses = {
+    rate_limit_mode: getRateLimitMode(),
+    stripe_enabled: isStripeEnabled(),
+  };
+
   if (!isAdmin) {
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, ...defenses });
   }
 
   return NextResponse.json({
     ok: true,
     message: "訂位後端正常（Service Role 與 get_blocked_slots 可用）",
     serviceRoleConfigured: true,
+    ...defenses,
   });
 }
