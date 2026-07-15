@@ -21,6 +21,7 @@ type WaitlistRow = {
   status: string;
   created_at: string;
   notified_at: string | null;
+  staff_called_at?: string | null;
   room: { name: string; branch_id: string; branch: { name: string } | { name: string }[] } | { name: string; branch_id: string; branch: { name: string } | { name: string }[] }[];
 };
 
@@ -36,6 +37,7 @@ function normalizeRow(row: WaitlistRow) {
     status: row.status,
     created_at: row.created_at,
     notified_at: row.notified_at,
+    staff_called_at: row.staff_called_at ?? null,
     room_name: room?.name ?? "",
     branch_id: room?.branch_id ?? "",
     branch_name: branch?.name ?? "",
@@ -100,7 +102,7 @@ export async function GET(request: NextRequest) {
     let query = db()
       .from("waitlist")
       .select(
-        "id, customer_name, phone, start_time, end_time, status, created_at, notified_at, room:rooms(name, branch_id, branch:branches(name))"
+        "id, customer_name, phone, start_time, end_time, status, created_at, notified_at, staff_called_at, room:rooms(name, branch_id, branch:branches(name))"
       );
 
     if (statusFilter === "waiting" || statusFilter === "notified") {
@@ -110,9 +112,30 @@ export async function GET(request: NextRequest) {
     }
 
     const { data, error } = await query.order("created_at", { ascending: true });
-    if (error) throw error;
+    let rows: WaitlistRow[];
+    if (error) {
+      if (/staff_called_at/i.test(error.message)) {
+        const fallback = await db()
+          .from("waitlist")
+          .select(
+            "id, customer_name, phone, start_time, end_time, status, created_at, notified_at, room:rooms(name, branch_id, branch:branches(name))"
+          )
+          .in(
+            "status",
+            statusFilter === "waiting" || statusFilter === "notified"
+              ? [statusFilter]
+              : ["waiting", "notified"]
+          )
+          .order("created_at", { ascending: true });
+        if (fallback.error) throw fallback.error;
+        rows = (fallback.data ?? []) as WaitlistRow[];
+      } else {
+        throw error;
+      }
+    } else {
+      rows = (data ?? []) as WaitlistRow[];
+    }
 
-    const rows = (data ?? []) as WaitlistRow[];
     const branchIds = [...new Set(rows.map((r) => normalizeRow(r).branch_id).filter(Boolean))];
     const allowed = new Set(filterBranchIds(ctx, branchIds));
 
@@ -124,10 +147,12 @@ export async function GET(request: NextRequest) {
     const items = base.map((r) => {
       const key = normalizePhone(r.phone) || r.phone;
       const has_line = linePhones.has(key);
+      const needs_call =
+        r.status === "waiting" && !has_line && !r.staff_called_at;
       return {
         ...r,
         has_line,
-        needs_call: r.status === "waiting" && !has_line,
+        needs_call,
       };
     });
 

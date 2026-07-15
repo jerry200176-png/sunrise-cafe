@@ -33,6 +33,7 @@ interface BookingItem {
   is_deposit_paid?: boolean;
   created_at: string;
   guest_confirmed_at?: string | null;
+  confirm_attendance_url?: string | null;
   payment_review_status?: "pending_review" | "approved" | "rejected" | null;
 }
 
@@ -578,9 +579,25 @@ function BookQueryContent() {
                         : "border-gray-200 bg-gray-50 text-gray-700"
                     }`}
                   >
-                    {item.guest_confirmed_at
-                      ? t("query.attendanceConfirmed")
-                      : t("query.attendancePending")}
+                    {item.guest_confirmed_at ? (
+                      <p>{t("query.attendanceConfirmed")}</p>
+                    ) : (
+                      <div className="space-y-2">
+                        <p>
+                          {item.confirm_attendance_url
+                            ? t("query.attendanceReady")
+                            : t("query.attendancePending")}
+                        </p>
+                        {item.confirm_attendance_url && (
+                          <a
+                            href={item.confirm_attendance_url}
+                            className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-sky-700 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-800"
+                          >
+                            {t("query.attendanceConfirmCta")}
+                          </a>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 

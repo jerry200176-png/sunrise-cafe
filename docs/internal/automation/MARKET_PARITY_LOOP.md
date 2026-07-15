@@ -27,10 +27,13 @@
 | 18 | Staff LINE on attendance confirm | group Flex | **DONE** |
 | 19 | Dashboard「待確認出席」count | tomorrow board chip | **DONE** |
 | 20 | Payment Flex deep-link `?code=` | buildPaymentFlex / approved | **DONE** |
+| 21 | Waitlist mark staff called | `staff_called_at` + PATCH | **DONE** |
+| 22 | Query attendance confirm CTA | near-visit signed URL | **DONE** |
 
 ## Deploy notes
 
 - Run `supabase/migration-guest-confirmed-at.sql` on production (code degrades until then).
 - Run `supabase/migration-deposit-urgent-reminder-sent.sql` for second deposit nudge (code degrades until then).
+- Run `supabase/migration-waitlist-staff-called-at.sql` for「標記已來電」(code degrades until then).
 - After merge: redeploy so hourly deposit-deadline cron registers on Vercel.
 - Stop list: LINE Pay native (#99), SMS OTP, Google Reserve.
