@@ -27,6 +27,7 @@ export type OpsLogAction =
   | "admin.payment_approved"
   | "admin.payment_rejected"
   | "admin.waitlist_expired"
+  | "admin.waitlist_staff_called"
   | "payment.intent_created"
   | "payment.deposit_confirmed"
   | "payment.refund_processed"

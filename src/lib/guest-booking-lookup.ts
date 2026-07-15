@@ -18,12 +18,27 @@ import {
   GUEST_BOOKING_DATE_NOT_FOUND,
 } from "@/lib/guest-auth";
 import { createClient } from "@supabase/supabase-js";
+import { signAttendanceToken } from "@/lib/attendance-token";
+import { LINE_SITE_URL } from "@/lib/line-flex";
 
 function db() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
+}
+
+const ATTENDANCE_WINDOW_MS = 36 * 60 * 60 * 1000;
+
+function shouldOfferAttendanceConfirm(r: {
+  status: string;
+  start_time: string;
+  guest_confirmed_at?: string | null;
+}): boolean {
+  if (r.guest_confirmed_at) return false;
+  if (!["pending", "confirmed"].includes(r.status)) return false;
+  const ms = new Date(r.start_time).getTime() - Date.now();
+  return ms >= 0 && ms <= ATTENDANCE_WINDOW_MS;
 }
 
 export type GuestBookingItem = {
@@ -48,6 +63,8 @@ export type GuestBookingItem = {
   created_at: string;
   /** Guest tapped D-1 confirm attendance */
   guest_confirmed_at?: string | null;
+  /** Deep link for near-visit attendance confirm (signed; only when eligible) */
+  confirm_attendance_url?: string | null;
   /** Latest payment_events status for guest visibility (null if none / unpaid path) */
   payment_review_status?: "pending_review" | "approved" | "rejected" | null;
 };
@@ -97,6 +114,9 @@ async function toGuestBookingItem(r: ReservationRow): Promise<GuestBookingItem> 
     is_deposit_paid: !!r.is_deposit_paid,
     created_at: r.created_at,
     guest_confirmed_at: r.guest_confirmed_at ?? null,
+    confirm_attendance_url: shouldOfferAttendanceConfirm(r)
+      ? `${LINE_SITE_URL}/book/confirm-visit?token=${encodeURIComponent(signAttendanceToken(r.id))}`
+      : null,
     payment_review_status: await fetchLatestPaymentReviewStatus(r.id),
   };
 }

@@ -17,6 +17,7 @@ type WaitlistItem = {
   status: "waiting" | "notified" | string;
   created_at: string;
   notified_at: string | null;
+  staff_called_at?: string | null;
   room_name: string;
   branch_name: string;
   has_line?: boolean;
@@ -42,6 +43,7 @@ export default function AdminWaitlistPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [markingId, setMarkingId] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const toastId = useRef(0);
@@ -96,6 +98,35 @@ export default function AdminWaitlistPage() {
     } finally {
       setRemovingId(null);
       setConfirmRemoveId(null);
+    }
+  };
+
+  const markCalled = async (id: string, staff_called = true) => {
+    setMarkingId(id);
+    try {
+      const res = await fetch(`/api/admin/waitlist/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ staff_called }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error ?? "更新失敗", "error");
+        return;
+      }
+      setItems((prev) => {
+        const next = prev.map((i) => {
+          if (i.id !== id) return i;
+          const staff_called_at = (data.staff_called_at as string | null) ?? null;
+          const needs_call = i.status === "waiting" && !i.has_line && !staff_called_at;
+          return { ...i, staff_called_at, needs_call };
+        });
+        setNeedsCallCount(next.filter((i) => i.needs_call).length);
+        return next;
+      });
+      showToast(staff_called ? "已標記來電完成" : "已取消來電標記", "success");
+    } finally {
+      setMarkingId(null);
     }
   };
 
@@ -208,6 +239,11 @@ export default function AdminWaitlistPage() {
                           需電話通知
                         </span>
                       )}
+                      {item.staff_called_at && !item.has_line && (
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 border border-slate-200">
+                          已來電
+                        </span>
+                      )}
                       {item.has_line && item.status === "waiting" && (
                         <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800 border border-emerald-100">
                           可 LINE 推播
@@ -227,6 +263,8 @@ export default function AdminWaitlistPage() {
                       加入於 {format(parseISO(item.created_at), "MM/dd HH:mm", { locale: zhTW })}
                       {item.notified_at &&
                         ` · 通知於 ${format(parseISO(item.notified_at), "MM/dd HH:mm", { locale: zhTW })}`}
+                      {item.staff_called_at &&
+                        ` · 來電於 ${format(parseISO(item.staff_called_at), "MM/dd HH:mm", { locale: zhTW })}`}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-start gap-2">
@@ -240,6 +278,16 @@ export default function AdminWaitlistPage() {
                     >
                       <Phone className="w-4 h-4" /> 撥打
                     </a>
+                    {!item.has_line && item.status === "waiting" && (
+                      <button
+                        type="button"
+                        disabled={markingId === item.id}
+                        onClick={() => void markCalled(item.id, !item.staff_called_at)}
+                        className="inline-flex min-h-[44px] items-center gap-1 rounded-lg border border-orange-300 bg-white px-3 py-1.5 text-sm font-medium text-orange-900 hover:bg-orange-50 disabled:opacity-50"
+                      >
+                        {item.staff_called_at ? "取消來電標記" : "標記已來電"}
+                      </button>
+                    )}
                     <button
                       type="button"
                       disabled={removingId === item.id}
