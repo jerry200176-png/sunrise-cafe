@@ -25,6 +25,8 @@
 | 16 | Gate「待確認出席」noise | near-visit / is_notified only | **DONE** |
 | 17 | Guest query attendance chip | lookup + query i18n | **DONE** |
 | 18 | Staff LINE on attendance confirm | group Flex | **DONE** |
+| 19 | Dashboard「待確認出席」count | tomorrow board chip | **DONE** |
+| 20 | Payment Flex deep-link `?code=` | buildPaymentFlex / approved | **DONE** |
 
 ## Deploy notes
 

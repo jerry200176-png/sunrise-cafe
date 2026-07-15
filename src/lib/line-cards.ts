@@ -102,6 +102,10 @@ export function buildPaymentFlex(params: {
   }
   note += "\n\n帶外食沒關係，離場請自行帶走垃圾；未帶走酌收清潔費 $300。";
 
+  const queryUrl = code
+    ? `${LINE_QUERY_URL}?code=${encodeURIComponent(code)}`
+    : LINE_QUERY_URL;
+
   return flexBubble({
     icon: "💳",
     title: "訂金繳費通知",
@@ -112,8 +116,8 @@ export function buildPaymentFlex(params: {
     note,
     primaryAction: linePayUrl
       ? { label: "LINE Pay 付款", uri: linePayUrl, color: LINE_BRAND.caramelDeep }
-      : { label: "查看訂位詳情", uri: LINE_QUERY_URL },
-    secondaryAction: linePayUrl ? { label: "查看訂位詳情", uri: LINE_QUERY_URL } : undefined,
+      : { label: "查看訂位詳情", uri: queryUrl },
+    secondaryAction: linePayUrl ? { label: "查看訂位詳情", uri: queryUrl } : undefined,
     showSiteLink: true,
   });
 }
@@ -259,7 +263,10 @@ export function buildGuestPaymentApprovedFlex(params: {
       { label: "訂位碼", value: params.bookingCode },
       ...dateTimeRows(params.startTime, params.endTime),
     ],
-    primaryAction: { label: "查看訂位詳情", uri: LINE_QUERY_URL },
+    primaryAction: {
+      label: "查看訂位詳情",
+      uri: `${LINE_QUERY_URL}?code=${encodeURIComponent(params.bookingCode)}`,
+    },
     showSiteLink: true,
   });
 }
