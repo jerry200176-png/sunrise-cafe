@@ -10,7 +10,14 @@ import {
   buildGuestDepositReleasedFlex,
 } from "@/lib/line-cards";
 import { sendLineFlex, buildDepositReleasedGroupFlex } from "@/lib/line-notify";
-import { computeDepositDeadline, shouldAutoRelease, shouldSendDepositReminder } from "@/lib/deposit-deadline";
+import {
+  computeDepositDeadline,
+  formatDepositDeadlineLabel,
+  getDepositUrgency,
+  shouldAutoRelease,
+  shouldSendDepositReminder,
+  shouldSendUrgentDepositReminder,
+} from "@/lib/deposit-deadline";
 import { notifyWaitlist } from "@/lib/waitlist";
 import { toTaipei } from "@/lib/datetime";
 import { format } from "date-fns";
@@ -30,6 +37,7 @@ type Row = {
   status: string;
   line_user_id: string | null;
   deposit_reminder_sent_at: string | null;
+  deposit_urgent_reminder_sent_at?: string | null;
   room: { id: string; name: string; branch?: { name?: string } } | null;
 };
 
@@ -42,6 +50,24 @@ function describe(r: Row) {
   return { formattedDate, timeRange, branchName };
 }
 
+async function sendDepositReminder(r: Row, urgency: "ok" | "soon") {
+  const { branchName } = describe(r);
+  const deadline = computeDepositDeadline(r.created_at, r.start_time);
+  const deadlineLabel = formatDepositDeadlineLabel(deadline);
+  await sendLineFlexMessage(
+    r.line_user_id!,
+    urgency === "soon" ? "訂金即將逾期" : "訂金提醒",
+    buildGuestDepositReminderFlex({
+      branchName,
+      bookingCode: r.booking_code,
+      startTime: r.start_time,
+      endTime: r.end_time,
+      urgency,
+      deadlineLabel,
+    })
+  );
+}
+
 async function handleRun() {
   if (!isAdminConfigured()) {
     return NextResponse.json({ error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY" }, { status: 503 });
@@ -52,6 +78,7 @@ async function handleRun() {
   const now = new Date();
   let released = 0;
   let reminded = 0;
+  let urgentReminded = 0;
   let errors = 0;
 
   logPayment("deposit_deadline.cron_run", { candidate_count: rows.length });
@@ -112,32 +139,65 @@ async function handleRun() {
       continue;
     }
 
-    if (r.line_user_id && shouldSendDepositReminder(deadline, r.deposit_reminder_sent_at, now)) {
+    if (!r.line_user_id) continue;
+
+    if (shouldSendDepositReminder(deadline, r.deposit_reminder_sent_at, now)) {
       try {
-        await sendLineFlexMessage(
-          r.line_user_id,
-          "訂金提醒",
-          buildGuestDepositReminderFlex({
-            branchName,
-            bookingCode: r.booking_code,
-            startTime: r.start_time,
-            endTime: r.end_time,
-          })
-        );
-        await updateReservationAdmin(r.id, { deposit_reminder_sent_at: now.toISOString() });
+        const urgency = getDepositUrgency(deadline, now) === "soon" ? "soon" : "ok";
+        await sendDepositReminder(r, urgency);
+        const stamp = now.toISOString();
+        await updateReservationAdmin(r.id, {
+          deposit_reminder_sent_at: stamp,
+          ...(urgency === "soon" ? { deposit_urgent_reminder_sent_at: stamp } : {}),
+        });
         reminded++;
+        if (urgency === "soon") urgentReminded++;
         logPayment("deposit_deadline.reminded", {
           reservation_id: r.id,
           booking_code: r.booking_code,
+          urgency,
         });
       } catch (err) {
         errors++;
         console.error(`[deposit-deadline] 提醒失敗 id=${r.id}:`, err);
       }
+      continue;
+    }
+
+    if (
+      shouldSendUrgentDepositReminder(
+        deadline,
+        r.deposit_reminder_sent_at,
+        r.deposit_urgent_reminder_sent_at,
+        now
+      )
+    ) {
+      try {
+        await sendDepositReminder(r, "soon");
+        await updateReservationAdmin(r.id, {
+          deposit_urgent_reminder_sent_at: now.toISOString(),
+        });
+        urgentReminded++;
+        logPayment("deposit_deadline.urgent_reminded", {
+          reservation_id: r.id,
+          booking_code: r.booking_code,
+        });
+      } catch (err) {
+        // Column missing → degrade silently (first reminder already covers)
+        if (
+          err instanceof Error &&
+          /deposit_urgent_reminder_sent_at/i.test(err.message)
+        ) {
+          console.warn("[deposit-deadline] urgent column missing; skip stamp:", err.message);
+        } else {
+          errors++;
+          console.error(`[deposit-deadline] 迫近提醒失敗 id=${r.id}:`, err);
+        }
+      }
     }
   }
 
-  return NextResponse.json({ ok: true, released, reminded, errors });
+  return NextResponse.json({ ok: true, released, reminded, urgentReminded, errors });
   } catch (err) {
     return NextResponse.json({ error: errorToDetail(err) }, { status: 500 });
   }

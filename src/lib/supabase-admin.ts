@@ -231,6 +231,7 @@ export async function updateReservationAdmin(
     is_deposit_paid?: boolean;
     deposit_payment_note?: string | null;
     deposit_reminder_sent_at?: string | null;
+    deposit_urgent_reminder_sent_at?: string | null;
     payment_request_sent_at?: string | null;
     notes?: string | null;
     customer_name?: string;
@@ -556,13 +557,28 @@ export async function fetchUnpaidDepositDueReservations() {
   const { data, error } = await supabaseAdmin()
     .from("reservations")
     .select(
-      "id, booking_code, customer_name, phone, start_time, end_time, created_at, status, line_user_id, deposit_reminder_sent_at, room:rooms(id, name, branch:branches(name))"
+      "id, booking_code, customer_name, phone, start_time, end_time, created_at, status, line_user_id, deposit_reminder_sent_at, deposit_urgent_reminder_sent_at, room:rooms(id, name, branch:branches(name))"
     )
     .in("status", ["pending", "confirmed"])
     .eq("is_deposit_paid", false)
     .order("start_time", { ascending: true });
 
-  if (error) throw error;
+  if (error) {
+    // migration 未套用時降級：略過 deposit_urgent_reminder_sent_at
+    if (/deposit_urgent_reminder_sent_at/i.test(error.message)) {
+      const fallback = await supabaseAdmin()
+        .from("reservations")
+        .select(
+          "id, booking_code, customer_name, phone, start_time, end_time, created_at, status, line_user_id, deposit_reminder_sent_at, room:rooms(id, name, branch:branches(name))"
+        )
+        .in("status", ["pending", "confirmed"])
+        .eq("is_deposit_paid", false)
+        .order("start_time", { ascending: true });
+      if (fallback.error) throw fallback.error;
+      return fallback.data;
+    }
+    throw error;
+  }
   return data;
 }
 

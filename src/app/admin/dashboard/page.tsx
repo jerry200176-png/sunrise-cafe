@@ -477,6 +477,17 @@ export default function AdminDashboardPage() {
               <span className="rounded-full bg-red-50 px-2.5 py-1 font-medium text-red-800">
                 未付訂金 {remindersForBranch.filter((r) => !r.is_deposit_paid).length}
               </span>
+              <span className="rounded-full bg-amber-50 px-2.5 py-1 font-medium text-amber-900">
+                待確認出席{" "}
+                {
+                  remindersForBranch.filter(
+                    (r) =>
+                      !r.guest_confirmed_at &&
+                      !!r.status &&
+                      ["pending", "confirmed"].includes(r.status)
+                  ).length
+                }
+              </span>
               <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-medium text-emerald-800">
                 已確認出席 {remindersForBranch.filter((r) => !!r.guest_confirmed_at).length}
               </span>

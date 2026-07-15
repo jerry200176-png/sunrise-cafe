@@ -102,6 +102,10 @@ export function buildPaymentFlex(params: {
   }
   note += "\n\n帶外食沒關係，離場請自行帶走垃圾；未帶走酌收清潔費 $300。";
 
+  const queryUrl = code
+    ? `${LINE_QUERY_URL}?code=${encodeURIComponent(code)}`
+    : LINE_QUERY_URL;
+
   return flexBubble({
     icon: "💳",
     title: "訂金繳費通知",
@@ -112,8 +116,8 @@ export function buildPaymentFlex(params: {
     note,
     primaryAction: linePayUrl
       ? { label: "LINE Pay 付款", uri: linePayUrl, color: LINE_BRAND.caramelDeep }
-      : { label: "查看訂位詳情", uri: LINE_QUERY_URL },
-    secondaryAction: linePayUrl ? { label: "查看訂位詳情", uri: LINE_QUERY_URL } : undefined,
+      : { label: "查看訂位詳情", uri: queryUrl },
+    secondaryAction: linePayUrl ? { label: "查看訂位詳情", uri: queryUrl } : undefined,
     showSiteLink: true,
   });
 }
@@ -259,7 +263,10 @@ export function buildGuestPaymentApprovedFlex(params: {
       { label: "訂位碼", value: params.bookingCode },
       ...dateTimeRows(params.startTime, params.endTime),
     ],
-    primaryAction: { label: "查看訂位詳情", uri: LINE_QUERY_URL },
+    primaryAction: {
+      label: "查看訂位詳情",
+      uri: `${LINE_QUERY_URL}?code=${encodeURIComponent(params.bookingCode)}`,
+    },
     showSiteLink: true,
   });
 }
@@ -269,19 +276,36 @@ export function buildGuestDepositReminderFlex(params: {
   bookingCode: string;
   startTime: string;
   endTime: string;
+  /** when soon, use stronger copy for ≤6h deadline */
+  urgency?: "ok" | "soon";
+  deadlineLabel?: string | null;
 }): LineFlexContainer {
+  const urgent = params.urgency === "soon";
+  const deadlineNote = params.deadlineLabel
+    ? `繳款期限：${params.deadlineLabel}。逾期座位將自動釋放。`
+    : "請盡快完成匯款或 LINE Pay（資訊請參考先前訊息），逾期座位將自動釋放。";
   return flexBubble({
-    icon: "⏰",
-    title: "訂金提醒",
+    icon: urgent ? "🚨" : "⏰",
+    title: urgent ? "訂金即將逾期" : "訂金提醒",
     subtitle: params.branchName,
-    accentColor: LINE_BRAND.warning,
-    paragraphs: ["您的包廂預約尚未收到訂金。"],
+    accentColor: urgent ? LINE_BRAND.danger : LINE_BRAND.warning,
+    paragraphs: [
+      urgent
+        ? "您的包廂預約訂金尚餘不到 6 小時就要到期，請立刻完成付款。"
+        : "您的包廂預約尚未收到訂金。",
+    ],
     rows: [
       { label: "訂位碼", value: params.bookingCode },
       ...dateTimeRows(params.startTime, params.endTime),
+      ...(params.deadlineLabel
+        ? [{ label: "繳款期限", value: params.deadlineLabel }]
+        : []),
     ],
-    note: "請盡快完成匯款或 LINE Pay（資訊請參考先前訊息），逾期座位將自動釋放。",
-    primaryAction: { label: "查看付款資訊", uri: LINE_QUERY_URL },
+    note: deadlineNote,
+    primaryAction: {
+      label: "查看付款資訊",
+      uri: `${LINE_QUERY_URL}?code=${encodeURIComponent(params.bookingCode)}`,
+    },
   });
 }
 
@@ -411,6 +435,30 @@ export function buildDepositReleasedGroupFlex(params: {
     subtitle: "已自動取消",
     accentColor: LINE_BRAND.danger,
     rows: reservationRows(params),
+  });
+}
+
+export function buildGuestAttendanceConfirmedGroupFlex(params: {
+  customerName: string;
+  phone: string;
+  bookingCode: string;
+  startTime: string;
+  endTime: string;
+  roomLabel?: string;
+}): LineFlexContainer {
+  return flexBubble({
+    icon: "✅",
+    title: "客人已確認出席",
+    subtitle: params.customerName,
+    accentColor: LINE_BRAND.successBright,
+    rows: reservationRows({
+      phone: params.phone,
+      bookingCode: params.bookingCode,
+      startTime: params.startTime,
+      endTime: params.endTime,
+      roomLabel: params.roomLabel,
+    }),
+    primaryAction: { label: "開啟後台", uri: `${LINE_SITE_URL}/admin` },
   });
 }
 

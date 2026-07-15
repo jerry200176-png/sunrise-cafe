@@ -611,6 +611,26 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                       📋 付款待審核 ×{r.pending_payment_reviews}
                     </a>
                   )}
+                  {r.guest_confirmed_at ? (
+                    <span
+                      className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-800 border border-sky-200"
+                      title={`確認於 ${format(toTaipei(r.guest_confirmed_at), "MM/dd HH:mm", { locale: zhTW })}`}
+                    >
+                      已確認出席
+                    </span>
+                  ) : (
+                    activeTab !== "history" &&
+                    ["pending", "confirmed"].includes(r.status) &&
+                    (r.is_notified ||
+                      (() => {
+                        const ms = new Date(r.start_time).getTime() - Date.now();
+                        return ms >= 0 && ms <= 36 * 60 * 60 * 1000;
+                      })()) && (
+                      <span className="rounded-full bg-gray-50 px-2 py-0.5 text-[11px] font-medium text-gray-500 border border-gray-200">
+                        待確認出席
+                      </span>
+                    )
+                  )}
                 </div>
 
                 {/* Row 3: Notes (if any) */}

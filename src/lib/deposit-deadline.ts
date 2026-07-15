@@ -52,3 +52,19 @@ export function shouldSendDepositReminder(
   const msUntilDeadline = deadline.getTime() - now.getTime();
   return msUntilDeadline > 0 && msUntilDeadline <= REMINDER_WINDOW_HOURS * HOUR_MS;
 }
+
+/**
+ * Second push when deadline is ≤6h away, after the first 24h-window reminder.
+ * Avoids double-send if the first reminder already went out in the soon window
+ * (caller should set both `deposit_reminder_sent_at` and `deposit_urgent_reminder_sent_at`).
+ */
+export function shouldSendUrgentDepositReminder(
+  deadline: Date,
+  reminderSentAt: string | null | undefined,
+  urgentSentAt: string | null | undefined,
+  now: Date = new Date()
+): boolean {
+  if (urgentSentAt) return false;
+  if (!reminderSentAt) return false;
+  return getDepositUrgency(deadline, now) === "soon";
+}

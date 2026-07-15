@@ -46,6 +46,8 @@ export type GuestBookingItem = {
   deposit_amount: number | null;
   is_deposit_paid: boolean;
   created_at: string;
+  /** Guest tapped D-1 confirm attendance */
+  guest_confirmed_at?: string | null;
   /** Latest payment_events status for guest visibility (null if none / unpaid path) */
   payment_review_status?: "pending_review" | "approved" | "rejected" | null;
 };
@@ -62,6 +64,7 @@ type ReservationRow = {
   customer_name: string;
   is_deposit_paid?: boolean | null;
   created_at: string;
+  guest_confirmed_at?: string | null;
 };
 
 async function toGuestBookingItem(r: ReservationRow): Promise<GuestBookingItem> {
@@ -93,6 +96,7 @@ async function toGuestBookingItem(r: ReservationRow): Promise<GuestBookingItem> 
         : null,
     is_deposit_paid: !!r.is_deposit_paid,
     created_at: r.created_at,
+    guest_confirmed_at: r.guest_confirmed_at ?? null,
     payment_review_status: await fetchLatestPaymentReviewStatus(r.id),
   };
 }
