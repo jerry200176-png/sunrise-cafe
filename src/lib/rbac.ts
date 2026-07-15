@@ -1,7 +1,7 @@
 /**
  * RBAC — roles, permissions, branch scope checks.
  */
-export type AdminRole = "owner" | "branch_manager" | "staff" | "finance";
+export type AdminRole = "owner" | "branch_manager" | "staff" | "finance" | "none";
 
 export type AdminContext = {
   user_id: string | null;
@@ -12,6 +12,7 @@ export type AdminContext = {
   email?: string;
 };
 
+/** Assignable roles in admin UI — excludes internal `none`. */
 export const ADMIN_ROLES: AdminRole[] = [
   "owner",
   "branch_manager",
@@ -43,6 +44,8 @@ const ROLE_PERMISSIONS: Record<AdminRole, string[]> = {
     "orders:write",
   ],
   finance: ["payments:read", "payments:approve", "bi:read"],
+  /** Unauthenticated / invalid session — zero privileges */
+  none: [],
 };
 
 export function roleHasPermission(role: AdminRole, permission: string): boolean {
@@ -83,6 +86,16 @@ export function ownerContext(legacy = false): AdminContext {
     role: "owner",
     branch_ids: null,
     legacy,
+  };
+}
+
+/** No privileges — used when admin auth is required but session is missing/invalid. */
+export function deniedContext(): AdminContext {
+  return {
+    user_id: null,
+    role: "none",
+    branch_ids: [],
+    legacy: false,
   };
 }
 

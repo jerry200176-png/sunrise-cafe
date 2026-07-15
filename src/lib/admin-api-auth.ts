@@ -6,7 +6,7 @@ import { getSessionSecret } from "@/lib/admin-auth";
 import type { AdminSessionPayload } from "@/lib/admin-session";
 import { payloadToContext } from "@/lib/admin-session";
 import type { AdminContext } from "@/lib/rbac";
-import { hasPermission, ownerContext } from "@/lib/rbac";
+import { deniedContext, hasPermission, ownerContext } from "@/lib/rbac";
 
 export const ADMIN_SESSION_COOKIE = "admin_session";
 
@@ -90,16 +90,21 @@ export async function verifyAdminSession(
   return (await parseAdminSessionPayload(value, secret)) !== null;
 }
 
+/**
+ * Resolve admin RBAC context from session cookie.
+ * When auth is required and the session is missing/invalid, returns
+ * {@link deniedContext} (zero permissions) — never elevates to owner.
+ */
 export async function getAdminContext(request: NextRequest): Promise<AdminContext> {
   if (!isAdminAuthRequired()) {
     return ownerContext(true);
   }
   const signingKey = getSessionSecret();
-  if (!signingKey) return ownerContext(true);
+  if (!signingKey) return deniedContext();
   const cookie = request.cookies.get(ADMIN_SESSION_COOKIE);
-  if (!cookie?.value) return ownerContext(true);
+  if (!cookie?.value) return deniedContext();
   const payload = await parseAdminSessionPayload(cookie.value, signingKey);
-  if (!payload) return ownerContext(true);
+  if (!payload) return deniedContext();
   return payloadToContext(payload);
 }
 

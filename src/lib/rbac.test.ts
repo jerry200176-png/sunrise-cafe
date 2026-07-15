@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canAccessBranch,
+  deniedContext,
   filterBranchIds,
   hasPermission,
   ownerContext,
@@ -55,5 +56,13 @@ describe("rbac", () => {
 
   it("canAccessBranch for owner", () => {
     expect(canAccessBranch(ownerContext(), "x")).toBe(true);
+  });
+
+  it("deniedContext has zero permissions", () => {
+    const denied = deniedContext();
+    expect(denied.role).toBe("none");
+    expect(hasPermission(denied, "reservations:read")).toBe(false);
+    expect(hasPermission(denied, "payments:approve", "b1")).toBe(false);
+    expect(canAccessBranch(denied, "b1")).toBe(false);
   });
 });

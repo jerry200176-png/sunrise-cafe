@@ -6,6 +6,13 @@
 
 ## [Unreleased]
 
+### Security — Catalog RLS harden (2026-07-15 audit)
+- **後台目錄寫入**改走 `SUPABASE_SERVICE_ROLE_KEY`（branches／rooms／settings／legacy reservation helpers），不再用公開 anon key 突變資料
+- 新增 `supabase/migration-rls-catalog-read-only.sql`：anon 僅 SELECT；**部署程式後須在 Supabase 執行**
+- `getAdminContext` 在需登入但 session 無效時回傳零權限 `none`，不再誤升為 owner
+- `headersAdmin` 缺少 service role 時改為拋錯，禁止靜默降級 anon
+- 競爭力審計報告：`docs/internal/executive/COMPETITIVE_AUDIT_2026-07-15.md`
+
 ### Guest (CX-006)
 - Waitlist confirm page (`/book/waitlist/confirm`): full zh/en/ja i18n + language switcher
 

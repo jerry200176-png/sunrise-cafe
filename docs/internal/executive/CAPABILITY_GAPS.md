@@ -1,8 +1,9 @@
 # Capability Gaps — Evidence-Based Registry
 
 **Owner:** Orchestrator · Planner role  
-**Updated:** 2026-07-11  
-**Rule:** Gaps require **verified repo or production evidence** — not feature-parity wishlists.
+**Updated:** 2026-07-15  
+**Rule:** Gaps require **verified repo or production evidence** — not feature-parity wishlists.  
+**Full audit:** [`COMPETITIVE_AUDIT_2026-07-15.md`](./COMPETITIVE_AUDIT_2026-07-15.md)
 
 > Compare against mature orgs (Stripe, Vercel, GitHub, Linear, Cloudflare) to **identify** gaps; adopt only when evidence supports ROI for 昇昇咖啡.
 
@@ -11,14 +12,15 @@
 ## Open gaps (ranked)
 
 | Rank | ID | Gap | Mature reference | Verified evidence | Proposed action | Owner | Status |
-|------|-----|-----|------------------|-------------------|-----------------|-------|--------|
-| 1 | CG-001 | GitHub backlog hygiene (11 PRs, 9 issues) | GitHub: <3 open feature PRs | `cto:governance` GitHub score **47**; 8 draft ghosts | Founder batch per `FOUNDER_ACTION_LIST.md` | Founder | **OPEN** |
-| 2 | CG-002 | Outcome metrics unmeasured | Stripe: revenue dashboards with SLAs | `OUTCOME_LOG` date=null; CX/REV frozen at 40/35 | Founder opens `/admin/executive`; `cto:outcomes` | Founder | **OPEN** |
-| 3 | CG-003 | DB migrations not applied | Vercel/Supabase: schema version enforced | 3 migrations pending; overlap risk | `OPS_MIGRATION_RUNBOOK` Steps 1–4 | Founder/Ops | **OPEN** |
-| 4 | CG-004 | Payment review lacks image persistence | Linear: rich attachment review | Staff had to re-open LINE for screenshots | LINE message id + admin image proxy (#114+) | Agent | **CLOSED** iter-015 |
-| 5 | CG-005 | Webhook/cron observability | Cloudflare: job success metrics | `webhook.event_ok` + `cron.completed` shipped | Close #60 webhook portion; cron via `job-runs` | Agent | **CLOSED** iter-014 |
-| 6 | CG-006 | Rate limits fail-open | Stripe: always enforce limits | Upstash unset → middleware fail-open; `guest.lookup_denied_rate_limit` logs when enforced | Verify Upstash env on Vercel | Founder | **OPEN** |
-| 7 | CG-007 | E2E coverage narrow | Vercel: critical path E2E | Admin payment + executive smoke wired; needs `E2E_ADMIN_PASSWORD` secret | Set GHA secret; expand booking flow E2E | Agent/Founder | **PARTIAL** iter-018 |
+|------|-----|-----|------------------|-------------------|-----------|------|--------|
+| 1 | CG-008 | Catalog RLS anon write (branches/rooms/settings) | Supabase deny-by-default | `rls-policies.sql` formerly FOR ALL; `supabase-fetch` mutations used anon | Service-role writes + `migration-rls-catalog-read-only.sql` | Agent | **FIXING** 2026-07-15 (apply SQL on prod after deploy) |
+| 2 | CG-006 | Rate limits fail-open | Stripe: always enforce limits | Upstash unset → middleware fail-open | Set Upstash on Vercel | Founder | **OPEN** |
+| 3 | CG-002 | Outcome metrics unmeasured | Stripe: revenue dashboards with SLAs | NORTH_STAR many unmeasured/pipeline | Weekly `/admin/executive` + `cto:outcomes` | Founder | **OPEN** |
+| 4 | CG-009 | Paid-deposit cancel/refund policy vs consumer protection | Eatsy tiered refund | Guest cancel blocks paid; i18n non-refundable copy | Founder policy → productize | Founder | **OPEN** |
+| 5 | CG-010 | Integrated deposit capture not closed in prod | Inline/OpenTable card deposit | Stripe code present; ROADMAP「規劃中」 | Gate on KPI; then #99 go-live | Founder | **OPEN** |
+| 6 | CG-003 | Optional multi-branch LINE migration | Per-tenant config | `migration-branches-line-group-id.sql` optional | Apply when multi-group needed | Ops | **OPEN** optional |
+| 7 | CG-007 | E2E coverage narrow | Vercel: critical path E2E | Needs `E2E_ADMIN_PASSWORD` secret | Set GHA secret; expand booking flow E2E | Agent/Founder | **PARTIAL** |
+| 8 | CG-001 | GitHub backlog hygiene | GitHub: <3 open feature PRs | Mostly closed 2026-07-15; re-check quarterly | Hygiene automation | Agent | **WATCH** |
 
 ---
 

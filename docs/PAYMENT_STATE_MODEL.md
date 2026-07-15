@@ -79,8 +79,8 @@ pending_review ──approve──▶ approved
 
 `getPaymentSubmissionOutcome(source)` — 見 `src/lib/payment-events.ts`：
 
-- `line_image` → `pending_review`（不動 `is_deposit_paid`）
-- `line_text` → `auto_mark_paid`（過渡期，與 ADR-002 相容）
+- **Phase 2（現行）：** 所有客人來源（`line_image` / `line_text` / …）一律 → `pending_review`（不動 `is_deposit_paid`）
+- 舊過渡行為 `line_text` → `auto_mark_paid` **已廢止**（以程式碼為準；勿再依 ADR-002 自動標記敘述）
 
 ## Routes Impact
 

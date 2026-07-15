@@ -1,6 +1,9 @@
 /**
  * 用原生 fetch 呼叫 Supabase REST API（PostgREST），
  * 避免 @supabase/supabase-js 在 Node 環境的連線問題。
+ *
+ * 讀取：可用 anon key（公開目錄）
+ * 寫入：必須使用 SUPABASE_SERVICE_ROLE_KEY（配合 RLS catalog read-only）
  */
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
 const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
@@ -15,6 +18,22 @@ function headers(extra: HeadersInit = {}) {
   return {
     apikey: k,
     Authorization: `Bearer ${k}`,
+    "Content-Type": "application/json",
+    ...extra,
+  };
+}
+
+/** Server-only writes — bypasses RLS. Throws if service role missing. */
+function adminHeaders(extra: HeadersInit = {}) {
+  const { url: baseUrl } = base();
+  void baseUrl;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!serviceRoleKey) {
+    throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY for admin mutation");
+  }
+  return {
+    apikey: serviceRoleKey,
+    Authorization: `Bearer ${serviceRoleKey}`,
     "Content-Type": "application/json",
     ...extra,
   };
@@ -62,7 +81,7 @@ export async function insertBranch(body: {
   const { url: baseUrl } = base();
   const res = await fetch(`${baseUrl}/rest/v1/branches`, {
     method: "POST",
-    headers: headers({ Prefer: "return=minimal" }),
+    headers: adminHeaders({ Prefer: "return=minimal" }),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -78,7 +97,7 @@ export async function updateBranch(
   const { url: baseUrl } = base();
   const res = await fetch(`${baseUrl}/rest/v1/branches?id=eq.${encodeURIComponent(id)}`, {
     method: "PATCH",
-    headers: headers({ Prefer: "return=minimal" }),
+    headers: adminHeaders({ Prefer: "return=minimal" }),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -91,7 +110,7 @@ export async function deleteBranch(id: string): Promise<void> {
   const { url: baseUrl } = base();
   const res = await fetch(`${baseUrl}/rest/v1/branches?id=eq.${encodeURIComponent(id)}`, {
     method: "DELETE",
-    headers: headers(),
+    headers: adminHeaders(),
   });
   if (!res.ok) {
     const text = await res.text();
@@ -141,7 +160,7 @@ export async function updateSettings(
   if (google_review_url !== undefined) body.google_review_url = google_review_url;
   const res = await fetch(`${baseUrl}/rest/v1/settings?id=eq.app`, {
     method: "PATCH",
-    headers: headers({ Prefer: "return=minimal" }),
+    headers: adminHeaders({ Prefer: "return=minimal" }),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -176,7 +195,7 @@ export async function insertRoom(body: {
   const { url: baseUrl } = base();
   const res = await fetch(`${baseUrl}/rest/v1/rooms`, {
     method: "POST",
-    headers: headers({ Prefer: "return=minimal" }),
+    headers: adminHeaders({ Prefer: "return=minimal" }),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -192,7 +211,7 @@ export async function updateRoom(
   const { url: baseUrl } = base();
   const res = await fetch(`${baseUrl}/rest/v1/rooms?id=eq.${encodeURIComponent(id)}`, {
     method: "PATCH",
-    headers: headers({ Prefer: "return=minimal" }),
+    headers: adminHeaders({ Prefer: "return=minimal" }),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -205,7 +224,7 @@ export async function deleteRoom(id: string): Promise<void> {
   const { url: baseUrl } = base();
   const res = await fetch(`${baseUrl}/rest/v1/rooms?id=eq.${encodeURIComponent(id)}`, {
     method: "DELETE",
-    headers: headers(),
+    headers: adminHeaders(),
   });
   if (!res.ok) {
     const text = await res.text();
@@ -213,7 +232,10 @@ export async function deleteRoom(id: string): Promise<void> {
   }
 }
 
-/** 依分店取得訂位（經由該分店底下所有 room_id） */
+/**
+ * @deprecated Prefer fetchReservationsAdmin — anon RLS denies reservation SELECT.
+ * Kept for rare tooling; uses service role.
+ */
 export async function fetchReservations(branchId: string): Promise<unknown[]> {
   const rooms = (await fetchRooms(branchId)) as { id: string }[];
   if (rooms.length === 0) return [];
@@ -222,7 +244,7 @@ export async function fetchReservations(branchId: string): Promise<unknown[]> {
   const inFilter = ids.map((id) => encodeURIComponent(id)).join(",");
   const res = await fetch(
     `${baseUrl}/rest/v1/reservations?select=*&room_id=in.(${inFilter})&order=start_time.asc`,
-    { method: "GET", headers: headers(), cache: "no-store" }
+    { method: "GET", headers: adminHeaders(), cache: "no-store" }
   );
   if (!res.ok) {
     const text = await res.text();
@@ -231,6 +253,7 @@ export async function fetchReservations(branchId: string): Promise<unknown[]> {
   return res.json();
 }
 
+/** @deprecated Prefer insertReservationAdmin */
 export async function insertReservation(body: {
   room_id: string;
   customer_name: string;
@@ -248,7 +271,7 @@ export async function insertReservation(body: {
   if (body.notes !== undefined) payload.notes = body.notes;
   const res = await fetch(`${baseUrl}/rest/v1/reservations`, {
     method: "POST",
-    headers: headers({ Prefer: "return=minimal" }),
+    headers: adminHeaders({ Prefer: "return=minimal" }),
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
@@ -257,6 +280,7 @@ export async function insertReservation(body: {
   }
 }
 
+/** @deprecated Prefer updateReservationAdmin */
 export async function updateReservation(
   id: string,
   patch: Partial<{
@@ -273,7 +297,7 @@ export async function updateReservation(
   const { url: baseUrl } = base();
   const res = await fetch(`${baseUrl}/rest/v1/reservations?id=eq.${encodeURIComponent(id)}`, {
     method: "PATCH",
-    headers: headers({ Prefer: "return=minimal" }),
+    headers: adminHeaders({ Prefer: "return=minimal" }),
     body: JSON.stringify(patch),
   });
   if (!res.ok) {

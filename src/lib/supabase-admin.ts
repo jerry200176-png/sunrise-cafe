@@ -33,13 +33,15 @@ export const baseAdmin = () => ({
 });
 
 export const headersAdmin = () => {
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-  const apiKey = serviceRoleKey || anonKey;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? "";
+  if (!serviceRoleKey) {
+    // Never silently fall back to anon — that bypasses RLS intent and looks like admin access.
+    throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY for admin Supabase access");
+  }
 
   return {
-    apikey: apiKey,
-    Authorization: `Bearer ${apiKey}`,
+    apikey: serviceRoleKey,
+    Authorization: `Bearer ${serviceRoleKey}`,
     "Content-Type": "application/json",
   };
 };
