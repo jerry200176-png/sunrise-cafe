@@ -10,7 +10,11 @@ import { enUS, ja, zhTW } from "date-fns/locale";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { computeDepositDeadline, getDepositUrgency } from "@/lib/deposit-deadline";
-import { toTaipei } from "@/lib/datetime";
+import { toTaipei, formatTaipeiTime } from "@/lib/datetime";
+import {
+  availableStarts,
+  durationHoursBetween,
+} from "@/lib/slot-grid";
 
 interface BookingItem {
   id: string;
@@ -254,9 +258,7 @@ function BookQueryContent() {
   };
 
   const durationHoursOf = (item: BookingItem) =>
-    Math.round(
-      (new Date(item.end_time).getTime() - new Date(item.start_time).getTime()) / (60 * 60 * 1000)
-    );
+    durationHoursBetween(item.start_time, item.end_time);
 
   const openReschedule = (item: BookingItem) => {
     setReschedulingItem(item);
@@ -328,18 +330,10 @@ function BookQueryContent() {
     }
   };
 
-  // 找出連續可用、長度等於原訂位時長的起始時段
+  // 連續半小時格、長度等於原訂位時長的起始時段（支援 13:30、2.5h）
   const validRescheduleStarts = () => {
     if (!reschedulingItem) return [];
-    const duration = durationHoursOf(reschedulingItem);
-    const options: { start: string; end: string }[] = [];
-    for (let i = 0; i + duration <= rescheduleSlots.length; i++) {
-      const window = rescheduleSlots.slice(i, i + duration);
-      if (window.every((s) => s.available)) {
-        options.push({ start: window[0].start, end: window[window.length - 1].end });
-      }
-    }
-    return options;
+    return availableStarts(rescheduleSlots, durationHoursOf(reschedulingItem));
   };
 
   const confirmReschedule = async (start: string, end: string) => {
@@ -855,8 +849,8 @@ function BookQueryContent() {
                                       : "border-amber-400 bg-white text-amber-800 hover:bg-amber-100"
                                   }`}
                                 >
-                                  {format(parseISO(opt.start), "HH:mm")}–
-                                  {format(parseISO(opt.end), "HH:mm")}
+                                  {formatTaipeiTime(opt.start, { hour12: false })}–
+                                  {formatTaipeiTime(opt.end, { hour12: false })}
                                 </button>
                               ))}
                             </div>
@@ -864,8 +858,8 @@ function BookQueryContent() {
                               <div className="rounded-lg border border-amber-300 bg-white p-3 space-y-2">
                                 <p className="text-sm font-medium text-amber-900">
                                   {t("query.rescheduleConfirmTitle")}{" "}
-                                  {format(parseISO(pendingReschedule.start), "HH:mm")}–
-                                  {format(parseISO(pendingReschedule.end), "HH:mm")}
+                                  {formatTaipeiTime(pendingReschedule.start, { hour12: false })}–
+                                  {formatTaipeiTime(pendingReschedule.end, { hour12: false })}
                                 </p>
                                 <div className="flex gap-2">
                                   <button

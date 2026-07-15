@@ -1,13 +1,10 @@
 import { toTaipei } from "@/lib/datetime";
-
-// Force update: Enable 0.5 hour intervals
-export function getDurationOptions() {
-  const options = [];
-  for (let i = 2; i <= 10; i += 0.5) {
-    options.push(i);
-  }
-  return options;
-}
+export {
+  getDurationOptions,
+  MIN_DURATION_HOURS,
+  MAX_DURATION_HOURS,
+  SLOT_STEP_MS,
+} from "@/lib/slot-grid";
 
 /**
  * 判斷指定日期是否需收取訂金

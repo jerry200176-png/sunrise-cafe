@@ -35,15 +35,16 @@ describe("isDepositRequired", () => {
 describe("getDurationOptions", () => {
   const options = getDurationOptions();
 
-  it("從 2 到 10、間隔 0.5", () => {
+  it("從 2 到 8、間隔 0.5（與 API 一致）", () => {
     expect(options[0]).toBe(2);
-    expect(options[options.length - 1]).toBe(10);
+    expect(options[options.length - 1]).toBe(8);
     expect(options).toContain(2.5);
-    expect(options).toContain(9.5);
+    expect(options).not.toContain(8.5);
+    expect(options).not.toContain(10);
   });
 
-  it("共 17 個選項", () => {
-    expect(options).toHaveLength(17); // (10-2)/0.5 + 1
+  it("共 13 個選項", () => {
+    expect(options).toHaveLength(13); // (8-2)/0.5 + 1
   });
 });
 

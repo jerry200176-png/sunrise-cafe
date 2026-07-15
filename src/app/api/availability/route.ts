@@ -8,6 +8,7 @@ import {
 } from "@/lib/supabase-admin";
 import { fetchSettings } from "@/lib/supabase-fetch";
 import { isDateClosed, resolveClosedDates } from "@/lib/branch-closed-dates";
+import { buildHalfHourSlots } from "@/lib/slot-grid";
 
 // Vercel Build Fix: Updated types
 const TAIWAN_OFFSET_HOURS = 8;
@@ -41,15 +42,6 @@ function slotRange(date: string, open: { h: number; m: number }, close: { h: num
   return { start: startLocal.toISOString(), end: endLocal.toISOString() };
 }
 
-function overlaps(
-  slotStart: string,
-  slotEnd: string,
-  bookStart: string,
-  bookEnd: string
-): boolean {
-  return slotStart < bookEnd && slotEnd > bookStart;
-}
-
 function buildSlotsForRoom(
   date: string,
   open: { h: number; m: number },
@@ -58,23 +50,12 @@ function buildSlotsForRoom(
   isToday: boolean
 ): { start: string; end: string; available: boolean }[] {
   const { start: dayStart, end: dayEnd } = slotRange(date, open, close);
-  const startMs = new Date(dayStart).getTime();
-  const endMs = new Date(dayEnd).getTime();
-  const nowMs = isToday ? Date.now() : 0;
-  const slots: { start: string; end: string; available: boolean }[] = [];
-
-  for (let t = startMs; t < endMs; t += 60 * 60 * 1000) {
-    const slotStart = new Date(t).toISOString();
-    const slotEnd = new Date(t + 60 * 60 * 1000).toISOString();
-    let available = true;
-    if (isToday && t + 60 * 60 * 1000 <= nowMs) {
-      available = false;
-    } else if (roomBlocked.some((b) => overlaps(slotStart, slotEnd, b.start_time, b.end_time))) {
-      available = false;
-    }
-    slots.push({ start: slotStart, end: slotEnd, available });
-  }
-  return slots;
+  return buildHalfHourSlots({
+    dayStartIso: dayStart,
+    dayEndIso: dayEnd,
+    blocked: roomBlocked,
+    isToday,
+  });
 }
 
 export async function GET(request: NextRequest) {
