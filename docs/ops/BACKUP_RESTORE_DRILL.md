@@ -1,35 +1,30 @@
 # Backup & Restore Drill
 
-## Goal
+## What “done” means (free path)
 
-Prove we can produce a restorable dump without touching production data.
+Not “script exists” — must produce:
 
-## Prerequisites
-
-- Real `SUPABASE_DB_URL` (not placeholder)
-- `pg_dump` / `psql` installed
-- Optional disposable Postgres for full restore (`LOCAL_DSN`)
+1. Dump artifact  
+2. SHA-256 checksum file  
+3. Manifest JSON (bytes, retention, isolation note)  
+4. `drill-result.json` with `drill_result=pass`  
+5. Restore target isolation (no production host in `LOCAL_DSN`)
 
 ## Commands
 
 ```bash
-# 1) Backup
+# Backup artifact (+ checksum + manifest)
 npm run db:backup
 
-# 2) Non-destructive validate (default)
+# Non-destructive validate (default)
 npm run db:restore-drill
 
-# 3) Full restore into disposable DB
+# Full restore into disposable local Postgres
 VALIDATE_ONLY=0 LOCAL_DSN='postgresql://postgres:postgres@127.0.0.1:5432/drill' npm run db:restore-drill
 ```
 
-## Pass criteria
+Optional encryption: set `BACKUP_AGE_RECIPIENT` (age public key); set `BACKUP_DROP_PLAIN=1` to drop plaintext after encrypting.
 
-- Dump size > 1KB
-- Contains `reservations` schema markers
-- `DRILL_RESULT=pass`
-- For full restore: `SELECT count(*) FROM reservations` succeeds
+## Founder-paid (optional)
 
-## Founder (paid)
-
-Enable Supabase automatic backups / PITR on Pro for true DR. Scripts above are the minimum agent-executable path.
+Supabase Pro automatic backups / PITR — decision only. Free-path drill remains required for A− evidence.

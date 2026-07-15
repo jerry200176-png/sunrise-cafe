@@ -87,8 +87,15 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const rateLimitMode = getRateLimitMode();
   const defenses = {
-    rate_limit_mode: getRateLimitMode(),
+    rate_limit_mode: rateLimitMode,
+    rate_limit_grade:
+      rateLimitMode === "upstash"
+        ? "distributed"
+        : rateLimitMode === "memory"
+          ? "degraded_per_isolate"
+          : "disabled",
     stripe_enabled: isStripeEnabled(),
   };
 

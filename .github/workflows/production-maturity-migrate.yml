@@ -1,0 +1,115 @@
+# Controlled production migration for Commercial Maturity A
+# - Secrets only from GitHub Environment `production` (manual approval)
+# - Never prints secret values
+# - Deploy order: app with service-role writes MUST be live before RLS apply
+# - Idempotent apply + anon negative / service positive probes
+
+name: Production maturity migrate (RLS + refund)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type APPLY to run production migrations'
+        required: true
+        type: string
+      skip_preflight:
+        description: 'Skip deploy-order preflight (emergency only)'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: production-maturity-migrate
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: Confirm intent
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require APPLY confirmation
+        run: |
+          if [ "${{ inputs.confirm }}" != "APPLY" ]; then
+            echo "Refusing: confirm input must be exactly APPLY"
+            exit 1
+          fi
+
+  preflight:
+    name: Preflight (deploy order + secrets)
+    needs: guard
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - name: Preflight
+        if: ${{ inputs.skip_preflight != true }}
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          POSTGRES_URL_NON_POOLING: ${{ secrets.POSTGRES_URL_NON_POOLING }}
+          POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+          PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
+        run: node scripts/maturity-migrate-preflight.mjs
+
+  apply:
+    name: Apply migrations
+    needs: preflight
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - name: Apply RLS + refund_requests
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          POSTGRES_URL_NON_POOLING: ${{ secrets.POSTGRES_URL_NON_POOLING }}
+          POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+        run: node scripts/apply-maturity-rls-refund.mjs
+
+  probe:
+    name: Negative + positive probes
+    needs: apply
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - name: Probes
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+        run: node scripts/maturity-post-migrate-probes.mjs
+
+  summary:
+    name: Migration summary
+    needs: [probe]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Write result
+        run: |
+          echo "### Production maturity migrate" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Preflight / apply / probes completed under environment \`production\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Secrets are never echoed; see job logs for redacted metadata only" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Rollback: re-apply previous RLS policies from git history only after Founder approval (prefer forward-fix)" >> "$GITHUB_STEP_SUMMARY"

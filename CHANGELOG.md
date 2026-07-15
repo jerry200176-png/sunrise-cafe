@@ -6,6 +6,13 @@
 
 ## [Unreleased]
 
+### Commercial Maturity A — Loop 1b converge (2026-07-15)
+- SSOT 對齊：Evidence／Gaps／CAPABILITY_GAPS；memory rate limit 標為 **degraded**（A 級需 Upstash）
+- 受控遷移：`production-maturity-migrate.yml`（Environment `production` + APPLY + preflight/apply/probes，不印 secrets）
+- `/admin/today`：分店 ACL、partial errors、Taipei window、task hops、E2E 驗收
+- North Star **contracts**（分子／分母／時區／窗／完整度／對帳）暴露於 `/api/admin/north-star`
+- Backup：sha256 + manifest + retention + 隔離 restore drill
+
 ### Commercial Maturity A — Loop 1 (2026-07-15)
 - **Stripe 二元化**：大安 `stripeEnabled=false`；新增 `GET /api/payment/status`；訂位頁僅在 server `stripe_enabled` 時開 Modal（消除 503 半成品入口）
 - **Rate limit**：Upstash 未設定時改記憶體 sliding window（production 不再 fail-open）；`/api/booking-health` 回報 `rate_limit_mode`

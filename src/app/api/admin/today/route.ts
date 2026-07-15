@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission } from "@/lib/admin-api-auth";
+import { getAdminContext, requirePermission } from "@/lib/admin-api-auth";
+import { canAccessBranch } from "@/lib/rbac";
 import { isAdminConfigured } from "@/lib/supabase-admin";
 import { fetchTodayOpsBundle } from "@/lib/admin-today";
 
-/** Mobile-first 今日場控 bundle */
+/** Mobile-first 今日場控 bundle — branch-scoped */
 export async function GET(request: NextRequest) {
   const denied = await requirePermission(request, "reservations:read");
   if (denied) return denied;
@@ -13,6 +14,12 @@ export async function GET(request: NextRequest) {
   if (!branchId) {
     return NextResponse.json({ error: "缺少 branchId" }, { status: 400 });
   }
+
+  const ctx = await getAdminContext(request);
+  if (!canAccessBranch(ctx, branchId)) {
+    return NextResponse.json({ error: "Forbidden branch" }, { status: 403 });
+  }
+
   if (!isAdminConfigured()) {
     return NextResponse.json(
       { error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY" },

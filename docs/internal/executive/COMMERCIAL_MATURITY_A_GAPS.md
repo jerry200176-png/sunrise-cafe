@@ -1,36 +1,34 @@
-# Commercial Maturity A — Gap Matrix (live)
+# Commercial Maturity A — Gap Matrix (live SSOT)
 
 **Rubric:** `COMMERCIAL_MATURITY_RUBRIC.md`  
 **Baseline:** `COMMERCIAL_MATURITY_BASELINE_2026-07-15.md` (frozen)  
-**Updated:** 2026-07-15 loop-1
+**Evidence:** `COMMERCIAL_MATURITY_A_EVIDENCE.md`  
+**Updated:** 2026-07-15 loop-1b
 
-| ID | Dim | Now | Target | Root cause | User impact | Biz/ops | Security/data | Fix | Cost | Deps | Accept evidence | Autonomous? |
-|----|-----|-----|--------|------------|-------------|---------|---------------|-----|------|------|-----------------|-------------|
-| G05 | D05 | B− | A− | catalog anon WRITE still on prod; harden only on branch | Trust/integrity | High | **P0** | Merge + deploy service-role writes → `db:apply-rls-catalog` | S | Real `SUPABASE_DB_URL` | anon PATCH fails; admin CRUD ok | Partial — apply needs real DB URL |
-| G06 | D06 | C | A− | No verified backup/restore | Catastrophic loss | Existential | **P0** | `db:backup` + restore drill with real URL; Founder enable PITR/Pro | S+$ | Paid plan decision | DRILL_RESULT=pass | Script ✅; Pro Founder |
-| G07a | D07 | C+ | A− | Funnel thin; Observed often null | Can't prioritize | Waste eng | Low | Expand funnel events + integrity flags on north-star | S | ops_events table | Observed ≠ null for ≥3 metrics forward | ✅ |
-| G02a | D02 | B− | A− | Stripe modal vs 503; paid cancel phone-only | Confusion / phone load | Revenue/CX | Medium | Close Stripe UI; refund_request workflow | S–M | refund migration | `/api/payment/status` false; no modal; refund API | ✅ code; SQL apply needs URL |
-| G03 | D03 | B− | A− | Multi-page staff ops | Slow peak shifts | Labor | Low | `/admin/today` bundle | M | — | Mobile task completion fewer hops | ✅ |
-| G05b | D05 | B− | A− | Rate limit was fail-open | Abuse | Stability | **P0** | Memory degraded enforce when no Upstash | S | Prefer Upstash | health `rate_limit_mode` memory/upstash; 429 under burst | ✅ memory; Upstash Founder |
-| G10 | D10 | C+ | B+ | No refund_requests / audit table | Dispute slow | Risk | Medium | migration-refund-requests + API | S | SQL apply | rows insertable | Partial |
-| G08 | D08 | B | B+ | CWV unmeasured | Perf unknown | CX | Low | Add web-vitals report later | S | — | LCP sample | Later |
-| G09 | D09 | B+ | A− | E2E half-hour mock break | CI red | Delivery | Low | Fix mock half-hour slots | S | — | Playwright green | ✅ |
+| ID | Dim | Now | Target | Root cause | Fix | Accept evidence (prod) | Autonomous? |
+|----|-----|-----|--------|------------|-----|------------------------|-------------|
+| G05 | D05 | B− | A− | Catalog anon WRITE still on prod | Controlled migrate workflow after deploy | anon PATCH 4xx + service PATCH 2xx | Workflow ready; needs Environment secrets |
+| G05b | D05 | B (degraded) | A− | No distributed limiter | Keep memory fallback; enable Upstash | `booking-health.rate_limit_mode=upstash` | Founder sets Upstash |
+| G06 | D06 | C+ | A− | No checksummed drill artifact in prod | `db:backup`/`restore-drill` + Environment job | `drill-result.json` pass | Ops via Environment |
+| G07 | D07 | B− | A− | Contracts unmet / thin samples | Contracts in API; accumulate 7d | `contract_satisfied` on gating metrics | Continue while waiting |
+| G02 | D02 | B | A− | Refund SQL not on prod; money policy TBD | Apply refund migration; Founder policy | refund_requests HTTP 200 + policy doc | Partial |
+| G03 | D03 | B | A− | Today ops not prod-verified | E2E acceptance + phone verify post-deploy | Mobile task hops + branch isolation | Tests ✅; prod verify after merge |
+| G09 | D09 | A− (CI) | A− | — | — | GH Actions success on PR | ✅ CI green |
 
-## Priority order this loop
+## Deploy order (mandatory)
 
-1. E2E fix (unblock merge)  
-2. Stripe binary close + rate-limit memory  
-3. RLS code path (already on branch) + apply script  
-4. Today ops  
-5. Refund request model  
-6. Funnel/KPI telemetry  
-7. Backup/restore scripts  
+1. Merge + deploy app (service-role catalog writes + `/api/payment/status`)  
+2. Confirm production SHA  
+3. Run `Production maturity migrate` workflow (`confirm=APPLY`) under Environment `production`  
+4. Probes must print `PROBES_OK`  
 
-## Founder blockers (cannot fake)
+Wrong order (RLS before service-role deploy) is **blocked by preflight**.
 
-| Item | Why |
-|------|-----|
-| Real Supabase service role + DB URL in agent/CI | Current secrets are placeholders (`[ref]` / 18-char key) |
-| Upstash | For multi-instance rate limits |
-| Supabase Pro/PITR | True DR |
-| Final refund money policy | Legal |
+## Founder-only (no agent secret handoff)
+
+| Item | Channel |
+|------|---------|
+| GitHub Environment `production` secrets | Dashboard — never paste into Agent chat |
+| Upstash | Vercel env |
+| Supabase Pro/PITR pay | Billing decision |
+| Refund money table | Legal/ops policy |

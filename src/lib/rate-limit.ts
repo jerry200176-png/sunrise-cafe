@@ -10,8 +10,8 @@ function isUpstashConfigured() {
 
 /**
  * Production must never silently fail-open.
- * - Upstash configured → distributed limiter
- * - Else → in-memory sliding window (degraded; per-instance)
+ * - Upstash configured → distributed limiter (A-grade evidence for rate-limit P0)
+ * - Else → in-memory sliding window (**degraded**; per-isolate only — NOT A−/A alone)
  * - Explicit RATE_LIMIT_DISABLED=1 → disabled (local/tests only; blocked in production)
  */
 export function getRateLimitMode(): RateLimitMode {

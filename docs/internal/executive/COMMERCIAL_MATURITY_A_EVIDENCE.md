@@ -2,82 +2,77 @@
 
 **Rubric (frozen):** `COMMERCIAL_MATURITY_RUBRIC.md`  
 **Baseline (frozen):** `COMMERCIAL_MATURITY_BASELINE_2026-07-15.md`  
-**Rule:** Append scorecard rows; never overwrite baseline grades.
+**Gaps (live):** `COMMERCIAL_MATURITY_A_GAPS.md`  
+**Rule:** Append scorecard rows; never overwrite baseline grades.  
+**SSOT sync:** 2026-07-15 loop-1b — CI green recorded; rate-limit labeled **degraded**; no agent secret handoff.
 
 ---
 
-## Loop 1 — 2026-07-15 (branch `cursor/commercial-maturity-a-a33b`)
+## Loop 1b — converge (branch `cursor/commercial-maturity-a-a33b`)
 
-### Before → After (dimensions touched)
+### Scorecard (dimensions)
 
-| ID | Baseline | After loop-1 | Change shipped | Prod evidence | Metric evidence | Residual risk |
-|----|----------|--------------|----------------|---------------|-----------------|---------------|
-| D01 | B+ | **B+ → pending A−** | E2E half-hour mock fixed; booking path unchanged | Prod SHA still `cfc940b` until merge | E2E 18/18 local | Needs deploy |
-| D02 | B− | **B** | Stripe UI closed (`stripeEnabled=false` + `/api/payment/status`); refund_request API + policy model | create-intent already 503 on prod [FACT] | Unit tests policy | refund SQL not applied; Founder policy |
-| D03 | B− | **B** | `/admin/today` + `/api/admin/today` | Not on prod yet | Build includes routes | Needs staff verify on phone after deploy |
-| D05 | B− | **B** (code) / **B−** (prod) | Service-role writes + RLS migration file; `deniedContext`; memory rate-limit (no fail-open) | Prod RLS **not** applied [FACT — no real DB URL in agent] | Unit + static RLS tests; memory limiter rejects 6th login | Apply SQL after deploy; Upstash preferred |
-| D06 | C | **C+** | `db:backup` / `db:restore-drill` scripts + ops doc | Drill blocked: placeholder DB URL [FACT] | Scripts refuse placeholder | Founder Pro/PITR + real URL |
-| D07 | C+ | **B−** | Funnel events expanded; health exposes `rate_limit_mode` | Funnel posts OK locally | Forward baseline only | Need 7d Observed after deploy |
-| D09 | B+ | **A−** (local) | Playwright green after mock fix | CI pending on PR | 257 unit + 18 e2e | Vercel Hobby preview rate-limit external |
-| D10 | C+ | **B−** | `refund_requests` migration + guest API | Table not on prod | Insert fails closed with 503 if missing | Apply SQL |
+| ID | Baseline | After 1b | Shipped | Prod evidence | Metric / test evidence | Residual |
+|----|----------|----------|---------|---------------|-------------------------|----------|
+| D01 | B+ | B+ | Half-hour E2E mocks | Prod SHA pre-merge=`cfc940b` | Playwright booking+qa **CI success** | Re-verify SHA after merge |
+| D02 | B− | B | Stripe closed; refund API+SQL | create-intent 503 [FACT]; refund table pending migrate | Unit policy tests | Apply refund SQL via Environment workflow |
+| D03 | B− | B | Today ops + branch ACL + partial errors + hop metrics + e2e | Not live until merge | `admin-today` unit + Playwright 6/6 (auth cookie, mobile, empty/partial/retry, isolation UX) | Phone verify on prod |
+| D05 | B− | **B− prod / B code** | Service-role writes; RLS migration; memory **degraded** enforce; deniedContext | RLS **not** on prod until workflow | Static RLS tests; memory limiter tests | **Upstash required for A− on rate-limit**; RLS apply via controlled workflow |
+| D06 | C | C+ | Backup artifact+sha256+manifest+isolated drill | Drill needs Environment DB URL | Scripts refuse placeholders | Pro/PITR Founder-paid optional |
+| D07 | C+ | B− | Metric **contracts** on north-star API | Observed mostly incomplete | Contract unit tests | 7d accumulation; continue other work |
+| D09 | B+ | **A− (CI)** | — | — | GH Actions Lint+Playwright **success** on #213 | Vercel Hobby preview unrelated |
+| D10 | C+ | B− | refund_requests migration | Pending Environment apply | API fail-closed if missing | Apply workflow |
 
-### Whole-product grade after loop-1
+### Whole-product grade
 
-**Still B− / B (not A).**  
-Reasons (gate):
+**B− / B — not A.** Untreated P0 until production RLS probes pass; rate-limit only degraded; DR drill not run against real Environment.
 
-1. Catalog RLS **not verified on production** (P0 open in prod)  
-2. Backup restore drill **not executed** against real DB  
-3. KPI Observed still mostly unmeasured in production  
-4. Today ops / refund workflow not production-verified  
-
-Honest: **do not claim A.**
-
-### A Gate checklist (loop-1)
+### A Gate checklist
 
 | Gate | Status |
 |------|--------|
-| No untreated P0 | ❌ prod RLS + backup |
-| RLS + negative tests | ✅ code/static; ❌ prod probe |
-| Rate limit enforce | ✅ memory mode in code; 🟡 Upstash unset |
-| Backup + restore path | 🟡 scripts; ❌ real drill |
-| Core booking E2E | ✅ local 18 passed |
-| Deposit capture clear state | ✅ Stripe fully closed (manual_review) |
-| Cancel/refund no high-risk silence | 🟡 request workflow; paid still not self-cancel |
-| Today ops | ✅ code; ❌ prod verify |
-| North Star real data | ❌ |
-| Cron/deploy monitors | ✅ prior |
-| Prod SHA = main | ✅ currently; will need re-check after merge |
-| No dangerous half-finished UX | ✅ Stripe modal gated off |
+| No untreated P0 | ❌ until prod RLS `PROBES_OK` |
+| RLS negative + admin positive | ✅ scripts; ❌ prod until workflow |
+| Rate limit | 🟡 **degraded memory** (not A evidence); ❌ Upstash |
+| Backup+checksum+isolated drill | 🟡 scripts; ❌ Environment run |
+| Booking E2E | ✅ CI |
+| Deposit capture clear | ✅ Stripe closed |
+| Cancel/refund | 🟡 request path; money policy Founder |
+| Today ops acceptance | ✅ automated (not route-build-only); ❌ prod phone |
+| North Star contracts | 🟡 definitions live; ❌ satisfied counts |
+| Prod SHA = main | ⏳ after merge |
+| No half-finished UX | ✅ |
 
-### Evidence links (loop-1)
+### Evidence links
 
 | Kind | Ref |
 |------|-----|
-| Branch | `cursor/commercial-maturity-a-a33b` |
-| Includes prior harden | from `cursor/competitive-audit-rls-harden-a33b` @ `6107126` |
-| Unit tests | `npm test` → 257 passed |
-| E2E | `npm run test:e2e -- e2e/booking-flow.spec.ts e2e/qa-audit.spec.ts` → 18 passed |
+| PR | https://github.com/jerry200176-png/sunrise-cafe/pull/213 |
+| CI | Actions run on branch — Lint & Build + Playwright smoke **success** |
+| Workflow | `.github/workflows/production-maturity-migrate.yml` (Environment `production`, confirm=APPLY) |
 | Migrations | `migration-rls-catalog-read-only.sql`, `migration-refund-requests.sql` |
-| Founder queue | #211 |
+| KPI contracts | `src/lib/north-star-contracts.ts` → `/api/admin/north-star` |
 
-### Founder Decision Queue (updated)
+### Founder Decision Queue (no Agent secret paste)
 
-| ID | Decision | Suggested default | Cost | Risk if deferred | Deadline | Agent prep done |
-|----|----------|-------------------|------|------------------|----------|-----------------|
-| FD-3 | Apply RLS catalog SQL after this PR deploys | Immediately after admin CRUD check | 0 | Public anon write remains | At deploy | Script `npm run db:apply-rls-catalog`; code uses service role |
-| FD-2 | Upstash | Enable | Low $/mo | Multi-instance memory limits diverge | 7d | Memory degraded mode already enforces |
-| FD-1 | Supabase backups/Pro | Min auto-backup | $ | Data loss | 14d | `db:backup` + restore drill doc |
-| FD-4 | Refund money rules | Tiered ≥48h staff review | Policy time | Legal/CX | 14d | `cancel-refund-policy` + `refund_requests` ready |
-| FD-5 | Stripe go-live | Keep closed until KPI | Fees | Trust if half-open | After baseline | Stripe fully closed |
-| — | Inject real `SUPABASE_SERVICE_ROLE_KEY` + `SUPABASE_DB_URL` for agents/CI | Required for apply/drill | Secret ops | Agent cannot close P0 in prod | Immediate | Placeholders detected & refused |
+| ID | Decision | Default | Cost | Risk | Latest by | Agent prepared |
+|----|----------|---------|------|------|-----------|----------------|
+| FD-ENV | Configure GitHub Environment `production` secrets (`SUPABASE_*`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, DB URL) + required reviewers | Yes | Ops time | Cannot close P0 | Before migrate | Workflow+preflight+probes (no secrets in logs) |
+| FD-2 | Upstash on Vercel | Enable | Low $/mo | Multi-instance blind spots | 7d | Memory degraded fallback |
+| FD-1 | Supabase Pro/PITR | If budget; else keep scripted drills | $ | Hosted DR lag | 14d | Artifact/checksum/retention scripts |
+| FD-4 | Refund money table | Tiered staff review | Policy | Legal | 14d | Request FSM ready |
+| FD-5 | Stripe go-live | Keep closed | Fees | Trust | After KPI | UI/API closed |
+
+**Do not** send production DB URL / service role to the Agent chat. Use Environment secrets only.
 
 ---
 
-## Next loop focus
+## Next actions (ordered)
 
-1. Merge + deploy this PR  
-2. Founder/ops: real DB URL → apply RLS + refund migration + restore drill  
-3. Measure funnel/north-star for 7 days  
-4. Staff phone-test `/admin/today`  
-5. Re-grade with production probes only
+1. Mark PR ready → review → merge  
+2. Confirm `/api/version` commit == main  
+3. Run **Production maturity migrate** (`confirm=APPLY`)  
+4. Expect `PROBES_OK`  
+5. Phone-verify `/admin/today`  
+6. Append Loop-2 scorecard with production evidence  
+7. Continue highest ROI while KPI accumulates 7d

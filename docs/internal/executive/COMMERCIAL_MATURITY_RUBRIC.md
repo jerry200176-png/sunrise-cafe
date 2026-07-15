@@ -27,6 +27,14 @@ All must hold with evidence:
 5. No arithmetic-average A while any gating dimension is below threshold
 6. Every A / A− claim cites test, production verify, or metric window
 
+### Dimension-specific A requirements (addendum — clarifying, not lowering bar)
+
+| Dimension | Extra A evidence |
+|-----------|------------------|
+| D05 Rate limiting | **Distributed** limiter enforced in production (`rate_limit_mode=upstash` or equivalent shared store). In-memory per-isolate fallback is **degraded only** — may support B grades, **never** alone prove A−/A for the rate-limit P0. |
+| D07 KPI | Each gating metric must satisfy its **contract** (numerator, denominator, timezone, window, freshness, completeness) and truth reconciliation — not merely `observed != null`. |
+| D06 DR | Backup artifact + checksum + retention + isolated restore drill result. Pro/PITR is Founder-paid; free-path drill still required. |
+
 ## Dimensions (fixed set)
 
 | ID | Dimension |

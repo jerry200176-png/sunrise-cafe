@@ -17,6 +17,14 @@ type TodayBundle = {
   date: string;
   branchId: string;
   generated_at: string;
+  timezone?: string;
+  window?: { start_iso: string; end_iso: string };
+  partial_errors?: Array<{ source: string; message: string }>;
+  task_hops?: {
+    review_payment: { before: number; after: number };
+    call_unpaid: { before: number; after: number };
+    call_waitlist: { before: number; after: number };
+  };
   summary: {
     today_count: number;
     unpaid_deposit: number;
@@ -178,8 +186,22 @@ export default function AdminTodayPage() {
           </div>
         )}
 
+        {!!data?.partial_errors?.length && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900" role="status">
+            部分資料暫時無法載入（其餘區塊仍可用）：
+            <ul className="mt-1 list-disc pl-5">
+              {data.partial_errors.map((e) => (
+                <li key={`${e.source}-${e.message}`}>{e.source}</li>
+              ))}
+            </ul>
+            <button type="button" className="mt-2 underline" onClick={load}>
+              重試全部
+            </button>
+          </div>
+        )}
+
         {loading && !data && (
-          <div className="space-y-3" aria-busy="true">
+          <div className="space-y-3" aria-busy="true" aria-label="載入今日場控">
             {Array.from({ length: 4 }).map((_, i) => (
               <div key={i} className="h-20 animate-pulse rounded-xl bg-stone-200" />
             ))}
@@ -226,9 +248,18 @@ export default function AdminTodayPage() {
           </Link>
         </section>
 
+        {data?.task_hops && (
+          <p className="text-xs text-stone-500">
+            高頻任務跳轉：付款審核 {data.task_hops.review_payment.before}→{data.task_hops.review_payment.after} 步 ·
+            催未付 {data.task_hops.call_unpaid.before}→{data.task_hops.call_unpaid.after} ·
+            候補致電 {data.task_hops.call_waitlist.before}→{data.task_hops.call_waitlist.after}
+            {data.timezone ? ` · ${data.timezone}` : ""}
+          </p>
+        )}
+
         <section aria-label="即將到店" className="rounded-xl bg-white p-3 shadow-sm ring-1 ring-stone-200">
           <h2 className="mb-2 text-sm font-semibold">即將到店 / 今日行程</h2>
-          {!data?.upcoming.length && !loading && (
+          {!(data?.upcoming?.length) && !loading && (
             <p className="text-sm text-stone-500">今日尚無訂位</p>
           )}
           <ul className="divide-y divide-stone-100">
@@ -264,7 +295,7 @@ export default function AdminTodayPage() {
 
         <section aria-label="未付與逾期風險" className="rounded-xl bg-white p-3 shadow-sm ring-1 ring-stone-200">
           <h2 className="mb-2 text-sm font-semibold">未付訂金 / 逾期風險</h2>
-          {!data?.unpaid.length && !loading && (
+          {!(data?.unpaid?.length) && !loading && (
             <p className="text-sm text-stone-500">目前沒有未付訂金的今日訂位</p>
           )}
           <ul className="divide-y divide-stone-100">
@@ -295,7 +326,7 @@ export default function AdminTodayPage() {
 
         <section aria-label="候補" className="rounded-xl bg-white p-3 shadow-sm ring-1 ring-stone-200">
           <h2 className="mb-2 text-sm font-semibold">候補待處理</h2>
-          {!data?.waitlist.length && !loading && (
+          {!(data?.waitlist?.length) && !loading && (
             <p className="text-sm text-stone-500">目前無候補</p>
           )}
           <ul className="divide-y divide-stone-100">
