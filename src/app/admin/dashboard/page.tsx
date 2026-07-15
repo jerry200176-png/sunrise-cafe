@@ -481,7 +481,10 @@ export default function AdminDashboardPage() {
                 待確認出席{" "}
                 {
                   remindersForBranch.filter(
-                    (r) => !r.guest_confirmed_at && ["pending", "confirmed"].includes(r.status)
+                    (r) =>
+                      !r.guest_confirmed_at &&
+                      !!r.status &&
+                      ["pending", "confirmed"].includes(r.status)
                   ).length
                 }
               </span>
