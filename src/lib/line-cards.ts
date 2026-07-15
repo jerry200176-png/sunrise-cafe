@@ -513,6 +513,31 @@ export function buildWaitlistBookedGroupFlex(params: {
   });
 }
 
+/** Staff: waitlist slot freed but guest has no LINE — please call */
+export function buildWaitlistNeedsCallGroupFlex(params: {
+  customerName: string;
+  phone: string;
+  roomLabel: string;
+  startTime: string;
+  endTime: string;
+}): LineFlexContainer {
+  return flexBubble({
+    icon: "📞",
+    title: "等位需電話通知",
+    subtitle: params.customerName,
+    accentColor: LINE_BRAND.warning,
+    paragraphs: ["此時段空出，但客人未綁定 LINE，請盡快來電通知。"],
+    rows: reservationRows({
+      phone: params.phone,
+      startTime: params.startTime,
+      endTime: params.endTime,
+      roomLabel: params.roomLabel,
+    }),
+    note: "後台「等位清單」可標記已來電。",
+    primaryAction: { label: "打開等位清單", uri: `${LINE_SITE_URL}/admin/waitlist` },
+  });
+}
+
 type ReminderRow = {
   booking_code: string;
   room_name: string;
