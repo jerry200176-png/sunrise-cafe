@@ -116,7 +116,19 @@ export async function notifyWaitlist(
         end_time: string;
         confirm_token: string;
         staff_alerted_at?: string | null;
-        room?: unknown;
+        room?:
+          | {
+              name?: string;
+              branch?:
+                | { name?: string; line_group_id?: string | null }
+                | { name?: string; line_group_id?: string | null }[];
+            }
+          | {
+              name?: string;
+              branch?:
+                | { name?: string; line_group_id?: string | null }
+                | { name?: string; line_group_id?: string | null }[];
+            }[];
       }
     | undefined;
 
