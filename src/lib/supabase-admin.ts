@@ -416,7 +416,9 @@ export async function fetchTomorrowsReservations() {
       status,
       room:rooms (
         name,
+        branch_id,
         branch:branches (
+          id,
           name
         )
       )
@@ -462,7 +464,9 @@ export async function fetchReservationsForReminder(force: boolean = false) {
       line_user_id,
       room:rooms (
         name,
+        branch_id,
         branch:branches (
+          id,
           name
         )
       )

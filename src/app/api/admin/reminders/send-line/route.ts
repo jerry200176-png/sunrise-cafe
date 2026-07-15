@@ -17,6 +17,7 @@ import {
 import { sendLineFlexMessage, buildReminderFlex } from "@/lib/line";
 import { runCronJob } from "@/lib/job-runs";
 import { errorToDetail } from "@/lib/cron-alert";
+import { reservationMatchesBranch, type ReminderReservationShape } from "@/lib/reminder-branch-match";
 
 const CAT_MESSAGES = [
     "喵～沒訂位！Ivy 妳備好零食了嗎？本喵五分鐘後到 🐱",
@@ -71,18 +72,16 @@ async function handleSendLine(force: boolean = false, sendCatOnEmpty: boolean = 
             // ── 多分店模式（資料庫 line_group_id）──────────────────────
             for (const branch of activeBranches) {
                 const groupId = branch.line_group_id!;
-                const branchRows = (allRows as Record<string, unknown>[]).filter((r) => {
-                    const room = r.room as { branch?: { id?: string } } | undefined;
-                    return room?.branch?.id === branch.id || (r as Record<string, unknown>).branch_id === branch.id;
-                });
+                const branchRows = (allRows as Record<string, unknown>[]).filter((r) =>
+                    reservationMatchesBranch(r as ReminderReservationShape, branch)
+                );
 
                 if (branchRows.length === 0) {
                     if (sendCatOnEmpty) {
                         const allTomorrow = await fetchTomorrowsReservations();
-                        const branchTomorrow = (allTomorrow ?? []).filter((r: Record<string, unknown>) => {
-                            const room = r.room as { branch?: { id?: string } } | undefined;
-                            return room?.branch?.id === branch.id;
-                        });
+                        const branchTomorrow = (allTomorrow ?? []).filter((r: Record<string, unknown>) =>
+                            reservationMatchesBranch(r as ReminderReservationShape, branch)
+                        );
                         if (branchTomorrow.length === 0) {
                             const msg = CAT_MESSAGES[Math.floor(Math.random() * CAT_MESSAGES.length)];
                             await sendLineMessageToGroup(msg, groupId).catch((e) =>
@@ -99,6 +98,15 @@ async function handleSendLine(force: boolean = false, sendCatOnEmpty: boolean = 
                     branchRows.map((r) => updateReservationAdmin(r.id as string, { is_notified: true }))
                 );
                 totalSent += branchRows.length;
+            }
+
+            // 有明日訂位卻對不到任何分店群組 → 幾乎一定是 join 欄位缺 id（或房間未綁分店）
+            if (totalSent === 0 && (allRows as Record<string, unknown>[]).length > 0) {
+                console.error(
+                    `[send-line] multi-branch: ${
+                        (allRows as Record<string, unknown>[]).length
+                    } pending tomorrow reservation(s) matched 0 branches with line_group_id`
+                );
             }
         }
 
