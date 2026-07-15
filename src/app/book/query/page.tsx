@@ -10,6 +10,7 @@ import { enUS, ja, zhTW } from "date-fns/locale";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { computeDepositDeadline, getDepositUrgency } from "@/lib/deposit-deadline";
+import { toTaipei } from "@/lib/datetime";
 
 interface BookingItem {
   id: string;
@@ -31,6 +32,7 @@ interface BookingItem {
   deposit_amount: number | null;
   is_deposit_paid?: boolean;
   created_at: string;
+  guest_confirmed_at?: string | null;
   payment_review_status?: "pending_review" | "approved" | "rejected" | null;
 }
 
@@ -235,7 +237,9 @@ function BookQueryContent() {
   const depositDeadlineLabel = (item: BookingItem) => {
     if (!item.created_at) return "";
     const deadline = computeDepositDeadline(item.created_at, item.start_time);
-    return format(deadline, "yyyy/MM/dd (EEE) HH:mm", { locale: dateFnsLocale });
+    return format(toTaipei(deadline.toISOString()), "yyyy/MM/dd (EEE) HH:mm", {
+      locale: dateFnsLocale,
+    });
   };
 
   const depositUrgency = (item: BookingItem) => {
@@ -562,6 +566,21 @@ function BookQueryContent() {
                 {!item.is_deposit_paid && item.payment_review_status === "rejected" && (
                   <div role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
                     {t("query.paymentReviewRejected")}
+                  </div>
+                )}
+
+                {/* 出席確認狀態 */}
+                {["pending", "confirmed"].includes(item.status) && (
+                  <div
+                    className={`mt-3 rounded-lg border p-3 text-sm ${
+                      item.guest_confirmed_at
+                        ? "border-sky-200 bg-sky-50 text-sky-900"
+                        : "border-gray-200 bg-gray-50 text-gray-700"
+                    }`}
+                  >
+                    {item.guest_confirmed_at
+                      ? t("query.attendanceConfirmed")
+                      : t("query.attendancePending")}
                   </div>
                 )}
 

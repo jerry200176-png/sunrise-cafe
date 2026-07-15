@@ -20,9 +20,15 @@
 | 11 | Reservation list attendance badge | ReservationList `guest_confirmed_at` | **DONE** |
 | 12 | Urgent deposit nudge ≤6h | `deposit_urgent_reminder_sent_at` + Flex | **DONE** |
 | 13 | Waitlist phone CTA (no LINE) | admin waitlist `needs_call` + tel: | **DONE** |
+| 14 | Hourly deposit-deadline cron | `vercel.json` `0 * * * *` | **DONE** |
+| 15 | Deposit Flex deep-link `?code=` | line-cards query URI | **DONE** |
+| 16 | Gate「待確認出席」noise | near-visit / is_notified only | **DONE** |
+| 17 | Guest query attendance chip | lookup + query i18n | **DONE** |
+| 18 | Staff LINE on attendance confirm | group Flex | **DONE** |
 
 ## Deploy notes
 
 - Run `supabase/migration-guest-confirmed-at.sql` on production (code degrades until then).
 - Run `supabase/migration-deposit-urgent-reminder-sent.sql` for second deposit nudge (code degrades until then).
+- After merge: redeploy so hourly deposit-deadline cron registers on Vercel.
 - Stop list: LINE Pay native (#99), SMS OTP, Google Reserve.

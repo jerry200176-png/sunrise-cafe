@@ -8,6 +8,7 @@ import {
   buildReminderDigestFlexChunks,
   buildPaymentPendingReviewGroupFlex,
   buildDepositReleasedGroupFlex,
+  buildGuestAttendanceConfirmedGroupFlex,
   buildRescheduleGroupFlex,
   buildWaitlistBookedGroupFlex,
 } from "@/lib/line-cards";
@@ -20,6 +21,7 @@ export {
   buildReminderDigestFlexChunks,
   buildPaymentPendingReviewGroupFlex,
   buildDepositReleasedGroupFlex,
+  buildGuestAttendanceConfirmedGroupFlex,
   buildRescheduleGroupFlex,
   buildWaitlistBookedGroupFlex,
 };

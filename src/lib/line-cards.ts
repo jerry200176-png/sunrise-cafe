@@ -295,7 +295,10 @@ export function buildGuestDepositReminderFlex(params: {
         : []),
     ],
     note: deadlineNote,
-    primaryAction: { label: "查看付款資訊", uri: LINE_QUERY_URL },
+    primaryAction: {
+      label: "查看付款資訊",
+      uri: `${LINE_QUERY_URL}?code=${encodeURIComponent(params.bookingCode)}`,
+    },
   });
 }
 
@@ -425,6 +428,30 @@ export function buildDepositReleasedGroupFlex(params: {
     subtitle: "已自動取消",
     accentColor: LINE_BRAND.danger,
     rows: reservationRows(params),
+  });
+}
+
+export function buildGuestAttendanceConfirmedGroupFlex(params: {
+  customerName: string;
+  phone: string;
+  bookingCode: string;
+  startTime: string;
+  endTime: string;
+  roomLabel?: string;
+}): LineFlexContainer {
+  return flexBubble({
+    icon: "✅",
+    title: "客人已確認出席",
+    subtitle: params.customerName,
+    accentColor: LINE_BRAND.successBright,
+    rows: reservationRows({
+      phone: params.phone,
+      bookingCode: params.bookingCode,
+      startTime: params.startTime,
+      endTime: params.endTime,
+      roomLabel: params.roomLabel,
+    }),
+    primaryAction: { label: "開啟後台", uri: `${LINE_SITE_URL}/admin` },
   });
 }
 

@@ -3,6 +3,11 @@ import { createClient } from "@supabase/supabase-js";
 import { isAdminConfigured } from "@/lib/supabase-admin";
 import { verifyAttendanceToken } from "@/lib/attendance-token";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
+import {
+  sendLineFlex,
+  sendLineFlexToGroup,
+  buildGuestAttendanceConfirmedGroupFlex,
+} from "@/lib/line-notify";
 
 function db() {
   return createClient(
@@ -11,11 +16,14 @@ function db() {
   );
 }
 
+type BranchInfo = { name?: string; line_group_id?: string | null };
+type RoomInfo = { name?: string; branch?: BranchInfo | BranchInfo[] | null };
+
 async function loadReservation(id: string) {
   const { data, error } = await db()
     .from("reservations")
     .select(
-      "id, booking_code, customer_name, start_time, end_time, status, guest_confirmed_at, is_deposit_paid, room:rooms(name, branch:branches(name))"
+      "id, booking_code, customer_name, phone, start_time, end_time, status, guest_confirmed_at, is_deposit_paid, room:rooms(name, branch:branches(name, line_group_id))"
     )
     .eq("id", id)
     .maybeSingle();
@@ -23,8 +31,20 @@ async function loadReservation(id: string) {
   return data as Record<string, unknown>;
 }
 
+function roomBranch(r: Record<string, unknown>): { roomName: string; branchName: string; lineGroupId: string | null } {
+  const roomRaw = r.room as RoomInfo | RoomInfo[] | null;
+  const room = Array.isArray(roomRaw) ? roomRaw[0] : roomRaw;
+  const branchRaw = room?.branch;
+  const branch = Array.isArray(branchRaw) ? branchRaw[0] : branchRaw;
+  return {
+    roomName: room?.name ?? "—",
+    branchName: branch?.name ?? "—",
+    lineGroupId: branch?.line_group_id?.trim() || null,
+  };
+}
+
 function formatPayload(r: Record<string, unknown>) {
-  const room = r.room as { name?: string; branch?: { name?: string } } | null;
+  const { roomName, branchName } = roomBranch(r);
   return {
     id: r.id,
     booking_code: r.booking_code,
@@ -34,9 +54,31 @@ function formatPayload(r: Record<string, unknown>) {
     status: r.status,
     guest_confirmed_at: r.guest_confirmed_at ?? null,
     is_deposit_paid: !!r.is_deposit_paid,
-    room_name: room?.name ?? "—",
-    branch_name: room?.branch?.name ?? "—",
+    room_name: roomName,
+    branch_name: branchName,
   };
+}
+
+async function notifyStaffAttendance(r: Record<string, unknown>) {
+  const { roomName, lineGroupId } = roomBranch(r);
+  const flex = buildGuestAttendanceConfirmedGroupFlex({
+    customerName: String(r.customer_name ?? ""),
+    phone: String(r.phone ?? ""),
+    bookingCode: String(r.booking_code ?? ""),
+    startTime: String(r.start_time),
+    endTime: String(r.end_time),
+    roomLabel: roomName,
+  });
+  const alt = `客人已確認出席：${r.customer_name}`;
+  try {
+    if (lineGroupId) {
+      await sendLineFlexToGroup(alt, flex, lineGroupId);
+    } else {
+      await sendLineFlex(alt, flex);
+    }
+  } catch (err) {
+    console.error("[confirm-attendance] staff LINE notify failed:", err);
+  }
 }
 
 /** GET ?token= — preview booking for confirm page */
@@ -106,9 +148,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  const updated = { ...r, guest_confirmed_at: now };
+  // Fire-and-forget staff notify — don't block guest response
+  void notifyStaffAttendance(updated);
+
   return NextResponse.json({
     ok: true,
     already: false,
-    ...formatPayload({ ...r, guest_confirmed_at: now }),
+    ...formatPayload(updated),
   });
 }

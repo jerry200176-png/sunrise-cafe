@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   buildDepositReleasedGroupFlex,
+  buildGuestAttendanceConfirmedGroupFlex,
   buildGuestBindErrorFlex,
   buildGuestDepositReleasedFlex,
+  buildGuestDepositReminderFlex,
   buildGuestPaymentApprovedFlex,
   buildGuestPaymentPendingFlex,
   buildPaymentFlex,
   buildPaymentPendingReviewGroupFlex,
   buildReminderDigestFlex,
   buildReminderDigestFlexChunks,
+  buildReminderFlex,
   buildRescheduleGroupFlex,
   buildReviewInviteFlex,
   buildWaitlistBookedGroupFlex,
@@ -87,6 +90,49 @@ describe("line-cards LINE API shape", () => {
       roomLabel: "大安 — A",
       ...times,
     }), "waitlist-booked");
+  });
+
+  it("reminder Flex includes confirm attendance CTA when URL provided", () => {
+    const flex = buildReminderFlex({
+      leadLabel: "明日",
+      branchName: "昇昇咖啡",
+      bookingCode: "ABC123",
+      confirmAttendanceUrl: "https://example.com/book/confirm-visit?token=tok",
+      ...times,
+    });
+    assertValidBubble(flex, "reminder-confirm");
+    const json = JSON.stringify(flex);
+    expect(json).toContain("確認準時到店");
+    expect(json).toContain("confirm-visit?token=tok");
+    expect(json).toContain("code=ABC123");
+  });
+
+  it("deposit reminder Flex deep-links query with code and urgent copy", () => {
+    const flex = buildGuestDepositReminderFlex({
+      branchName: "昇昇咖啡",
+      bookingCode: "XYZ789",
+      ...times,
+      urgency: "soon",
+      deadlineLabel: "2026/07/15 (三) 18:00",
+    });
+    assertValidBubble(flex, "deposit-urgent");
+    const json = JSON.stringify(flex);
+    expect(json).toContain("訂金即將逾期");
+    expect(json).toContain("code=XYZ789");
+    expect(json).toContain("2026/07/15");
+  });
+
+  it("attendance confirmed group Flex is valid", () => {
+    assertValidBubble(
+      buildGuestAttendanceConfirmedGroupFlex({
+        customerName: "測試",
+        phone: "0912345678",
+        bookingCode: "ABC123",
+        roomLabel: "A",
+        ...times,
+      }),
+      "attendance-confirmed"
+    );
   });
 
   it("reminder digest carousel has <=12 bubbles", () => {
