@@ -507,6 +507,14 @@ function BookQueryContent() {
                     <p className="mt-0.5 text-sm text-gray-500">
                       {t("query.bookingCode")}<span className="font-mono">{item.booking_code}</span>
                     </p>
+                    {phone.trim() && item.status !== "cancelled" && (
+                      <a
+                        href={`/api/guest/calendar?code=${encodeURIComponent(item.booking_code)}&phone=${encodeURIComponent(phone.trim())}`}
+                        className="mt-2 inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100"
+                      >
+                        {t("query.addToCalendar")}
+                      </a>
+                    )}
                     <p className="mt-1 flex items-center gap-1 text-sm text-gray-600">
                       <Calendar className="h-4 w-4" />
                       {format(parseISO(item.start_time), "yyyy/MM/dd (EEE)", {

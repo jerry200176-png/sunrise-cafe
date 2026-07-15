@@ -33,6 +33,9 @@ interface ReminderItem {
   phone: string;
   email: string | null;
   is_notified: boolean;
+  is_deposit_paid?: boolean;
+  guest_confirmed_at?: string | null;
+  status?: string;
 }
 
 interface TimelineRoom {
@@ -469,6 +472,20 @@ export default function AdminDashboardPage() {
               重新整理
             </button>
           </div>
+          {remindersForBranch.length > 0 && (
+            <div className="mb-3 flex flex-wrap gap-2 text-xs">
+              <span className="rounded-full bg-red-50 px-2.5 py-1 font-medium text-red-800">
+                未付訂金 {remindersForBranch.filter((r) => !r.is_deposit_paid).length}
+              </span>
+              <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-medium text-emerald-800">
+                已確認出席 {remindersForBranch.filter((r) => !!r.guest_confirmed_at).length}
+              </span>
+              <span className="rounded-full bg-gray-100 px-2.5 py-1 font-medium text-gray-700">
+                已推播提醒 {remindersForBranch.filter((r) => r.is_notified).length}/
+                {remindersForBranch.length}
+              </span>
+            </div>
+          )}
           {remindersLoading ? (
             <p className="text-sm text-gray-500">載入提醒中…</p>
           ) : remindersError ? (
@@ -496,6 +513,31 @@ export default function AdminDashboardPage() {
                         <p className="text-sm text-gray-500">
                           {r.phone} {r.email ? `· ${r.email}` : ""}
                         </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {!r.is_deposit_paid ? (
+                            <span className="rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-semibold text-red-800">
+                              未付訂金
+                            </span>
+                          ) : (
+                            <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-800">
+                              訂金已付
+                            </span>
+                          )}
+                          {r.guest_confirmed_at ? (
+                            <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[11px] font-semibold text-sky-800">
+                              已確認出席
+                            </span>
+                          ) : (
+                            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-900">
+                              待確認出席
+                            </span>
+                          )}
+                          {r.is_notified && (
+                            <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-semibold text-gray-600">
+                              已提醒
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <button

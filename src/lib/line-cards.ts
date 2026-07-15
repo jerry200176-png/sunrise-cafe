@@ -124,19 +124,35 @@ export function buildReminderFlex(params: {
   roomName?: string | null;
   startTime: string;
   endTime: string;
+  /** D-1 attendance confirm deep link (signed token URL) */
+  confirmAttendanceUrl?: string | null;
+  bookingCode?: string | null;
 }): LineFlexContainer {
   const rows = dateTimeRows(params.startTime, params.endTime);
   if (params.roomName) rows.push({ label: "包廂", value: params.roomName });
+  if (params.bookingCode) rows.push({ label: "訂位碼", value: params.bookingCode });
+
+  const confirmUrl = params.confirmAttendanceUrl?.trim();
+  const queryUrl = params.bookingCode
+    ? `${LINE_QUERY_URL}?code=${encodeURIComponent(params.bookingCode)}`
+    : LINE_QUERY_URL;
 
   return flexBubble({
     icon: "📅",
     title: `${params.leadLabel}訂位提醒`,
     subtitle: params.branchName,
     accentColor: LINE_BRAND.caramel,
-    paragraphs: ["期待您的光臨！"],
+    paragraphs: confirmUrl
+      ? ["請確認您明日會準時到店，幫助我們保留座位與備料。"]
+      : ["期待您的光臨！"],
     rows,
-    note: "如需調整請提早告知，謝謝！",
-    primaryAction: { label: "查看我的訂位", uri: LINE_QUERY_URL },
+    note: "如需改期或取消，請盡早於查詢頁辦理，謝謝！",
+    primaryAction: confirmUrl
+      ? { label: "確認準時到店", uri: confirmUrl, color: LINE_BRAND.successBright }
+      : { label: "查看我的訂位", uri: queryUrl },
+    secondaryAction: confirmUrl
+      ? { label: "查看／取消訂位", uri: queryUrl }
+      : undefined,
     showSiteLink: true,
   });
 }

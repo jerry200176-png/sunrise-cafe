@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { CheckCircle2, ArrowLeft, Clock, Copy } from "lucide-react";
+import { CheckCircle2, ArrowLeft, Clock, Copy, CalendarPlus } from "lucide-react";
 import { encodeLineBindState } from "@/lib/line-bind";
 import { CopyBookingCodeButton } from "@/components/CopyBookingCodeButton";
 import { useLocale } from "@/lib/i18n/LocaleContext";
@@ -15,6 +15,7 @@ import {
   formatDepositDeadlineLabel,
   getDepositUrgency,
 } from "@/lib/deposit-deadline";
+import { formatBookingPolicyLines } from "@/lib/booking-policy";
 
 const LINE_LOGIN_CLIENT_ID =
   process.env.NEXT_PUBLIC_LINE_LOGIN_CHANNEL_ID ?? "2009884734";
@@ -212,6 +213,25 @@ function SuccessContent() {
               {t("success.pendingBodySuffix")}
             </p>
           </div>
+
+          <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
+            <p className="text-sm font-semibold text-gray-900">{t("book.form.policyTitle")}</p>
+            <ul className="mt-2 space-y-1 text-xs text-gray-700">
+              {formatBookingPolicyLines().map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </div>
+
+          {code && bindPhone.trim() && (
+            <a
+              href={`/api/guest/calendar?code=${encodeURIComponent(code)}&phone=${encodeURIComponent(bindPhone.trim())}`}
+              className="mt-4 inline-flex w-full min-h-11 items-center justify-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2.5 text-sm font-semibold text-amber-950 hover:bg-amber-50"
+            >
+              <CalendarPlus className="h-4 w-4" />
+              {t("success.addToCalendar")}
+            </a>
+          )}
 
           {code && (
             <div className="mt-4 rounded-xl border border-green-100 bg-green-50 p-4">

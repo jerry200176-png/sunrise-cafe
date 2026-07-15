@@ -18,6 +18,7 @@ import {
   saveBookingDraft,
   saveBookingSuccessMeta,
 } from "@/lib/booking-draft";
+import { formatBookingPolicyLines } from "@/lib/booking-policy";
 
 type Step = "branch" | "room" | "date" | "slot" | "form";
 
@@ -1130,6 +1131,15 @@ export default function BookPage() {
                     {fieldErrors["booking-guest-count"]}
                   </p>
                 )}
+              </div>
+
+              <div className="mt-6 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                <h3 className="mb-2 text-sm font-bold text-gray-900">{t("book.form.policyTitle")}</h3>
+                <ul className="space-y-1.5 text-xs leading-relaxed text-gray-700">
+                  {formatBookingPolicyLines().map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
               </div>
 
               {rentalNotes.length > 0 && (
