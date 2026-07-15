@@ -18,6 +18,8 @@ import { sendLineFlexMessage, buildReminderFlex } from "@/lib/line";
 import { runCronJob } from "@/lib/job-runs";
 import { errorToDetail } from "@/lib/cron-alert";
 import { reservationMatchesBranch, type ReminderReservationShape } from "@/lib/reminder-branch-match";
+import { signAttendanceToken } from "@/lib/attendance-token";
+import { LINE_SITE_URL } from "@/lib/line-flex";
 
 const CAT_MESSAGES = [
     "喵～沒訂位！Ivy 妳備好零食了嗎？本喵五分鐘後到 🐱",
@@ -142,18 +144,25 @@ async function handleSendLine(force: boolean = false, sendCatOnEmpty: boolean = 
             }
         }
 
-        // 3. 個別傳提醒給有綁定 LINE 的客人（所有分店）
+        // 3. 個別傳提醒給有綁定 LINE 的客人（所有分店）— 含 D-1 確認準時 CTA
         for (const r of allRows as Record<string, unknown>[]) {
             const lineUserId = r.line_user_id as string | null;
             if (!lineUserId) continue;
             try {
                 const room = r.room as { name?: string; branch?: { name?: string } } | undefined;
+                const reservationId = r.id as string;
+                const bookingCode = (r.booking_code as string | null) ?? null;
+                const confirmAttendanceUrl = reservationId
+                    ? `${LINE_SITE_URL}/book/confirm-visit?token=${encodeURIComponent(signAttendanceToken(reservationId))}`
+                    : null;
                 const flex = buildReminderFlex({
                     leadLabel: "明日",
                     branchName: room?.branch?.name ?? "昇昇咖啡",
                     roomName: room?.name ?? null,
                     startTime: r.start_time as string,
                     endTime: r.end_time as string,
+                    bookingCode,
+                    confirmAttendanceUrl,
                 });
                 await sendLineFlexMessage(lineUserId, "明日訂位提醒", flex);
             } catch {

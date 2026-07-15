@@ -4,7 +4,7 @@ import { SlotConflictError } from "@/lib/slot-conflict";
 import { createClient } from "@supabase/supabase-js";
 import { hasSlotConflict, insertReservationAdmin, isAdminConfigured } from "@/lib/supabase-admin";
 import { sendLineFlex, buildWaitlistBookedGroupFlex } from "@/lib/line-notify";
-import { WAITLIST_CONFIRM_WINDOW_MINUTES } from "@/lib/waitlist";
+import { WAITLIST_CONFIRM_WINDOW_MINUTES, notifyWaitlist } from "@/lib/waitlist";
 
 function supabaseAdmin() {
   return createClient(
@@ -76,6 +76,10 @@ export async function POST(request: NextRequest) {
     }
     if (isExpired(entry.notified_at)) {
       await supabaseAdmin().from("waitlist").update({ status: "expired" }).eq("id", entry.id);
+      // Market parity: release confirm window → notify next waiting guest
+      notifyWaitlist(entry.room_id, entry.start_time, entry.end_time).catch((err) =>
+        console.error("[waitlist/confirm] next notify failed:", err)
+      );
       return NextResponse.json(
         { error: "確認連結已逾時，此時段已釋出給下一位候補，請重新加入候補或致電店家" },
         { status: 410 }
@@ -85,6 +89,9 @@ export async function POST(request: NextRequest) {
     const conflict = await hasSlotConflict(entry.room_id, entry.start_time, entry.end_time);
     if (conflict) {
       await supabaseAdmin().from("waitlist").update({ status: "expired" }).eq("id", entry.id);
+      notifyWaitlist(entry.room_id, entry.start_time, entry.end_time).catch((err) =>
+        console.error("[waitlist/confirm] next notify after conflict failed:", err)
+      );
       return NextResponse.json(
         { error: "很抱歉，此時段已被其他訂位佔用，請重新加入候補" },
         { status: 409 }

@@ -414,6 +414,8 @@ export async function fetchTomorrowsReservations() {
       guest_count,
       is_notified,
       status,
+      is_deposit_paid,
+      guest_confirmed_at,
       room:rooms (
         name,
         branch_id,
@@ -428,7 +430,42 @@ export async function fetchTomorrowsReservations() {
     .neq("status", "cancelled")
     .order("start_time", { ascending: true });
 
-  if (error) throw error;
+  if (error) {
+    // migration 未套用時降級：略過 guest_confirmed_at
+    if (/guest_confirmed_at/i.test(error.message)) {
+      const fallback = await supabaseAdmin()
+        .from("reservations")
+        .select(`
+      id,
+      booking_code,
+      room_id,
+      start_time,
+      end_time,
+      customer_name,
+      phone,
+      email,
+      guest_count,
+      is_notified,
+      status,
+      is_deposit_paid,
+      room:rooms (
+        name,
+        branch_id,
+        branch:branches (
+          id,
+          name
+        )
+      )
+    `)
+        .gte("start_time", startRange)
+        .lte("start_time", endRange)
+        .neq("status", "cancelled")
+        .order("start_time", { ascending: true });
+      if (fallback.error) throw fallback.error;
+      return fallback.data;
+    }
+    throw error;
+  }
   return data;
 }
 

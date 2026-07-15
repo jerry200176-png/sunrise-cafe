@@ -24,6 +24,9 @@ export async function GET() {
         phone: r.phone,
         email: r.email,
         is_notified: r.is_notified,
+        is_deposit_paid: !!r.is_deposit_paid,
+        guest_confirmed_at: (r.guest_confirmed_at as string | null) ?? null,
+        status: r.status,
       };
     });
     return NextResponse.json(formatted);

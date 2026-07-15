@@ -53,6 +53,7 @@ export async function sendDepositPaymentRequest(
       booking_code,
       start_time,
       end_time,
+      created_at,
       total_price,
       status,
       is_deposit_paid,
@@ -66,6 +67,7 @@ export async function sendDepositPaymentRequest(
       booking_code,
       start_time,
       end_time,
+      created_at,
       total_price,
       status,
       is_deposit_paid,
@@ -148,6 +150,7 @@ export async function sendDepositPaymentRequest(
     total,
     branch,
     bookingCode: (r.booking_code as string | null) ?? null,
+    createdAt: (r.created_at as string | null) ?? null,
   });
 
   try {

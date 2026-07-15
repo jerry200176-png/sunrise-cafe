@@ -31,6 +31,7 @@ interface BookingItem {
   deposit_amount: number | null;
   is_deposit_paid?: boolean;
   created_at: string;
+  payment_review_status?: "pending_review" | "approved" | "rejected" | null;
 }
 
 interface AvailabilitySlot {
@@ -506,6 +507,14 @@ function BookQueryContent() {
                     <p className="mt-0.5 text-sm text-gray-500">
                       {t("query.bookingCode")}<span className="font-mono">{item.booking_code}</span>
                     </p>
+                    {phone.trim() && item.status !== "cancelled" && (
+                      <a
+                        href={`/api/guest/calendar?code=${encodeURIComponent(item.booking_code)}&phone=${encodeURIComponent(phone.trim())}`}
+                        className="mt-2 inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100"
+                      >
+                        {t("query.addToCalendar")}
+                      </a>
+                    )}
                     <p className="mt-1 flex items-center gap-1 text-sm text-gray-600">
                       <Calendar className="h-4 w-4" />
                       {format(parseISO(item.start_time), "yyyy/MM/dd (EEE)", {
@@ -541,6 +550,18 @@ function BookQueryContent() {
                     <p className="mt-1 text-yellow-700">
                       {t("query.pendingReviewDesc")}
                     </p>
+                  </div>
+                )}
+
+                {/* 付款審核狀態（截圖已送／被退回）*/}
+                {!item.is_deposit_paid && item.payment_review_status === "pending_review" && (
+                  <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                    {t("query.paymentReviewPending")}
+                  </div>
+                )}
+                {!item.is_deposit_paid && item.payment_review_status === "rejected" && (
+                  <div role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                    {t("query.paymentReviewRejected")}
                   </div>
                 )}
 
