@@ -20,7 +20,7 @@
 | 11 | Reservation list attendance badge | ReservationList `guest_confirmed_at` | **DONE** |
 | 12 | Urgent deposit nudge ≤6h | `deposit_urgent_reminder_sent_at` + Flex | **DONE** |
 | 13 | Waitlist phone CTA (no LINE) | admin waitlist `needs_call` + tel: | **DONE** |
-| 14 | Hourly deposit-deadline cron | `vercel.json` `0 * * * *` | **DONE** |
+| 14 | Deposit-deadline cadence (Hobby-safe) | 4× daily UTC 01/07/13/19 | **DONE** |
 | 15 | Deposit Flex deep-link `?code=` | line-cards query URI | **DONE** |
 | 16 | Gate「待確認出席」noise | near-visit / is_notified only | **DONE** |
 | 17 | Guest query attendance chip | lookup + query i18n | **DONE** |

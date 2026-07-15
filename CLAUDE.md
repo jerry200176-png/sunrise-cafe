@@ -104,13 +104,15 @@ print-bridge/             # 本地列印服務（獨立部署，非 Vercel）
 
 ### 訂金到期自動釋放（`src/lib/deposit-deadline.ts`）
 
-`/api/admin/reminders/deposit-deadline`（**每小時** Cron + 可手動觸發）：
+`/api/admin/reminders/deposit-deadline`（**每日 4 次** Cron：UTC 01/07/13/19 ≈ 台灣 09/15/21/隔日 03，Hobby 合規；可手動觸發）：
 
 - 期限 = `min(建立訂位時間 +24hr, 訂位開始時間)`
 - 適用對象：`status IN (pending, confirmed)` 且 `is_deposit_paid = false`（見 ADR-007）
 - 期限前 24 小時內且未提醒過 → 推播客人提醒一次（寫入 `deposit_reminder_sent_at`）
 - 期限 ≤6 小時且已發過首次提醒 → 再推迫近提醒一次（寫入 `deposit_urgent_reminder_sent_at`）
 - 超過期限仍未付訂金 → 自動將 `status` 改為 `cancelled`，通知客人與群組，並觸發等位通知
+
+> **注意：** Vercel Hobby 禁止 `0 * * * *`（每小時）。升級 Pro 後可改回每小時。
 
 ---
 

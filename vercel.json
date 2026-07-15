@@ -11,7 +11,19 @@
         },
         {
             "path": "/api/admin/reminders/deposit-deadline",
-            "schedule": "0 * * * *"
+            "schedule": "0 1 * * *"
+        },
+        {
+            "path": "/api/admin/reminders/deposit-deadline",
+            "schedule": "0 7 * * *"
+        },
+        {
+            "path": "/api/admin/reminders/deposit-deadline",
+            "schedule": "0 13 * * *"
+        },
+        {
+            "path": "/api/admin/reminders/deposit-deadline",
+            "schedule": "0 19 * * *"
         },
         {
             "path": "/api/admin/reminders/deploy-health",
