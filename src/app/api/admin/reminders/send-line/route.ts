@@ -11,12 +11,13 @@ import {
     sendLineMessage,
     sendLineFlexToGroup,
     sendLineFlex,
-    buildReminderDigestFlex,
+    buildReminderDigestFlexChunks,
     isLineConfigured,
 } from "@/lib/line-notify";
 import { sendLineFlexMessage, buildReminderFlex } from "@/lib/line";
 import { runCronJob } from "@/lib/job-runs";
 import { errorToDetail } from "@/lib/cron-alert";
+import { reservationMatchesBranch, type ReminderReservationShape } from "@/lib/reminder-branch-match";
 
 const CAT_MESSAGES = [
     "喵～沒訂位！Ivy 妳備好零食了嗎？本喵五分鐘後到 🐱",
@@ -27,6 +28,25 @@ const CAT_MESSAGES = [
 ];
 
 type BranchRow = { id: string; name: string; line_group_id?: string | null };
+
+async function pushDigestToGroup(
+    rows: Record<string, unknown>[],
+    groupId: string | null,
+    labelPrefix: string
+) {
+    const enriched = rows.map(toEnriched);
+    const chunks = buildReminderDigestFlexChunks(enriched);
+    for (let i = 0; i < chunks.length; i++) {
+        const part =
+            chunks.length > 1 ? `（${i + 1}/${chunks.length}）` : "";
+        const alt = `${labelPrefix}，共 ${rows.length} 筆${part}`;
+        if (groupId) {
+            await sendLineFlexToGroup(alt, chunks[i]!, groupId);
+        } else {
+            await sendLineFlex(alt, chunks[i]!);
+        }
+    }
+}
 
 async function handleSendLine(force: boolean = false, sendCatOnEmpty: boolean = false) {
     if (!isAdminConfigured()) {
@@ -63,26 +83,25 @@ async function handleSendLine(force: boolean = false, sendCatOnEmpty: boolean = 
                 }
                 return NextResponse.json({ ok: true, sent: 0 });
             }
-            const flex = buildReminderDigestFlex(rows.map(toEnriched));
-            await sendLineFlex(`📅 明日訂位提醒，共 ${rows.length} 筆`, flex);
+            await pushDigestToGroup(rows, null, "📅 明日訂位提醒");
             await Promise.all(rows.map((r) => updateReservationAdmin(r.id as string, { is_notified: true })));
             totalSent = rows.length;
         } else {
             // ── 多分店模式（資料庫 line_group_id）──────────────────────
+            const matchedIds = new Set<string>();
+
             for (const branch of activeBranches) {
                 const groupId = branch.line_group_id!;
-                const branchRows = (allRows as Record<string, unknown>[]).filter((r) => {
-                    const room = r.room as { branch?: { id?: string } } | undefined;
-                    return room?.branch?.id === branch.id || (r as Record<string, unknown>).branch_id === branch.id;
-                });
+                const branchRows = (allRows as Record<string, unknown>[]).filter((r) =>
+                    reservationMatchesBranch(r as ReminderReservationShape, branch)
+                );
 
                 if (branchRows.length === 0) {
                     if (sendCatOnEmpty) {
                         const allTomorrow = await fetchTomorrowsReservations();
-                        const branchTomorrow = (allTomorrow ?? []).filter((r: Record<string, unknown>) => {
-                            const room = r.room as { branch?: { id?: string } } | undefined;
-                            return room?.branch?.id === branch.id;
-                        });
+                        const branchTomorrow = (allTomorrow ?? []).filter((r: Record<string, unknown>) =>
+                            reservationMatchesBranch(r as ReminderReservationShape, branch)
+                        );
                         if (branchTomorrow.length === 0) {
                             const msg = CAT_MESSAGES[Math.floor(Math.random() * CAT_MESSAGES.length)];
                             await sendLineMessageToGroup(msg, groupId).catch((e) =>
@@ -93,12 +112,33 @@ async function handleSendLine(force: boolean = false, sendCatOnEmpty: boolean = 
                     continue;
                 }
 
-                const flex = buildReminderDigestFlex(branchRows.map(toEnriched));
-                await sendLineFlexToGroup(`📅 明日訂位提醒，共 ${branchRows.length} 筆`, flex, groupId);
+                await pushDigestToGroup(branchRows, groupId, "📅 明日訂位提醒");
                 await Promise.all(
                     branchRows.map((r) => updateReservationAdmin(r.id as string, { is_notified: true }))
                 );
+                for (const r of branchRows) matchedIds.add(r.id as string);
                 totalSent += branchRows.length;
+            }
+
+            // 未綁 line_group_id 的分店訂位 → fallback 環境變數群組，避免永遠不標 is_notified、客人個人訊息每夜重送
+            const unmatched = (allRows as Record<string, unknown>[]).filter(
+                (r) => !matchedIds.has(r.id as string)
+            );
+            if (unmatched.length > 0) {
+                if (isLineConfigured()) {
+                    await pushDigestToGroup(unmatched, null, "📅 明日訂位提醒（未設定分店群組）");
+                    await Promise.all(
+                        unmatched.map((r) => updateReservationAdmin(r.id as string, { is_notified: true }))
+                    );
+                    totalSent += unmatched.length;
+                    console.warn(
+                        `[send-line] multi-branch: ${unmatched.length} row(s) fell back to LINE_GROUP_ID`
+                    );
+                } else {
+                    console.error(
+                        `[send-line] multi-branch: ${unmatched.length} pending tomorrow reservation(s) matched no line_group_id and LINE_GROUP_ID unset`
+                    );
+                }
             }
         }
 

@@ -445,9 +445,12 @@ type ReminderRow = {
   notes?: string | null;
 };
 
-/** 明日訂位 digest — carousel（上限 12 筆） */
+/** LINE carousel 單則上限 12 bubbles */
+export const REMINDER_DIGEST_CAROUSEL_MAX = 12;
+
+/** 明日訂位 digest — 單則 carousel（超過上限時請用 buildReminderDigestFlexChunks） */
 export function buildReminderDigestFlex(reservations: ReminderRow[]): LineFlexContainer {
-  const bubbles = reservations.slice(0, 12).map((r) => {
+  const bubbles = reservations.slice(0, REMINDER_DIGEST_CAROUSEL_MAX).map((r) => {
     const rows = reservationRows({
       customerName: r.customer_name,
       phone: r.phone,
@@ -466,6 +469,16 @@ export function buildReminderDigestFlex(reservations: ReminderRow[]): LineFlexCo
     });
   });
   return { type: "carousel", contents: bubbles };
+}
+
+/** 將明日 digest 切成多則 carousel，避免 >12 筆被靜默截斷卻仍標 is_notified */
+export function buildReminderDigestFlexChunks(reservations: ReminderRow[]): LineFlexContainer[] {
+  if (reservations.length === 0) return [];
+  const chunks: LineFlexContainer[] = [];
+  for (let i = 0; i < reservations.length; i += REMINDER_DIGEST_CAROUSEL_MAX) {
+    chunks.push(buildReminderDigestFlex(reservations.slice(i, i + REMINDER_DIGEST_CAROUSEL_MAX)));
+  }
+  return chunks;
 }
 
 // Re-export guest auto-recorded text for webhook edge cases
