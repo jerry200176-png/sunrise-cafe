@@ -14,8 +14,8 @@
 
 | Rank | ID | Gap | Mature reference | Verified evidence | Proposed action | Owner | Status |
 |------|-----|-----|------------------|-------------------|-----------------|-------|--------|
-| 1 | CG-012 | Production SHA lag (Vercel Hobby quota) | Continuous deploy | main=`f7d81f2`; prod=`cfc940b`; `api-deployments-free-per-day` | Wait quota or upgrade Vercel | Founder | **OPEN** P0-blocker |
-| 2 | CG-008 | Catalog RLS anon write on **production** | Supabase deny-by-default | #213 merged; migrate blocked until `/api/payment/status` live | Deploy → `Production` Environment workflow APPLY | Ops | **OPEN** (code ready) |
+| 1 | CG-008 | Catalog RLS anon write on **production** | Supabase deny-by-default | App live (`/api/payment/status` 200); migrate awaiting Founder APPLY on Environment `Production` | Run maturity migrate → `PROBES_OK` | Founder/Ops | **OPEN** (preflight clear) |
+| 2 | CG-012 | Vercel Hobby CLI deploy quota | Continuous deploy | CLI still rate-limited; prod SHA nonetheless reached `f7d81f2` | Optional Pro; prefer fewer preview burns | Founder | **WATCH** |
 | 3 | CG-006 | Rate limits not **distributed** | Stripe always-on shared limits | Memory fallback **enforces per isolate** (degraded); Upstash unset → `rate_limit_mode=memory` | Enable Upstash on Vercel; confirm health=`upstash` | Founder | **OPEN** (degraded mitigating) |
 | 4 | CG-011 | Backup/DR not drilled with artifacts | Vercel/Supabase PITR | Scripts write dump+sha256+manifest; Pro/PITR unpaid | Run `db:restore-drill` in Environment; Founder Pro optional | Ops/Founder | **OPEN** |
 | 5 | CG-002 | North Star contracts not satisfied | Stripe dashboards with SLAs | Contracts API fields added; `ops_events` missing on prod (migration name fix in loop-2) | Apply ops_events → accumulate 7d | Agent/Ops | **OPEN** |
