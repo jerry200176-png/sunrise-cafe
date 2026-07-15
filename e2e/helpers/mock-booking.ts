@@ -30,13 +30,19 @@ function pad(n: number) {
   return String(n).padStart(2, "0");
 }
 
-/** Hourly slots 10:00–18:00 local +08:00, all available. */
+/** Half-hour slots 10:00–18:00 Taipei — matches `buildHalfHourSlots` / book UI. */
 export function mockSlotsForDate(date: string) {
   const slots: { start: string; end: string; available: boolean }[] = [];
   for (let h = 10; h < 18; h++) {
-    const start = new Date(`${date}T${pad(h)}:00:00+08:00`).toISOString();
-    const end = new Date(`${date}T${pad(h + 1)}:00:00+08:00`).toISOString();
-    slots.push({ start, end, available: true });
+    for (const m of [0, 30]) {
+      const start = new Date(`${date}T${pad(h)}:${pad(m)}:00+08:00`);
+      const end = new Date(start.getTime() + 30 * 60 * 1000);
+      slots.push({
+        start: start.toISOString(),
+        end: end.toISOString(),
+        available: true,
+      });
+    }
   }
   return slots;
 }

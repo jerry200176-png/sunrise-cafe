@@ -22,6 +22,11 @@ export const TRACKED_MIGRATIONS = [
     file: "migration-ops-events.sql",
     critical: false,
   },
+  {
+    version: "20260715-rls-catalog-read-only",
+    file: "migration-rls-catalog-read-only.sql",
+    critical: true,
+  },
 ] as const;
 
 export const CLOSED_DATES_FILE = "migration-branches-closed-dates.sql";

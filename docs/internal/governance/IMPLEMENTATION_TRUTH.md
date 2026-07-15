@@ -1,9 +1,10 @@
 # Implementation Truth — Single Source of Technical State
 
 **Owner:** CTO Operating System v2  
-**Updated:** 2026-07-13 (Round 27 — #181 merged; #178 Flex live on prod `2248d24`)  
+**Updated:** 2026-07-15 (competitive audit — catalog RLS harden on branch)  
 **Rule:** If this doc disagrees with other docs, **this doc wins**. Verify against `main` branch code.  
-**Daily ops:** [`EXECUTIVE_DASHBOARD.md`](./EXECUTIVE_DASHBOARD.md) · snapshot: `npm run cto:snapshot`
+**Daily ops:** [`EXECUTIVE_DASHBOARD.md`](./EXECUTIVE_DASHBOARD.md) · snapshot: `npm run cto:snapshot`  
+**Audit:** [`COMPETITIVE_AUDIT_2026-07-15.md`](../executive/COMPETITIVE_AUDIT_2026-07-15.md)
 
 ---
 
@@ -50,6 +51,10 @@
 | Guest lookup POST (no URL creds) | ✅ | `/api/my-bookings` POST + query page |
 | Per-phone guest rate limits | ✅ | `guestRateLimitId` in middleware + routes |
 | Guest rate limit mode | 🟡 enforced when Upstash env set; **fail-open** otherwise | `rate-limit.ts` `isUpstashConfigured()` |
+| Catalog mutations via service role | ✅ (code) | `supabase-fetch.ts` `adminHeaders` |
+| Catalog RLS anon read-only | 🟡 migration file ready; **prod apply pending** | `migration-rls-catalog-read-only.sql` |
+| `getAdminContext` no owner elevation on bad cookie | ✅ | `deniedContext()` in `admin-api-auth.ts` |
+| `headersAdmin` no anon fallback | ✅ | throws if service role missing |
 | Structured ops logging | ✅ | `ops-log.ts` — webhook + Sentry breadcrumbs (#118) |
 | Executive BI dashboard | ✅ | `/admin/executive` + `business-snapshot.json` (#116) |
 | Query auto-search post-booking | ✅ | `/book/query` prefilled search (#118) |

@@ -76,5 +76,11 @@ jobs:
         env:
           CI: true
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
-          # Optional: set repo secret E2E_ADMIN_PASSWORD to enable admin payment smoke (CG-007)
+          # Required for /admin page middleware under `next start` (signed session in e2e helpers)
+          ADMIN_PASSWORD: placeholder_password
+          SESSION_SECRET: placeholder_password
+          # Optional: set repo secret E2E_ADMIN_PASSWORD to enable live admin payment smoke (CG-007)
           E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder_anon_key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder_service_role_key

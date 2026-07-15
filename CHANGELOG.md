@@ -6,6 +6,29 @@
 
 ## [Unreleased]
 
+### Commercial Maturity A — Loop 1b converge (2026-07-15)
+- SSOT 對齊：Evidence／Gaps／CAPABILITY_GAPS；memory rate limit 標為 **degraded**（A 級需 Upstash）
+- 受控遷移：`production-maturity-migrate.yml`（Environment `production` + APPLY + preflight/apply/probes，不印 secrets）
+- `/admin/today`：分店 ACL、partial errors、Taipei window、task hops、E2E 驗收
+- North Star **contracts**（分子／分母／時區／窗／完整度／對帳）暴露於 `/api/admin/north-star`
+- Backup：sha256 + manifest + retention + 隔離 restore drill
+
+### Commercial Maturity A — Loop 1 (2026-07-15)
+- **Stripe 二元化**：大安 `stripeEnabled=false`；新增 `GET /api/payment/status`；訂位頁僅在 server `stripe_enabled` 時開 Modal（消除 503 半成品入口）
+- **Rate limit**：Upstash 未設定時改記憶體 sliding window（production 不再 fail-open）；`/api/booking-health` 回報 `rate_limit_mode`
+- **今日場控**：`/admin/today` + `GET /api/admin/today`（時間軸／未付／審核／候補／一鍵撥號）
+- **取消／退費模型**：`cancel-refund-policy` + `POST /api/refund-request` + `migration-refund-requests.sql`（不自動退款）
+- **Funnel**：擴充 step／submit 事件；E2E mock 改半小時格以修復 CI
+- **備份演練**：`npm run db:backup` / `db:restore-drill`；`docs/ops/BACKUP_RESTORE_DRILL.md`
+- **Rubric SSOT**：`COMMERCIAL_MATURITY_RUBRIC.md` + frozen baseline + gaps + evidence（整體仍誠實評為未達 A）
+
+### Security — Catalog RLS harden (2026-07-15 audit)
+- **後台目錄寫入**改走 `SUPABASE_SERVICE_ROLE_KEY`（branches／rooms／settings／legacy reservation helpers），不再用公開 anon key 突變資料
+- 新增 `supabase/migration-rls-catalog-read-only.sql`：anon 僅 SELECT；**部署程式後須在 Supabase 執行**
+- `getAdminContext` 在需登入但 session 無效時回傳零權限 `none`，不再誤升為 owner
+- `headersAdmin` 缺少 service role 時改為拋錯，禁止靜默降級 anon
+- 競爭力審計報告：`docs/internal/executive/COMPETITIVE_AUDIT_2026-07-15.md`
+
 ### Guest (CX-006)
 - Waitlist confirm page (`/book/waitlist/confirm`): full zh/en/ja i18n + language switcher
 

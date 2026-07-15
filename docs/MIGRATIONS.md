@@ -28,6 +28,7 @@ node scripts/check-migration-drift.mjs .env.vercel.prod
 | `migration-job-runs.sql` | ✅ |
 | `migration-payment-events.sql` | ✅ |
 | `migration-branches-line-group-id.sql` | 🟡 Optional — not applied |
+| `migration-rls-catalog-read-only.sql` | 🔴 **Apply after deploy** — anon SELECT-only on branches/rooms/settings |
 
 ## First-time setup (new environments only)
 

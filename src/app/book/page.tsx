@@ -67,11 +67,13 @@ export default function BookPage() {
   const errorBannerRef = useRef<HTMLDivElement>(null);
   const stepPanelRef = useRef<HTMLDivElement>(null);
 
-  // ── Stripe 支付 Modal 狀態 ──
+  // ── Stripe 支付 Modal 狀態（僅當 server 報告 stripe_enabled 才開啟）──
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [pendingReservationId, setPendingReservationId] = useState("");
   const [pendingReservationCode, setPendingReservationCode] = useState("");
+  const [stripeLiveEnabled, setStripeLiveEnabled] = useState(false);
   const paymentModalTriggered = useRef(false);
+  const funnelEntered = useRef(false);
 
   const focusStepPanel = useCallback(() => {
     requestAnimationFrame(() => {
@@ -198,11 +200,19 @@ export default function BookPage() {
   }, [branchId, changeStep]);
 
   useEffect(() => {
+    if (funnelEntered.current) return;
+    funnelEntered.current = true;
     fetch("/api/booking-funnel", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ event: "booking_flow_entered" }),
     }).catch(() => {});
+    fetch("/api/payment/status")
+      .then((r) => r.json())
+      .then((d: { stripe_enabled?: boolean }) => {
+        setStripeLiveEnabled(Boolean(d?.stripe_enabled));
+      })
+      .catch(() => setStripeLiveEnabled(false));
   }, []);
 
   useEffect(() => {
@@ -493,6 +503,7 @@ export default function BookPage() {
 
         if (
           depositConfig.stripeEnabled &&
+          stripeLiveEnabled &&
           depositConfig.isDepositRequired &&
           depositAmount > 0 &&
           reservationId &&

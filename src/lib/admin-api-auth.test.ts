@@ -8,7 +8,9 @@ import {
   isReservationMutationPath,
   isAdminOnlyApiPath,
   isAdminAuthRequired,
+  getAdminContext,
 } from "./admin-api-auth";
+import { hasPermission } from "./rbac";
 
 const origPassword = process.env.ADMIN_PASSWORD;
 const origSession = process.env.SESSION_SECRET;
@@ -120,6 +122,38 @@ describe("isAdminAuthRequired", () => {
     process.env.NODE_ENV = "development";
     delete process.env.VERCEL_ENV;
     expect(isAdminAuthRequired()).toBe(false);
+  });
+});
+
+describe("getAdminContext", () => {
+  it("does not elevate to owner when auth required and cookie missing", async () => {
+    process.env.ADMIN_PASSWORD = "pw";
+    process.env.SESSION_SECRET = "sess";
+    const req = new NextRequest("http://localhost/api/admin/me");
+    const ctx = await getAdminContext(req);
+    expect(ctx.role).toBe("none");
+    expect(hasPermission(ctx, "reservations:read")).toBe(false);
+    expect(hasPermission(ctx, "payments:approve")).toBe(false);
+  });
+
+  it("does not elevate to owner when signature invalid", async () => {
+    process.env.ADMIN_PASSWORD = "pw";
+    process.env.SESSION_SECRET = "sess";
+    const req = new NextRequest("http://localhost/api/admin/me", {
+      headers: { cookie: `${ADMIN_SESSION_COOKIE}=tampered.sig` },
+    });
+    const ctx = await getAdminContext(req);
+    expect(ctx.role).toBe("none");
+  });
+
+  it("returns owner in legacy mode when auth not required", async () => {
+    delete process.env.ADMIN_PASSWORD;
+    process.env.NODE_ENV = "development";
+    delete process.env.VERCEL_ENV;
+    const req = new NextRequest("http://localhost/api/admin/me");
+    const ctx = await getAdminContext(req);
+    expect(ctx.role).toBe("owner");
+    expect(ctx.legacy).toBe(true);
   });
 });
 
