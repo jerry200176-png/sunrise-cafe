@@ -358,107 +358,6 @@ export default function AdminDashboardPage() {
               </p>
             </section>
 
-            <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
-                  <Bell className="h-5 w-5 text-amber-600" />
-                  明日提醒
-                </h2>
-                <button
-                  type="button"
-                  onClick={loadReminders}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  重新整理
-                </button>
-              </div>
-              {remindersLoading ? (
-                <p className="text-sm text-gray-500">載入提醒中…</p>
-              ) : remindersError ? (
-                <p className="text-sm text-red-600">{remindersError}</p>
-              ) : remindersForBranch.length === 0 ? (
-                <p className="text-sm text-gray-500">明日無需提醒的訂位</p>
-              ) : (
-                <ul className="space-y-3">
-                  {remindersForBranch.map((r) => {
-                    const startLabel = format(parseISO(r.start_time), "yyyy/MM/dd (EEE) HH:mm", {
-                      locale: zhTW,
-                    });
-                    const endLabel = format(parseISO(r.end_time), "HH:mm");
-                    const message = `您好 ${r.customer_name}，提醒您明天 ${startLabel}–${endLabel} 的預約（${r.branch_name} ${r.room_name}）。如需更改請提前告知，謝謝！`;
-                    return (
-                      <li key={r.id} className="rounded-lg border border-gray-200 p-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="font-medium text-gray-900">
-                              {r.customer_name} · {r.branch_name} {r.room_name}
-                            </p>
-                            <p className="text-sm text-gray-600">
-                              {startLabel}–{endLabel}
-                            </p>
-                            <p className="text-sm text-gray-500">
-                              {r.phone} {r.email ? `· ${r.email}` : ""}
-                            </p>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                try {
-                                  if (navigator.clipboard?.writeText) {
-                                    await navigator.clipboard.writeText(message);
-                                  } else {
-                                    const textarea = document.createElement("textarea");
-                                    textarea.value = message;
-                                    document.body.appendChild(textarea);
-                                    textarea.select();
-                                    document.execCommand("copy");
-                                    document.body.removeChild(textarea);
-                                  }
-                                  showToast("已複製提醒內容", "success");
-                                } catch {
-                                  showToast("複製失敗，請手動複製。", "error");
-                                }
-                              }}
-                              className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                            >
-                              複製提醒
-                            </button>
-                            <button
-                              type="button"
-                              disabled={r.is_notified || remindersUpdating === r.id}
-                              onClick={async () => {
-                                setRemindersUpdating(r.id);
-                                try {
-                                  await fetch(`/api/admin/reminders/${r.id}`, { method: "PATCH" });
-                                  setReminders((prev) =>
-                                    prev.map((item) =>
-                                      item.id === r.id ? { ...item, is_notified: true } : item
-                                    )
-                                  );
-                                } catch {
-                                  // ignore
-                                } finally {
-                                  setRemindersUpdating(null);
-                                }
-                              }}
-                              className={`rounded-lg px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60 ${r.is_notified
-                                  ? "bg-gray-400 cursor-not-allowed"
-                                  : "bg-emerald-600 hover:bg-emerald-700"
-                                }`}
-                            >
-                              {r.is_notified ? "已通知" : "標記已通知"}
-                            </button>
-                          </div>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </section>
-
             {timeline && (
               <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                 <h2 className="mb-4 text-lg font-semibold text-gray-900">
@@ -553,6 +452,108 @@ export default function AdminDashboardPage() {
             )}
           </>
         )}
+
+        {/* 明日提醒獨立於 stats：儀表板 API 失敗時仍須可操作 */}
+        <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
+              <Bell className="h-5 w-5 text-amber-600" />
+              明日提醒
+            </h2>
+            <button
+              type="button"
+              onClick={loadReminders}
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              重新整理
+            </button>
+          </div>
+          {remindersLoading ? (
+            <p className="text-sm text-gray-500">載入提醒中…</p>
+          ) : remindersError ? (
+            <p className="text-sm text-red-600">{remindersError}</p>
+          ) : remindersForBranch.length === 0 ? (
+            <p className="text-sm text-gray-500">明日無需提醒的訂位</p>
+          ) : (
+            <ul className="space-y-3">
+              {remindersForBranch.map((r) => {
+                const startLabel = format(parseISO(r.start_time), "yyyy/MM/dd (EEE) HH:mm", {
+                  locale: zhTW,
+                });
+                const endLabel = format(parseISO(r.end_time), "HH:mm");
+                const message = `您好 ${r.customer_name}，提醒您明天 ${startLabel}–${endLabel} 的預約（${r.branch_name} ${r.room_name}）。如需更改請提前告知，謝謝！`;
+                return (
+                  <li key={r.id} className="rounded-lg border border-gray-200 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-900">
+                          {r.customer_name} · {r.branch_name} {r.room_name}
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          {startLabel}–{endLabel}
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          {r.phone} {r.email ? `· ${r.email}` : ""}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              if (navigator.clipboard?.writeText) {
+                                await navigator.clipboard.writeText(message);
+                              } else {
+                                const textarea = document.createElement("textarea");
+                                textarea.value = message;
+                                document.body.appendChild(textarea);
+                                textarea.select();
+                                document.execCommand("copy");
+                                document.body.removeChild(textarea);
+                              }
+                              showToast("已複製提醒內容", "success");
+                            } catch {
+                              showToast("複製失敗，請手動複製。", "error");
+                            }
+                          }}
+                          className="min-h-11 rounded-lg border border-gray-300 px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                        >
+                          複製提醒
+                        </button>
+                        <button
+                          type="button"
+                          disabled={r.is_notified || remindersUpdating === r.id}
+                          onClick={async () => {
+                            setRemindersUpdating(r.id);
+                            try {
+                              await fetch(`/api/admin/reminders/${r.id}`, { method: "PATCH" });
+                              setReminders((prev) =>
+                                prev.map((item) =>
+                                  item.id === r.id ? { ...item, is_notified: true } : item
+                                )
+                              );
+                            } catch {
+                              // ignore
+                            } finally {
+                              setRemindersUpdating(null);
+                            }
+                          }}
+                          className={`min-h-11 rounded-lg px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-60 ${r.is_notified
+                              ? "bg-gray-400 cursor-not-allowed"
+                              : "bg-emerald-600 hover:bg-emerald-700"
+                            }`}
+                        >
+                          {r.is_notified ? "已通知" : "標記已通知"}
+                        </button>
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
       </div>
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </main>

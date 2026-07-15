@@ -496,9 +496,9 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
           type="button"
           onClick={handleSendLine}
           disabled={sendingLine}
-          className="ml-auto flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1 text-xs font-semibold text-white hover:bg-green-700 disabled:opacity-50"
+          className="ml-auto flex min-h-11 items-center gap-1.5 rounded-lg bg-green-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50"
         >
-          <Send className="h-3.5 w-3.5" />
+          <Send className="h-4 w-4" />
           {sendingLine ? "發送中..." : "發送 LINE 明日提醒"}
         </button>
       </div>

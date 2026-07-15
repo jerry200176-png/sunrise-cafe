@@ -318,11 +318,15 @@ async function fetchPaymentMetrics(
 
 async function fetchCronProxies(now: Date) {
   const since7 = new Date(now.getTime() - SEVEN_DAYS_MS).toISOString();
-  const tomorrowStart = new Date(now);
-  tomorrowStart.setDate(tomorrowStart.getDate() + 1);
-  tomorrowStart.setHours(0, 0, 0, 0);
-  const tomorrowEnd = new Date(tomorrowStart);
-  tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
+  // Vercel 為 UTC；明日 pending 必須用台灣日曆日，否則 20:00 前後會錯一天
+  const nowTW = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
+  const tomorrow = new Date(nowTW);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const y = tomorrow.getFullYear();
+  const m = String(tomorrow.getMonth() + 1).padStart(2, "0");
+  const d = String(tomorrow.getDate()).padStart(2, "0");
+  const tomorrowStart = `${y}-${m}-${d}T00:00:00+08:00`;
+  const tomorrowEnd = `${y}-${m}-${d}T23:59:59.999+08:00`;
 
   const { count: reminders7d } = await db()
     .from("reservations")
@@ -335,8 +339,8 @@ async function fetchCronProxies(now: Date) {
     .select("id", { count: "exact", head: true })
     .in("status", ["pending", "confirmed", "checked_in"])
     .eq("is_notified", false)
-    .gte("start_time", tomorrowStart.toISOString())
-    .lt("start_time", tomorrowEnd.toISOString());
+    .gte("start_time", tomorrowStart)
+    .lte("start_time", tomorrowEnd);
 
   const { count: autoReleases7d } = await db()
     .from("reservations")

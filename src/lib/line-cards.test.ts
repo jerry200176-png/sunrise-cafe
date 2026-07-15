@@ -8,6 +8,7 @@ import {
   buildPaymentFlex,
   buildPaymentPendingReviewGroupFlex,
   buildReminderDigestFlex,
+  buildReminderDigestFlexChunks,
   buildRescheduleGroupFlex,
   buildReviewInviteFlex,
   buildWaitlistBookedGroupFlex,
@@ -102,5 +103,24 @@ describe("line-cards LINE API shape", () => {
     expect(flex.type).toBe("carousel");
     const contents = flex.contents as unknown[];
     expect(contents.length).toBeLessThanOrEqual(12);
+  });
+
+  it("reminder digest chunks cover all rows without silent drop", () => {
+    const rows = Array.from({ length: 25 }, (_, i) => ({
+      booking_code: `CODE${i}`,
+      room_name: "A",
+      branch_name: "昇昇",
+      start_time: times.startTime,
+      end_time: times.endTime,
+      customer_name: `客人${i}`,
+      phone: "0912345678",
+    }));
+    const chunks = buildReminderDigestFlexChunks(rows);
+    expect(chunks).toHaveLength(3);
+    const bubbleCount = chunks.reduce(
+      (n, c) => n + ((c.contents as unknown[])?.length ?? 0),
+      0
+    );
+    expect(bubbleCount).toBe(25);
   });
 });
