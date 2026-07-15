@@ -11,6 +11,7 @@ export type PaymentLogAction =
   | "deposit_deadline.cron_run"
   | "deposit_deadline.released"
   | "deposit_deadline.reminded"
+  | "deposit_deadline.urgent_reminded"
   | "payment_reconcile.import"
   | "deposit.marked_paid"
   | "deposit.marked_unpaid"

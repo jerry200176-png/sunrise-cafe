@@ -17,8 +17,12 @@
 | 8 | Policy before submit | booking-policy on book/success | **DONE** |
 | 9 | `.ics` calendar | `/api/guest/calendar` | **DONE** |
 | 10 | Admin tomorrow chips | dashboard unpaid / confirmed | **DONE** |
+| 11 | Reservation list attendance badge | ReservationList `guest_confirmed_at` | **DONE** |
+| 12 | Urgent deposit nudge ≤6h | `deposit_urgent_reminder_sent_at` + Flex | **DONE** |
+| 13 | Waitlist phone CTA (no LINE) | admin waitlist `needs_call` + tel: | **DONE** |
 
 ## Deploy notes
 
 - Run `supabase/migration-guest-confirmed-at.sql` on production (code degrades until then).
+- Run `supabase/migration-deposit-urgent-reminder-sent.sql` for second deposit nudge (code degrades until then).
 - Stop list: LINE Pay native (#99), SMS OTP, Google Reserve.

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, RefreshCw, LogOut, Clock, Bell, Trash2 } from "lucide-react";
+import { ArrowLeft, RefreshCw, LogOut, Clock, Bell, Trash2, Phone } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -19,17 +19,25 @@ type WaitlistItem = {
   notified_at: string | null;
   room_name: string;
   branch_name: string;
+  has_line?: boolean;
+  needs_call?: boolean;
 };
 
-type StatusFilter = "all" | "waiting" | "notified";
+type StatusFilter = "all" | "waiting" | "notified" | "needs_call";
 
 const STATUS_LABEL: Record<string, string> = {
   waiting: "等候中",
   notified: "已通知",
 };
 
+function telHref(phone: string): string {
+  const digits = phone.replace(/[^\d+]/g, "");
+  return digits ? `tel:${digits}` : `tel:${phone}`;
+}
+
 export default function AdminWaitlistPage() {
   const [items, setItems] = useState<WaitlistItem[]>([]);
+  const [needsCallCount, setNeedsCallCount] = useState(0);
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,12 +64,15 @@ export default function AdminWaitlistPage() {
       if (!res.ok) {
         setError(data.error ?? "無法載入等位清單");
         setItems([]);
+        setNeedsCallCount(0);
         return;
       }
       setItems(data.items ?? []);
+      setNeedsCallCount(data.needs_call_count ?? 0);
     } catch {
       setError("載入失敗");
       setItems([]);
+      setNeedsCallCount(0);
     } finally {
       setLoading(false);
     }
@@ -91,7 +102,11 @@ export default function AdminWaitlistPage() {
   const waitingCount = items.filter((i) => i.status === "waiting").length;
   const notifiedCount = items.filter((i) => i.status === "notified").length;
   const visible =
-    filter === "all" ? items : items.filter((i) => i.status === filter);
+    filter === "all"
+      ? items
+      : filter === "needs_call"
+        ? items.filter((i) => i.needs_call)
+        : items.filter((i) => i.status === filter);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -117,11 +132,19 @@ export default function AdminWaitlistPage() {
           <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-800 text-sm">{error}</div>
         )}
 
+        {needsCallCount > 0 && (
+          <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-950">
+            <p className="font-semibold">有 {needsCallCount} 位等候中客人未綁定 LINE</p>
+            <p className="mt-0.5 text-orange-800/90">系統無法自動推播，請來電通知空位。</p>
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-2">
           {(
             [
               { key: "all" as const, label: `全部 (${items.length})` },
               { key: "waiting" as const, label: `等候中 (${waitingCount})` },
+              { key: "needs_call" as const, label: `需電聯 (${needsCallCount})` },
               { key: "notified" as const, label: `已通知 (${notifiedCount})` },
             ] as const
           ).map(({ key, label }) => (
@@ -129,7 +152,7 @@ export default function AdminWaitlistPage() {
               key={key}
               type="button"
               onClick={() => setFilter(key)}
-              className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+              className={`min-h-[44px] rounded-full px-3 py-1 text-sm font-medium transition-colors ${
                 filter === key
                   ? "bg-amber-600 text-white"
                   : "bg-white border border-gray-200 text-gray-700 hover:border-amber-300"
@@ -156,7 +179,12 @@ export default function AdminWaitlistPage() {
           ) : (
             <ul className="divide-y">
               {visible.map((item) => (
-                <li key={item.id} className="p-4 flex flex-wrap justify-between gap-3">
+                <li
+                  key={item.id}
+                  className={`p-4 flex flex-wrap justify-between gap-3 ${
+                    item.needs_call ? "bg-orange-50/60" : ""
+                  }`}
+                >
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2 mb-1">
                       <p className="font-bold text-gray-900">{item.customer_name}</p>
@@ -175,6 +203,16 @@ export default function AdminWaitlistPage() {
                           STATUS_LABEL.waiting ?? item.status
                         )}
                       </span>
+                      {item.needs_call && (
+                        <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-900 border border-orange-200">
+                          需電話通知
+                        </span>
+                      )}
+                      {item.has_line && item.status === "waiting" && (
+                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800 border border-emerald-100">
+                          可 LINE 推播
+                        </span>
+                      )}
                     </div>
                     <p className="text-sm text-gray-600">{item.phone}</p>
                     <p className="text-sm text-gray-800 mt-1">
@@ -191,14 +229,26 @@ export default function AdminWaitlistPage() {
                         ` · 通知於 ${format(parseISO(item.notified_at), "MM/dd HH:mm", { locale: zhTW })}`}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    disabled={removingId === item.id}
-                    onClick={() => setConfirmRemoveId(item.id)}
-                    className="inline-flex items-center gap-1 self-start rounded border border-gray-300 text-gray-600 px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
-                  >
-                    <Trash2 className="w-4 h-4" /> 移除
-                  </button>
+                  <div className="flex flex-wrap items-start gap-2">
+                    <a
+                      href={telHref(item.phone)}
+                      className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold ${
+                        item.needs_call
+                          ? "bg-orange-600 text-white hover:bg-orange-700"
+                          : "border border-gray-300 text-gray-700 hover:bg-gray-50"
+                      }`}
+                    >
+                      <Phone className="w-4 h-4" /> 撥打
+                    </a>
+                    <button
+                      type="button"
+                      disabled={removingId === item.id}
+                      onClick={() => setConfirmRemoveId(item.id)}
+                      className="inline-flex min-h-[44px] items-center gap-1 rounded border border-gray-300 text-gray-600 px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      <Trash2 className="w-4 h-4" /> 移除
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>

@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { computeDepositDeadline, shouldAutoRelease, shouldSendDepositReminder, getDepositUrgency, formatDepositDeadlineLabel } from "./deposit-deadline";
+import {
+  computeDepositDeadline,
+  shouldAutoRelease,
+  shouldSendDepositReminder,
+  shouldSendUrgentDepositReminder,
+  getDepositUrgency,
+  formatDepositDeadlineLabel,
+} from "./deposit-deadline";
 
 describe("computeDepositDeadline", () => {
   it("用建立時間 +24h，當訂位時間在更遠的未來", () => {
@@ -52,6 +59,43 @@ describe("shouldSendDepositReminder", () => {
     const deadline = new Date("2026-01-05T00:00:00Z");
     const now = new Date("2026-01-01T00:00:00Z");
     expect(shouldSendDepositReminder(deadline, null, now)).toBe(false);
+  });
+});
+
+describe("shouldSendUrgentDepositReminder", () => {
+  it("requires first reminder already sent", () => {
+    const deadline = new Date("2026-01-01T06:00:00Z");
+    const now = new Date("2026-01-01T01:00:00Z");
+    expect(shouldSendUrgentDepositReminder(deadline, null, null, now)).toBe(false);
+  });
+
+  it("skips when urgent already sent", () => {
+    const deadline = new Date("2026-01-01T06:00:00Z");
+    const now = new Date("2026-01-01T01:00:00Z");
+    expect(
+      shouldSendUrgentDepositReminder(
+        deadline,
+        "2026-01-01T00:00:00Z",
+        "2026-01-01T00:30:00Z",
+        now
+      )
+    ).toBe(false);
+  });
+
+  it("sends when soon and first reminder done", () => {
+    const deadline = new Date("2026-01-01T06:00:00Z");
+    const now = new Date("2026-01-01T01:00:00Z");
+    expect(
+      shouldSendUrgentDepositReminder(deadline, "2026-01-01T00:00:00Z", null, now)
+    ).toBe(true);
+  });
+
+  it("does not send when more than 6h remain", () => {
+    const deadline = new Date("2026-01-02T00:00:00Z");
+    const now = new Date("2026-01-01T00:00:00Z");
+    expect(
+      shouldSendUrgentDepositReminder(deadline, "2025-12-31T12:00:00Z", null, now)
+    ).toBe(false);
   });
 });
 

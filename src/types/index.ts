@@ -45,6 +45,8 @@ export interface Reservation {
   review_invited_at?: string | null;
   /** Pending payment_events awaiting staff review */
   pending_payment_reviews?: number;
+  /** Guest tapped D-1 Confirm attendance CTA */
+  guest_confirmed_at?: string | null;
   room_with_branch?: {
     id: string;
     name: string;

@@ -269,18 +269,32 @@ export function buildGuestDepositReminderFlex(params: {
   bookingCode: string;
   startTime: string;
   endTime: string;
+  /** when soon, use stronger copy for ≤6h deadline */
+  urgency?: "ok" | "soon";
+  deadlineLabel?: string | null;
 }): LineFlexContainer {
+  const urgent = params.urgency === "soon";
+  const deadlineNote = params.deadlineLabel
+    ? `繳款期限：${params.deadlineLabel}。逾期座位將自動釋放。`
+    : "請盡快完成匯款或 LINE Pay（資訊請參考先前訊息），逾期座位將自動釋放。";
   return flexBubble({
-    icon: "⏰",
-    title: "訂金提醒",
+    icon: urgent ? "🚨" : "⏰",
+    title: urgent ? "訂金即將逾期" : "訂金提醒",
     subtitle: params.branchName,
-    accentColor: LINE_BRAND.warning,
-    paragraphs: ["您的包廂預約尚未收到訂金。"],
+    accentColor: urgent ? LINE_BRAND.danger : LINE_BRAND.warning,
+    paragraphs: [
+      urgent
+        ? "您的包廂預約訂金尚餘不到 6 小時就要到期，請立刻完成付款。"
+        : "您的包廂預約尚未收到訂金。",
+    ],
     rows: [
       { label: "訂位碼", value: params.bookingCode },
       ...dateTimeRows(params.startTime, params.endTime),
+      ...(params.deadlineLabel
+        ? [{ label: "繳款期限", value: params.deadlineLabel }]
+        : []),
     ],
-    note: "請盡快完成匯款或 LINE Pay（資訊請參考先前訊息），逾期座位將自動釋放。",
+    note: deadlineNote,
     primaryAction: { label: "查看付款資訊", uri: LINE_QUERY_URL },
   });
 }
