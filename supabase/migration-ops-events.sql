@@ -12,6 +12,6 @@ CREATE TABLE IF NOT EXISTS ops_events (
 CREATE INDEX IF NOT EXISTS idx_ops_events_action_ts ON ops_events (action, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_ops_events_ts ON ops_events (ts DESC);
 
-INSERT INTO schema_migrations (version, applied_at)
-VALUES ('20260713-ops-events', now())
+INSERT INTO schema_migrations (version, name)
+VALUES ('20260713-ops-events', 'migration-ops-events.sql')
 ON CONFLICT (version) DO NOTHING;

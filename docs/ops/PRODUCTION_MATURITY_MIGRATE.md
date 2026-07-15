@@ -6,7 +6,7 @@ Apply catalog RLS (anon SELECT-only) + `refund_requests` **after** the Maturity 
 
 ## Prerequisites
 
-1. GitHub Environment named **`production`** with secrets:
+1. GitHub Environment named **`Production`** (existing repo Environment; case-sensitive) with secrets:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `SUPABASE_SERVICE_ROLE_KEY`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY` (for negative probes)
@@ -19,9 +19,13 @@ Apply catalog RLS (anon SELECT-only) + `refund_requests` **after** the Maturity 
 1. Merge PR → wait until `GET /api/version` commit matches `main`
 2. Actions → **Production maturity migrate (RLS + refund)** → Run workflow
 3. Input `confirm` = `APPLY`
-4. Approve Environment gate
+4. Approve Environment gate (enable required reviewers on Environment `Production` if not already)
 5. Jobs: guard → preflight → apply → probe
 6. Success markers in logs (no secrets): `PREFLIGHT_OK`, `APPLY_OK`, `PROBES_OK`
+
+## Blocker: Vercel Hobby deploy quota
+
+If `vercel deploy --prod` returns `api-deployments-free-per-day`, production SHA cannot advance until quota resets (~24h) or Founder upgrades Vercel. **Do not apply catalog RLS until** `/api/payment/status` exists on production (preflight enforces).
 
 ## Deploy order safety
 

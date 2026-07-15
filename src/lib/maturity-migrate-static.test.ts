@@ -23,15 +23,23 @@ describe("maturity migrations (static)", () => {
     expect(sql).toContain("ENABLE ROW LEVEL SECURITY");
   });
 
-  it("controlled workflow requires production environment + APPLY confirm", () => {
+  it("controlled workflow requires Production environment + APPLY confirm", () => {
     const yml = readFileSync(
       join(ROOT, ".github/workflows/production-maturity-migrate.yml"),
       "utf8"
     );
-    expect(yml).toContain("environment: production");
+    expect(yml).toContain("environment: Production");
+    expect(yml).not.toMatch(/environment:\s+production\b/);
     expect(yml).toContain("confirm");
     expect(yml).toContain("APPLY");
     expect(yml).toContain("maturity-migrate-preflight.mjs");
     expect(yml).toContain("maturity-post-migrate-probes.mjs");
+  });
+
+  it("ops_events migration records schema_migrations.name", () => {
+    const sql = readFileSync(join(ROOT, "supabase/migration-ops-events.sql"), "utf8");
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS ops_events");
+    expect(sql).toMatch(/INSERT INTO schema_migrations \(version, name\)/);
+    expect(sql).not.toMatch(/INSERT INTO schema_migrations \(version, applied_at\)/);
   });
 });

@@ -1,5 +1,5 @@
 # Controlled production migration for Commercial Maturity A
-# - Secrets only from GitHub Environment `production` (manual approval)
+# - Secrets only from GitHub Environment `Production` (manual approval gate)
 # - Never prints secret values
 # - Deploy order: app with service-role writes MUST be live before RLS apply
 # - Idempotent apply + anon negative / service positive probes
@@ -39,7 +39,7 @@ jobs:
     name: Preflight (deploy order + secrets)
     needs: guard
     runs-on: ubuntu-latest
-    environment: production
+    environment: Production
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -63,7 +63,7 @@ jobs:
     name: Apply migrations
     needs: preflight
     runs-on: ubuntu-latest
-    environment: production
+    environment: Production
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -85,7 +85,7 @@ jobs:
     name: Negative + positive probes
     needs: apply
     runs-on: ubuntu-latest
-    environment: production
+    environment: Production
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -110,6 +110,6 @@ jobs:
       - name: Write result
         run: |
           echo "### Production maturity migrate" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Preflight / apply / probes completed under environment \`production\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Preflight / apply / probes completed under environment \`Production\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Secrets are never echoed; see job logs for redacted metadata only" >> "$GITHUB_STEP_SUMMARY"
           echo "- Rollback: re-apply previous RLS policies from git history only after Founder approval (prefer forward-fix)" >> "$GITHUB_STEP_SUMMARY"

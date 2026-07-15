@@ -6,6 +6,11 @@
 
 ## [Unreleased]
 
+### Commercial Maturity A — Loop 2 (2026-07-15)
+- #213 merged (`f7d81f2`); production deploy blocked by Vercel Hobby daily quota [FACT]
+- Fix `migration-ops-events.sql` `schema_migrations.name` (unblocks KPI table apply)
+- Maturity migrate workflow Environment name → **`Production`** (case-correct)
+
 ### Commercial Maturity A — Loop 1b converge (2026-07-15)
 - SSOT 對齊：Evidence／Gaps／CAPABILITY_GAPS；memory rate limit 標為 **degraded**（A 級需 Upstash）
 - 受控遷移：`production-maturity-migrate.yml`（Environment `production` + APPLY + preflight/apply/probes，不印 secrets）
