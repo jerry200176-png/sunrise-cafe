@@ -15,6 +15,10 @@ import {
 } from "@/lib/line-flex";
 import { resolveStoreName, type BranchPaymentConfig } from "@/lib/payment-message";
 import {
+  computeDepositDeadline,
+  formatDepositDeadlineLabel,
+} from "@/lib/deposit-deadline";
+import {
   GUEST_REPLY_PAYMENT_PENDING_REVIEW,
   GUEST_REPLY_PAYMENT_AUTO_RECORDED,
 } from "@/lib/payment-events";
@@ -61,6 +65,8 @@ export function buildPaymentFlex(params: {
   total: number;
   branch: BranchPaymentConfig;
   bookingCode?: string | null;
+  /** 建立時間；用於顯示真實訂金截止（與 deposit-deadline 規則一致） */
+  createdAt?: string | null;
 }): LineFlexContainer {
   const deposit = Math.ceil(params.total / 2);
   const storeName = resolveStoreName(params.branch);
@@ -68,21 +74,31 @@ export function buildPaymentFlex(params: {
   const paymentInfo = params.branch.payment_info?.trim();
   const linePayUrl = params.branch.line_pay_url?.trim();
 
+  const deadlineLabel = params.createdAt
+    ? formatDepositDeadlineLabel(computeDepositDeadline(params.createdAt, params.startTime))
+    : null;
+
   const rows: FlexRow[] = [
     ...(code ? [{ label: "訂位碼", value: code }] : []),
     ...dateTimeRows(params.startTime, params.endTime),
     { label: "總金額", value: `$${params.total}` },
     { label: "訂金", value: `$${deposit}` },
+    ...(deadlineLabel ? [{ label: "繳款期限", value: deadlineLabel }] : []),
   ];
 
   const paragraphs = [`${params.customerName} 您好，已為您保留包廂`];
-  let note = "請於今日內完成訂金付款，逾期座位將自動釋放。";
+  let note = deadlineLabel
+    ? `請於 ${deadlineLabel} 前完成訂金付款，逾期座位將自動釋放。`
+    : "請於期限內（最晚建立後 24 小時或訂位開始前）完成訂金付款，逾期座位將自動釋放。";
   if (paymentInfo) {
     note = `${paymentInfo.replace(/\n/g, " · ")}\n\n${
       code
         ? `匯款後請回傳：${code} 末五碼（可附截圖）`
         : "匯款後請回傳訂位碼與末五碼（可附截圖）"
     }`;
+    if (deadlineLabel) {
+      note = `繳款期限：${deadlineLabel}\n\n${note}`;
+    }
   }
   note += "\n\n帶外食沒關係，離場請自行帶走垃圾；未帶走酌收清潔費 $300。";
 

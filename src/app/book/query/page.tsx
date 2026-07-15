@@ -31,6 +31,7 @@ interface BookingItem {
   deposit_amount: number | null;
   is_deposit_paid?: boolean;
   created_at: string;
+  payment_review_status?: "pending_review" | "approved" | "rejected" | null;
 }
 
 interface AvailabilitySlot {
@@ -541,6 +542,18 @@ function BookQueryContent() {
                     <p className="mt-1 text-yellow-700">
                       {t("query.pendingReviewDesc")}
                     </p>
+                  </div>
+                )}
+
+                {/* 付款審核狀態（截圖已送／被退回）*/}
+                {!item.is_deposit_paid && item.payment_review_status === "pending_review" && (
+                  <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                    {t("query.paymentReviewPending")}
+                  </div>
+                )}
+                {!item.is_deposit_paid && item.payment_review_status === "rejected" && (
+                  <div role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                    {t("query.paymentReviewRejected")}
                   </div>
                 )}
 

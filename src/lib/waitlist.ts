@@ -1,3 +1,8 @@
+/**
+ * Waitlist fan-out after a slot frees (cancel / deposit release / waitlist expiry).
+ * Only mark `notified` after a successful guest LINE push — otherwise leave `waiting`
+ * so ops can call, or a later release can retry. (Market: inline-style waitlist.)
+ */
 import { createClient } from "@supabase/supabase-js";
 import { sendLineFlexMessage } from "@/lib/line";
 import { buildWaitlistFlex, WAITLIST_CONFIRM_WINDOW_MINUTES } from "@/lib/line-cards";
@@ -11,13 +16,17 @@ function supabaseAdmin() {
   );
 }
 
-// 取消訂位後，通知等位清單中第一位符合條件的客人
+export type NotifyWaitlistResult =
+  | { outcome: "none" }
+  | { outcome: "no_line"; entryId: string; phone: string }
+  | { outcome: "line_failed"; entryId: string; phone: string; error: string }
+  | { outcome: "notified"; entryId: string; phone: string };
+
 export async function notifyWaitlist(
   roomId: string,
   cancelledStart: string,
   cancelledEnd: string
-) {
-  // 找出同包廂、時段重疊、尚在等位的第一筆
+): Promise<NotifyWaitlistResult> {
   const { data: entries } = await supabaseAdmin()
     .from("waitlist")
     .select("id, customer_name, phone, start_time, end_time, confirm_token")
@@ -29,9 +38,8 @@ export async function notifyWaitlist(
     .limit(1);
 
   const entry = entries?.[0];
-  if (!entry) return;
+  if (!entry) return { outcome: "none" };
 
-  // 找客人是否有綁定 LINE（從同電話的訂位查詢）
   const { data: reservations } = await supabaseAdmin()
     .from("reservations")
     .select("line_user_id")
@@ -41,24 +49,31 @@ export async function notifyWaitlist(
 
   const lineUserId = reservations?.[0]?.line_user_id as string | null;
 
-  if (lineUserId) {
-    try {
-      const flex = buildWaitlistFlex({
-        startTime: entry.start_time,
-        endTime: entry.end_time,
-        confirmToken: entry.confirm_token,
-      });
-      await sendLineFlexMessage(lineUserId, "您等位的時段空出來了！", flex);
-    } catch (err) {
-      console.error("[waitlist] LINE 通知失敗:", err);
-    }
+  if (!lineUserId) {
+    console.warn(
+      `[waitlist] skip mark notified — no LINE bind for phone=${entry.phone}; leave waiting for staff call / retry`
+    );
+    return { outcome: "no_line", entryId: entry.id, phone: entry.phone };
   }
 
-  // 標記為已通知（無論 LINE 是否成功，避免重複通知）
+  try {
+    const flex = buildWaitlistFlex({
+      startTime: entry.start_time,
+      endTime: entry.end_time,
+      confirmToken: entry.confirm_token,
+    });
+    await sendLineFlexMessage(lineUserId, "您等位的時段空出來了！", flex);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error("[waitlist] LINE 通知失敗，保持 waiting:", detail);
+    return { outcome: "line_failed", entryId: entry.id, phone: entry.phone, error: detail };
+  }
+
   await supabaseAdmin()
     .from("waitlist")
     .update({ status: "notified", notified_at: new Date().toISOString() })
     .eq("id", entry.id);
 
-  console.log(`[waitlist] 已通知等位客人 phone=${entry.phone}, lineUserId=${lineUserId ?? "無"}`);
+  console.log(`[waitlist] notified phone=${entry.phone}`);
+  return { outcome: "notified", entryId: entry.id, phone: entry.phone };
 }

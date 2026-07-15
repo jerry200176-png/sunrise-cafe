@@ -29,6 +29,7 @@ describe("buildPaymentMessage", () => {
     const msg = buildPaymentMessage({
       ...base,
       bookingCode: "ABC123",
+      createdAt: "2026-06-19T02:00:00Z",
       branch: {
         display_name: "昇昇咖啡 (大安店)",
         payment_info: "【匯款資訊】\n銀行：台北富邦銀行 (012)",
@@ -43,6 +44,14 @@ describe("buildPaymentMessage", () => {
     expect(msg).toContain("ABC123 12345");
     expect(msg).toContain("10:00–12:00"); // 時區正確
     expect(msg).toContain("訂金 $500"); // 進位一半
+    expect(msg).not.toContain("今日內");
+    expect(msg).toContain("前匯款訂金");
+  });
+
+  it("無 createdAt 時也不使用『今日內』模糊話術", () => {
+    const msg = buildPaymentMessage({ ...base, branch: { name: "信義" } });
+    expect(msg).not.toContain("今日內");
+    expect(msg).toContain("24 小時");
   });
 
   it("無付款資訊時降級為通用指示，不外洩任何分店帳號", () => {

@@ -4,6 +4,9 @@
  * 規則：訂金繳款期限 = 「建立訂位起 24 小時」與「訂位開始時間」兩者較早者
  * （避免訂位本身就在 24 小時內發生時，期限晚於訂位開始）。
  */
+import { format } from "date-fns";
+import { zhTW } from "date-fns/locale";
+import { toTaipei } from "@/lib/datetime";
 
 const DEADLINE_HOURS = 24;
 const REMINDER_WINDOW_HOURS = 24;
@@ -23,6 +26,17 @@ export function computeDepositDeadline(createdAt: string, startTime: string): Da
   const createdMs = new Date(createdAt).getTime();
   const startMs = new Date(startTime).getTime();
   return new Date(Math.min(createdMs + DEADLINE_HOURS * HOUR_MS, startMs));
+}
+
+/** 台灣牆鐘顯示：2026/07/16 (三) 20:00 */
+export function formatDepositDeadlineLabel(deadline: Date): string {
+  const tw = toTaipei(deadline.toISOString());
+  return format(tw, "yyyy/MM/dd (EEE) HH:mm", { locale: zhTW });
+}
+
+/** 剩餘毫秒（已過期為 0） */
+export function depositDeadlineRemainingMs(deadline: Date, now: Date = new Date()): number {
+  return Math.max(0, deadline.getTime() - now.getTime());
 }
 
 export function shouldAutoRelease(deadline: Date, now: Date = new Date()): boolean {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeDepositDeadline, shouldAutoRelease, shouldSendDepositReminder, getDepositUrgency } from "./deposit-deadline";
+import { computeDepositDeadline, shouldAutoRelease, shouldSendDepositReminder, getDepositUrgency, formatDepositDeadlineLabel } from "./deposit-deadline";
 
 describe("computeDepositDeadline", () => {
   it("用建立時間 +24h，當訂位時間在更遠的未來", () => {
@@ -69,5 +69,13 @@ describe("getDepositUrgency", () => {
   it("ok when more than 6 hours remain", () => {
     const deadline = new Date("2026-01-02T00:00:00Z");
     expect(getDepositUrgency(deadline, new Date("2026-01-01T00:00:00Z"))).toBe("ok");
+  });
+});
+
+describe("formatDepositDeadlineLabel", () => {
+  it("formats Taipei wall clock", () => {
+    const label = formatDepositDeadlineLabel(new Date("2026-06-19T16:00:00Z"));
+    expect(label).toMatch(/2026\/06\/20/);
+    expect(label).toMatch(/00:00/);
   });
 });

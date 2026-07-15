@@ -17,6 +17,14 @@ import {
   isRecoverableBookingDate,
   GUEST_BOOKING_DATE_NOT_FOUND,
 } from "@/lib/guest-auth";
+import { createClient } from "@supabase/supabase-js";
+
+function db() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
 
 export type GuestBookingItem = {
   id: string;
@@ -38,6 +46,8 @@ export type GuestBookingItem = {
   deposit_amount: number | null;
   is_deposit_paid: boolean;
   created_at: string;
+  /** Latest payment_events status for guest visibility (null if none / unpaid path) */
+  payment_review_status?: "pending_review" | "approved" | "rejected" | null;
 };
 
 type ReservationRow = {
@@ -83,7 +93,29 @@ async function toGuestBookingItem(r: ReservationRow): Promise<GuestBookingItem> 
         : null,
     is_deposit_paid: !!r.is_deposit_paid,
     created_at: r.created_at,
+    payment_review_status: await fetchLatestPaymentReviewStatus(r.id),
   };
+}
+
+async function fetchLatestPaymentReviewStatus(
+  reservationId: string
+): Promise<"pending_review" | "approved" | "rejected" | null> {
+  try {
+    const { data, error } = await db()
+      .from("payment_events")
+      .select("status")
+      .eq("reservation_id", reservationId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data?.status) return null;
+    if (data.status === "pending_review" || data.status === "approved" || data.status === "rejected") {
+      return data.status;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export async function lookupGuestBookings(

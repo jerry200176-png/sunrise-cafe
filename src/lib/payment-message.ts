@@ -7,6 +7,10 @@
 import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { toTaipei } from "@/lib/datetime";
+import {
+  computeDepositDeadline,
+  formatDepositDeadlineLabel,
+} from "@/lib/deposit-deadline";
 
 export interface BranchPaymentConfig {
   name?: string | null;
@@ -31,8 +35,10 @@ export function buildPaymentMessage(opts: {
   branch: BranchPaymentConfig;
   /** 訂位代號；有則引導客人回傳「訂位碼 + 末五碼」便於對帳 */
   bookingCode?: string | null;
+  /** 建立時間（ISO）；有則寫入真實訂金截止牆鐘時間（取代「今日內」） */
+  createdAt?: string | null;
 }): string {
-  const { customerName, startTime, endTime, total, branch, bookingCode } = opts;
+  const { customerName, startTime, endTime, total, branch, bookingCode, createdAt } = opts;
   const startDate = toTaipei(startTime);
   const endDate = toTaipei(endTime);
   const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
@@ -45,11 +51,18 @@ export function buildPaymentMessage(opts: {
   const linePayUrl = branch.line_pay_url?.trim();
   const hasPaymentDetails = Boolean(paymentInfo || linePayUrl);
 
+  const deadlineLabel = createdAt
+    ? formatDepositDeadlineLabel(computeDepositDeadline(createdAt, startTime))
+    : null;
+  const deadlinePhrase = deadlineLabel
+    ? `請於 ${deadlineLabel} 前匯款訂金 $${deposit}（總額一半）以保留座位；逾期將自動釋出時段。`
+    : `請在期限內（最晚為建立訂位後 24 小時或訂位開始前）匯款訂金 $${deposit}（總額一半）以保留座位；逾期將自動釋出時段。`;
+
   const lines: string[] = [
     `您好，這裡是${storeName}。`,
     ``,
     `收到您 ${formattedDate} ${timeRange} 的預約申請（${customerName}）。`,
-    `確認該時段有空位，本筆訂單總金額為 $${total}，請於今日內匯款訂金 $${deposit}（總額一半）以保留座位。`,
+    `確認該時段有空位，本筆訂單總金額為 $${total}，${deadlinePhrase}`,
     ``,
   ];
 

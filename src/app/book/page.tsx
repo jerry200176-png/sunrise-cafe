@@ -12,6 +12,12 @@ import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { PaymentModal } from "@/components/payment/PaymentModal";
 import { getBranchDepositConfig } from "@/lib/constants";
 import { taipeiDateString, taipeiDatePlusMonths } from "@/lib/datetime";
+import {
+  clearBookingDraft,
+  loadBookingDraft,
+  saveBookingDraft,
+  saveBookingSuccessMeta,
+} from "@/lib/booking-draft";
 
 type Step = "branch" | "room" | "date" | "slot" | "form";
 
@@ -86,6 +92,57 @@ export default function BookPage() {
     setError(null);
     setFieldErrors({});
   }, []);
+
+  // 手機重整／返回後恢復未完成訂位草稿（6 小時內）
+  useEffect(() => {
+    const draft = loadBookingDraft();
+    if (!draft) return;
+    if (draft.branchId) setBranchId(draft.branchId);
+    if (draft.branchName) setBranchName(draft.branchName);
+    if (draft.roomId) setRoomId(draft.roomId);
+    if (draft.roomName) setRoomName(draft.roomName);
+    if (draft.date) setDate(draft.date);
+    if (draft.selectedStart) setSelectedStart(draft.selectedStart);
+    if (draft.duration) setDuration(draft.duration);
+    if (draft.name) setName(draft.name);
+    if (draft.phone) setPhone(draft.phone);
+    if (draft.email) setEmail(draft.email);
+    if (draft.guestCount !== undefined) setGuestCount(draft.guestCount);
+    if (draft.step && BOOKING_STEP_ORDER.includes(draft.step as Step)) {
+      setStep(draft.step as Step);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!branchId && step === "branch") return;
+    saveBookingDraft({
+      step,
+      branchId,
+      branchName,
+      roomId,
+      roomName,
+      date,
+      selectedStart,
+      duration,
+      name,
+      phone,
+      email,
+      guestCount,
+    });
+  }, [
+    step,
+    branchId,
+    branchName,
+    roomId,
+    roomName,
+    date,
+    selectedStart,
+    duration,
+    name,
+    phone,
+    email,
+    guestCount,
+  ]);
 
   // 這裡確保介面包含 image_url
   const [branchRoomsAvailability, setBranchRoomsAvailability] = useState<{
@@ -402,10 +459,26 @@ export default function BookPage() {
 
       if (code) {
         sessionStorage.setItem("booking_success_phone", phone.trim());
+        clearBookingDraft();
+        const endIso =
+          selectedStart && duration
+            ? new Date(new Date(selectedStart).getTime() + duration * 3600_000).toISOString()
+            : undefined;
+        const totalPrice = getTotalPrice();
+        saveBookingSuccessMeta({
+          code,
+          createdAt: new Date().toISOString(),
+          startTime: selectedStart,
+          endTime: endIso,
+          totalPrice,
+          depositAmount: totalPrice != null ? getDepositAmount(totalPrice) : null,
+          roomName,
+          branchName,
+          customerName: name.trim(),
+        });
 
         // 判斷是否需要 Stripe 線上付款（假日 + 分店啟用 stripeEnabled + 訂金 > 0）
         const depositConfig = getBranchDepositConfig(branchId);
-        const totalPrice = getTotalPrice();
         const depositAmount = totalPrice != null ? getDepositAmount(totalPrice) : 0;
 
         if (
