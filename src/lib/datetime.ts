@@ -53,12 +53,14 @@ export function formatTaipeiTime(
   iso: string,
   opts?: { hour12?: boolean }
 ): string {
-  return new Date(iso).toLocaleTimeString("zh-TW", {
+  const hour12 = opts?.hour12 ?? false;
+  // en-GB → stable `HH:mm` (24h) or `hh:mm` when hour12; avoids 上午/下午 on booking grids
+  return new Intl.DateTimeFormat(hour12 ? "zh-TW" : "en-GB", {
     hour: "2-digit",
     minute: "2-digit",
-    hour12: opts?.hour12,
+    hour12,
     timeZone: "Asia/Taipei",
-  });
+  }).format(new Date(iso));
 }
 
 /** Taipei calendar date + N days (YYYY-MM-DD). */

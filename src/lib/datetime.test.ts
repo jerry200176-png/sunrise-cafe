@@ -49,10 +49,15 @@ describe("reservationDateKey", () => {
 });
 
 describe("formatTaipeiTime", () => {
-  it("formats UTC morning as Taipei local (10:00), not device TZ", () => {
+  it("formats UTC morning as Taipei local 10:00 in 24h", () => {
     // 02:00Z = 10:00 Asia/Taipei
     const label = formatTaipeiTime("2026-07-17T02:00:00.000Z");
     expect(label).toMatch(/10:00/);
+    expect(label).not.toMatch(/02:00/);
+  });
+
+  it("formats half-hour starts", () => {
+    expect(formatTaipeiTime("2026-07-17T05:30:00.000Z")).toMatch(/13:30/);
   });
 });
 

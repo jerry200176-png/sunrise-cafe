@@ -23,6 +23,10 @@ import {
   saveBookingSuccessMeta,
 } from "@/lib/booking-draft";
 import { formatBookingPolicyLines } from "@/lib/booking-policy";
+import {
+  canSelectStart,
+  endIsoForDuration,
+} from "@/lib/slot-grid";
 
 type Step = "branch" | "room" | "date" | "slot" | "form";
 
@@ -329,16 +333,8 @@ export default function BookPage() {
     }
   }, [step]);
 
-  const canSelectDuration = (slotStart: string): boolean => {
-    const startIdx = slots.findIndex((s) => s.start === slotStart);
-    if (startIdx < 0) return false;
-    const slotsNeeded = Math.ceil(duration);
-    for (let i = 0; i < slotsNeeded; i++) {
-      const s = slots[startIdx + i];
-      if (!s?.available) return false;
-    }
-    return true;
-  };
+  const canSelectDuration = (slotStart: string): boolean =>
+    canSelectStart(slots, slotStart, duration);
 
   const getTotalPrice = (): number | null => {
     const room = rooms.find((r) => r.id === roomId);
@@ -355,8 +351,12 @@ export default function BookPage() {
       roomId: room,
       date,
     });
-    if (startTime) params.set("start", startTime.slice(11, 16));
-    if (endTime) params.set("end", endTime.slice(11, 16));
+    if (startTime) {
+      params.set("start", formatTaipeiTime(startTime, { hour12: false }));
+    }
+    if (endTime) {
+      params.set("end", formatTaipeiTime(endTime, { hour12: false }));
+    }
     return `/book/waitlist?${params.toString()}`;
   };
 
@@ -555,7 +555,12 @@ export default function BookPage() {
     return totalPrice != null ? getDepositAmount(totalPrice) : 0;
   })();
 
-  const formatSlotTime = (iso: string) => formatTaipeiTime(iso);
+  const formatSlotTime = (iso: string) => formatTaipeiTime(iso, { hour12: false });
+
+  const formatSlotRange = (startIso: string) => {
+    const endIso = endIsoForDuration(startIso, duration);
+    return `${formatSlotTime(startIso)}–${formatSlotTime(endIso)}`;
+  };
 
   const goToStep = (target: Step) => {
     const targetIdx = BOOKING_STEP_ORDER.indexOf(target);
@@ -890,10 +895,7 @@ export default function BookPage() {
                   <p className="mb-3 text-xs text-gray-600">
                     {t("book.slot.totalSlots", {
                       count: slots.length,
-                      // Match button state: duration>1 requires contiguous free slots
-                      free: slots.filter((s) =>
-                        duration === 1 ? s.available : canSelectDuration(s.start)
-                      ).length,
+                      free: slots.filter((s) => canSelectDuration(s.start)).length,
                     })}
                   </p>
                 )}
@@ -965,23 +967,24 @@ export default function BookPage() {
                   </h3>
                   <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
                     {slots.map((s) => {
-                      const available = duration === 1 ? s.available : canSelectDuration(s.start);
+                      const available = canSelectDuration(s.start);
+                      const rangeLabel = formatSlotRange(s.start);
                       return (
                         <button
                           key={s.start}
                           type="button"
                           disabled={!available}
                           aria-pressed={selectedStart === s.start}
-                          aria-label={`${formatSlotTime(s.start)}${available ? "" : ` (${t("book.slot.legendFull")})`}`}
+                          aria-label={`${rangeLabel}${available ? "" : ` (${t("book.slot.legendFull")})`}`}
                           onClick={() => setSelectedStart(s.start)}
-                          className={`rounded-lg border py-3 text-sm font-medium ${selectedStart === s.start
+                          className={`rounded-lg border px-1 py-2.5 text-xs font-medium leading-tight sm:text-sm ${selectedStart === s.start
                             ? "border-amber-600 bg-amber-600 text-white"
                             : available
                               ? "border-green-300 bg-green-50 text-green-800 hover:bg-green-100"
                               : "cursor-not-allowed border border-rose-200 bg-rose-50 text-rose-600"
                             }`}
                         >
-                          {formatSlotTime(s.start)}
+                          {rangeLabel}
                         </button>
                       );
                     })}
@@ -1024,7 +1027,9 @@ export default function BookPage() {
             <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/80 p-4">
               <p className="text-sm text-gray-700">
                 {branchName} · {roomName} · {date}{" "}
-                {selectedStart && formatSlotTime(selectedStart)} {t("book.form.startFor", { duration })}
+                {selectedStart &&
+                  `${formatSlotTime(selectedStart)}–${formatSlotTime(endIsoForDuration(selectedStart, duration))}`}{" "}
+                {t("book.form.startFor", { duration })}
               </p>
               {getTotalPrice() != null && (
                 <div className="mt-3 flex flex-wrap items-end justify-between gap-2 border-t border-amber-200/70 pt-3">

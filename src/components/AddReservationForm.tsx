@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { X, Clock, Repeat, Users, StickyNote, User, Phone, Mail } from "lucide-react";
 import { format, addMonths } from "date-fns";
 import type { Room } from "@/types";
-import { isWeekendDate } from "@/lib/booking-utils";
+import { isWeekendDate, getDurationOptions } from "@/lib/booking-utils";
 import { toTaipei } from "@/lib/datetime";
 
 /** 依所選日期取得該包廂每小時單價（平日/假日） */
@@ -22,11 +22,8 @@ const WEEKDAYS = [
   { value: 0, label: "日" },
 ];
 
-// 產生 2~10 小時，間隔 0.5
-const DURATION_OPTIONS: number[] = [];
-for (let i = 2; i <= 10; i += 0.5) {
-  DURATION_OPTIONS.push(i);
-}
+// 與 API / 客人訂位一致：2～8 小時、0.5 間隔
+const DURATION_OPTIONS = getDurationOptions();
 
 export type AddReservationSuccess = {
   created?: number;
