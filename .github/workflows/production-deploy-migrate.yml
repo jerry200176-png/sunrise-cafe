@@ -50,7 +50,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
       - run: npm ci
       - name: Apply migrations
@@ -62,17 +62,20 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -z "${SUPABASE_DB_URL:-}" ] && [ -n "${VERCEL_TOKEN:-}" ]; then
-            bash scripts/vercel-production-env.sh .env.vercel.prod
-            for key in POSTGRES_URL POSTGRES_URL_NON_POOLING POSTGRES_PRISMA_URL SUPABASE_DB_URL DATABASE_URL POSTGRES_HOST POSTGRES_USER POSTGRES_PASSWORD; do
-              val=$(grep -E "^${key}=" .env.vercel.prod 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
-              if [ -n "$val" ]; then export "$key=$val"; fi
-            done
-            if [ -z "${SUPABASE_DB_URL:-}" ] && [ -n "${POSTGRES_HOST:-}" ] && [ -n "${POSTGRES_PASSWORD:-}" ]; then
-              export SUPABASE_DB_URL="postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT:-5432}/${POSTGRES_DATABASE:-postgres}"
+          if [ -z "${SUPABASE_DB_URL:-}" ] || echo "${SUPABASE_DB_URL:-}" | grep -q '\[region\]'; then
+            if [ -n "${VERCEL_TOKEN:-}" ]; then
+              bash scripts/vercel-production-env.sh .env.vercel.prod
+              for key in POSTGRES_URL POSTGRES_URL_NON_POOLING POSTGRES_PRISMA_URL SUPABASE_DB_URL DATABASE_URL DIRECT_URL; do
+                val=$(grep -E "^${key}=" .env.vercel.prod 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
+                if [ -n "$val" ] && ! echo "$val" | grep -q '\[region\]'; then
+                  export "$key=$val"
+                fi
+              done
+              if [ -z "${SUPABASE_DB_URL:-}" ] || echo "${SUPABASE_DB_URL:-}" | grep -q '\[region\]'; then
+                export SUPABASE_DB_URL="${POSTGRES_URL_NON_POOLING:-${POSTGRES_URL:-${POSTGRES_PRISMA_URL:-${DATABASE_URL:-${DIRECT_URL:-}}}}}"
+              fi
+              echo "Postgres env keys present: $(grep -E '^(POSTGRES|DATABASE|SUPABASE_DB|DIRECT)' .env.vercel.prod | cut -d= -f1 | tr '\n' ' ' || true)"
             fi
-            export SUPABASE_DB_URL="${SUPABASE_DB_URL:-${POSTGRES_URL_NON_POOLING:-${POSTGRES_URL:-${POSTGRES_PRISMA_URL:-}}}}"
-            echo "Postgres env keys present: $(grep -E '^(POSTGRES|DATABASE|SUPABASE_DB)' .env.vercel.prod | cut -d= -f1 | tr '\n' ' ' || true)"
           fi
           node scripts/apply-migration-ops-events.mjs || true
           if [ -n "${CRON_SECRET:-}" ]; then
@@ -81,7 +84,9 @@ jobs:
           fi
           node scripts/apply-migration-payment-request-sent.mjs || {
             echo "::warning::payment_request_sent_at migration pending — run SQL manually if needed"
-            exit 0
+          }
+          node scripts/apply-migration-market-parity.mjs || {
+            echo "::warning::market-parity columns pending — need real SUPABASE_DB_URL secret"
           }
 
       - name: Verify ops_events
@@ -94,19 +99,26 @@ jobs:
             -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}")
           echo "ops_events probe: HTTP $CODE"
-          [ "$CODE" = "200" ] || cat /tmp/ops_probe.json
+          [ "$CODE" = "200" ] || cat /tmp/ops_probe.json || true
 
-      - name: Verify payment_request_sent_at
+      - name: Verify market-parity columns
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          CODE=$(curl -sS -o /tmp/prs_probe.json -w '%{http_code}' \
-            "${NEXT_PUBLIC_SUPABASE_URL}/rest/v1/reservations?select=payment_request_sent_at&limit=1" \
-            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}")
-          echo "payment_request_sent_at probe: HTTP $CODE"
-          if [ "$CODE" != "200" ]; then
-            cat /tmp/prs_probe.json || true
-            echo "::warning::payment_request_sent_at not visible yet"
-          fi
+          for col in guest_confirmed_at deposit_urgent_reminder_sent_at; do
+            CODE=$(curl -sS -o /tmp/col.json -w '%{http_code}' \
+              "${NEXT_PUBLIC_SUPABASE_URL}/rest/v1/reservations?select=${col}&limit=1" \
+              -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}")
+            echo "reservations.${col}: HTTP $CODE"
+            [ "$CODE" = "200" ] || cat /tmp/col.json || true
+          done
+          for col in staff_called_at staff_alerted_at; do
+            CODE=$(curl -sS -o /tmp/col.json -w '%{http_code}' \
+              "${NEXT_PUBLIC_SUPABASE_URL}/rest/v1/waitlist?select=${col}&limit=1" \
+              -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}")
+            echo "waitlist.${col}: HTTP $CODE"
+            [ "$CODE" = "200" ] || cat /tmp/col.json || true
+          done
