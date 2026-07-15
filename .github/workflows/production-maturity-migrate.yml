@@ -28,8 +28,13 @@ jobs:
     name: Confirm intent
     runs-on: ubuntu-latest
     steps:
-      - name: Require APPLY confirmation
+      - name: Require main branch + APPLY
         run: |
+          set -euo pipefail
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "Refusing: maturity migrate must run from branch main (got ${{ github.ref }})"
+            exit 1
+          fi
           if [ "${{ inputs.confirm }}" != "APPLY" ]; then
             echo "Refusing: confirm input must be exactly APPLY"
             exit 1
@@ -43,6 +48,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -67,6 +74,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -89,6 +98,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -103,13 +114,32 @@ jobs:
 
   summary:
     name: Migration summary
-    needs: [probe]
+    needs: [guard, preflight, apply, probe]
     runs-on: ubuntu-latest
     if: always()
     steps:
-      - name: Write result
+      - name: Write result and fail if probe failed
+        env:
+          GUARD: ${{ needs.guard.result }}
+          PREFLIGHT: ${{ needs.preflight.result }}
+          APPLY: ${{ needs.apply.result }}
+          PROBE: ${{ needs.probe.result }}
         run: |
-          echo "### Production maturity migrate" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Preflight / apply / probes completed under environment \`Production\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Secrets are never echoed; see job logs for redacted metadata only" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Rollback: re-apply previous RLS policies from git history only after Founder approval (prefer forward-fix)" >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          {
+            echo "### Production maturity migrate"
+            echo "- guard: $GUARD"
+            echo "- preflight: $PREFLIGHT"
+            echo "- apply: $APPLY"
+            echo "- probe: $PROBE"
+            echo "- Environment: \`Production\` (secrets never echoed)"
+            echo "- Rollback: forward-fix only after Founder approval"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$PROBE" != "success" ]; then
+            echo "Workflow red: probe job did not succeed (PROBE=$PROBE)"
+            exit 1
+          fi
+          if [ "$APPLY" != "success" ] || [ "$PREFLIGHT" != "success" ] || [ "$GUARD" != "success" ]; then
+            echo "Workflow red: upstream job failed"
+            exit 1
+          fi

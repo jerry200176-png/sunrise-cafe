@@ -16,12 +16,17 @@ Apply catalog RLS (anon SELECT-only) + `refund_requests` **after** the Maturity 
 
 ## Procedure
 
-1. Merge PR → wait until `GET /api/version` commit matches `main`
+1. Merge PR → wait until `GET /api/version` exposes Maturity markers (`/api/payment/status` 200)
 2. Actions → **Production maturity migrate (RLS + refund)** → Run workflow
-3. Input `confirm` = `APPLY`
-4. Approve Environment gate (enable required reviewers on Environment `Production` if not already)
-5. Jobs: guard → preflight → apply → probe
-6. Success markers in logs (no secrets): `PREFLIGHT_OK`, `APPLY_OK`, `PROBES_OK`
+3. Branch = **main** (guard refuses other refs)
+4. Input `confirm` = `APPLY`
+5. Approve Environment gate on **`Production`** if required reviewers are configured
+6. Jobs: guard → preflight → apply → probe (failed probe → workflow red)
+7. Success markers in logs (no secrets): `PREFLIGHT_OK`, `APPLY_OK`, `PROBES_OK`
+
+Environment secrets expected (Dashboard only — never paste into Agent chat):
+`NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
+and one of `SUPABASE_DB_URL` / `POSTGRES_URL_NON_POOLING` / `POSTGRES_URL`.
 
 ## Blocker: Vercel Hobby deploy quota
 

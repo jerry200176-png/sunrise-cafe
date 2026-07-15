@@ -83,6 +83,12 @@ export function logOps(
   });
 }
 
+/** Optional detail.idempotency_key prevents duplicate funnel rows within 24h. */
+export function opsEventIdempotencyKey(detail: Record<string, unknown>): string | null {
+  const k = detail.idempotency_key;
+  return typeof k === "string" && k.length >= 8 && k.length <= 128 ? k : null;
+}
+
 async function persistOpsEvent(
   domain: OpsLogDomain,
   action: OpsLogAction,
@@ -93,6 +99,19 @@ async function persistOpsEvent(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
+  const idem = opsEventIdempotencyKey(detail);
+  if (idem) {
+    const since = new Date(Date.now() - 24 * 3600_000).toISOString();
+    const { data: existing } = await db
+      .from("ops_events")
+      .select("id")
+      .eq("domain", domain)
+      .eq("action", action)
+      .gte("ts", since)
+      .contains("detail", { idempotency_key: idem })
+      .limit(1);
+    if (existing && existing.length > 0) return;
+  }
   const { error } = await db.from("ops_events").insert({
     domain,
     action,

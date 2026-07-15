@@ -23,7 +23,7 @@ describe("maturity migrations (static)", () => {
     expect(sql).toContain("ENABLE ROW LEVEL SECURITY");
   });
 
-  it("controlled workflow requires Production environment + APPLY confirm", () => {
+  it("controlled workflow requires Production environment + APPLY + main-only", () => {
     const yml = readFileSync(
       join(ROOT, ".github/workflows/production-maturity-migrate.yml"),
       "utf8"
@@ -32,8 +32,17 @@ describe("maturity migrations (static)", () => {
     expect(yml).not.toMatch(/environment:\s+production\b/);
     expect(yml).toContain("confirm");
     expect(yml).toContain("APPLY");
+    expect(yml).toContain("refs/heads/main");
     expect(yml).toContain("maturity-migrate-preflight.mjs");
     expect(yml).toContain("maturity-post-migrate-probes.mjs");
+    expect(yml).toContain("PROBE");
+  });
+
+  it("CI Required gates job ignores Vercel Hobby noise", () => {
+    const yml = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
+    expect(yml).toContain("name: Required gates");
+    expect(yml).toMatch(/Vercel Hobby/);
+    expect(yml).toContain("needs: [lint-and-build, e2e-smoke]");
   });
 
   it("ops_events migration records schema_migrations.name", () => {

@@ -63,9 +63,29 @@ fi
 
 psql "$LOCAL_DSN" -v ON_ERROR_STOP=1 -c "SELECT 1" >/dev/null
 psql "$LOCAL_DSN" -v ON_ERROR_STOP=1 -f "$DUMP"
-COUNT="$(psql "$LOCAL_DSN" -tAc "SELECT count(*) FROM reservations")"
+
+# Restore verification queries (isolated target only)
+VERIFY_JSON="$(psql "$LOCAL_DSN" -v ON_ERROR_STOP=1 -At <<'SQL'
+SELECT json_build_object(
+  'reservations', (SELECT count(*) FROM reservations),
+  'branches', (SELECT count(*) FROM branches),
+  'rooms', (SELECT count(*) FROM rooms),
+  'has_ops_events', EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ops_events'
+  ),
+  'has_refund_requests', EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'refund_requests'
+  )
+);
+SQL
+)"
+COUNT="$(echo "$VERIFY_JSON" | sed -n 's/.*"reservations":\([0-9]*\).*/\1/p')"
+[[ -n "$COUNT" ]] || COUNT=0
+
 cat >"$RESULT_FILE" <<EOF
-{"drill_result":"pass","mode":"local_restore","reservations":$COUNT,"artifact":"$(basename "$DUMP")","at":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
+{"drill_result":"pass","mode":"local_restore","reservations":$COUNT,"verify":$VERIFY_JSON,"artifact":"$(basename "$DUMP")","checksum_verified":true,"encrypted_source":false,"at":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","note":"script-ready≠production-verified; run with LOCAL_DSN disposable DB for evidence"}
 EOF
-echo "DRILL_RESULT=pass mode=local_restore reservations=$COUNT"
+echo "DRILL_RESULT=pass mode=local_restore verify=$VERIFY_JSON"
 cat "$RESULT_FILE"

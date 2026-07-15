@@ -97,6 +97,7 @@ describe("buildHealthBlock", () => {
         payment_approved_7d: 4,
         payment_approved_keyboard_7d: 2,
         keyboard_adoption_pct: 50,
+        freshest_ts: "2026-07-11T12:00:00.000Z",
       },
     });
 

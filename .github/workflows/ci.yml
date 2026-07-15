@@ -1,5 +1,9 @@
 name: CI
 
+# Required merge gates live in this workflow only.
+# Vercel Hobby "deployment rate limited" status contexts are external noise and
+# MUST NOT be treated as required checks (see job "Required gates").
+
 on:
   pull_request:
     branches: [main]
@@ -84,3 +88,23 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder_anon_key
           SUPABASE_SERVICE_ROLE_KEY: placeholder_service_role_key
+
+  # Single status check Founder can mark required on main.
+  # Intentionally ignores Vercel preview/Hobby quota failures.
+  required-gates:
+    name: Required gates
+    runs-on: ubuntu-latest
+    needs: [lint-and-build, e2e-smoke]
+    if: always()
+    steps:
+      - name: Enforce Lint/Build/Test + Playwright
+        env:
+          LINT_BUILD: ${{ needs.lint-and-build.result }}
+          E2E: ${{ needs.e2e-smoke.result }}
+        run: |
+          set -euo pipefail
+          echo "Lint & Build: $LINT_BUILD"
+          echo "Playwright smoke: $E2E"
+          echo "Note: Vercel Hobby quota failures are not part of this gate."
+          test "$LINT_BUILD" = "success"
+          test "$E2E" = "success"

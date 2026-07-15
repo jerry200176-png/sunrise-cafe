@@ -25,6 +25,8 @@ export type FunnelMetrics = {
   payment_approved_7d: number;
   payment_approved_keyboard_7d: number;
   keyboard_adoption_pct: number | null;
+  /** Freshest ops_events.ts for freshness SLA */
+  freshest_ts: string | null;
 };
 
 export async function isOpsEventsTableReady(): Promise<boolean> {
@@ -71,6 +73,7 @@ export async function fetchFunnelMetrics(now = new Date()): Promise<FunnelMetric
     payment_approved_7d: 0,
     payment_approved_keyboard_7d: 0,
     keyboard_adoption_pct: null,
+    freshest_ts: null,
   };
 
   const ready = await isOpsEventsTableReady();
@@ -86,6 +89,7 @@ export async function fetchFunnelMetrics(now = new Date()): Promise<FunnelMetric
     lineOfficial,
     approved,
     keyboardApproved,
+    freshest,
   ] = await Promise.all([
     countActionSince("guest.booking_flow_entered", sinceIso),
     countActionSince("guest.booking_created", sinceIso),
@@ -94,6 +98,13 @@ export async function fetchFunnelMetrics(now = new Date()): Promise<FunnelMetric
     countActionSince("guest.payment_line_official_click", sinceIso),
     countActionSince("admin.payment_approved", sinceIso),
     countKeyboardApprovalsSince(sinceIso),
+    db()
+      .from("ops_events")
+      .select("ts")
+      .order("ts", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then((r) => (r.data?.ts as string | undefined) ?? null),
   ]);
 
   const paymentClicks = linePay + lineOfficial;
@@ -109,5 +120,6 @@ export async function fetchFunnelMetrics(now = new Date()): Promise<FunnelMetric
     payment_approved_7d: approved,
     payment_approved_keyboard_7d: keyboardApproved,
     keyboard_adoption_pct: calcConversionRate(keyboardApproved, approved),
+    freshest_ts: freshest,
   };
 }

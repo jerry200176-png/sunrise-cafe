@@ -6,6 +6,13 @@
 
 ## [Unreleased]
 
+### Commercial Maturity A — continue (2026-07-15)
+- Migrate workflow: **main-only** + summary fails if probes fail; expanded anon PATCH (rooms/settings) + refund/ops_events probes
+- CI: `Required gates` job (Lint/Build/Test + Playwright); Vercel Hobby quota explicitly non-gating
+- `/admin/today` E2E: hops, pending review, invalid session, mobile no-scroll; prod phone opt-in
+- North Star: contract gates (min_n / freshness / reconciliation / duplicates); ops_events idempotency_key
+- DR: restore verify queries; Upstash config validation + outage→memory degraded
+
 ### Commercial Maturity A — Loop 2 (2026-07-15)
 - #213 merged (`f7d81f2`); production deploy blocked by Vercel Hobby daily quota [FACT]
 - Fix `migration-ops-events.sql` `schema_migrations.name` (unblocks KPI table apply)

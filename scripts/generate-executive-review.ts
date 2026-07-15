@@ -89,6 +89,7 @@ async function main() {
         payment_approved_7d: 0,
         payment_approved_keyboard_7d: 0,
         keyboard_adoption_pct: null,
+        freshest_ts: null,
       },
     });
   }

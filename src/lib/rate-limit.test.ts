@@ -4,6 +4,8 @@ import {
   getRateLimitMode,
   guestRateLimitId,
   rateLimit,
+  rateLimitGrade,
+  validateUpstashConfig,
 } from "./rate-limit";
 
 const origUrl = process.env.UPSTASH_REDIS_REST_URL;
@@ -60,5 +62,29 @@ describe("getRateLimitMode / memory enforce", () => {
     const blocked = await rateLimit("ip:test-login", "login");
     expect(blocked.success).toBe(false);
     expect(blocked.remaining).toBe(0);
+  });
+});
+
+describe("validateUpstashConfig", () => {
+  it("reports degraded when unset", () => {
+    const v = validateUpstashConfig({} as NodeJS.ProcessEnv);
+    expect(v.ok).toBe(false);
+    expect(v.grade).toBe("degraded_per_isolate");
+    expect(v.issues).toContain("UPSTASH_REDIS_REST_URL_missing");
+  });
+
+  it("accepts https url + token shape", () => {
+    const v = validateUpstashConfig({
+      UPSTASH_REDIS_REST_URL: "https://example.upstash.io",
+      UPSTASH_REDIS_REST_TOKEN: "x".repeat(40),
+    } as NodeJS.ProcessEnv);
+    expect(v.ok).toBe(true);
+    expect(v.mode_if_live).toBe("upstash");
+    expect(v.grade).toBe("distributed");
+  });
+
+  it("memory grade is never A-eligible label", () => {
+    expect(rateLimitGrade("memory")).toBe("degraded_per_isolate");
+    expect(rateLimitGrade("upstash")).toBe("distributed");
   });
 });

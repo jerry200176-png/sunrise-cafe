@@ -22,6 +22,39 @@ export function getRateLimitMode(): RateLimitMode {
   return "memory";
 }
 
+export type UpstashConfigValidation = {
+  ok: boolean;
+  mode_if_live: RateLimitMode;
+  grade: "distributed" | "degraded_per_isolate" | "disabled";
+  issues: string[];
+};
+
+/** Production configuration check — does not call Redis. */
+export function validateUpstashConfig(env: NodeJS.ProcessEnv = process.env): UpstashConfigValidation {
+  const issues: string[] = [];
+  const url = env.UPSTASH_REDIS_REST_URL ?? "";
+  const token = env.UPSTASH_REDIS_REST_TOKEN ?? "";
+  if (!url) issues.push("UPSTASH_REDIS_REST_URL_missing");
+  else if (!/^https:\/\/.+/i.test(url)) issues.push("UPSTASH_REDIS_REST_URL_invalid");
+  if (!token) issues.push("UPSTASH_REDIS_REST_TOKEN_missing");
+  else if (token.length < 20) issues.push("UPSTASH_REDIS_REST_TOKEN_short");
+  if (issues.length === 0) {
+    return { ok: true, mode_if_live: "upstash", grade: "distributed", issues: [] };
+  }
+  return {
+    ok: false,
+    mode_if_live: "memory",
+    grade: "degraded_per_isolate",
+    issues,
+  };
+}
+
+export function rateLimitGrade(mode: RateLimitMode): "distributed" | "degraded_per_isolate" | "disabled" {
+  if (mode === "upstash") return "distributed";
+  if (mode === "disabled") return "disabled";
+  return "degraded_per_isolate";
+}
+
 type WindowSpec = { requests: number; windowMs: number };
 
 const WINDOW: Record<string, WindowSpec> = {
@@ -135,14 +168,20 @@ export async function rateLimit(
       const mem = memoryLimit(identifier, key);
       return { ...mem, mode: "memory" };
     }
-    const result = await limiter.limit(identifier);
-    return {
-      success: result.success,
-      limit: result.limit,
-      remaining: result.remaining,
-      reset: result.reset,
-      mode,
-    };
+    try {
+      const result = await limiter.limit(identifier);
+      return {
+        success: result.success,
+        limit: result.limit,
+        remaining: result.remaining,
+        reset: result.reset,
+        mode,
+      };
+    } catch {
+      // Upstash outage → degraded memory enforce (never fail-open)
+      const mem = memoryLimit(identifier, key);
+      return { ...mem, mode: "memory" };
+    }
   }
   const mem = memoryLimit(identifier, key);
   return { ...mem, mode };
