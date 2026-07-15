@@ -52,7 +52,7 @@ function isPlaceholderDbUrl(url) {
     url.includes("[region]") ||
     url.includes("[ref]") ||
     url.includes("[YOUR") ||
-    /:\[|:\\[/.test(url)
+    url.includes(":[") // e.g. :[PASSWORD] placeholders
   );
 }
 

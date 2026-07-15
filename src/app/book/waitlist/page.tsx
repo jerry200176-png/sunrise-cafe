@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, Clock } from "lucide-react";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { taipeiDateString, taipeiDatePlusDays } from "@/lib/datetime";
 
 interface Branch { id: string; name: string; }
 interface Room { id: string; name: string; }
@@ -77,8 +78,8 @@ export default function WaitlistPage() {
     }
   };
 
-  const today = new Date().toISOString().split("T")[0];
-  const maxDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+  const today = taipeiDateString();
+  const maxDate = taipeiDatePlusDays(30);
 
   return (
     <div className="min-h-screen bg-amber-50 px-4 py-8">

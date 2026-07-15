@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { toTaipei, taipeiDateString, reservationDateKey } from "./datetime";
+import {
+  toTaipei,
+  taipeiDateString,
+  reservationDateKey,
+  formatTaipeiTime,
+  taipeiDatePlusDays,
+} from "./datetime";
 
 /**
  * toTaipei 把 UTC 瞬間轉成台灣（UTC+8）牆上時間。
@@ -39,5 +45,19 @@ describe("taipeiDateString", () => {
 describe("reservationDateKey", () => {
   it("uses Taipei local date not UTC slice", () => {
     expect(reservationDateKey("2026-06-19T20:00:00Z")).toBe("2026-06-20");
+  });
+});
+
+describe("formatTaipeiTime", () => {
+  it("formats UTC morning as Taipei local (10:00), not device TZ", () => {
+    // 02:00Z = 10:00 Asia/Taipei
+    const label = formatTaipeiTime("2026-07-17T02:00:00.000Z");
+    expect(label).toMatch(/10:00/);
+  });
+});
+
+describe("taipeiDatePlusDays", () => {
+  it("adds days in Taipei calendar", () => {
+    expect(taipeiDatePlusDays(1, new Date("2026-06-19T20:00:00Z"))).toBe("2026-06-21");
   });
 });
