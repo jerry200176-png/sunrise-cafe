@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 /**
  * Apply payment_request_sent_at column if missing.
- * Requires SUPABASE_DB_URL (or Postgres URL variants) for DDL.
+ * Probes via REST fetch. DDL requires SUPABASE_DB_URL (or Postgres URL variants).
  */
-import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -15,27 +14,24 @@ const SQL = readFileSync(
 );
 
 async function columnExists(url, key) {
-  const db = createClient(url, key);
-  const { error } = await db
-    .from("reservations")
-    .select("payment_request_sent_at")
-    .limit(1);
-  if (!error) return true;
-  const msg = error.message ?? String(error);
-  if (/payment_request_sent_at/i.test(msg)) return false;
-  // Other errors (empty table etc.) — treat as present if not column-missing
-  if (/does not exist|PGRST204|42703/i.test(msg)) return false;
-  console.warn("[migrate] probe ambiguous:", msg);
+  const res = await fetch(
+    `${url.replace(/\/$/, "")}/rest/v1/reservations?select=payment_request_sent_at&limit=1`,
+    { headers: { apikey: key, Authorization: `Bearer ${key}` } }
+  );
+  const text = await res.text();
+  if (res.status === 200) return true;
+  if (/payment_request_sent_at|42703|does not exist/i.test(text)) return false;
+  console.warn("[migrate] probe ambiguous:", res.status, text.slice(0, 200));
   return false;
 }
 
 async function applyViaPostgres(connectionString) {
   const { default: postgres } = await import("postgres");
-  const sql = postgres(connectionString, { max: 1, idle_timeout: 10 });
+  const sql = postgres(connectionString, { max: 1, idle_timeout: 10, ssl: "require" });
   try {
     await sql.unsafe(SQL);
   } finally {
-    await sql.end({ timeout: 10 });
+    await sql.end({ timeout: 5 });
   }
 }
 
@@ -54,12 +50,17 @@ async function main() {
     process.exit(0);
   }
 
+  if (serviceKey.startsWith("<") || serviceKey.length < 40) {
+    console.log("Skip: service role key looks like a placeholder");
+    process.exit(0);
+  }
+
   if (await columnExists(url, serviceKey)) {
     console.log("payment_request_sent_at already exists");
     process.exit(0);
   }
 
-  if (!pgUrl) {
+  if (!pgUrl || pgUrl.includes("[region]") || pgUrl.includes("[ref]")) {
     console.error("Column missing and SUPABASE_DB_URL unset — cannot apply DDL");
     process.exit(1);
   }

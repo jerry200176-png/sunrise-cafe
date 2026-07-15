@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 /**
  * Apply ops_events table if missing (OPS-004b).
- * Requires: NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_DB_URL)
+ * Probes via REST fetch (Node 20-safe). DDL needs SUPABASE_DB_URL / POSTGRES_URL*.
  */
-import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -12,24 +11,24 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const SQL = readFileSync(join(__dirname, "../supabase/migration-ops-events.sql"), "utf8");
 
 async function probeTable(url, key) {
-  const db = createClient(url, key);
-  const { error } = await db.from("ops_events").select("id").limit(1);
-  if (!error) return { exists: true };
-  const msg = error.message ?? String(error);
-  if (/ops_events/i.test(msg) && /does not exist|PGRST205|42P01/i.test(msg)) {
-    return { exists: false, message: msg };
+  const res = await fetch(`${url.replace(/\/$/, "")}/rest/v1/ops_events?select=id&limit=1`, {
+    headers: { apikey: key, Authorization: `Bearer ${key}` },
+  });
+  const text = await res.text();
+  if (res.status === 200) return { exists: true };
+  if (/PGRST205|does not exist|42P01/i.test(text)) {
+    return { exists: false, message: text.slice(0, 200) };
   }
-  if (/PGRST205/i.test(msg)) return { exists: false, message: msg };
-  throw new Error(msg);
+  throw new Error(`ops_events probe HTTP ${res.status}: ${text.slice(0, 300)}`);
 }
 
 async function applyViaPostgres(connectionString) {
   const { default: postgres } = await import("postgres");
-  const sql = postgres(connectionString, { max: 1, idle_timeout: 10 });
+  const sql = postgres(connectionString, { max: 1, idle_timeout: 10, ssl: "require" });
   try {
     await sql.unsafe(SQL);
   } finally {
-    await sql.end({ timeout: 10 });
+    await sql.end({ timeout: 5 });
   }
 }
 
@@ -47,7 +46,7 @@ async function main() {
     process.exit(1);
   }
 
-  if (url && serviceKey && !serviceKey.startsWith("<")) {
+  if (url && serviceKey && !serviceKey.startsWith("<") && serviceKey.length > 40) {
     const probe = await probeTable(url, serviceKey);
     if (probe.exists) {
       console.log("OK: ops_events already exists");
@@ -56,7 +55,7 @@ async function main() {
     console.log("Table missing:", probe.message);
   }
 
-  if (!pgUrl || pgUrl.includes("[ref]")) {
+  if (!pgUrl || pgUrl.includes("[ref]") || pgUrl.includes("[region]")) {
     console.error(
       "ops_events missing but no valid Postgres URL. Set SUPABASE_DB_URL in repo Secrets or call production API."
     );
@@ -66,7 +65,7 @@ async function main() {
   console.log("Applying migration via Postgres...");
   await applyViaPostgres(pgUrl);
 
-  if (url && serviceKey && !serviceKey.startsWith("<")) {
+  if (url && serviceKey && !serviceKey.startsWith("<") && serviceKey.length > 40) {
     const after = await probeTable(url, serviceKey);
     if (!after.exists) throw new Error("Migration ran but ops_events still missing");
   }

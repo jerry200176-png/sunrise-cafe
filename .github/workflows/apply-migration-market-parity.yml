@@ -1,0 +1,53 @@
+name: Apply migration market-parity
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - supabase/migration-market-parity-rounds-3-7.sql
+      - scripts/apply-migration-market-parity.mjs
+      - .github/workflows/apply-migration-market-parity.yml
+
+jobs:
+  apply:
+    name: Apply Round 3–7 columns
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Resolve Postgres URL + apply
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_DB_URL:-}" ] || echo "${SUPABASE_DB_URL}" | grep -q '\[region\]'; then
+            if [ -n "${VERCEL_TOKEN:-}" ]; then
+              echo "Pulling production env from Vercel…"
+              bash scripts/vercel-production-env.sh .env.vercel.prod
+              echo "Keys in Vercel pull:"
+              cut -d= -f1 .env.vercel.prod | sort | tr '\n' ' '
+              echo
+              for key in POSTGRES_URL POSTGRES_URL_NON_POOLING POSTGRES_PRISMA_URL SUPABASE_DB_URL DATABASE_URL DIRECT_URL; do
+                val=$(grep -E "^${key}=" .env.vercel.prod 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
+                if [ -n "$val" ] && ! echo "$val" | grep -q '\[region\]'; then
+                  export "$key=$val"
+                fi
+              done
+              export SUPABASE_DB_URL="${SUPABASE_DB_URL:-${POSTGRES_URL_NON_POOLING:-${POSTGRES_URL:-${POSTGRES_PRISMA_URL:-${DATABASE_URL:-${DIRECT_URL:-}}}}}}"
+            fi
+          fi
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "::error::No usable SUPABASE_DB_URL. Add GitHub Actions secret SUPABASE_DB_URL (Supabase → Database → Connection string → URI)."
+            exit 1
+          fi
+          echo "SUPABASE_DB_URL is set (len=${#SUPABASE_DB_URL})"
+          node scripts/apply-migration-market-parity.mjs
