@@ -32,6 +32,7 @@ jobs:
           fi
           CODE=$(curl -sS -o /tmp/send-line.json -w "%{http_code}" \
             -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "x-reminder-trigger: github" \
             "${PROD_URL}/api/admin/reminders/send-line")
           echo "GET send-line → HTTP ${CODE}"
           head -c 800 /tmp/send-line.json; echo

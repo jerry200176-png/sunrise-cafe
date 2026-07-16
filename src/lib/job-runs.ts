@@ -7,8 +7,15 @@ import { createClient } from "@supabase/supabase-js";
 import { notifyCronFailure, errorToDetail } from "@/lib/cron-alert";
 import { logOps } from "@/lib/ops-log";
 import { isAdminConfigured } from "@/lib/supabase-admin";
+import { taipeiDateString } from "@/lib/datetime";
 
 export type JobRunStatus = "running" | "completed" | "failed";
+
+export type ReminderTriggerSource = "cron" | "manual" | "github";
+
+export type CronJobOptions = {
+  trigger_source?: ReminderTriggerSource;
+};
 
 export type JobRunSummary = {
   job_name: string;
@@ -84,7 +91,14 @@ async function extractResponseMeta(res: NextResponse): Promise<{
   try {
     const json = (await res.clone().json()) as Record<string, unknown>;
     const items =
-      Number(json.sent ?? json.released ?? json.reminded ?? json.items_processed ?? 0) || 0;
+      Number(
+        json.sent_count ??
+          json.sent ??
+          json.released ??
+          json.reminded ??
+          json.items_processed ??
+          0
+      ) || 0;
     const errors = Number(json.errors ?? 0) || 0;
     const error_detail = typeof json.error === "string" ? json.error : null;
     return { items_processed: items, metadata: json, errors, error_detail };
@@ -93,11 +107,80 @@ async function extractResponseMeta(res: NextResponse): Promise<{
   }
 }
 
+/** Taipei calendar-day UTC bounds for job_runs idempotency queries. */
+export function taipeiDayUtcBounds(now = new Date()): {
+  date: string;
+  startIso: string;
+  endIso: string;
+} {
+  const date = taipeiDateString(now);
+  return {
+    date,
+    startIso: new Date(`${date}T00:00:00+08:00`).toISOString(),
+    endIso: new Date(`${date}T23:59:59.999+08:00`).toISOString(),
+  };
+}
+
+const SUCCESS_REMINDER_RESULTS = new Set([
+  "sent",
+  "already_notified",
+  "empty_cat",
+]);
+
+/**
+ * True if send-line already completed successfully today (Taipei) and was not a duplicate_skip.
+ * Used to keep cron + GitHub backup idempotent (no second LINE blast).
+ */
+export async function findSuccessfulSendLineRunToday(
+  now = new Date()
+): Promise<{ id: string; started_at: string; metadata: Record<string, unknown> } | null> {
+  if (!isAdminConfigured()) return null;
+  const { startIso, endIso } = taipeiDayUtcBounds(now);
+  const { data, error } = await db()
+    .from("job_runs")
+    .select("id, started_at, status, metadata")
+    .eq("job_name", "send-line")
+    .eq("status", "completed")
+    .gte("started_at", startIso)
+    .lte("started_at", endIso)
+    .order("started_at", { ascending: false })
+    .limit(20);
+
+  if (error) {
+    if (/job_runs/i.test(error.message)) return null;
+    throw error;
+  }
+
+  for (const row of data ?? []) {
+    const meta = (row.metadata ?? {}) as Record<string, unknown>;
+    if (meta.duplicate === true || meta.result === "duplicate_skip") continue;
+    const result = typeof meta.result === "string" ? meta.result : null;
+    // Legacy rows without result but completed with any sent — treat as success
+    if (result && SUCCESS_REMINDER_RESULTS.has(result)) {
+      return {
+        id: row.id as string,
+        started_at: row.started_at as string,
+        metadata: meta,
+      };
+    }
+    if (!result && row.status === "completed") {
+      return {
+        id: row.id as string,
+        started_at: row.started_at as string,
+        metadata: meta,
+      };
+    }
+  }
+  return null;
+}
+
 /** Wrap a cron handler with job_runs persistence + failure recording. */
 export async function runCronJob(
   jobName: string,
-  handler: () => Promise<NextResponse>
+  handler: () => Promise<NextResponse>,
+  options: CronJobOptions = {}
 ): Promise<NextResponse> {
+  const runStarted = Date.now();
   const runId = await startJobRun(jobName);
   try {
     const res = await handler();
@@ -111,10 +194,17 @@ export async function runCronJob(
         ? `${errors} item(s) failed`
         : undefined;
 
+    const enrichedMeta: Record<string, unknown> = {
+      ...metadata,
+      trigger_source: metadata.trigger_source ?? options.trigger_source ?? null,
+      job_name: jobName,
+      wall_duration_ms: Date.now() - runStarted,
+    };
+
     await finishJobRun(runId, {
       status,
       items_processed,
-      metadata,
+      metadata: enrichedMeta,
       error_message,
     });
 
@@ -125,12 +215,21 @@ export async function runCronJob(
         error_message,
         items_processed,
         errors,
+        trigger_source: enrichedMeta.trigger_source,
+        result: enrichedMeta.result ?? null,
+        duration_ms: enrichedMeta.duration_ms ?? enrichedMeta.wall_duration_ms,
       });
     } else {
       logOps("cron", "cron.completed", {
         job_name: jobName,
         items_processed,
         status: res.status,
+        trigger_source: enrichedMeta.trigger_source,
+        result: enrichedMeta.result ?? null,
+        sent_count: enrichedMeta.sent_count ?? items_processed,
+        skipped_count: enrichedMeta.skipped_count ?? 0,
+        reservation_count: enrichedMeta.reservation_count ?? null,
+        duration_ms: enrichedMeta.duration_ms ?? enrichedMeta.wall_duration_ms,
       });
     }
     return res;
@@ -138,10 +237,20 @@ export async function runCronJob(
     await finishJobRun(runId, {
       status: "failed",
       error_message: errorToDetail(err),
+      metadata: {
+        trigger_source: options.trigger_source ?? null,
+        result: "error",
+        error: errorToDetail(err),
+        wall_duration_ms: Date.now() - runStarted,
+      },
     });
     await notifyCronFailure(jobName, err);
     const message = errorToDetail(err);
-    logOps("cron", "cron.run_failed", { job_name: jobName, error_message: message });
+    logOps("cron", "cron.run_failed", {
+      job_name: jobName,
+      error_message: message,
+      trigger_source: options.trigger_source ?? null,
+    });
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

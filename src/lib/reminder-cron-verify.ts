@@ -18,6 +18,14 @@ export type ReminderCronVerify = {
     error_message: string | null;
     sent: number | null;
     message: string | null;
+    trigger_source: string | null;
+    result: string | null;
+    duration_ms: number | null;
+    reservation_count: number | null;
+    skipped_count: number | null;
+    guest_sent_count: number | null;
+    heartbeat: string | null;
+    duplicate: boolean | null;
   } | null;
   branches: { name: string; has_line_group_id: boolean; line_group_id_prefix: string | null }[];
   multi_branch_mode: boolean;
@@ -88,8 +96,28 @@ export async function verifyReminderCron(now = new Date()): Promise<ReminderCron
         finished_at: (data.finished_at as string | null) ?? null,
         items_processed: (data.items_processed as number) ?? null,
         error_message: (data.error_message as string | null) ?? null,
-        sent: typeof meta.sent === "number" ? meta.sent : null,
+        sent:
+          typeof meta.sent_count === "number"
+            ? meta.sent_count
+            : typeof meta.sent === "number"
+              ? meta.sent
+              : null,
         message: typeof meta.message === "string" ? meta.message : null,
+        trigger_source: typeof meta.trigger_source === "string" ? meta.trigger_source : null,
+        result: typeof meta.result === "string" ? meta.result : null,
+        duration_ms:
+          typeof meta.duration_ms === "number"
+            ? meta.duration_ms
+            : typeof meta.wall_duration_ms === "number"
+              ? meta.wall_duration_ms
+              : null,
+        reservation_count:
+          typeof meta.reservation_count === "number" ? meta.reservation_count : null,
+        skipped_count: typeof meta.skipped_count === "number" ? meta.skipped_count : null,
+        guest_sent_count:
+          typeof meta.guest_sent_count === "number" ? meta.guest_sent_count : null,
+        heartbeat: typeof meta.heartbeat === "string" ? meta.heartbeat : null,
+        duplicate: typeof meta.duplicate === "boolean" ? meta.duplicate : null,
       };
     } else {
       diagnosis.push("job_runs 表存在但尚無 send-line 紀錄（Cron 可能從未成功執行）");

@@ -82,7 +82,9 @@ Webhook 客人回覆使用 `replyLineFlexMessage`（`src/lib/line.ts`）。
 - **範圍**：所有已設定 `line_group_id` 的分店（無設定時 fallback `LINE_GROUP_ID`）
 - **無訂位時**：隨機發送一則貓咪訊息到群組
 - **皆已通知時**：推一則「皆已通知過」狀態（不重送 digest），避免群組完全靜默
-- **客人個別提醒**：有綁定 LINE User ID 的客人各自收到個人提醒
+- **同日冪等**：同一台北日若 cron 已成功執行，GitHub 備援／重複 cron **不會重送**（`duplicate_skip`，仍寫 `job_runs`）
+- **觀測欄位**：每次執行寫入 `job_runs.metadata`：`trigger_source` / `result` / `sent_count` / `skipped_count` / `reservation_count` / `guest_sent_count` / `duration_ms` / `heartbeat`
+- **客人個別提醒**：有綁定 LINE User ID 的客人各自收到個人提醒（僅尚未 `is_notified` 的訂位）
 
 手動觸發：後台 → 訂位管理 → 發送明日提醒
 
