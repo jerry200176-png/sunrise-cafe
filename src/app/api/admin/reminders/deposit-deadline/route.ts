@@ -25,6 +25,7 @@ import { zhTW } from "date-fns/locale";
 import { logPayment, logDepositStatusChange } from "@/lib/payment-log";
 import { errorToDetail } from "@/lib/cron-alert";
 import { runCronJob } from "@/lib/job-runs";
+import { authorizeCronGet } from "@/lib/cron-request-auth";
 
 type Row = {
   id: string;
@@ -205,13 +206,8 @@ async function handleRun() {
 
 /** GET: Vercel Cron 觸發 */
 export async function GET(request: NextRequest) {
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
-    const auth = request.headers.get("authorization");
-    if (auth !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-  }
+  const cronAuth = authorizeCronGet(request);
+  if (!cronAuth.ok) return cronAuth.response;
   return runCronJob("deposit-deadline", () => handleRun());
 }
 

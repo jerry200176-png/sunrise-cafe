@@ -17,6 +17,7 @@ import {
 import { sendLineFlexMessage, buildReminderFlex } from "@/lib/line";
 import { runCronJob } from "@/lib/job-runs";
 import { errorToDetail } from "@/lib/cron-alert";
+import { authorizeCronGet } from "@/lib/cron-request-auth";
 import { reservationMatchesBranch, type ReminderReservationShape } from "@/lib/reminder-branch-match";
 import { signAttendanceToken } from "@/lib/attendance-token";
 import { LINE_SITE_URL } from "@/lib/line-flex";
@@ -50,6 +51,30 @@ async function pushDigestToGroup(
     }
 }
 
+/** Cron-only: avoid total silence when tomorrow bookings exist but all already notified. */
+function alreadyNotifiedCronMessage(count: number): string {
+    const when = new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
+    return `📅 明日訂位提醒已執行\n共 ${count} 筆訂位，皆已通知過（無需重送）\n時間：${when}`;
+}
+
+async function pushTextToGroups(
+    text: string,
+    activeBranches: BranchRow[],
+    useLegacyMode: boolean
+) {
+    if (useLegacyMode) {
+        await sendLineMessage(text);
+        return;
+    }
+    await Promise.all(
+        activeBranches.map((branch) =>
+            sendLineMessageToGroup(text, branch.line_group_id!).catch((e) =>
+                console.error(`[send-line] status msg failed for branch ${branch.name}:`, e)
+            )
+        )
+    );
+}
+
 async function handleSendLine(force: boolean = false, sendCatOnEmpty: boolean = false) {
     if (!isAdminConfigured()) {
         return NextResponse.json({ error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY" }, { status: 503 });
@@ -79,11 +104,23 @@ async function handleSendLine(force: boolean = false, sendCatOnEmpty: boolean = 
             if (rows.length === 0) {
                 if (sendCatOnEmpty) {
                     const allTomorrow = await fetchTomorrowsReservations();
-                    if ((allTomorrow ?? []).length === 0) {
+                    const tomorrowCount = (allTomorrow ?? []).length;
+                    if (tomorrowCount === 0) {
                         await sendLineMessage(CAT_MESSAGES[Math.floor(Math.random() * CAT_MESSAGES.length)]);
+                    } else {
+                        // Previously silent when all is_notified=true — staff thought cron died
+                        await pushTextToGroups(
+                            alreadyNotifiedCronMessage(tomorrowCount),
+                            activeBranches,
+                            true
+                        );
                     }
                 }
-                return NextResponse.json({ ok: true, sent: 0 });
+                return NextResponse.json({
+                    ok: true,
+                    sent: 0,
+                    message: "沒有尚未通知的明日訂位（可能已全部發送過）",
+                });
             }
             await pushDigestToGroup(rows, null, "📅 明日訂位提醒");
             await Promise.all(rows.map((r) => updateReservationAdmin(r.id as string, { is_notified: true })));
@@ -92,6 +129,9 @@ async function handleSendLine(force: boolean = false, sendCatOnEmpty: boolean = 
             // ── 多分店模式（資料庫 line_group_id）──────────────────────
             const matchedIds = new Set<string>();
 
+            // Prefetch tomorrow set once for empty-branch cat / already-notified status
+            const allTomorrow = sendCatOnEmpty ? await fetchTomorrowsReservations() : null;
+
             for (const branch of activeBranches) {
                 const groupId = branch.line_group_id!;
                 const branchRows = (allRows as Record<string, unknown>[]).filter((r) =>
@@ -99,15 +139,21 @@ async function handleSendLine(force: boolean = false, sendCatOnEmpty: boolean = 
                 );
 
                 if (branchRows.length === 0) {
-                    if (sendCatOnEmpty) {
-                        const allTomorrow = await fetchTomorrowsReservations();
-                        const branchTomorrow = (allTomorrow ?? []).filter((r: Record<string, unknown>) =>
+                    if (sendCatOnEmpty && allTomorrow) {
+                        const branchTomorrow = allTomorrow.filter((r: Record<string, unknown>) =>
                             reservationMatchesBranch(r as ReminderReservationShape, branch)
                         );
                         if (branchTomorrow.length === 0) {
                             const msg = CAT_MESSAGES[Math.floor(Math.random() * CAT_MESSAGES.length)];
                             await sendLineMessageToGroup(msg, groupId).catch((e) =>
                                 console.error(`[send-line] cat msg failed for branch ${branch.name}:`, e)
+                            );
+                        } else {
+                            await sendLineMessageToGroup(
+                                alreadyNotifiedCronMessage(branchTomorrow.length),
+                                groupId
+                            ).catch((e) =>
+                                console.error(`[send-line] status msg failed for branch ${branch.name}:`, e)
                             );
                         }
                     }
@@ -201,13 +247,8 @@ function toEnriched(r: Record<string, unknown>) {
 }
 
 export async function GET(request: NextRequest) {
-    const cronSecret = process.env.CRON_SECRET;
-    if (cronSecret) {
-        const authHeader = request.headers.get("authorization");
-        if (authHeader !== `Bearer ${cronSecret}`) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        }
-    }
+    const cronAuth = authorizeCronGet(request);
+    if (!cronAuth.ok) return cronAuth.response;
     return runCronJob("send-line", () => handleSendLine(false, true));
 }
 

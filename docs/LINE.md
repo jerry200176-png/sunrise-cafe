@@ -78,11 +78,19 @@ Webhook 客人回覆使用 `replyLineFlexMessage`（`src/lib/line.ts`）。
 ## 每日自動提醒
 
 - **時間**：台灣時間每日 20:00（vercel.json cron: `"0 12 * * *"` UTC）
-- **範圍**：只推大安店明日訂位
+- **Hobby 延遲**：Vercel Hobby **不保證整點準時**，可能在 **20:00–20:59** 之間任一時刻觸發。21:00 後仍無訊息才算異常。
+- **範圍**：所有已設定 `line_group_id` 的分店（無設定時 fallback `LINE_GROUP_ID`）
 - **無訂位時**：隨機發送一則貓咪訊息到群組
+- **皆已通知時**：推一則「皆已通知過」狀態（不重送 digest），避免群組完全靜默
 - **客人個別提醒**：有綁定 LINE User ID 的客人各自收到個人提醒
 
 手動觸發：後台 → 訂位管理 → 發送明日提醒
+
+診斷：`GET /api/admin/reminders/verify`（需 admin session 或 `CRON_SECRET`），或：
+
+```bash
+CRON_SECRET=xxx bash scripts/verify-send-line-cron.sh
+```
 
 ---
 
