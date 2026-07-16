@@ -5,6 +5,7 @@ import { notifyDeployMismatch } from "@/lib/deploy-alert";
 import { errorToDetail } from "@/lib/cron-alert";
 import { runCronJob } from "@/lib/job-runs";
 import { runBootstrapMigrations } from "@/lib/bootstrap-migrations";
+import { authorizeCronGet } from "@/lib/cron-request-auth";
 
 async function handleRun() {
   try {
@@ -45,13 +46,8 @@ async function handleRun() {
 
 /** GET: Vercel Cron — production SHA parity check + LINE alert on drift */
 export async function GET(request: NextRequest) {
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
-    const auth = request.headers.get("authorization");
-    if (auth !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-  }
+  const cronAuth = authorizeCronGet(request);
+  if (!cronAuth.ok) return cronAuth.response;
   return runCronJob("deploy-health", () => handleRun());
 }
 

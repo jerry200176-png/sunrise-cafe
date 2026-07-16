@@ -54,7 +54,7 @@ const toTaipei = (s: string) =>
 
 ### Cron Job
 
-`vercel.json` 設定 `"0 12 * * *"` = UTC 12:00 = **台灣時間 20:00**，每日自動推播明日訂位提醒到群組。
+`vercel.json` 設定 `"0 12 * * *"` = UTC 12:00 = **台灣時間 20:00**，每日自動推播明日訂位提醒到群組。Vercel Hobby **可能延遲至 20:59** 才觸發；21:00 後仍無訊息才異常。Cron 若遇「明日訂位皆已 is_notified」會推狀態句而非完全靜默。同日成功後再觸發（含 GitHub 備援）會 `duplicate_skip` 不重送。觀測：`job_runs.metadata`（trigger_source/result/sent_count/…）+ `GET /api/admin/reminders/verify`。
 
 ### 群組提醒為多分店
 

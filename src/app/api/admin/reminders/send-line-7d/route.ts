@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchReservationsIn7Days, updateReservationAdmin, isAdminConfigured } from "@/lib/supabase-admin";
 import { sendLineFlexMessage, buildReminderFlex } from "@/lib/line";
 import { runCronJob } from "@/lib/job-runs";
+import { authorizeCronGet } from "@/lib/cron-request-auth";
 import { errorToDetail } from "@/lib/cron-alert";
 
 async function handleSend() {
@@ -46,13 +47,8 @@ async function handleSend() {
 
 /** GET: Vercel Cron 觸發 */
 export async function GET(request: NextRequest) {
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
-    const auth = request.headers.get("authorization");
-    if (auth !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-  }
+  const cronAuth = authorizeCronGet(request);
+  if (!cronAuth.ok) return cronAuth.response;
   return runCronJob("send-line-7d", () => handleSend());
 }
 

@@ -1,0 +1,56 @@
+# Backup trigger for tomorrow LINE reminders if Vercel Hobby cron is late/missed.
+# Primary: Vercel cron UTC 12:00 (TW 20:00–20:59). This runs UTC 13:10 (TW 21:10).
+name: Send-line reminder backup
+
+on:
+  schedule:
+    - cron: "10 13 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: send-line-reminder-backup
+  cancel-in-progress: false
+
+jobs:
+  trigger:
+    name: Trigger send-line + verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Call production send-line cron
+        env:
+          PROD_URL: https://sunrise-cafe-six.vercel.app
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::warning::GitHub secret CRON_SECRET is empty — cannot backup-trigger. Set it to the same value as Vercel CRON_SECRET."
+            exit 0
+          fi
+          CODE=$(curl -sS -o /tmp/send-line.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "x-reminder-trigger: github" \
+            "${PROD_URL}/api/admin/reminders/send-line")
+          echo "GET send-line → HTTP ${CODE}"
+          head -c 800 /tmp/send-line.json; echo
+          if [ "$CODE" != "200" ]; then
+            echo "::error::send-line backup failed with HTTP ${CODE}"
+            exit 1
+          fi
+
+      - name: Verify cron diagnostics
+        if: always()
+        env:
+          PROD_URL: https://sunrise-cafe-six.vercel.app
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            exit 0
+          fi
+          curl -sS -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${PROD_URL}/api/admin/reminders/verify" | tee /tmp/verify.json
+          echo
