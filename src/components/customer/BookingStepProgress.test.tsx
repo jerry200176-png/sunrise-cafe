@@ -22,7 +22,7 @@ describe("BookingStepProgress", () => {
     expect(current.getAttribute("aria-current")).toBe("step");
   });
 
-  it("allows clicking only completed steps", async () => {
+  it("allows clicking only completed steps and ignores incomplete ones", async () => {
     const user = userEvent.setup();
     const onSelectCompletedStep = vi.fn();
     renderProgress({
@@ -31,20 +31,34 @@ describe("BookingStepProgress", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "分店" }));
+    expect(onSelectCompletedStep).toHaveBeenCalledTimes(1);
     expect(onSelectCompletedStep).toHaveBeenCalledWith("branch");
 
+    // current + incomplete are not buttons
     expect(screen.queryByRole("button", { name: "時段" })).toBeNull();
     expect(screen.queryByRole("button", { name: "資料" })).toBeNull();
+    expect(screen.getByRole("img", { name: "時段" }).getAttribute("aria-current")).toBe(
+      "step"
+    );
+    expect(screen.getByRole("img", { name: "資料" }).getAttribute("aria-current")).toBeNull();
   });
 
-  it("hides the branch step when hideBranch is set", () => {
+  it("does not fire callback when onSelectCompletedStep is omitted", () => {
+    renderProgress({ current: "room" });
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getByRole("img", { name: "包廂" }).getAttribute("aria-current")).toBe(
+      "step"
+    );
+  });
+
+  it("keeps step state correct when hideBranch omits the branch step", () => {
+    const onSelectCompletedStep = vi.fn();
     renderProgress({
       current: "room",
       hideBranch: true,
-      onSelectCompletedStep: vi.fn(),
+      onSelectCompletedStep,
     });
     const nav = screen.getByRole("navigation", { name: "訂位步驟" });
-    // branch hidden: date(done→button), room(current), slot, form
     expect(within(nav).queryByRole("button", { name: "分店" })).toBeNull();
     expect(within(nav).getByRole("button", { name: "日期" })).toBeTruthy();
     expect(within(nav).getByRole("img", { name: "包廂" }).getAttribute("aria-current")).toBe(

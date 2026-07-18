@@ -5,14 +5,25 @@ type Props = {
   title: string;
   description?: string;
   action?: React.ReactNode;
+  /**
+   * Opt-in live region for dynamic empty results (e.g. after a search).
+   * Leave false for static hints so mount does not announce unnecessarily.
+   */
+  announceStatus?: boolean;
 };
 
 /** Guest empty / hint panel: what happened + optional next action. */
-export function EmptyState({ icon: Icon, title, description, action }: Props) {
+export function EmptyState({
+  icon: Icon,
+  title,
+  description,
+  action,
+  announceStatus = false,
+}: Props) {
   return (
     <div
       className="rounded-2xl border border-ink/10 bg-white/60 px-6 py-10 text-center backdrop-blur-sm"
-      role="status"
+      role={announceStatus ? "status" : undefined}
     >
       <div
         className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-paper-deep text-caramel"

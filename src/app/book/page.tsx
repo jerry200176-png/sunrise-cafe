@@ -858,6 +858,7 @@ export default function BookPage() {
               <EmptyState
                 icon={CalendarX2}
                 title={t("book.slot.empty")}
+                announceStatus
                 action={
                   <Link
                     href={buildWaitlistHref(roomId)}

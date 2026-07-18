@@ -478,6 +478,7 @@ function BookQueryContent() {
           <EmptyState
             icon={Search}
             title={t("query.empty")}
+            announceStatus
             action={
               <Link
                 href="/book"

@@ -12,6 +12,7 @@ describe("EmptyState", () => {
         icon={Search}
         title="找不到訂位紀錄"
         description="請確認電話與代號"
+        announceStatus
         action={<a href="/book">改去訂位</a>}
       />
     );
@@ -22,5 +23,16 @@ describe("EmptyState", () => {
     expect(screen.getByRole("link", { name: "改去訂位" }).getAttribute("href")).toBe(
       "/book"
     );
+  });
+
+  it("omits status role and empty controls when announceStatus/action are absent", () => {
+    const { container } = render(
+      <EmptyState icon={Search} title="開始查詢" description="輸入電話與代號" />
+    );
+
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(container.querySelector("[aria-hidden='true']")).toBeTruthy();
   });
 });
