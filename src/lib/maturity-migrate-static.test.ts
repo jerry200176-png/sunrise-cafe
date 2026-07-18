@@ -3,8 +3,22 @@ import { readFileSync } from "fs";
 import { join } from "path";
 
 const ROOT = join(__dirname, "../..");
+const libPromise = import("../../scripts/maturity-migrate-lib.mjs");
 
 describe("maturity migrations (static)", () => {
+  it("accepts opaque and JWT service keys; rejects placeholders", async () => {
+    const { serviceKeyLooksReal } = await libPromise;
+    expect(serviceKeyLooksReal("a".repeat(41))).toBe(true);
+    expect(
+      serviceKeyLooksReal(
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.signaturepaddingpaddingpadding"
+      )
+    ).toBe(true);
+    expect(serviceKeyLooksReal("sb_secret_abcdefghijklmnopqrstuvwxyz012345")).toBe(true);
+    expect(serviceKeyLooksReal("placeholder-key-value-long-enough-xxx")).toBe(false);
+    expect(serviceKeyLooksReal("short")).toBe(false);
+  });
+
   it("RLS migration is idempotent and select-only", () => {
     const sql = readFileSync(
       join(ROOT, "supabase/migration-rls-catalog-read-only.sql"),

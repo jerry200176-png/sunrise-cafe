@@ -11,6 +11,7 @@ import {
   logEnvPresence,
   dbUrlLooksReal,
   serviceKeyLooksReal,
+  serviceKeyCanReadLedger,
   resolveDbUrl,
 } from "./maturity-migrate-lib.mjs";
 
@@ -23,7 +24,15 @@ async function main() {
   const db = resolveDbUrl();
 
   if (!serviceKeyLooksReal(env.service)) {
-    console.error("BLOCKED: SUPABASE_SERVICE_ROLE_KEY missing or not JWT-shaped");
+    console.error("BLOCKED: SUPABASE_SERVICE_ROLE_KEY missing or placeholder");
+    process.exit(2);
+  }
+  const ledgerReadable = await serviceKeyCanReadLedger(env.url, env.service);
+  console.log(JSON.stringify({ service_key_reads_ledger: ledgerReadable }));
+  if (!ledgerReadable) {
+    console.error(
+      "BLOCKED: service role cannot read schema_migrations via PostgREST (check key + URL)"
+    );
     process.exit(2);
   }
   if (!dbUrlLooksReal(db)) {
