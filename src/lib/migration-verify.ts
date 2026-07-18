@@ -402,6 +402,9 @@ export async function fetchMigrationDrift(): Promise<MigrationDriftReport> {
       unknown: [],
       classifications: [],
       closed_dates_column: false,
+      overlap_constraint_active: false,
+      rbac_tables: false,
+      ops_events_table: false,
       errors: [],
     };
   }
