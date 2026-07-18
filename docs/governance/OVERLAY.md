@@ -16,3 +16,7 @@ This repo keeps product operating docs under [`docs/internal/governance/`](../in
 ## Autonomous loop
 
 `autonomous-loop.yml` is **disabled** after a self-dispatch CI storm (capability probe used `gh workflow run`). Re-enable only with a non-dispatching probe and Founder approval.
+
+## Pin check
+
+`npm run gov:overlay-pin` (CI) — fails on Constitution version drift.
