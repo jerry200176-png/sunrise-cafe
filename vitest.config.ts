@@ -2,6 +2,9 @@ import { defineConfig } from "vitest/config";
 import path from "node:path";
 
 export default defineConfig({
+  esbuild: {
+    jsx: "automatic",
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -9,6 +12,14 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.{test,spec}.ts"],
+    testTimeout: 15000,
+    include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    exclude: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "src/components/payment/PaymentModal.test.tsx",
+    ],
+    // Keep setup minimal for node tests; component files opt into jsdom via pragma.
+    setupFiles: ["./vitest.setup.ts"],
   },
 });

@@ -3,12 +3,12 @@
 import { useState, useEffect, useCallback, useRef, Suspense, useMemo } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import Image from "next/image";
-import { ArrowLeft, Calendar, Clock } from "lucide-react";
+import { Calendar, Clock, Search } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { enUS, ja, zhTW } from "date-fns/locale";
 import { useLocale } from "@/lib/i18n/LocaleContext";
-import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { CustomerShell } from "@/components/customer/CustomerShell";
+import { EmptyState } from "@/components/customer/EmptyState";
 import { computeDepositDeadline, getDepositUrgency } from "@/lib/deposit-deadline";
 import { toTaipei, formatTaipeiTime } from "@/lib/datetime";
 import {
@@ -53,9 +53,9 @@ const OFFICIAL_LINE_URL =
 function QueryLoadingFallback() {
   const { t } = useLocale();
   return (
-    <main className="min-h-screen bg-gradient-to-b from-amber-50/40 to-white flex items-center justify-center">
-      <p className="text-gray-500">{t("common.loading")}</p>
-    </main>
+    <CustomerShell title={t("query.headerTitle")}>
+      <p className="text-center text-ink-soft">{t("common.loading")}</p>
+    </CustomerShell>
   );
 }
 
@@ -379,29 +379,17 @@ function BookQueryContent() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-amber-50/40 to-white">
-      <header className="sticky top-0 z-10 border-b border-amber-100/60 bg-white/95 backdrop-blur-sm">
-        <div className="mx-auto flex max-w-lg items-center justify-between gap-3 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/"
-              className="flex items-center justify-center rounded-lg p-2 text-stone-500 hover:bg-amber-50"
-              aria-label={t("common.back")}
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Link>
-            <div className="flex items-center gap-2">
-              <div className="relative h-7 w-7">
-                <Image src="/logo.webp" alt="" fill className="object-contain" />
-              </div>
-              <h1 className="text-base font-medium tracking-wide text-stone-800">{t("query.headerTitle")}</h1>
-            </div>
+    <CustomerShell title={t("query.headerTitle")}>
+      <div className={unpaidDepositItem ? "pb-sticky-form" : ""}>
+        {!hasSearched && !loading && (
+          <div className="mb-6">
+            <EmptyState
+              icon={Search}
+              title={t("query.hintTitle")}
+              description={t("query.hintDesc")}
+            />
           </div>
-          <LanguageSwitcher />
-        </div>
-      </header>
-
-      <div className={`mx-auto max-w-lg px-4 py-6 ${unpaidDepositItem ? "pb-sticky-form" : ""}`}>
+        )}
         <form onSubmit={search} className="mb-6 space-y-3">
           <div className="flex gap-2">
             <label htmlFor="query-phone" className="sr-only">{t("query.phonePlaceholder")}</label>
@@ -487,7 +475,18 @@ function BookQueryContent() {
           !loading &&
           phone &&
           (forgotMode ? bookingDate : bookingCode) && (
-          <p className="text-center text-gray-500">{t("query.empty")}</p>
+          <EmptyState
+            icon={Search}
+            title={t("query.empty")}
+            action={
+              <Link
+                href="/book"
+                className="inline-flex items-center justify-center rounded-lg bg-caramel px-4 py-2 text-sm font-medium text-white hover:bg-caramel-deep"
+              >
+                {t("query.emptyBookCta")}
+              </Link>
+            }
+          />
         )}
 
         <ul className="space-y-4">
@@ -973,6 +972,6 @@ function BookQueryContent() {
           </div>
         </div>
       )}
-    </main>
+    </CustomerShell>
   );
 }

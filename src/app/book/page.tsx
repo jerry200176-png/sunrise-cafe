@@ -2,13 +2,15 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { CalendarX2 } from "lucide-react";
 import Image from "next/image";
 import type { Branch, Room, RentalNoteSection } from "@/types";
 import { getDurationOptions, getDepositAmount, isWeekendDate } from "@/lib/booking-utils";
 import { normalizePhone } from "@/lib/phone-utils";
 import { useLocale } from "@/lib/i18n/LocaleContext";
-import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { CustomerShell } from "@/components/customer/CustomerShell";
+import { BookingStepProgress } from "@/components/customer/BookingStepProgress";
+import { EmptyState } from "@/components/customer/EmptyState";
 import { PaymentModal } from "@/components/payment/PaymentModal";
 import { getBranchDepositConfig } from "@/lib/constants";
 import {
@@ -602,68 +604,20 @@ export default function BookPage() {
   const summary = getSelectedSummary(); // 取得當前選擇摘要
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-amber-50/40 to-white">
-      <header className="sticky top-0 z-10 border-b border-amber-100/60 bg-white/95 backdrop-blur-sm">
-        <div className="mx-auto flex max-w-lg items-center justify-between gap-3 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/"
-              className="flex items-center justify-center rounded-lg p-2 text-stone-500 hover:bg-amber-50"
-              aria-label={t("common.back")}
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Link>
-            <div className="flex items-center gap-2">
-              <div className="relative h-7 w-7">
-                <Image src="/logo.webp" alt="" fill className="object-contain" />
-              </div>
-              <h1 className="text-base font-medium tracking-wide text-stone-800">{t("book.headerTitle")}</h1>
-            </div>
-          </div>
-          <LanguageSwitcher />
-        </div>
-      </header>
-
-      <nav
-        aria-label={t("book.headerTitle")}
-        className="mx-auto max-w-lg px-4 pt-3 flex gap-1 overflow-x-auto"
-      >
-        {BOOKING_STEP_ORDER.map((s) => {
-          const active = step === s;
-          const stepIndex = BOOKING_STEP_ORDER.indexOf(s);
-          const currentIndex = BOOKING_STEP_ORDER.indexOf(step);
-          const done = stepIndex < currentIndex;
-          return done ? (
-            <button
-              key={s}
-              type="button"
-              onClick={() => goToStep(s)}
-              className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium bg-amber-100 text-amber-800 hover:bg-amber-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500`}
-            >
-              {t(`book.steps.${s}` as "book.steps.branch")}
-            </button>
-          ) : (
-            <span
-              key={s}
-              aria-current={active ? "step" : undefined}
-              className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
-                active
-                  ? "bg-amber-600 text-white"
-                  : "bg-stone-100 text-stone-500"
-              }`}
-            >
-              {t(`book.steps.${s}` as "book.steps.branch")}
-            </span>
-          );
-        })}
-      </nav>
+    <>
+    <CustomerShell title={t("book.headerTitle")}>
+      <BookingStepProgress
+        current={step}
+        hideBranch={branches.length === 1}
+        onSelectCompletedStep={goToStep}
+      />
 
       <div
         ref={stepPanelRef}
         tabIndex={-1}
         role="region"
         aria-label={`${t("book.headerTitle")} — ${t(`book.steps.${step}` as "book.steps.branch")}`}
-        className={`mx-auto max-w-lg px-4 py-6 outline-none ${step === "form" ? "pb-sticky-form" : ""}`}
+        className={`outline-none ${step === "form" ? "pb-sticky-form" : ""}`}
       >
         {error && (
           <div
@@ -900,6 +854,19 @@ export default function BookPage() {
                   ))}
                 </div>
               </div>
+            ) : slots.length === 0 ? (
+              <EmptyState
+                icon={CalendarX2}
+                title={t("book.slot.empty")}
+                action={
+                  <Link
+                    href={buildWaitlistHref(roomId)}
+                    className="inline-flex items-center justify-center rounded-lg bg-caramel px-4 py-2 text-sm font-medium text-white hover:bg-caramel-deep"
+                  >
+                    {t("book.slot.waitlistCtaAlt")}
+                  </Link>
+                }
+              />
             ) : (
               <>
                 {slots.length > 0 && (
@@ -1273,6 +1240,8 @@ export default function BookPage() {
         </div>
       )}
 
+    </CustomerShell>
+
       {/* Stripe 支付 Modal */}
       {paymentModalOpen && depositAmount > 0 && (
         <PaymentModal
@@ -1284,6 +1253,6 @@ export default function BookPage() {
           onPaymentComplete={handlePaymentComplete}
         />
       )}
-    </main>
+    </>
   );
 }
