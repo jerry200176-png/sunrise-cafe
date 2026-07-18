@@ -14,6 +14,7 @@
  */
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
+import bundledContracts from "../../supabase/tracked-migration-contracts.json";
 
 export type EvidenceIntrospect = "rest" | "unsupported";
 
@@ -84,14 +85,18 @@ export type TrackedMigration = TrackedMigrationContract;
 const CONTRACTS_REL = join("supabase", "tracked-migration-contracts.json");
 
 export function loadTrackedMigrationContracts(
-  repoRoot = join(__dirname, "../..")
+  repoRoot?: string
 ): TrackedMigrationContract[] {
-  const path = join(repoRoot, CONTRACTS_REL);
-  const raw = JSON.parse(readFileSync(path, "utf8")) as TrackedMigrationContract[];
-  return raw;
+  if (repoRoot) {
+    const path = join(repoRoot, CONTRACTS_REL);
+    if (existsSync(path)) {
+      return JSON.parse(readFileSync(path, "utf8")) as TrackedMigrationContract[];
+    }
+  }
+  return bundledContracts as TrackedMigrationContract[];
 }
 
-/** Lazy default from repo contracts file (tests may override via evaluate input). */
+/** Lazy default from bundled contracts (tests may override via evaluate input). */
 export const TRACKED_MIGRATIONS: TrackedMigrationContract[] =
   loadTrackedMigrationContracts();
 
