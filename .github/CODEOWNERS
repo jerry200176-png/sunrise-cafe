@@ -1,9 +1,2 @@
-# CODEOWNERS — require Founder review on critical paths
-# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
-
+# sunrise-cafe CODEOWNERS — default review routing
 * @jerry200176-png
-
-/src/app/api/ @jerry200176-png
-/src/lib/ @jerry200176-png
-/supabase/ @jerry200176-png
-/.github/ @jerry200176-png
