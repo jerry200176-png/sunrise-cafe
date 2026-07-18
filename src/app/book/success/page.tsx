@@ -7,7 +7,7 @@ import { CheckCircle2, ArrowLeft, Clock, Copy, CalendarPlus } from "lucide-react
 import { encodeLineBindState } from "@/lib/line-bind";
 import { CopyBookingCodeButton } from "@/components/CopyBookingCodeButton";
 import { useLocale } from "@/lib/i18n/LocaleContext";
-import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { CustomerShell } from "@/components/customer/CustomerShell";
 import { loadBookingSuccessMeta, type BookingSuccessMeta } from "@/lib/booking-draft";
 import {
   computeDepositDeadline,
@@ -127,19 +127,15 @@ function SuccessContent() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50">
-      <header className="sticky top-0 z-10 border-b border-amber-100/60 bg-white/95 backdrop-blur-sm">
-        <div className="mx-auto flex max-w-lg items-center justify-end px-4 py-3">
-          <LanguageSwitcher />
-        </div>
-      </header>
-      <div className="mx-auto max-w-lg px-4 py-12">
+    <CustomerShell title={t("success.title")} backHref="/">
+      <div className="py-6">
         <div className="rounded-2xl border border-green-200 bg-white p-6 shadow-lg">
           <div className="flex justify-center text-green-600">
             <CheckCircle2 className="h-14 w-14" />
           </div>
-          <h1 className="mt-4 text-center text-xl font-bold text-gray-900">{t("success.title")}</h1>
-          <p className="mt-2 text-center text-sm text-gray-500">{t("success.subtitle")}</p>
+          {/* Header already exposes page title as the sole h1 via CustomerShell */}
+          <p className="mt-4 text-center font-serif text-xl font-bold text-ink">{t("success.title")}</p>
+          <p className="mt-2 text-center text-sm text-ink-soft">{t("success.subtitle")}</p>
 
           {code && (
             <div className="mt-6 rounded-xl bg-amber-50 p-4 text-center">
@@ -283,7 +279,7 @@ function SuccessContent() {
           </div>
         </div>
       </div>
-    </main>
+    </CustomerShell>
   );
 }
 
@@ -292,9 +288,9 @@ export default function BookSuccessPage() {
   return (
     <Suspense
       fallback={
-        <main className="min-h-screen bg-gray-50 flex items-center justify-center">
-          <p className="text-gray-500">{t("common.loading")}</p>
-        </main>
+        <CustomerShell title={t("success.title")}>
+          <p className="text-center text-ink-soft">{t("common.loading")}</p>
+        </CustomerShell>
       }
     >
       <SuccessContent />
