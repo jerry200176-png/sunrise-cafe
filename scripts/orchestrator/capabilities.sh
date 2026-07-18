@@ -53,13 +53,21 @@ if command -v gh >/dev/null 2>&1; then
     GH_ISSUE_CLOSE="maybe_allowed"
   fi
 
-  WF_OUT="$(gh workflow run autonomous-loop.yml 2>&1 || true)"
-  if echo "$WF_OUT" | grep -qi "not accessible"; then
-    GH_WF_DISPATCH="blocked_integration"
-  elif echo "$WF_OUT" | grep -qi "could not create workflow"; then
-    GH_WF_DISPATCH="workflow_missing_or_blocked"
+  # NEVER call `gh workflow run` here. This script runs inside
+  # autonomous-loop.yml; a real dispatch creates a self-trigger storm
+  # (cancel-in-progress every ~60s, CI email + minute burn).
+  # Probe read-only: can we see the workflow definition?
+  if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+    GH_WF_DISPATCH="gha_with_actions_write"
   else
-    GH_WF_DISPATCH="maybe_allowed"
+    WF_META="$(gh api "repos/:owner/:repo/actions/workflows/autonomous-loop.yml" 2>&1 || true)"
+    if echo "$WF_META" | grep -qi "not accessible\|Not Found\|Resource not accessible"; then
+      GH_WF_DISPATCH="blocked_integration"
+    elif echo "$WF_META" | grep -q '"path"'; then
+      GH_WF_DISPATCH="maybe_allowed"
+    else
+      GH_WF_DISPATCH="workflow_missing_or_blocked"
+    fi
   fi
 fi
 
