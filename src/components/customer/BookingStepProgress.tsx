@@ -17,6 +17,19 @@ type Props = {
   onSelectCompletedStep?: (step: BookingStep) => void;
 };
 
+/**
+ * When branch is hidden (single-store) but caller still reports current=branch
+ * (draft restore / before auto-skip), treat the first visible step as current.
+ * Never invent completed steps from a hidden current.
+ */
+export function resolveVisibleCurrent(
+  current: BookingStep,
+  visible: BookingStep[]
+): BookingStep {
+  if (visible.includes(current)) return current;
+  return visible[0] ?? current;
+}
+
 export function BookingStepProgress({
   current,
   hideBranch,
@@ -24,7 +37,8 @@ export function BookingStepProgress({
 }: Props) {
   const { t } = useLocale();
   const visible = hideBranch ? STEPS.filter((s) => s !== "branch") : STEPS;
-  const currentIndex = visible.indexOf(current);
+  const resolvedCurrent = resolveVisibleCurrent(current, visible);
+  const currentIndex = visible.indexOf(resolvedCurrent);
 
   return (
     <nav aria-label={t("book.stepProgress")} className="mb-6">
