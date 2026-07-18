@@ -10,6 +10,13 @@ Portfolio Constitution (canonical): pin via [`docs/governance/OVERLAY.md`](docs/
 4. [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) / [`docs/RUNBOOK.md`](docs/RUNBOOK.md)
 5. `npm run cto:governance` when hygiene is in scope
 
+## Launch gateway
+
+- Official: `agent-start sunrise <task-id>`
+- Bare: `/home/jerry/workspace/repos/sunrise-cafe.git`
+- Tasks: `/home/jerry/workspace/tasks/sunrise/<task-id>/`
+- Commit `.agent-session/manifest.json` on Agent PRs (or `human-authored.json`).
+
 ## Hard rules
 
 - Before any write: `npm run agent-preflight` (must exit 0). Allowlisted path: `/home/jerry/workspace/sunrise-cafe` or `/home/jerry/wt/sunrise-*`.
