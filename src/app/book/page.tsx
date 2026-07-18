@@ -29,6 +29,7 @@ import {
   canSelectStart,
   endIsoForDuration,
 } from "@/lib/slot-grid";
+import { slotPanelMode } from "@/lib/booking-slot-ui";
 
 type Step = "branch" | "room" | "date" | "slot" | "form";
 
@@ -49,6 +50,11 @@ export default function BookPage() {
   const [roomId, setRoomId] = useState("");
   const [date, setDate] = useState("");
   const [slots, setSlots] = useState<SlotItem[]>([]);
+  /** Distinguishes slot fetch success (incl. zero slots) from failure / loading. */
+  const [slotsFetchState, setSlotsFetchState] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const [slotsRetry, setSlotsRetry] = useState(0);
   const [roomName, setRoomName] = useState("");
   const [branchName, setBranchName] = useState("");
   const [selectedStart, setSelectedStart] = useState("");
@@ -287,6 +293,9 @@ export default function BookPage() {
     if (step !== "slot" || !branchId || !roomId || !date) return;
     setLoading(true);
     setError(null);
+    setSlots([]);
+    setSelectedStart("");
+    setSlotsFetchState("loading");
     fetch(
       `/api/availability?branchId=${encodeURIComponent(branchId)}&roomId=${encodeURIComponent(roomId)}&date=${encodeURIComponent(date)}`
     )
@@ -297,14 +306,16 @@ export default function BookPage() {
         setSelectedStart("");
         setRoomName(d.roomName ?? "");
         setBranchName(d.branchName ?? "");
+        setSlotsFetchState("ready");
       })
       .catch((e) => {
         setError(e instanceof Error ? e.message : t("book.error.loadSlotsFailed"));
         setSlots([]);
+        setSlotsFetchState("error");
       })
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, branchId, roomId, date]);
+  }, [step, branchId, roomId, date, slotsRetry]);
 
   // LINE OAuth 回調：從 URL param 取得 user_id，並從 localStorage 還原表單
   useEffect(() => {
@@ -581,11 +592,14 @@ export default function BookPage() {
     if (targetIdx >= currentIdx) return;
     if (targetIdx < BOOKING_STEP_ORDER.indexOf("slot")) {
       setSelectedStart("");
+      setSlots([]);
+      setSlotsFetchState("idle");
     }
     if (targetIdx < BOOKING_STEP_ORDER.indexOf("room")) {
       setRoomId("");
       setRoomName("");
       setSlots([]);
+      setSlotsFetchState("idle");
       setBranchRoomsAvailability(null);
     }
     if (targetIdx < BOOKING_STEP_ORDER.indexOf("date")) {
@@ -845,7 +859,13 @@ export default function BookPage() {
             <p className="mb-3 text-xs text-gray-500">
               {branchName} · {roomName} · {date}
             </p>
-            {loading ? (
+            {(() => {
+              const panel = slotPanelMode(
+                loading || slotsFetchState === "loading" ? "loading" : slotsFetchState,
+                slots.length
+              );
+              if (panel === "loading") {
+                return (
               <div className="space-y-4" aria-busy="true" aria-live="polite">
                 <div className="h-4 w-1/2 animate-pulse rounded bg-gray-200" />
                 <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
@@ -854,7 +874,26 @@ export default function BookPage() {
                   ))}
                 </div>
               </div>
-            ) : slots.length === 0 ? (
+                );
+              }
+              if (panel === "error") {
+                return (
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError(null);
+                    setSlotsRetry((n) => n + 1);
+                  }}
+                  className="rounded-lg border border-caramel/40 bg-white px-4 py-2 text-sm font-medium text-caramel-deep hover:bg-paper-deep"
+                >
+                  {t("common.retry")}
+                </button>
+              </div>
+                );
+              }
+              if (panel === "empty") {
+                return (
               <EmptyState
                 icon={CalendarX2}
                 title={t("book.slot.empty")}
@@ -868,7 +907,10 @@ export default function BookPage() {
                   </Link>
                 }
               />
-            ) : (
+                );
+              }
+              if (panel !== "grid") return null;
+              return (
               <>
                 {slots.length > 0 && (
                   <p className="mb-3 text-xs text-gray-600">
@@ -989,7 +1031,8 @@ export default function BookPage() {
                   </button>
                 </div>
               </>
-            )}
+              );
+            })()}
           </>
         )}
 
