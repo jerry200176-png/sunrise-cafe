@@ -1,0 +1,17 @@
+name: Agent Session Provenance
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  provenance:
+    name: Agent Session Provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify provenance manifest
+        run: bash scripts/check-agent-provenance.sh
