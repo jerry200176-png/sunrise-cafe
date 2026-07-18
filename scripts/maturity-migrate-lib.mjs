@@ -21,13 +21,30 @@ export function dbUrlLooksReal(u) {
 
 export function serviceKeyLooksReal(k) {
   if (!k || typeof k !== "string") return false;
-  if (k.startsWith("<") || k.includes("placeholder")) return false;
-  // JWT-shaped service role keys have 3 segments
-  return k.split(".").length === 3 && k.length > 80;
+  if (k.startsWith("<") || /placeholder|changeme|your-/i.test(k)) return false;
+  if (/\s/.test(k) || k.length < 20) return false;
+  // Legacy JWT service-role keys (eyJ...header.payload.sig)
+  if (k.split(".").length === 3 && k.length > 80) return true;
+  // Newer Supabase secret keys (sb_secret_...) or opaque tokens used by PostgREST
+  if (/^sb_(secret|publishable)_/i.test(k)) return true;
+  // Opaque non-JWT keys observed in production (PostgREST accepts; shape ≠ JWT)
+  if (k.length >= 40) return true;
+  return false;
 }
 
 export function anonKeyLooksReal(k) {
   return serviceKeyLooksReal(k);
+}
+
+/** Live capability check — prefer over shape-only when URL+key present. */
+export async function serviceKeyCanReadLedger(url, key) {
+  if (!url || !serviceKeyLooksReal(key)) return false;
+  const res = await restProbe(
+    url,
+    key,
+    "/rest/v1/schema_migrations?select=version&limit=1"
+  );
+  return res.status === 200;
 }
 
 export function logEnvPresence() {
