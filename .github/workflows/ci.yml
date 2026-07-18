@@ -24,6 +24,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Agent preflight (CI mode)
+        run: AGENT_PREFLIGHT_MODE=ci bash scripts/agent-preflight.sh
+
       - name: Lint
         run: npm run lint
 
@@ -33,13 +36,14 @@ jobs:
       - name: Verify migration artifacts
         run: npm run verify:migrations
 
-      - name: npm audit (high+)
+      # Advisory only — high-noise transitive advisories must not be a merge gate until fail-closed baseline exists.
+      - name: npm audit (high+) [advisory]
         run: npm audit --audit-level=high
         continue-on-error: true
 
+      # Fail-closed secret scan — required for merge safety (do not continue-on-error).
       - name: Secret scan (gitleaks)
         uses: gitleaks/gitleaks-action@v2
-        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

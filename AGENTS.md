@@ -12,7 +12,10 @@ Portfolio Constitution (canonical): pin via [`docs/governance/OVERLAY.md`](docs/
 
 ## Hard rules
 
+- Before any write: `npm run agent-preflight` (must exit 0). Allowlisted path: `/home/jerry/workspace/sunrise-cafe` or `/home/jerry/wt/sunrise-*`.
+- Production truth: `npm run production-identity` — CI green / merge / deploy success alone is insufficient.
 - Do **not** mix changes with AllTrue System in one PR.
 - Do **not** re-enable `.github/workflows/autonomous-loop.yml` without fixing capability probes (self-`gh workflow run` caused cancel storms; workflow is **disabled_manually** as of 2026-07-18).
 - Production verify: `verify-production.yml` / `GET /api/version` SHA match.
 - Prefer Evidence over governance score green alone (`GOVERNANCE_STATUS.md` can be stale).
+- Windows `/mnt/c/**` clones are not source of truth.
