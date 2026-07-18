@@ -4,7 +4,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 MODE="${AGENT_PREFLIGHT_MODE:-agent}"
 TASK_PREFIX="/home/jerry/workspace/tasks/sunrise/"
 
@@ -20,6 +19,13 @@ resolve() {
   realpath -m "$p" 2>/dev/null || readlink -f "$p" 2>/dev/null || echo "$p"
 }
 
+# Prefer caller's git toplevel (worktree cwd); fall back to repo containing this script.
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  ROOT="$(resolve "$(git rev-parse --show-toplevel)")"
+else
+  ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+fi
+
 if [[ "$MODE" == "ci" ]]; then
   [[ -f "$ROOT/scripts/agent-preflight.sh" ]] || fail "script missing"
   [[ -f "$ROOT/scripts/production-identity.sh" ]] || fail "production-identity missing"
@@ -28,13 +34,17 @@ if [[ "$MODE" == "ci" ]]; then
   exit 0
 fi
 
-TARGET="$(resolve "$(git -C "$ROOT" rev-parse --show-toplevel)")"
+TARGET="$ROOT"
+PWD_R="$(resolve "${PWD:-.}")"
 case "$TARGET" in
   "$TASK_PREFIX"*) ;;
   *) fail "path not allowlisted (use agent-start): $TARGET" ;;
 esac
 case "$TARGET" in
   */workspace-backups/*|*/actions-runner*|*/mnt/c/*|*/workspace/repos/*|*/workspace/sunrise-cafe) fail "forbidden path class: $TARGET" ;;
+esac
+case "$PWD_R" in
+  */mnt/c/*|*/workspace-backups/*|*/actions-runner*) fail "forbidden cwd class: $PWD_R" ;;
 esac
 if [[ "$TARGET" == "/home/jerry/workspace/sunrise-cafe" ]]; then
   fail "legacy clone is not an official write path"

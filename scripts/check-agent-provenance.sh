@@ -50,8 +50,10 @@ for bad in ("actions-runner","workspace-backups","/mnt/c/","/workspace/repos/","
     if bad in wp:
         raise SystemExit(f'forbidden worktree {bad}')
 branch=os.environ.get("GITHUB_HEAD_REF") or subprocess.check_output(["git","rev-parse","--abbrev-ref","HEAD"], text=True).strip()
-if m["task_id"] not in branch and m.get("branch")!=branch:
+if m["task_id"] not in branch:
     raise SystemExit(f'task_id {m["task_id"]} not in branch {branch}')
+if m.get("branch") and m["branch"] != branch:
+    raise SystemExit(f'manifest branch {m["branch"]} != git branch {branch}')
 head=subprocess.check_output(["git","rev-parse","HEAD"], text=True).strip()
 if subprocess.call(["git","merge-base","--is-ancestor", m["base_sha"], head])!=0:
     raise SystemExit('base_sha not ancestor of HEAD')
