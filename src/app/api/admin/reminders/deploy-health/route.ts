@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchMainCommitSha } from "@/lib/github-main-sha";
 import { fetchProductionVersion } from "@/lib/production-version";
+import { assessDeployParity } from "@/lib/deploy-parity";
 import { notifyDeployMismatch } from "@/lib/deploy-alert";
 import { errorToDetail } from "@/lib/cron-alert";
 import { runCronJob } from "@/lib/job-runs";
@@ -20,13 +21,28 @@ async function handleRun() {
       return NextResponse.json({ ok: false, error: "Production /api/version unreachable" }, { status: 503 });
     }
 
-    const parity = prod.commit === mainSha;
-    if (parity) {
+    const assessment = await assessDeployParity(prod.commit, mainSha);
+    if (assessment.exactMatch) {
       return NextResponse.json({
         ok: true,
         sha_parity: true,
         main: mainSha.slice(0, 7),
         prod: prod.commit_short,
+      });
+    }
+
+    // BI snapshot / docs-only commits use [skip ci] and intentionally skip Vercel.
+    // Exact tip mismatch is expected; do not page the LINE group.
+    if (assessment.compareOk && assessment.benignDrift) {
+      return NextResponse.json({
+        ok: true,
+        sha_parity: true,
+        exact_match: false,
+        benign_drift: true,
+        main: mainSha.slice(0, 7),
+        prod: prod.commit_short,
+        changed_files: assessment.changedFiles,
+        hint: "main tip only differs on non-runtime paths (BI/docs) — no production deploy needed",
       });
     }
 
@@ -37,6 +53,7 @@ async function handleRun() {
       main: mainSha.slice(0, 7),
       prod: prod.commit_short,
       alerted,
+      changed_files: assessment.changedFiles,
       hint: "Run vercel deploy --prod or check Vercel dashboard",
     });
   } catch (err) {
