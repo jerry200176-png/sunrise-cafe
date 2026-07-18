@@ -40,7 +40,8 @@
     "repo:cleanup": "bash scripts/repo-hygiene-cleanup.sh",
     "repo:cleanup:apply": "bash scripts/repo-hygiene-cleanup.sh --apply",
     "cto:gmail-signals": "bash scripts/orchestrator/gmail-signals.sh",
-    "design:audit": "bash scripts/design-slop-audit.sh"
+    "design:audit": "bash scripts/design-slop-audit.sh",
+    "gov:overlay-pin": "bash scripts/governance/check-constitution-pin.sh"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.65.0",
