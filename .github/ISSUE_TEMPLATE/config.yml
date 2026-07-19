@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security or privacy report
+    url: https://github.com/jerry200176-png/sunrise-cafe/blob/main/SECURITY.md
+    about: Do not disclose vulnerabilities, credentials, or customer data in a public issue.

@@ -1,0 +1,48 @@
+name: Bug report
+description: Report reproducible customer or staff-facing behavior
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Who is affected and what can they no longer do?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide safe steps without credentials or customer data.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Safe evidence
+      description: Include timestamps, request IDs, or redacted logs only.
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Suggested priority
+      options:
+        - P0 — production or security emergency
+        - P1 — core workflow blocked
+        - P2 — degraded workflow
+        - P3 — minor defect
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy confirmation
+      options:
+        - label: I removed credentials, customer data, and payment evidence.
+          required: true
