@@ -9,6 +9,7 @@ import { enUS, ja, zhTW } from "date-fns/locale";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { CustomerShell } from "@/components/customer/CustomerShell";
 import { EmptyState } from "@/components/customer/EmptyState";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { computeDepositDeadline, getDepositUrgency } from "@/lib/deposit-deadline";
 import { toTaipei, formatTaipeiTime } from "@/lib/datetime";
 import {
@@ -126,7 +127,7 @@ function BookQueryContent() {
     (event: string, code?: string) => {
       const codeVal = (code ?? bookingCode).trim();
       if (!phone.trim() || !codeVal) return;
-      fetch("/api/guest-events", {
+      fetchWithTimeout("/api/guest-events", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -150,7 +151,7 @@ function BookQueryContent() {
           mode === "code"
             ? { phone: phoneVal.trim(), booking_code: codeOrDate.trim() }
             : { phone: phoneVal.trim(), booking_date: codeOrDate.trim() };
-        const res = await fetch("/api/my-bookings", {
+        const res = await fetchWithTimeout("/api/my-bookings", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -204,7 +205,7 @@ function BookQueryContent() {
     setConfirmingCancelId(null);
     setError(null);
     try {
-      const res = await fetch("/api/cancel-booking", {
+      const res = await fetchWithTimeout("/api/cancel-booking", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -314,7 +315,7 @@ function BookQueryContent() {
     setRescheduleError(null);
     setRescheduleSlots([]);
     try {
-      const res = await fetch(
+      const res = await fetchWithTimeout(
         `/api/availability?branchId=${encodeURIComponent(reschedulingItem.branch_id)}&roomId=${encodeURIComponent(reschedulingItem.room_id)}&date=${encodeURIComponent(date)}`
       );
       const data = await res.json();
@@ -341,7 +342,7 @@ function BookQueryContent() {
     setRescheduleSubmitting(true);
     setRescheduleError(null);
     try {
-      const res = await fetch("/api/reschedule-booking", {
+      const res = await fetchWithTimeout("/api/reschedule-booking", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

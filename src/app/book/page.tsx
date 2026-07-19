@@ -7,6 +7,7 @@ import Image from "next/image";
 import type { Branch, Room, RentalNoteSection } from "@/types";
 import { getDurationOptions, getDepositAmount, isWeekendDate } from "@/lib/booking-utils";
 import { normalizePhone } from "@/lib/phone-utils";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { CustomerShell } from "@/components/customer/CustomerShell";
 import { BookingStepProgress } from "@/components/customer/BookingStepProgress";
@@ -187,7 +188,7 @@ export default function BookPage() {
   // }, [branchRoomsAvailability]);
 
   useEffect(() => {
-    fetch("/api/branches")
+    fetchWithTimeout("/api/branches")
       .then((r) => r.json())
       .then((d) => {
         const branchesData = Array.isArray(d) ? d : [];
@@ -198,7 +199,7 @@ export default function BookPage() {
         }
       })
       .catch(() => setBranches([]));
-    fetch("/api/settings")
+    fetchWithTimeout("/api/settings")
       .then((r) => r.json())
       .then((d) => {
         if (Array.isArray(d?.rental_notes)) setRentalNotes(d.rental_notes);
@@ -210,12 +211,12 @@ export default function BookPage() {
   useEffect(() => {
     if (funnelEntered.current) return;
     funnelEntered.current = true;
-    fetch("/api/booking-funnel", {
+    fetchWithTimeout("/api/booking-funnel", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ event: "booking_flow_entered" }),
     }).catch(() => {});
-    fetch("/api/payment/status")
+    fetchWithTimeout("/api/payment/status")
       .then((r) => r.json())
       .then((d: { stripe_enabled?: boolean }) => {
         setStripeLiveEnabled(Boolean(d?.stripe_enabled));
@@ -229,7 +230,7 @@ export default function BookPage() {
       return;
     }
     setLoading(true);
-    fetch(`/api/rooms?branchId=${encodeURIComponent(branchId)}`)
+    fetchWithTimeout(`/api/rooms?branchId=${encodeURIComponent(branchId)}`)
       .then((r) => r.json())
       .then((d) => setRooms(Array.isArray(d) ? d : []))
       .catch(() => setRooms([]))
@@ -241,7 +242,7 @@ export default function BookPage() {
     setLoading(true);
     setError(null);
     setBranchRoomsAvailability(null);
-    fetch(
+    fetchWithTimeout(
       `/api/availability?branchId=${encodeURIComponent(branchId)}&date=${encodeURIComponent(date)}`
     )
       .then((r) => r.json())
@@ -296,7 +297,7 @@ export default function BookPage() {
     setSlots([]);
     setSelectedStart("");
     setSlotsFetchState("loading");
-    fetch(
+    fetchWithTimeout(
       `/api/availability?branchId=${encodeURIComponent(branchId)}&roomId=${encodeURIComponent(roomId)}&date=${encodeURIComponent(date)}`
     )
       .then((r) => r.json())
@@ -453,11 +454,8 @@ export default function BookPage() {
       }
     }
 
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     try {
-      const controller = new AbortController();
-      timeoutId = setTimeout(() => controller.abort(), 20_000);
-      const res = await fetch("/api/reservations", {
+      const res = await fetchWithTimeout("/api/reservations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -472,9 +470,7 @@ export default function BookPage() {
           notes: null,
           line_user_id: lineUserId || null,
         }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
+      }, 20000);
       const data = await res.json();
       setSubmitting(false);
       if (res.status === 409) {
@@ -535,7 +531,6 @@ export default function BookPage() {
         setError(t("book.error.noBookingCode"));
       }
     } catch (e) {
-      if (timeoutId !== null) clearTimeout(timeoutId);
       setSubmitting(false);
       const isTimeout = e instanceof DOMException && e.name === "AbortError";
       setError(isTimeout ? "訂位請求逾時，請檢查網路後重試" : e instanceof Error ? e.message : t("book.error.connectionFailed"));
