@@ -23,8 +23,9 @@ SHA_PARITY="unknown"
   [[ "$PROD_SHA" == "$REPO_SHORT" ]] && SHA_PARITY="true" || SHA_PARITY="false"
 }
 
-OUTCOMES_STATUS="skipped"
-# Never leave outcomes as bare {} — always emit denominators (Phase 1)
+OUTCOMES_STATUS="unavailable"
+OUTCOME_ACCESS="unavailable"
+# Never leave outcomes as bare {} — null denominators mean unavailable, not zero
 OUTCOMES_JSON="$(jq -n '{
   booking_started: null,
   booking_completed: null,
@@ -36,39 +37,57 @@ OUTCOMES_JSON="$(jq -n '{
   deposit_completion_rate: null,
   deposit_completion_numerator: null,
   deposit_completion_denominator: null,
-  reminder_runs_expected: 1,
+  reminder_runs_expected: 7,
   reminder_runs_executed: null,
   reminder_runs_accepted: null,
   reminder_failure_count: null,
   zero_booking_days: null,
   outcome_data_freshness: null,
   evidence_based_decisions: 0,
-  note: "denominators_present_metrics_pending_secret"
+  note: "metrics_pending_operator_or_service_role"
 }')"
+CEO_EVIDENCE_PATH="orchestrator/ceo-evidence.json"
 SECRET="${CTO_OUTCOME_SECRET:-${CRON_SECRET:-}}"
+
+# Path 1: authenticated production endpoint (Bearer stays in Actions / operator env)
 if [[ -n "$SECRET" ]]; then
   FETCHED="$(curl -sf --max-time 30 -H "Authorization: Bearer ${SECRET}" \
     "${PROD_URL}/api/ops/ceo-evidence" 2>/dev/null || echo '')"
   if [[ -n "$FETCHED" ]]; then
+    echo "$FETCHED" > "$CEO_EVIDENCE_PATH"
     OUTCOMES_JSON="$(echo "$FETCHED" | jq '.outcomes // {}')"
-    OUTCOMES_STATUS="$(echo "$FETCHED" | jq -r '.evidence_confidence // "ok"')"
-  else
-    OUTCOMES_JSON="$(curl -sf --max-time 30 -H "Authorization: Bearer ${SECRET}" \
-      "${PROD_URL}/api/cto/outcomes" 2>/dev/null || echo "$OUTCOMES_JSON")"
-    OUTCOMES_STATUS="$(echo "$OUTCOMES_JSON" | jq -r '.status // "error"' 2>/dev/null || echo error)"
+    OUTCOME_ACCESS="$(echo "$FETCHED" | jq -r '.outcome_access // "unavailable"')"
+    OUTCOMES_STATUS="$(echo "$FETCHED" | jq -r '.evidence_confidence // "low"')"
   fi
-  if [[ "$OUTCOMES_STATUS" == "ok" || "$OUTCOMES_STATUS" == "high" || "$OUTCOMES_STATUS" == "medium" ]]; then
+fi
+
+# Path 2: in-workflow service-role collect (preferred when CTO_OUTCOME_SECRET unset)
+if [[ "$OUTCOME_ACCESS" != "ok" && "$OUTCOME_ACCESS" != "zero_activity" && "$OUTCOME_ACCESS" != "stale" ]]; then
+  if [[ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" && -n "${NEXT_PUBLIC_SUPABASE_URL:-}" ]]; then
+    if npx --yes tsx scripts/collect-ceo-evidence.ts "$CEO_EVIDENCE_PATH" 2>/tmp/ceo-collect.err; then
+      OUTCOMES_JSON="$(jq '.outcomes // {}' "$CEO_EVIDENCE_PATH")"
+      OUTCOME_ACCESS="$(jq -r '.outcome_access // "unavailable"' "$CEO_EVIDENCE_PATH")"
+      OUTCOMES_STATUS="$(jq -r '.evidence_confidence // "low"' "$CEO_EVIDENCE_PATH")"
+    else
+      echo "ceo collect fallback failed: $(head -c 200 /tmp/ceo-collect.err 2>/dev/null || true)" >&2
+      OUTCOME_ACCESS="unavailable"
+      OUTCOMES_STATUS="low"
+    fi
+  fi
+fi
+
+if [[ "$OUTCOMES_STATUS" == "ok" || "$OUTCOMES_STATUS" == "high" || "$OUTCOMES_STATUS" == "medium" ]]; then
+  if [[ -n "$SECRET" ]]; then
     bash "$ROOT/scripts/cto-outcome-pipeline.sh" 2>/dev/null || true
   fi
-else
-  OUTCOMES_STATUS="skipped_with_empty_denominators"
 fi
 
 # Business risk flags (no Supabase required)
 RISKS=()
 [[ "$SHA_PARITY" == "false" ]] && RISKS+=("production_sha_drift")
 [[ "$HEALTH_OK" != "true" ]] && RISKS+=("booking_health_degraded")
-[[ "$OUTCOMES_STATUS" != "ok" && "$OUTCOMES_STATUS" != "high" && "$OUTCOMES_STATUS" != "medium" && "$OUTCOMES_STATUS" != "skipped_with_empty_denominators" ]] && RISKS+=("outcome_metrics_unavailable")
+[[ "$OUTCOME_ACCESS" == "unauthorized" || "$OUTCOME_ACCESS" == "unavailable" ]] && RISKS+=("outcome_metrics_unavailable")
+[[ "$OUTCOME_ACCESS" == "stale" ]] && RISKS+=("outcome_pipeline_stale")
 
 DEPOSIT="$(echo "$OUTCOMES_JSON" | jq -r '.payment.deposit_rate_pct // empty' 2>/dev/null)"
 [[ -n "$DEPOSIT" && "$DEPOSIT" != "null" ]] && {
@@ -97,6 +116,7 @@ jq -n \
   --arg parity "$SHA_PARITY" \
   --argjson health "$([[ "$HEALTH_OK" == "true" ]] && echo true || echo false)" \
   --arg outcomes "$OUTCOMES_STATUS" \
+  --arg access "$OUTCOME_ACCESS" \
   --argjson risks "$RISKS_JSON" \
   --argjson outcomes_data "$OUTCOMES_JSON" \
   '{
@@ -110,10 +130,11 @@ jq -n \
       },
       medium_term: {
         outcome_pipeline: $outcomes,
+        outcome_access: $access,
         ci_automation: "github_actions"
       },
       long_term: {
-        evidence_based_decisions: ($outcomes == "ok")
+        evidence_based_decisions: ($access == "ok" or $access == "zero_activity")
       }
     },
     deployment: {
@@ -123,9 +144,17 @@ jq -n \
       sha_parity: $parity
     },
     outcomes: $outcomes_data,
+    outcome_access: $access,
     top_risks: $risks
   }' > "$OUT"
 
+# Embed full CEO contract into outcomes when available (operator artifact path)
+if [[ -f "$CEO_EVIDENCE_PATH" ]]; then
+  jq --slurpfile ceo "$CEO_EVIDENCE_PATH" \
+    '. + {ceo_evidence: $ceo[0]} | .outcomes = (.outcomes + {outcome_access: $ceo[0].outcome_access, evidence_confidence: $ceo[0].evidence_confidence})' \
+    "$OUT" > "${OUT}.tmp" && mv "${OUT}.tmp" "$OUT"
+fi
+
 echo "Business snapshot → $OUT"
-echo "  repo=$REPO_SHORT prod=$PROD_SHA parity=$SHA_PARITY outcomes=$OUTCOMES_STATUS"
+echo "  repo=$REPO_SHORT prod=$PROD_SHA parity=$SHA_PARITY access=$OUTCOME_ACCESS confidence=$OUTCOMES_STATUS"
 echo "  risks: $(jq -r '.top_risks | join(", ")' "$OUT")"

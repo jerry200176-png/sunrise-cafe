@@ -277,6 +277,21 @@ export default function ExecutiveDashboardPage() {
               </div>
             )}
 
+            {data.status === "unavailable" && (
+              <div
+                className="rounded-xl border border-red-300 bg-red-50 px-4 py-3"
+                role="alert"
+              >
+                <p className="text-sm font-semibold text-red-900">
+                  Outcome 資料無法取得（unavailable）
+                </p>
+                <p className="mt-1 text-sm text-red-800">
+                  下方數字若為 0 不代表零訂位活動——請勿當成 zero activity。請檢查
+                  service role／權限後重新整理。
+                </p>
+              </div>
+            )}
+
             <div className="flex flex-wrap items-center gap-3 text-sm text-stone-600">
               <span
                 className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
@@ -454,8 +469,16 @@ export default function ExecutiveDashboardPage() {
                 <Metric
                   icon={CalendarDays}
                   label="訂位 (30d)"
-                  value={String(data.booking.bookings_30d)}
-                  sub={`本週 ${data.booking.bookings_7d}`}
+                  value={
+                    data.status === "unavailable"
+                      ? "—"
+                      : String(data.booking.bookings_30d)
+                  }
+                  sub={
+                    data.status === "unavailable"
+                      ? "資料無法取得"
+                      : `本週 ${data.booking.bookings_7d}`
+                  }
                 />
                 <Metric
                   icon={XCircle}
