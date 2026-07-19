@@ -7,13 +7,21 @@ updates:
     open-pull-requests-limit: 5
     groups:
       production-dependencies:
+        applies-to: version-updates
         dependency-type: production
         patterns:
           - "*"
+        update-types:
+          - minor
+          - patch
       dev-dependencies:
+        applies-to: version-updates
         dependency-type: development
         patterns:
           - "*"
+        update-types:
+          - minor
+          - patch
     # Prevent unreviewed major framework jumps (see DECISION_LOG DL-008)
     ignore:
       - dependency-name: "next"
