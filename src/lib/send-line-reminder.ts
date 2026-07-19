@@ -136,7 +136,7 @@ export type SendLineReminderOptions = {
 function obsBase(
   trigger: ReminderTriggerSource,
   started: Date
-): Omit<ReminderRunObservability, "finished_at" | "duration_ms" | "reservation_count" | "sent_count" | "skipped_count" | "guest_sent_count" | "result" | "error" | "heartbeat" | "duplicate"> {
+): Pick<ReminderRunObservability, "trigger_source" | "started_at" | "taipei_date"> {
   return {
     trigger_source: trigger,
     started_at: started.toISOString(),
