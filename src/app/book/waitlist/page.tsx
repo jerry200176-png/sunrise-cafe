@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ArrowLeft, Clock } from "lucide-react";
 import { useLocale } from "@/lib/i18n/LocaleContext";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { taipeiDateString, taipeiDatePlusDays } from "@/lib/datetime";
 
@@ -25,7 +26,7 @@ export default function WaitlistPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/branches").then((r) => r.json()).then(setBranches);
+    fetchWithTimeout("/api/branches").then((r) => r.json()).then(setBranches);
     const params = new URLSearchParams(window.location.search);
     const b = params.get("branchId");
     const r = params.get("roomId");
@@ -41,7 +42,7 @@ export default function WaitlistPage() {
 
   useEffect(() => {
     if (!branchId) { setRooms([]); setRoomId(""); return; }
-    fetch(`/api/rooms?branchId=${branchId}`).then((r) => r.json()).then(setRooms);
+    fetchWithTimeout(`/api/rooms?branchId=${branchId}`).then((r) => r.json()).then(setRooms);
   }, [branchId]);
 
   const toISO = (d: string, t: string) => `${d}T${t}:00+08:00`;
@@ -57,7 +58,7 @@ export default function WaitlistPage() {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch("/api/waitlist", {
+      const res = await fetchWithTimeout("/api/waitlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

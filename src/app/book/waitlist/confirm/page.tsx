@@ -8,6 +8,7 @@ import { format, parseISO } from "date-fns";
 import { enUS, ja, zhTW } from "date-fns/locale";
 import { CopyBookingCodeButton } from "@/components/CopyBookingCodeButton";
 import { useLocale } from "@/lib/i18n/LocaleContext";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 interface WaitlistDetail {
@@ -46,7 +47,7 @@ function ConfirmContent() {
       setLoading(false);
       return;
     }
-    fetch(`/api/waitlist/confirm?token=${encodeURIComponent(token)}`)
+    fetchWithTimeout(`/api/waitlist/confirm?token=${encodeURIComponent(token)}`)
       .then((r) => r.json())
       .then((d) => {
         if (d.error) {
@@ -63,7 +64,7 @@ function ConfirmContent() {
     setConfirming(true);
     setError(null);
     try {
-      const res = await fetch("/api/waitlist/confirm", {
+      const res = await fetchWithTimeout("/api/waitlist/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token }),

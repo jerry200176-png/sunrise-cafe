@@ -5,6 +5,7 @@ import { Elements } from "@stripe/react-stripe-js";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import { X, CreditCard, Loader2, CheckCircle2 } from "lucide-react";
 import { PaymentForm } from "./PaymentForm";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 
 let stripePromise: Promise<Stripe | null> | null = null;
 
@@ -52,18 +53,12 @@ export function PaymentModal({
     if (!open) return;
     setState({ phase: "loading" });
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15_000); // 15 秒 timeout
-
     try {
-      const res = await fetch("/api/payment/create-intent", {
+      const res = await fetchWithTimeout("/api/payment/create-intent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reservationId, branchId, amount }),
-        signal: controller.signal,
       });
-
-      clearTimeout(timeoutId);
       const data = await res.json();
 
       if (!res.ok || !data.clientSecret) {
@@ -73,7 +68,6 @@ export function PaymentModal({
 
       setState({ phase: "ready", clientSecret: data.clientSecret });
     } catch (err) {
-      clearTimeout(timeoutId);
       const isTimeout = err instanceof DOMException && err.name === "AbortError";
       setState({
         phase: "error",
@@ -95,18 +89,12 @@ export function PaymentModal({
     async (paymentIntentId: string) => {
       setConfirming(true);
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 20_000); // 20 秒 timeout
-
       try {
-        const res = await fetch("/api/payment/confirm-deposit", {
+        const res = await fetchWithTimeout("/api/payment/confirm-deposit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ paymentIntentId, reservationId }),
-          signal: controller.signal,
         });
-
-        clearTimeout(timeoutId);
         const data = await res.json();
 
         if (res.ok && data.depositStatus === "paid") {
@@ -119,7 +107,6 @@ export function PaymentModal({
           });
         }
       } catch (err) {
-        clearTimeout(timeoutId);
         const isTimeout = err instanceof DOMException && err.name === "AbortError";
         setState({
           phase: "error",
