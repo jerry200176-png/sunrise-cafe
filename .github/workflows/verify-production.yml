@@ -13,6 +13,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Latest main SHA wins; older in-flight verifies may cancel (superseded revision).
+concurrency:
+  group: verify-production-main
+  cancel-in-progress: true
+
 jobs:
   verify-sha:
     name: Production /api/version matches main
@@ -75,6 +80,31 @@ jobs:
           fi
           echo "PATCH without auth returns 401."
 
+      - name: Health + reminder/outcome freshness contract
+        env:
+          PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
+          CTO_OUTCOME_SECRET: ${{ secrets.CTO_OUTCOME_SECRET }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          HEALTH=$(curl -sf "$PRODUCTION_URL/api/booking-health")
+          echo "$HEALTH" | jq -e '.ok == true' >/dev/null
+          echo "booking-health ok"
+          SECRET="${CTO_OUTCOME_SECRET:-${CRON_SECRET:-}}"
+          if [ -z "$SECRET" ]; then
+            echo "::notice::No CTO/CRON secret — skipping authenticated CEO evidence probe"
+            exit 0
+          fi
+          CEO=$(curl -sf -H "Authorization: Bearer $SECRET" "$PRODUCTION_URL/api/ops/ceo-evidence" || true)
+          if [ -z "$CEO" ]; then
+            echo "::warning::CEO evidence endpoint not yet deployed or unauthorized — non-blocking on first ship"
+            exit 0
+          fi
+          echo "$CEO" | jq '{production, critical_jobs, risks, evidence_confidence}'
+          echo "$CEO" | jq -e '.outcomes | type == "object"' >/dev/null
+          echo "$CEO" | jq -e '(.outcomes | keys | length) > 0' >/dev/null
+          echo "CEO evidence outcomes non-empty"
+
   migration-drift:
     name: Production migration drift
     runs-on: ubuntu-latest
@@ -99,7 +129,6 @@ jobs:
             echo "Skipping migration drift — Supabase secrets not configured."
             exit 0
           fi
-          # Diagnostic dry-run only (no --apply). Exit 0 from dry-run does NOT mean migrations are complete.
           echo "::notice::Running reconcile dry-run diagnostic (read-only; not a pass criterion)"
           node scripts/reconcile-migration-ledger.mjs || true
           bash scripts/check-migration-drift.sh

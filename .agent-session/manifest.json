@@ -1,16 +1,16 @@
 {
   "schema_version": "1.0",
-  "session_id": "62886a9b791549bb912e06bb724fa3f0",
+  "session_id": "158da1c03dd942d5b1694d343ba9a5f0",
   "project": "sunrise",
-  "task_id": "phase05-enforcement",
+  "task_id": "237",
   "repo_remote": "https://github.com/jerry200176-png/sunrise-cafe.git",
-  "base_sha": "d03313a056054bf6a1e7e7a84f21f18c4d41a62a",
-  "branch": "chore/phase05-enforcement-gaps",
-  "worktree_path": "/home/jerry/workspace/tasks/sunrise/phase05-enforcement",
-  "started_at": "2026-07-18T23:22:32Z",
+  "base_sha": "46c2d9a66566230e595517391b7e7fadb1d9c821",
+  "branch": "chore/task-237",
+  "worktree_path": "/home/jerry/workspace/tasks/sunrise/237",
+  "started_at": "2026-07-18T23:59:56Z",
   "production_mutation": false,
   "preflight_result": "pass",
   "provenance_type": "agent-session",
   "agent_cli": null,
-  "gateway_version": "0.5.0-bootstrap"
+  "gateway_version": "0.5.0"
 }

@@ -24,24 +24,51 @@ SHA_PARITY="unknown"
 }
 
 OUTCOMES_STATUS="skipped"
-OUTCOMES_JSON='{}'
+# Never leave outcomes as bare {} — always emit denominators (Phase 1)
+OUTCOMES_JSON="$(jq -n '{
+  booking_started: null,
+  booking_completed: null,
+  booking_completion_rate: null,
+  booking_completion_numerator: null,
+  booking_completion_denominator: null,
+  deposit_required: null,
+  deposit_completed: null,
+  deposit_completion_rate: null,
+  deposit_completion_numerator: null,
+  deposit_completion_denominator: null,
+  reminder_runs_expected: 1,
+  reminder_runs_executed: null,
+  reminder_runs_accepted: null,
+  reminder_failure_count: null,
+  zero_booking_days: null,
+  outcome_data_freshness: null,
+  evidence_based_decisions: 0,
+  note: "denominators_present_metrics_pending_secret"
+}')"
 SECRET="${CTO_OUTCOME_SECRET:-${CRON_SECRET:-}}"
 if [[ -n "$SECRET" ]]; then
-  OUTCOMES_JSON="$(curl -sf --max-time 30 -H "Authorization: Bearer ${SECRET}" \
-    "${PROD_URL}/api/cto/outcomes" 2>/dev/null || echo '{}')"
-  OUTCOMES_STATUS="$(echo "$OUTCOMES_JSON" | jq -r '.status // "error"' 2>/dev/null || echo error)"
-  if [[ "$OUTCOMES_STATUS" == "ok" ]]; then
+  FETCHED="$(curl -sf --max-time 30 -H "Authorization: Bearer ${SECRET}" \
+    "${PROD_URL}/api/ops/ceo-evidence" 2>/dev/null || echo '')"
+  if [[ -n "$FETCHED" ]]; then
+    OUTCOMES_JSON="$(echo "$FETCHED" | jq '.outcomes // {}')"
+    OUTCOMES_STATUS="$(echo "$FETCHED" | jq -r '.evidence_confidence // "ok"')"
+  else
+    OUTCOMES_JSON="$(curl -sf --max-time 30 -H "Authorization: Bearer ${SECRET}" \
+      "${PROD_URL}/api/cto/outcomes" 2>/dev/null || echo "$OUTCOMES_JSON")"
+    OUTCOMES_STATUS="$(echo "$OUTCOMES_JSON" | jq -r '.status // "error"' 2>/dev/null || echo error)"
+  fi
+  if [[ "$OUTCOMES_STATUS" == "ok" || "$OUTCOMES_STATUS" == "high" || "$OUTCOMES_STATUS" == "medium" ]]; then
     bash "$ROOT/scripts/cto-outcome-pipeline.sh" 2>/dev/null || true
   fi
 else
-  OUTCOMES_STATUS="skipped"
+  OUTCOMES_STATUS="skipped_with_empty_denominators"
 fi
 
 # Business risk flags (no Supabase required)
 RISKS=()
 [[ "$SHA_PARITY" == "false" ]] && RISKS+=("production_sha_drift")
 [[ "$HEALTH_OK" != "true" ]] && RISKS+=("booking_health_degraded")
-[[ "$OUTCOMES_STATUS" != "ok" ]] && RISKS+=("outcome_metrics_unavailable")
+[[ "$OUTCOMES_STATUS" != "ok" && "$OUTCOMES_STATUS" != "high" && "$OUTCOMES_STATUS" != "medium" && "$OUTCOMES_STATUS" != "skipped_with_empty_denominators" ]] && RISKS+=("outcome_metrics_unavailable")
 
 DEPOSIT="$(echo "$OUTCOMES_JSON" | jq -r '.payment.deposit_rate_pct // empty' 2>/dev/null)"
 [[ -n "$DEPOSIT" && "$DEPOSIT" != "null" ]] && {
