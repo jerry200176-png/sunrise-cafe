@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
 
   let reminderFreshnessHours: number | null = null;
   let reminderExecuted: number | null = null;
-  let reminderFailed: number | null = null;
+  const reminderFailed: number | null = null;
   try {
     if (await isJobRunsTableReady()) {
       const prior = await findSuccessfulSendLineRunToday();
