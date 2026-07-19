@@ -22,21 +22,9 @@ updates:
         update-types:
           - minor
           - patch
-    # Prevent unreviewed major framework jumps (see DECISION_LOG DL-008)
+    # Major upgrades require an explicit migration plan, owner, and production
+    # verification. Dependabot keeps routine patch/minor maintenance grouped
+    # above without flooding the queue with breaking-change proposals.
     ignore:
-      - dependency-name: "next"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "react"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "react-dom"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "eslint"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "eslint-config-next"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "tailwindcss"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "typescript"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "vitest"
+      - dependency-name: "*"
         update-types: ["version-update:semver-major"]
