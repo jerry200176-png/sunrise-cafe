@@ -1,0 +1,6 @@
+{
+  "schema_version": "1.0",
+  "provenance_type": "human-authored",
+  "declared_at": "2026-07-19T01:30:00Z",
+  "note": "Phase 2 close-first rebase of PR #200 onto main; keep CustomerShell + fetchWithTimeout"
+}
