@@ -71,8 +71,8 @@ export async function middleware(request: NextRequest) {
     if (!success) return tooManyRequests(reset, pathname, "api");
   }
 
-  // ── CTO Outcome Pipeline（Bearer CTO_OUTCOME_SECRET / CRON_SECRET）────────
-  if (pathname.startsWith("/api/cto/")) {
+  // ── CTO / Ops evidence（Bearer CTO_OUTCOME_SECRET / CRON_SECRET）────────
+  if (pathname.startsWith("/api/cto/") || pathname.startsWith("/api/ops/")) {
     const cronSecret = process.env.CRON_SECRET;
     const outcomeSecret = process.env.CTO_OUTCOME_SECRET;
     const authHeader = request.headers.get("authorization");

@@ -27,6 +27,10 @@ import {
   findSuccessfulSendLineRunToday,
   type ReminderTriggerSource,
 } from "@/lib/job-runs";
+import {
+  buildReminderRunEvidence,
+  mapTriggerToSource,
+} from "@/lib/reminder-run-evidence";
 
 export const CAT_MESSAGES = [
   "喵～沒訂位！Ivy 妳備好零食了嗎？本喵五分鐘後到 🐱",
@@ -47,11 +51,15 @@ export type ReminderRunObservability = {
   sent_count: number;
   skipped_count: number;
   guest_sent_count: number;
-  result: "sent" | "already_notified" | "empty_cat" | "duplicate_skip" | "error";
+  result: "sent" | "already_notified" | "empty_cat" | "duplicate_skip" | "error" | "partial";
   error: string | null;
   heartbeat: ReminderHeartbeat;
   taipei_date: string;
   duplicate: boolean;
+  /** Phase 1: LINE acceptance ≠ end-user delivery */
+  accepted_count: number;
+  rejected_count: number;
+  delivery_certainty: "accepted_by_line" | "rejected_by_line" | "delivery_unknown" | "not_attempted";
 };
 
 export type BranchRow = { id: string; name: string; line_group_id?: string | null };
@@ -128,7 +136,7 @@ export type SendLineReminderOptions = {
 function obsBase(
   trigger: ReminderTriggerSource,
   started: Date
-): Omit<ReminderRunObservability, "finished_at" | "duration_ms" | "reservation_count" | "sent_count" | "skipped_count" | "guest_sent_count" | "result" | "error" | "heartbeat" | "duplicate"> {
+): Pick<ReminderRunObservability, "trigger_source" | "started_at" | "taipei_date"> {
   return {
     trigger_source: trigger,
     started_at: started.toISOString(),
@@ -147,11 +155,21 @@ function finalizeObs(
       heartbeat: ReminderHeartbeat;
       duplicate: boolean;
       error?: string | null;
+      accepted_count?: number;
+      rejected_count?: number;
     },
   started: Date
-): ReminderRunObservability {
+): ReminderRunObservability & { reminder_evidence: ReturnType<typeof buildReminderRunEvidence> } {
   const finished = new Date();
-  return {
+  const accepted_count = partial.accepted_count ?? (partial.result === "error" ? 0 : partial.sent_count);
+  const rejected_count = partial.rejected_count ?? (partial.result === "error" ? 1 : 0);
+  const delivery_certainty: ReminderRunObservability["delivery_certainty"] =
+    accepted_count > 0
+      ? "delivery_unknown"
+      : rejected_count > 0
+        ? "rejected_by_line"
+        : "not_attempted";
+  const observability: ReminderRunObservability = {
     trigger_source: partial.trigger_source,
     started_at: partial.started_at,
     finished_at: finished.toISOString(),
@@ -165,7 +183,36 @@ function finalizeObs(
     heartbeat: partial.heartbeat,
     taipei_date: partial.taipei_date,
     duplicate: partial.duplicate,
+    accepted_count,
+    rejected_count,
+    delivery_certainty,
   };
+  const reminder_evidence = buildReminderRunEvidence({
+    invoked_at: observability.started_at,
+    source: mapTriggerToSource(observability.trigger_source),
+    candidate_reservation_count: observability.reservation_count,
+    recipient_count: Math.max(observability.sent_count, observability.guest_sent_count),
+    message_attempt_count: accepted_count + rejected_count,
+    accepted_count,
+    rejected_count,
+    duplicate_suppressed_count: observability.duplicate ? 1 : 0,
+    result:
+      observability.result === "error" && rejected_count > 0 && accepted_count > 0
+        ? "partial"
+        : observability.result === "error"
+          ? "error"
+          : observability.result === "duplicate_skip"
+            ? "duplicate_skip"
+            : observability.result === "empty_cat"
+              ? "empty_cat"
+              : observability.result === "already_notified"
+                ? "already_notified"
+                : accepted_count > 0 && rejected_count > 0
+                  ? "partial"
+                  : "sent",
+    error: observability.error,
+  });
+  return { ...observability, reminder_evidence };
 }
 
 /** Core handler used by GET (cron) and POST (manual). */
@@ -366,6 +413,7 @@ export async function runSendLineReminder(
 
     // Guest personal reminders (only pending rows — idempotent via is_notified)
     let guest_sent_count = 0;
+    let guest_rejected = 0;
     for (const r of allRows) {
       const lineUserId = r.line_user_id as string | null;
       if (!lineUserId) continue;
@@ -388,17 +436,17 @@ export async function runSendLineReminder(
         await sendLineFlexMessage(lineUserId, "明日訂位提醒", flex);
         guest_sent_count += 1;
       } catch {
-        // individual guest failures must not fail the whole job
+        guest_rejected += 1;
       }
     }
 
     const result: ReminderRunObservability["result"] =
-      totalSent > 0
-        ? "sent"
-        : heartbeat === "cat"
-          ? "empty_cat"
-          : heartbeat === "already_notified"
-            ? "already_notified"
+      guest_rejected > 0 && totalSent + guest_sent_count > 0
+        ? "partial"
+        : totalSent > 0 || guest_sent_count > 0
+          ? "sent"
+          : heartbeat === "cat"
+            ? "empty_cat"
             : "already_notified";
 
     const observability = finalizeObs(
@@ -411,6 +459,11 @@ export async function runSendLineReminder(
         result,
         heartbeat,
         duplicate: false,
+        accepted_count:
+          totalSent +
+          guest_sent_count +
+          (heartbeat === "cat" || heartbeat === "already_notified" ? 1 : 0),
+        rejected_count: guest_rejected,
       },
       started
     );
@@ -422,12 +475,13 @@ export async function runSendLineReminder(
     }
 
     return NextResponse.json({
-      ok: true,
+      ok: guest_rejected === 0,
       sent: totalSent,
+      errors: guest_rejected,
       message:
         totalSent === 0
           ? "沒有尚未通知的明日訂位（可能已全部發送過）"
-          : `已發送 ${totalSent} 筆明日提醒（僅尚未通知的訂位）`,
+          : `已發送 ${totalSent} 筆明日提醒（LINE accepted≠delivered）`,
       ...observability,
     });
   } catch (err) {
@@ -444,6 +498,8 @@ export async function runSendLineReminder(
         heartbeat: "none",
         duplicate: false,
         error: message,
+        accepted_count: 0,
+        rejected_count: 1,
       },
       started
     );
