@@ -34,8 +34,11 @@ jobs:
           PROD_URL: https://sunrise-cafe-six.vercel.app
           CTO_OUTCOME_SECRET: ${{ secrets.CTO_OUTCOME_SECRET }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          chmod +x scripts/cto-business-snapshot.sh
+          npm ci --ignore-scripts
+          chmod +x scripts/cto-business-snapshot.sh scripts/ceo-evidence-summary.sh
           bash scripts/cto-business-snapshot.sh
 
       - name: Upload snapshot artifact
@@ -44,6 +47,7 @@ jobs:
           name: business-snapshot-${{ github.run_id }}
           path: |
             orchestrator/business-snapshot.json
+            orchestrator/ceo-evidence.json
             docs/internal/executive/OUTCOME_LOG.md
           retention-days: 90
 
