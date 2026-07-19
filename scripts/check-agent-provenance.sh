@@ -9,6 +9,22 @@ TASK_ROOT="/home/jerry/workspace/tasks/sunrise/"
 fail() { echo "provenance: FAIL: $*" >&2; exit 1; }
 ok() { echo "provenance: OK: $*"; }
 
+# Dependabot cannot create an agent/human manifest. Trust the GitHub-managed
+# actor only when its PR is strictly limited to npm dependency manifests.
+if [[ "${GITHUB_ACTOR:-}" == "dependabot[bot]" ]]; then
+  BASE_REF="${GITHUB_BASE_REF:-main}"
+  mapfile -t CHANGED_FILES < <(git diff --name-only "origin/${BASE_REF}...HEAD")
+  ((${#CHANGED_FILES[@]} > 0)) || fail "Dependabot PR has no changed files"
+  for path in "${CHANGED_FILES[@]}"; do
+    case "$path" in
+      package.json|package-lock.json|npm-shrinkwrap.json) ;;
+      *) fail "Dependabot changed non-dependency file: $path" ;;
+    esac
+  done
+  ok "GitHub Dependabot actor changed npm dependency manifests only"
+  exit 0
+fi
+
 MANIFEST=""
 if [[ -f .agent-session/manifest.json ]]; then
   MANIFEST=.agent-session/manifest.json
