@@ -11,13 +11,16 @@ ok() { echo "provenance: OK: $*"; }
 
 # Dependabot cannot create an agent/human manifest. Trust the GitHub-managed
 # actor only when its PR is strictly limited to npm dependency manifests.
-if [[ "${GITHUB_ACTOR:-}" == "dependabot[bot]" ]]; then
+# On synchronize/rebase events GITHUB_ACTOR may be the user who pushed the update.
+# Use the immutable PR author as the trust signal, while keeping the changed-file
+# allowlist narrow for both npm and Composer dependency PRs.
+if [[ "${GITHUB_ACTOR:-}" == "dependabot[bot]" || "${PR_AUTHOR:-}" == "dependabot[bot]" ]]; then
   BASE_REF="${GITHUB_BASE_REF:-main}"
   mapfile -t CHANGED_FILES < <(git diff --name-only "origin/${BASE_REF}...HEAD")
   ((${#CHANGED_FILES[@]} > 0)) || fail "Dependabot PR has no changed files"
   for path in "${CHANGED_FILES[@]}"; do
     case "$path" in
-      package.json|package-lock.json|npm-shrinkwrap.json) ;;
+      package.json|package-lock.json|npm-shrinkwrap.json|composer.json|composer.lock) ;;
       *) fail "Dependabot changed non-dependency file: $path" ;;
     esac
   done
