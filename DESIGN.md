@@ -101,7 +101,7 @@
 
 ### 允許的例外
 
-- **後台** `/admin/*` 可沿用 Tailwind `stone` / `amber`（營運密度優先）。
+- **後台** `/admin/*` 可沿用 Tailwind `stone` / `amber`（營運密度優先）。共用殼層：`src/components/admin/AdminShell.tsx`（sticky header + 底部場控導覽）。
 - **訂位表單**內部元件逐步對齊焦糖色，不必一次大改。
 
 採用決策全文：[`docs/internal/design/HALLMARK_ADOPTION.md`](docs/internal/design/HALLMARK_ADOPTION.md)
