@@ -1,16 +1,17 @@
 {
   "schema_version": "1.0",
-  "session_id": "a57883f84c7e4cbaaaf1366369a944dc",
+  "session_id": "bc-019f9311-30c5-74ec-bf31-7caf0d2185c0",
   "project": "sunrise",
-  "task_id": "dependabot-policy",
+  "task_id": "taste-skill-home-redesign",
   "repo_remote": "https://github.com/jerry200176-png/sunrise-cafe.git",
-  "base_sha": "773ea48ccb4e6c8eb36c7ac0119881a560b8326d",
-  "branch": "chore/task-dependabot-policy",
-  "worktree_path": "/home/jerry/workspace/tasks/sunrise/dependabot-policy",
-  "started_at": "2026-07-19T04:03:07Z",
+  "base_sha": "327152b5be578625bd507991485f19db88da542b",
+  "branch": "cursor/taste-skill-home-redesign-85c0",
+  "worktree_path": "/workspace",
+  "started_at": "2026-07-24T07:40:00Z",
   "production_mutation": false,
-  "preflight_result": "pass",
+  "preflight_result": "cloud-agent-bypass",
   "provenance_type": "agent-session",
-  "agent_cli": null,
-  "gateway_version": "0.5.0"
+  "agent_cli": "cursor-cloud",
+  "gateway_version": "cloud",
+  "notes": "Installed Leonxlnx/taste-skill (design-taste-frontend, redesign-existing-projects, high-end-visual-design); redesign-preserve home landing within DESIGN.md brand."
 }

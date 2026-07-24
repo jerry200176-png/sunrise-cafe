@@ -15,108 +15,141 @@ export default function Home() {
   ];
 
   return (
-    <main className="grain relative min-h-screen overflow-hidden">
-      {/* 晨曦：右上灑落的暖光 */}
+    <main className="grain relative min-h-[100dvh] overflow-hidden">
+      {/* Full-bleed morning light plane */}
       <div
         aria-hidden
-        className="sun-breathe pointer-events-none absolute -right-24 -top-32 h-[28rem] w-[28rem] rounded-full blur-2xl"
-        style={{ background: "radial-gradient(circle, rgba(240,194,122,0.55) 0%, rgba(240,194,122,0) 70%)" }}
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(90% 70% at 78% -8%, rgba(240,194,122,0.48) 0%, rgba(240,194,122,0) 58%), radial-gradient(70% 55% at 8% 100%, rgba(192,131,47,0.14) 0%, rgba(192,131,47,0) 55%)",
+        }}
+      />
+      <div
+        aria-hidden
+        className="sun-breathe pointer-events-none absolute -right-28 -top-40 h-[34rem] w-[34rem] rounded-full blur-3xl"
+        style={{ background: "radial-gradient(circle, rgba(240,194,122,0.42) 0%, rgba(240,194,122,0) 70%)" }}
       />
 
-      <div className="relative mx-auto flex min-h-screen max-w-md flex-col px-6 pb-12 pt-14 md:max-w-xl md:pt-20">
-
+      {/* ───── Hero (first viewport) ───── */}
+      <section className="relative mx-auto flex min-h-[100dvh] max-w-md flex-col px-6 pb-10 pt-10 md:max-w-xl md:pt-14">
         <div className="flex justify-end">
           <LanguageSwitcher />
         </div>
 
-        {/* ───── Hero ───── */}
-        <header className="flex flex-col items-center text-center">
-          {/* 升起的太陽 + Logo */}
-          <div className="rise relative mb-7 flex items-center justify-center" style={{ animationDelay: "0ms" }}>
-            <div
-              aria-hidden
-              className="sun-breathe absolute -bottom-4 left-1/2 h-32 w-32 -translate-x-1/2 rounded-full blur-md"
-              style={{ background: "radial-gradient(circle at 50% 60%, var(--amber-glow) 0%, rgba(240,194,122,0) 70%)" }}
+        <header className="mt-10 flex flex-1 flex-col justify-center text-left md:mt-6">
+          <div className="rise mb-8" style={{ animationDelay: "0ms" }}>
+            <Image
+              src="/logo.webp"
+              alt={t("home.brandName")}
+              width={88}
+              height={88}
+              priority
+              className="block h-[5.5rem] w-[5.5rem] object-contain"
             />
-            <div className="relative overflow-hidden rounded-[1.75rem] bg-white ring-1 ring-ink/5 shadow-[0_16px_36px_-14px_rgba(157,101,25,0.4)]">
-              <Image src="/logo.webp" alt={t("home.brandName")} width={108} height={108} priority className="block" />
-            </div>
           </div>
 
-          <h1 className="rise font-serif text-[2.75rem] font-light leading-none tracking-[0.3em] text-ink" style={{ animationDelay: "120ms", paddingLeft: "0.3em" }}>
+          <p
+            className="rise font-display text-[0.7rem] uppercase tracking-[0.42em] text-caramel-deep"
+            style={{ animationDelay: "80ms" }}
+          >
+            Sunrise&nbsp;Café
+          </p>
+
+          <h1
+            className="rise mt-4 font-serif text-[3.15rem] font-light leading-[1.08] tracking-[0.22em] text-ink text-balance md:text-[3.5rem]"
+            style={{ animationDelay: "140ms", paddingLeft: "0.08em" }}
+          >
             {t("home.brandName")}
           </h1>
 
-          <div className="rise my-5 flex items-center gap-3" style={{ animationDelay: "220ms" }}>
-            <span className="h-px w-8" style={{ background: "var(--line)" }} />
-            <span className="font-display text-xs uppercase tracking-[0.42em] text-caramel-deep">Sunrise&nbsp;Café</span>
-            <span className="h-px w-8" style={{ background: "var(--line)" }} />
-          </div>
-
-          <p className="rise max-w-xs text-[0.95rem] font-light leading-relaxed tracking-wide text-ink-soft" style={{ animationDelay: "300ms" }}>
+          <p
+            className="rise mt-6 max-w-[22rem] text-[1.02rem] font-light leading-relaxed tracking-wide text-ink-soft text-pretty"
+            style={{ animationDelay: "220ms" }}
+          >
             {t("home.tagline1")}
-            <br />
-            <span className="text-ink-faint">{t("home.tagline2")}</span>
+            <span className="mt-1.5 block text-[0.92rem] text-ink-faint">{t("home.tagline2")}</span>
           </p>
+
+          <nav className="mt-10 flex flex-col gap-3.5 sm:max-w-md" aria-label={t("home.brandName")}>
+            <Link
+              href="/book"
+              className="rise group relative flex items-center gap-4 overflow-hidden rounded-[1.5rem] px-4 py-[1.05rem] text-left shadow-[0_14px_34px_-14px_rgba(157,101,25,0.5)] transition-[transform,box-shadow] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_18px_40px_-14px_rgba(157,101,25,0.55)] active:scale-[0.985]"
+              style={{ animationDelay: "320ms", background: "linear-gradient(135deg, #b5742c 0%, #9d6519 100%)" }}
+            >
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/15 text-paper ring-1 ring-white/25">
+                <Calendar className="h-5 w-5" strokeWidth={1.5} />
+              </span>
+              <span className="flex-1">
+                <span className="block font-serif text-lg tracking-wide text-paper">{t("home.bookCta")}</span>
+                <span className="mt-0.5 block text-xs tracking-wide text-paper/70">{t("home.bookCtaDesc")}</span>
+              </span>
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/15 text-paper transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5 group-hover:-translate-y-0.5">
+                <ArrowUpRight className="h-4 w-4" strokeWidth={1.5} />
+              </span>
+            </Link>
+
+            <Link
+              href="/book/query"
+              className="rise group flex items-center gap-4 rounded-[1.5rem] border border-ink/10 bg-white/55 px-4 py-[1.05rem] text-left backdrop-blur-[2px] transition-[transform,border-color,background-color] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:border-caramel/35 hover:bg-white/80 active:scale-[0.985]"
+              style={{ animationDelay: "420ms" }}
+            >
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-paper-deep text-caramel-deep ring-1 ring-ink/5">
+                <Search className="h-5 w-5" strokeWidth={1.5} />
+              </span>
+              <span className="flex-1">
+                <span className="block font-serif text-lg tracking-wide text-ink">{t("home.queryCta")}</span>
+                <span className="mt-0.5 block text-xs tracking-wide text-ink-faint">{t("home.queryCtaDesc")}</span>
+              </span>
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-paper-deep/80 text-ink-faint transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-caramel-deep">
+                <ArrowUpRight className="h-4 w-4" strokeWidth={1.5} />
+              </span>
+            </Link>
+          </nav>
         </header>
 
-        {/* ───── 主要行動 ───── */}
-        <nav className="mt-12 space-y-3.5">
-          <Link
-            href="/book"
-            className="rise group relative flex items-center gap-4 overflow-hidden rounded-[1.4rem] p-[1.15rem] text-left shadow-[0_10px_30px_-12px_rgba(157,101,25,0.45)] transition-transform duration-300 hover:-translate-y-0.5"
-            style={{ animationDelay: "420ms", background: "linear-gradient(135deg, #b5742c 0%, #9d6519 100%)" }}
-          >
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/15 text-paper ring-1 ring-white/25 backdrop-blur-sm">
-              <Calendar className="h-5 w-5" />
-            </span>
-            <span className="flex-1">
-              <span className="block font-serif text-lg tracking-wide text-paper">{t("home.bookCta")}</span>
-              <span className="mt-0.5 block text-xs tracking-wide text-paper/70">{t("home.bookCtaDesc")}</span>
-            </span>
-            <ArrowUpRight className="h-5 w-5 text-paper/80 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-          </Link>
+        <div
+          className="rise mt-8 flex items-center gap-3 pt-2"
+          style={{ animationDelay: "520ms" }}
+          aria-hidden
+        >
+          <span className="h-px flex-1" style={{ background: "var(--line)" }} />
+          <span className="font-display text-[0.58rem] uppercase tracking-[0.38em] text-ink-faint/80">
+            {t("home.sectionLabel")}
+          </span>
+          <span className="h-px w-10" style={{ background: "var(--line)" }} />
+        </div>
+      </section>
 
-          <Link
-            href="/book/query"
-            className="rise group flex items-center gap-4 rounded-[1.4rem] border border-ink/10 bg-white/70 p-[1.15rem] text-left shadow-sm backdrop-blur-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-caramel/40 hover:bg-white"
-            style={{ animationDelay: "520ms" }}
-          >
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-paper-deep text-caramel-deep ring-1 ring-ink/5">
-              <Search className="h-5 w-5" />
-            </span>
-            <span className="flex-1">
-              <span className="block font-serif text-lg tracking-wide text-ink">{t("home.queryCta")}</span>
-              <span className="mt-0.5 block text-xs tracking-wide text-ink-faint">{t("home.queryCtaDesc")}</span>
-            </span>
-            <ArrowUpRight className="h-5 w-5 text-ink-faint transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-          </Link>
-        </nav>
+      {/* ───── Offerings (below fold, asymmetric — not 3 equal cards) ───── */}
+      <section className="relative mx-auto max-w-md px-6 pb-8 md:max-w-xl">
+        <ul className="space-y-0 divide-y divide-ink/[0.08]">
+          {features.map(({ icon: Icon, title, desc }, index) => (
+            <li
+              key={title}
+              className="rise group flex items-start gap-4 py-6 first:pt-2"
+              style={{ animationDelay: `${600 + index * 90}ms`, paddingLeft: index === 1 ? "1.25rem" : index === 2 ? "0.35rem" : "0" }}
+            >
+              <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-[0.9rem] bg-paper-deep text-caramel-deep ring-1 ring-ink/5 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:-translate-y-0.5">
+                <Icon className="h-5 w-5" strokeWidth={1.5} />
+              </span>
+              <div className="min-w-0 flex-1 pt-0.5">
+                <h2 className="font-serif text-[1.05rem] tracking-wide text-ink">{title}</h2>
+                <p className="mt-1 max-w-[28ch] text-sm leading-relaxed text-ink-faint">{desc}</p>
+              </div>
+              <span className="pt-2 font-display text-[0.65rem] tabular-nums tracking-[0.18em] text-ink-faint/60">
+                {String(index + 1).padStart(2, "0")}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
 
-        {/* ───── 特色 ───── */}
-        <section className="rise mt-14" style={{ animationDelay: "640ms" }}>
-          <div className="mb-5 flex items-center gap-3">
-            <span className="font-display text-[0.65rem] uppercase tracking-[0.4em] text-ink-faint">{t("home.sectionLabel")}</span>
-            <span className="h-px flex-1" style={{ background: "var(--line)" }} />
-          </div>
-          <ul className="grid grid-cols-3 gap-3">
-            {features.map(({ icon: Icon, title, desc }) => (
-              <li key={title} className="flex flex-col items-center rounded-2xl border border-ink/[0.07] bg-white/50 px-2 py-5 text-center backdrop-blur-sm">
-                <Icon className="h-6 w-6 text-caramel-deep" strokeWidth={1.5} />
-                <span className="mt-3 font-serif text-sm tracking-wide text-ink">{title}</span>
-                <span className="mt-1 text-[0.68rem] leading-snug text-ink-faint">{desc}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        {/* ───── Footer ───── */}
-        <footer className="rise mt-auto pt-16 text-center" style={{ animationDelay: "760ms" }}>
-          <p className="font-display text-[0.6rem] uppercase tracking-[0.5em] text-ink-faint/70">
-            {t("home.footer")}
-          </p>
-        </footer>
-      </div>
+      <footer className="rise relative mx-auto max-w-md px-6 pb-14 pt-4 text-left md:max-w-xl" style={{ animationDelay: "900ms" }}>
+        <p className="font-display text-[0.6rem] uppercase tracking-[0.45em] text-ink-faint/70">
+          {t("home.footer")}
+        </p>
+      </footer>
     </main>
   );
 }

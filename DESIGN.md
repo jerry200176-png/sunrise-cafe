@@ -41,15 +41,16 @@
 
 ## 4. Components（元件）
 
-- **主要按鈕**：焦糖漸層、圓角 `rounded-[1.4rem]`、柔和投影、hover 上浮 `-translate-y-0.5`，內含圓形圖示 + 標題 + 副標 + 右上箭頭。
-- **次要按鈕**：紙白半透明 `bg-white/70`、細邊 `border-ink/10`、backdrop-blur、hover 邊框轉焦糖。
-- **特色卡**：`bg-white/50` + 細邊 + 置中圖示（`strokeWidth={1.5}`）+ 襯線標題 + 灰字說明。
-- 圖示統一用 lucide-react，線重 1.5。
+- **主要按鈕**：焦糖漸層、圓角 `rounded-[1.5rem]`、暖色投影、hover 上浮 `-translate-y-0.5` + `active:scale-[0.985]`；左側圓形圖示、右側箭頭放在獨立圓形巢狀容器（button-in-button）。
+- **次要按鈕**：紙白半透明 `bg-white/55`、細邊 `border-ink/10`、輕微 blur、hover 邊框轉焦糖。
+- **首頁服務列**：不使用三欄等寬 icon 卡。改為下方摺疊的**不對稱列表**（編號 + 圖示 + 襯線標題），略作橫向偏移打破對稱。
+- 圖示統一用 lucide-react，線重 1.5（既有依賴；新專案可評估 Phosphor，但本站不混用）。
 
 ## 5. Spacing & Grid
 
 - 行動優先單欄 `max-w-md`，桌機放寬至 `max-w-xl`，置中。
-- 區塊間距大（`mt-12`～`mt-14`），段落呼吸感優先於密度。
+- **首頁 hero** 使用 `min-h-[100dvh]`（禁止 `h-screen`），第一視窗只放：品牌、一句標語、一組 CTA；服務說明移到下方。
+- 區塊間距大（`mt-10`～`py-6` 列表節奏），段落呼吸感優先於密度。
 
 ## 6. Shadow / Depth
 
@@ -58,8 +59,9 @@
 
 ## 7. Motion
 
-- 進場 `.rise`（由下淡入）+ `animation-delay` 交錯（每階 ~100ms）。
+- 進場 `.rise`（由下淡入）+ `animation-delay` 交錯（每階 ~80–100ms）。
 - 晨光 `.sun-breathe` 緩慢呼吸（9s）。
+- 互動使用 `cubic-bezier(0.32,0.72,0,1)`；只 transition 需要的屬性（禁止 `transition-all`）。
 - 全部尊重 `prefers-reduced-motion`。
 
 ## 8. Texture & Atmosphere
