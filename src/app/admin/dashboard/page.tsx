@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Calendar, DollarSign, Users, LogOut, Bell, RefreshCw } from "lucide-react";
+import { Calendar, DollarSign, Users, Bell, RefreshCw } from "lucide-react";
+import { AdminShell } from "@/components/admin/AdminShell";
 import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import type { Branch } from "@/types";
@@ -225,44 +226,25 @@ export default function AdminDashboardPage() {
   const maxTrendCount = Math.max(1, ...trend.map((p) => p.count));
 
   return (
-    <main className="min-h-screen bg-gray-50">
-      <header className="border-b border-gray-200 bg-white">
-        <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-4 py-4">
-          <div className="flex items-center gap-4">
-            <Link
-              href="/admin"
-              className="rounded-lg p-2 text-gray-600 hover:bg-gray-100"
-              aria-label="返回"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Link>
-            <h1 className="text-xl font-bold text-gray-900">儀表板</h1>
-            <Link
-              href="/admin/today"
-              className="rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700"
-            >
-              今日場控
-            </Link>
-          </div>
-          <button
-            type="button"
-            onClick={async () => {
-              await fetch("/api/admin/logout", { method: "POST" });
-              window.location.href = "/admin/login";
-            }}
-            className="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            <LogOut className="h-4 w-4" /> 登出
-          </button>
-        </div>
-      </header>
-
-      <div className="mx-auto max-w-4xl px-4 py-6 space-y-6">
-        <div className="flex flex-wrap items-center gap-4">
+    <>
+    <AdminShell
+      title="儀表板"
+      subtitle="訂位與營運總覽"
+      actions={
+        <Link
+          href="/admin/today"
+          className="rounded-xl bg-amber-600 px-3 py-2 text-sm font-medium text-white transition-[background-color] duration-200 hover:bg-amber-700"
+        >
+          今日場控
+        </Link>
+      }
+    >
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-center gap-3">
           <select
             value={branchId}
             onChange={(e) => setBranchId(e.target.value)}
-            className="rounded-lg border border-gray-300 px-3 py-2"
+            className="rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm focus:border-amber-500 focus:outline-none"
           >
             <option value="">請選擇分店</option>
             {branches.map((b) => (
@@ -273,45 +255,45 @@ export default function AdminDashboardPage() {
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="rounded-lg border border-gray-300 px-3 py-2"
+            className="rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm focus:border-amber-500 focus:outline-none"
           />
         </div>
 
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
             {error}
           </div>
         )}
 
         {loading && (
-          <p className="text-gray-500">載入中…</p>
+          <p className="text-stone-500">載入中…</p>
         )}
 
         {!loading && stats && (
           <>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                <div className="flex items-center gap-2 text-gray-500">
-                  <Calendar className="h-5 w-5" />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
+                <div className="flex items-center gap-2 text-stone-500">
+                  <Calendar className="h-5 w-5 text-amber-700" strokeWidth={1.5} />
                   <span className="text-sm">今日總訂位數</span>
                 </div>
-                <p className="mt-2 text-2xl font-bold text-gray-900">{stats.todayCount}</p>
+                <p className="mt-2 text-2xl font-semibold tabular-nums text-stone-900">{stats.todayCount}</p>
               </div>
-              <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                <div className="flex items-center gap-2 text-gray-500">
-                  <Users className="h-5 w-5" />
+              <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
+                <div className="flex items-center gap-2 text-stone-500">
+                  <Users className="h-5 w-5 text-amber-700" strokeWidth={1.5} />
                   <span className="text-sm">目前使用中包廂</span>
                 </div>
-                <p className="mt-2 text-2xl font-bold text-gray-900">
+                <p className="mt-2 text-2xl font-semibold tabular-nums text-stone-900">
                   {stats.roomsInUseCount} / {stats.totalRooms}
                 </p>
               </div>
-              <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                <div className="flex items-center gap-2 text-gray-500">
-                  <DollarSign className="h-5 w-5" />
+              <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
+                <div className="flex items-center gap-2 text-stone-500">
+                  <DollarSign className="h-5 w-5 text-amber-700" strokeWidth={1.5} />
                   <span className="text-sm">今日預估營收</span>
                 </div>
-                <p className="mt-2 text-2xl font-bold text-gray-900">${stats.todayRevenue}</p>
+                <p className="mt-2 text-2xl font-semibold tabular-nums text-stone-900">${stats.todayRevenue}</p>
               </div>
             </div>
 
@@ -614,7 +596,8 @@ export default function AdminDashboardPage() {
           )}
         </section>
       </div>
+    </AdminShell>
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
-    </main>
+    </>
   );
 }

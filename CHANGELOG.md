@@ -10,6 +10,11 @@
 - 安裝 [Leonxlnx/taste-skill](https://github.com/Leonxlnx/taste-skill)（`design-taste-frontend` / `redesign-existing-projects` / `high-end-visual-design`）
 - 客人首頁改為 full-viewport hero、服務說明改不對稱編號列表；保留 Warm Artisan 品牌色票（見 `docs/internal/design/TASTE_SKILL_ADOPTION.md`）
 
+### Admin UI — Unified AdminShell (2026-07-24)
+- 新增 `AdminShell`（sticky header + 底部場控導覽：今日／付款／首頁／等位／儀表）
+- 後台首頁改為「今日營運」優先入口 + 「系統工具」列表；今日場控／付款審核／儀表板／等位／登入對齊 stone/amber
+- 選取態與連結改離冷色 `blue-*`（付款審核 ring → amber）
+
 ### Commercial Maturity A — Loop 2 (2026-07-15)
 - #213 merged (`f7d81f2`); production deploy blocked by Vercel Hobby daily quota [FACT]
 - Fix `migration-ops-events.sql` `schema_migrations.name` (unblocks KPI table apply)

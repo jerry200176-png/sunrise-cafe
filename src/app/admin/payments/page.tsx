@@ -1,12 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import { ArrowLeft, Check, X, RefreshCw, LogOut, Upload, AlertTriangle, Keyboard } from "lucide-react";
+import { Check, X, RefreshCw, Upload, AlertTriangle, Keyboard } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { parseLineImageMessageId } from "@/lib/payment-event-payload";
 import type { AdminPaymentInteraction } from "@/lib/ops-log";
+import { AdminShell } from "@/components/admin/AdminShell";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 
 type PendingItem = {
@@ -228,29 +228,26 @@ export default function AdminPaymentsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link href="/admin" className="text-gray-600 hover:text-gray-900">
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
-          <h1 className="text-lg font-bold text-gray-900">付款審核</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={load} className="p-2 text-gray-600 hover:bg-gray-100 rounded">
-            <RefreshCw className="w-4 h-4" />
-          </button>
-          <Link href="/api/admin/logout" className="p-2 text-gray-600 hover:bg-gray-100 rounded">
-            <LogOut className="w-4 h-4" />
-          </Link>
-        </div>
-      </header>
-
-      <main className="max-w-4xl mx-auto p-4 space-y-6">
+    <>
+    <AdminShell
+      title="付款審核"
+      subtitle={migrationOk === false ? "需先完成 migration" : `待審核 ${items.length} 筆`}
+      actions={
+        <button
+          type="button"
+          onClick={() => void load()}
+          className="flex h-10 w-10 items-center justify-center rounded-xl text-stone-500 transition-[background-color] duration-200 hover:bg-stone-100"
+          aria-label="重新整理"
+        >
+          <RefreshCw className="h-4 w-4" strokeWidth={1.5} />
+        </button>
+      }
+    >
+      <div className="space-y-6">
         {migrationOk === false && (
-          <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900">
-            <p className="font-bold flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4" /> 資料庫 migration 尚未完成
+          <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
+            <p className="font-semibold flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" strokeWidth={1.5} /> 資料庫 migration 尚未完成
             </p>
             <p className="text-sm mt-2">
               請至 Supabase SQL Editor 執行 <code className="bg-white px-1 rounded">supabase/migration-payment-events.sql</code>
@@ -259,15 +256,15 @@ export default function AdminPaymentsPage() {
         )}
 
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-800 text-sm">{error}</div>
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-red-800 text-sm" role="alert">{error}</div>
         )}
 
-        <section className="bg-white rounded-lg border p-4">
-          <h2 className="font-bold text-gray-900 mb-3">待審核付款 ({items.length})</h2>
+        <section className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
+          <h2 className="font-semibold text-stone-900 mb-3">待審核付款 ({items.length})</h2>
           {loading ? (
-            <p className="text-gray-500 text-sm">載入中…</p>
+            <p className="text-stone-500 text-sm">載入中…</p>
           ) : items.length === 0 ? (
-            <p className="text-gray-500 text-sm">目前無待審核項目</p>
+            <p className="text-stone-500 text-sm">目前無待審核項目</p>
           ) : (
             <ul className="space-y-3">
               {items.map((item, index) => (
@@ -276,29 +273,29 @@ export default function AdminPaymentsPage() {
                   ref={(el) => {
                     itemRefs.current[index] = el;
                   }}
-                  className={`border rounded-lg p-3 transition-shadow ${
+                  className={`rounded-xl border p-3 transition-[box-shadow,border-color,background-color] duration-200 ${
                     index === selectedIndex
-                      ? "ring-2 ring-blue-500 border-blue-300 bg-blue-50/40"
-                      : ""
+                      ? "border-amber-300 bg-amber-50/50 ring-2 ring-amber-500/70"
+                      : "border-stone-200"
                   }`}
                   onClick={() => setSelectedIndex(index)}
                 >
                   <div className="flex flex-wrap justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2 mb-1">
-                        <p className="font-bold">{item.customer_name}</p>
-                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                        <p className="font-semibold text-stone-900">{item.customer_name}</p>
+                        <span className="rounded-full bg-stone-100 px-2 py-0.5 text-xs text-stone-600">
                           {item.source === "line_image" ? "LINE 截圖" : item.source === "line_text" ? "LINE 文字" : item.source}
                         </span>
                       </div>
-                      <p className="text-sm text-gray-600">
+                      <p className="text-sm text-stone-600">
                         代號 {item.booking_code} · {item.phone}
                       </p>
-                      <p className="text-sm text-gray-600">
+                      <p className="text-sm text-stone-600">
                         {format(parseISO(item.start_time), "yyyy/MM/dd HH:mm", { locale: zhTW })}
                         {item.deposit_amount != null && ` · 訂金 NT$${item.deposit_amount}`}
                       </p>
-                      <p className="text-xs text-gray-400 mt-1">
+                      <p className="text-xs text-stone-400 mt-1">
                         提交於 {format(parseISO(item.created_at), "MM/dd HH:mm", { locale: zhTW })}
                       </p>
                       {item.source === "line_image" ? (
@@ -308,16 +305,16 @@ export default function AdminPaymentsPage() {
                             <img
                               src={`/api/admin/payments/${item.id}/image`}
                               alt="付款截圖"
-                              className="max-w-xs rounded border border-gray-200"
+                              className="max-w-xs rounded-lg border border-stone-200"
                             />
                           </div>
                         ) : (
-                          <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                          <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
                             截圖未存入後台（舊版紀錄），請至 LINE 群組核對付款截圖後再核准。
                           </p>
                         )
                       ) : item.raw_payload?.trim() ? (
-                        <p className="mt-2 rounded border border-gray-200 bg-gray-50 px-2 py-1.5 text-xs text-gray-800 whitespace-pre-wrap break-words">
+                        <p className="mt-2 rounded-lg border border-stone-200 bg-stone-50 px-2 py-1.5 text-xs text-stone-800 whitespace-pre-wrap break-words">
                           客人訊息：{item.raw_payload.trim()}
                         </p>
                       ) : null}
@@ -326,16 +323,16 @@ export default function AdminPaymentsPage() {
                       <button
                         type="button"
                         onClick={() => approve(item.id)}
-                        className="inline-flex items-center gap-1 rounded bg-green-600 text-white px-3 py-1.5 text-sm font-medium hover:bg-green-700"
+                        className="inline-flex items-center gap-1 rounded-xl bg-emerald-600 text-white px-3 py-1.5 text-sm font-medium transition-[background-color] duration-200 hover:bg-emerald-700"
                       >
-                        <Check className="w-4 h-4" /> 核准
+                        <Check className="w-4 h-4" strokeWidth={1.5} /> 核准
                       </button>
                       <button
                         type="button"
                         onClick={() => setRejectId(item.id)}
-                        className="inline-flex items-center gap-1 rounded border border-red-300 text-red-700 px-3 py-1.5 text-sm hover:bg-red-50"
+                        className="inline-flex items-center gap-1 rounded-xl border border-red-300 text-red-700 px-3 py-1.5 text-sm transition-[background-color] duration-200 hover:bg-red-50"
                       >
-                        <X className="w-4 h-4" /> 駁回
+                        <X className="w-4 h-4" strokeWidth={1.5} /> 駁回
                       </button>
                     </div>
                   </div>
@@ -343,7 +340,7 @@ export default function AdminPaymentsPage() {
                     <div className="mt-3 flex gap-2">
                       <input
                         ref={rejectInputRef}
-                        className="flex-1 border rounded px-2 py-1 text-sm"
+                        className="flex-1 rounded-xl border border-stone-300 px-2 py-1.5 text-sm focus:border-amber-500 focus:outline-none"
                         placeholder="駁回原因（必填）"
                         value={rejectNote}
                         onChange={(e) => setRejectNote(e.target.value)}
@@ -351,7 +348,7 @@ export default function AdminPaymentsPage() {
                       <button
                         type="button"
                         onClick={() => reject(item.id)}
-                        className="text-sm bg-red-600 text-white px-3 rounded"
+                        className="rounded-xl bg-red-600 px-3 text-sm text-white transition-[background-color] duration-200 hover:bg-red-700"
                       >
                         確認駁回
                       </button>
@@ -362,66 +359,67 @@ export default function AdminPaymentsPage() {
             </ul>
           )}
           {items.length > 0 && (
-            <p className="mt-4 flex items-center gap-2 text-xs text-gray-500">
-              <Keyboard className="w-3.5 h-3.5 shrink-0" />
+            <p className="mt-4 flex items-center gap-2 text-xs text-stone-500">
+              <Keyboard className="w-3.5 h-3.5 shrink-0" strokeWidth={1.5} />
               <span>
-                <kbd className="px-1 rounded bg-gray-100">↑</kbd>/<kbd className="px-1 rounded bg-gray-100">↓</kbd> 或{" "}
-                <kbd className="px-1 rounded bg-gray-100">j</kbd>/<kbd className="px-1 rounded bg-gray-100">k</kbd> 切換 ·{" "}
-                <kbd className="px-1 rounded bg-gray-100">Enter</kbd>/<kbd className="px-1 rounded bg-gray-100">a</kbd> 核准 ·{" "}
-                <kbd className="px-1 rounded bg-gray-100">r</kbd> 駁回 · <kbd className="px-1 rounded bg-gray-100">Esc</kbd> 取消
+                <kbd className="px-1 rounded bg-stone-100">↑</kbd>/<kbd className="px-1 rounded bg-stone-100">↓</kbd> 或{" "}
+                <kbd className="px-1 rounded bg-stone-100">j</kbd>/<kbd className="px-1 rounded bg-stone-100">k</kbd> 切換 ·{" "}
+                <kbd className="px-1 rounded bg-stone-100">Enter</kbd>/<kbd className="px-1 rounded bg-stone-100">a</kbd> 核准 ·{" "}
+                <kbd className="px-1 rounded bg-stone-100">r</kbd> 駁回 · <kbd className="px-1 rounded bg-stone-100">Esc</kbd> 取消
               </span>
             </p>
           )}
         </section>
 
-        <section className="bg-white rounded-lg border p-4">
-          <h2 className="font-bold text-gray-900 mb-2 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-600" />
+        <section className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
+          <h2 className="mb-2 flex items-center gap-2 font-semibold text-stone-900">
+            <AlertTriangle className="w-4 h-4 text-amber-600" strokeWidth={1.5} />
             訂金逾期風險（不自動取消）
           </h2>
           {risk.length === 0 ? (
-            <p className="text-sm text-gray-500">無未付訂金訂位</p>
+            <p className="text-sm text-stone-500">無未付訂金訂位</p>
           ) : (
-            <ul className="text-sm space-y-2">
+            <ul className="space-y-2 text-sm">
               {risk.map((r) => (
                 <li
                   key={r.booking_code}
-                  className={r.would_auto_release ? "text-red-700 font-medium" : "text-gray-700"}
+                  className={r.would_auto_release ? "font-medium text-red-700" : "text-stone-700"}
                 >
                   {r.booking_code} {r.customer_name} · 期限{" "}
                   {format(parseISO(r.deadline), "MM/dd HH:mm", { locale: zhTW })}
-                  {r.would_auto_release ? " · ⚠️ 下次 Cron 將自動釋放" : ""}
+                  {r.would_auto_release ? " · 下次 Cron 將自動釋放" : ""}
                 </li>
               ))}
             </ul>
           )}
         </section>
 
-        <section className="bg-white rounded-lg border p-4">
-          <h2 className="font-bold text-gray-900 mb-3">銀行 CSV 對帳（MVP）</h2>
-          <label className="inline-flex items-center gap-2 cursor-pointer text-sm text-blue-700">
-            <Upload className="w-4 h-4" />
+        <section className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
+          <h2 className="mb-3 font-semibold text-stone-900">銀行 CSV 對帳（MVP）</h2>
+          <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-amber-800">
+            <Upload className="w-4 h-4" strokeWidth={1.5} />
             上傳 CSV
             <input type="file" accept=".csv,text/csv" className="hidden" onChange={uploadCsv} />
           </label>
           {reconcileResult && (
-            <div className="mt-3 text-sm space-y-2">
+            <div className="mt-3 space-y-2 text-sm">
               <p>共 {reconcileResult.bank_rows} 筆 · 建議配對 {reconcileResult.matches.length} 筆</p>
               {reconcileResult.matches.map((m, i) => (
-                <p key={i} className="text-green-700">
+                <p key={i} className="text-emerald-700">
                   {m.booking_code} {m.customer_name} · NT${m.bank_amount} ({m.confidence})
                 </p>
               ))}
               {reconcileResult.unmatched.map((u, i) => (
-                <p key={i} className="text-gray-500">
+                <p key={i} className="text-stone-500">
                   未配對 NT${u.amount}: {u.reason}
                 </p>
               ))}
             </div>
           )}
         </section>
-      </main>
+      </div>
+    </AdminShell>
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
-    </div>
+    </>
   );
 }

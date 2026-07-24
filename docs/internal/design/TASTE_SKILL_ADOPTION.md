@@ -45,4 +45,11 @@ npx skills add https://github.com/Leonxlnx/taste-skill \
 - CTA 巢狀箭頭圓、指定 transition 屬性、press scale
 - LanguageSwitcher 對齊 `caramel` / `ink` token
 
-後台與訂位多步驟表單不在本輪範圍。
+## 4. 本輪已落地（後台）
+
+- 新增 `src/components/admin/AdminShell.tsx`：統一 sticky header + 底部場控導覽
+- 已接入：`/admin`、`/admin/today`、`/admin/payments`、`/admin/dashboard`、`/admin/waitlist`；登入頁對齊 stone/amber
+- 後台首頁改「今日營運」優先 + 「系統工具」列表（不再 8 格等寬 shortcut）
+- 其餘頁（orders/menu/tables/…）可逐步遷入同一 shell
+
+後台色票仍依 DESIGN.md：`stone` / `amber`（營運密度優先）。
