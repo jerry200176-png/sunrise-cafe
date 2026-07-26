@@ -21,11 +21,18 @@ gh pr create --title "feat: ..." --body "..."
 # 4. CI 通過、功能確認後合併 PR
 gh pr merge <PR號> --squash
 
-# 5. main 合併後 Vercel 自動部署正式環境
+# 5. main 合併後由唯一 production deploy owner 部署正式環境
 #    ⚠️ 合併後務必確認 /api/version 的 commit 與 main HEAD 一致（見下方「合併但未上線」）
 ```
 
 **每個 PR 都有專屬 Preview URL**（格式：`https://sunrise-cafe-xxxxx.vercel.app`），可在正式部署前完整測試。
+
+### 部署責任與 Vercel 配額
+
+- `Production deploy and migrate` 是唯一會從 GitHub Actions 啟動 production deploy 的 workflow，並以 concurrency group 序列化。
+- `Verify Production` 只讀取 `/api/version`、health 與 migration drift；它不會 deploy、不會 retry deploy，也不會寫 production 資料。
+- Pull request preview 與只改文件／治理／workflow 的 commit 由 `scripts/vercel-ignored-build.sh` 跳過，避免消耗 Vercel build quota。
+- 同一個 GitHub repository 綁定多個 Vercel project 是帳號層級問題；請依 [Vercel deployment-cap checklist](./ops/VERCEL_DEPLOYMENT_CAP_CHECKLIST.md) 清理，勿以升級方案取代清理。
 
 ### 合併但未上線（Merged ≠ Deployed）
 
@@ -36,7 +43,7 @@ curl -s https://sunrise-cafe-six.vercel.app/api/version
 # commit 應等於 git rev-parse origin/main
 ```
 
-**手動恢復：**
+**手動恢復（Founder / 有 Vercel 權限者）：**
 
 ```bash
 git checkout main && git pull
