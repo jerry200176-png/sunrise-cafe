@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "provenance_type": "human-authored",
-  "declared_at": "2026-07-27T03:55:00Z",
+  "declared_at": "2026-07-27T04:25:00Z",
   "author": "jerry-github-operator-audit",
-  "note": "Phase 9 low-risk CI hygiene: agent-provenance concurrency + contents:read. Portfolio audit 2026-07."
+  "note": "Phase 9 CI hygiene after main sync: remove stale taste-skill agent manifest that blocked human-authored provenance; agent-provenance concurrency + contents:read."
 }
