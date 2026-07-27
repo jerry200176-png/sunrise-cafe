@@ -1,4 +1,4 @@
-# Post-merge production verification (read-only for DB / migration metadata)
+# Post-merge production verification (read-only for production and DB metadata)
 # 1) Deploy SHA must match main (required)
 # 2) Migration drift via PostgREST HTTP (required when Supabase secrets present)
 # Catches "merged to main but Vercel did not deploy" (see docs/incidents/2026-07-09-vercel-merge-deploy-gap.md)
@@ -32,15 +32,13 @@ jobs:
           cache: npm
       - run: npm ci
 
-      - name: Poll production version (auto-deploy on drift)
+      - name: Poll production version
         env:
           PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
           EXPECTED_SHA: ${{ github.sha }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
           echo "Expected: $EXPECTED_SHA"
-          DEPLOYED=0
           ACTUAL=""
           for i in $(seq 1 40); do
             ACTUAL=$(curl -sf "$PRODUCTION_URL/api/version" | jq -r '.commit // empty' || true)
@@ -49,22 +47,9 @@ jobs:
               echo "Production matches main HEAD."
               exit 0
             fi
-            if [ "$i" -ge 3 ] && [ "$DEPLOYED" -eq 0 ] && [ -n "${VERCEL_TOKEN:-}" ]; then
-              echo "SHA drift — triggering vercel deploy --prod"
-              DEPLOYED=1
-              bash scripts/orchestrator/deploy.sh --wait 420 || true
-            fi
             sleep 30
           done
-          if [ -n "${VERCEL_TOKEN:-}" ]; then
-            bash scripts/orchestrator/deploy.sh --wait 90 || true
-            ACTUAL=$(curl -sf "$PRODUCTION_URL/api/version" | jq -r '.commit // empty' || true)
-            if [ "$ACTUAL" = "$EXPECTED_SHA" ]; then
-              echo "Production matches main after final deploy attempt."
-              exit 0
-            fi
-          fi
-          echo "::error::Production ($ACTUAL) ≠ main ($EXPECTED_SHA) after retries — failing Verify Production"
+          echo "::error::Production ($ACTUAL) ≠ main ($EXPECTED_SHA) after polling. Production deploy and migrate is the sole deploy owner."
           exit 1
 
       - name: Smoke — auth on reservation PATCH

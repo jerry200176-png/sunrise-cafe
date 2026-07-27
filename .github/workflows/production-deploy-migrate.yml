@@ -8,6 +8,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Serialize the sole repository-controlled production deploy writer.
+# Verification is intentionally read-only and never competes for Vercel quota.
+concurrency:
+  group: production-deploy-main
+  cancel-in-progress: false
+
 jobs:
   deploy:
     name: Vercel production deploy
