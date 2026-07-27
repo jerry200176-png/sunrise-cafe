@@ -8,7 +8,7 @@ export function LanguageSwitcher({ className = "" }: { className?: string }) {
 
   return (
     <div
-      className={`inline-flex items-center gap-1 rounded-full border border-stone-200 bg-white/70 p-1 text-xs ${className}`}
+      className={`inline-flex items-center gap-1 rounded-full border border-ink/10 bg-white/60 p-1 text-xs backdrop-blur-[2px] ${className}`}
       role="group"
       aria-label="Language"
     >
@@ -19,10 +19,10 @@ export function LanguageSwitcher({ className = "" }: { className?: string }) {
           onClick={() => setLocale(l.code)}
           aria-current={locale === l.code ? "true" : undefined}
           aria-label={l.label}
-          className={`min-h-[44px] min-w-[44px] rounded-full px-3 py-2 font-medium transition-colors ${
+          className={`min-h-[44px] min-w-[44px] rounded-full px-3 py-2 font-medium transition-[background-color,color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.97] ${
             locale === l.code
-              ? "bg-amber-600 text-white"
-              : "text-stone-500 hover:bg-amber-50"
+              ? "bg-caramel-deep text-paper"
+              : "text-ink-faint hover:bg-paper-deep hover:text-ink-soft"
           }`}
         >
           {l.label}

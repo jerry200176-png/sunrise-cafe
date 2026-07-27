@@ -23,7 +23,12 @@ test.describe("後台（需已登入）", () => {
   async function loginAdmin(page: import("@playwright/test").Page) {
     await page.goto("/admin/login");
     await page.locator("input[type='password']").fill(process.env.E2E_ADMIN_PASSWORD!);
-    await page.getByRole("button", { name: /登入/ }).click();
+    await Promise.all([
+      page.waitForURL((url) => url.pathname === "/admin" || url.pathname.startsWith("/admin/")),
+      page.getByRole("button", { name: /登入/ }).click(),
+    ]);
+    // Ensure we left the login screen (cookie set) before navigating further.
+    await expect(page).not.toHaveURL(/\/admin\/login$/);
   }
 
   test("付款審核頁在登入後可開啟", async ({ page }) => {

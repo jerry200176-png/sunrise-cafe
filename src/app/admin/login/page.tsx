@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { ArrowLeft, Lock } from "lucide-react";
 
 export default function AdminLoginPage() {
@@ -36,17 +37,20 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
+    <main className="flex min-h-[100dvh] flex-col items-center justify-center bg-stone-100 px-4">
       <div className="w-full max-w-sm">
-        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          <div className="flex justify-center text-gray-500">
-            <Lock className="h-12 w-12" aria-hidden />
+        <div className="overflow-hidden rounded-3xl border border-stone-200 bg-white shadow-[0_20px_50px_-28px_rgba(68,64,60,0.45)]">
+          <div className="border-b border-stone-100 bg-gradient-to-br from-amber-50 to-white px-6 pb-5 pt-7 text-center">
+            <div className="relative mx-auto h-14 w-14">
+              <Image src="/logo.webp" alt="昇咖啡" fill className="object-contain" priority />
+            </div>
+            <h1 className="mt-4 text-xl font-semibold tracking-tight text-stone-900">後台登入</h1>
+            <p className="mt-1 text-sm text-stone-500">昇咖啡營運中樞</p>
           </div>
-          <h1 className="mt-4 text-center text-xl font-bold text-gray-900">後台登入</h1>
-          <p className="mt-1 text-center text-sm text-gray-500">請輸入後台密碼</p>
-          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4 px-6 py-6">
             <div>
-              <label htmlFor="admin-password" className="mb-1.5 block text-sm font-medium text-gray-700">
+              <label htmlFor="admin-password" className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-stone-700">
+                <Lock className="h-3.5 w-3.5 text-amber-700" strokeWidth={1.5} />
                 密碼
               </label>
               <input
@@ -54,8 +58,8 @@ export default function AdminLoginPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="密碼"
-                className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 placeholder-gray-400 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                placeholder="請輸入後台密碼"
+                className="w-full rounded-xl border border-stone-300 px-4 py-3 text-stone-900 placeholder-stone-400 transition-[border-color,box-shadow] duration-200 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
                 autoComplete="current-password"
                 required
               />
@@ -68,18 +72,18 @@ export default function AdminLoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-lg bg-amber-600 py-3 font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+              className="w-full rounded-xl bg-amber-600 py-3 font-medium text-white transition-[background-color,transform] duration-200 hover:bg-amber-700 active:scale-[0.99] disabled:opacity-50"
             >
               {loading ? "驗證中…" : "登入"}
             </button>
           </form>
-          <Link
-            href="/"
-            className="mt-4 flex min-h-[44px] items-center justify-center gap-2 rounded-lg text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-700"
-          >
-            <ArrowLeft className="h-4 w-4" aria-hidden /> 返回首頁
-          </Link>
         </div>
+        <Link
+          href="/"
+          className="mt-5 flex min-h-[44px] items-center justify-center gap-2 rounded-xl text-sm text-stone-500 transition-[color,background-color] duration-200 hover:bg-white/70 hover:text-stone-700"
+        >
+          <ArrowLeft className="h-4 w-4" strokeWidth={1.5} aria-hidden /> 返回首頁
+        </Link>
       </div>
     </main>
   );

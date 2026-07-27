@@ -76,29 +76,35 @@ npx skills add nutlope/hallmark
 
 ---
 
-## 5. 與其他參考的分工
+## 5. Taste Skill（2026-07-24）
+
+另見 [`TASTE_SKILL_ADOPTION.md`](./TASTE_SKILL_ADOPTION.md)。與本文件相同原則：**audit / elevate within brand**，不以外部 skill 覆蓋 `DESIGN.md` 色票與字體。
+
+## 6. 與其他參考的分工
 
 | 參考 | 角色 |
 |------|------|
 | [`DESIGN.md`](../../../DESIGN.md) | 品牌 SSOT（色、字、元件） |
 | [awesome-design-md](https://github.com/VoltAgent/awesome-design-md) | 文件結構方法論 |
 | **Hallmark** | Anti-slop 稽核與 agent 自檢 |
+| **Taste Skill** | Agent 品味／redesign 教練（見 TASTE_SKILL_ADOPTION.md） |
 | [AI-company](https://github.com/CronusL-1141/AI-company) | 工程自主運轉（與 UI 無關） |
 
 ---
 
-## 6. 建議工作流（Agent / 人）
+## 7. 建議工作流（Agent / 人）
 
 1. 改 UI 前讀 `DESIGN.md`
 2. 改完跑 `npm run design:audit`
-3. 大改版前可選 `hallmark audit src/app/admin`（上游 skill）
-4. **禁止**在未讀 DESIGN.md 的情況下執行 hallmark default build
+3. 大改版前可選 taste-skill redesign audit 或 `hallmark audit`
+4. **禁止**在未讀 DESIGN.md 的情況下執行外部 skill 的 default theme build
 
 ---
 
-## 7. 相關指令
+## 8. 相關指令
 
 | 指令 | 說明 |
 |------|------|
 | `npm run design:audit` | 本 repo slop 掃描 |
+| `npx skills add https://github.com/Leonxlnx/taste-skill` | 安裝 Taste Skill（已採納子集） |
 | `npx skills add nutlope/hallmark` | 安裝完整 Hallmark skill（可選） |
