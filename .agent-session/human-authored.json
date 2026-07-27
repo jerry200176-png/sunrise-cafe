@@ -1,6 +1,7 @@
 {
   "schema_version": "1.0",
   "provenance_type": "human-authored",
-  "declared_at": "2026-07-19T01:45:00Z",
-  "note": "Phase 2 close-first: booking fetch timeout from PR #200 onto current main"
+  "declared_at": "2026-07-27T03:55:00Z",
+  "author": "jerry-github-operator-audit",
+  "note": "Phase 9 low-risk CI hygiene: agent-provenance concurrency + contents:read. Portfolio audit 2026-07."
 }
