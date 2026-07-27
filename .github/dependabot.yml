@@ -22,9 +22,17 @@ updates:
         update-types:
           - minor
           - patch
-    # Major upgrades require an explicit migration plan, owner, and production
-    # verification. Dependabot keeps routine patch/minor maintenance grouped
-    # above without flooding the queue with breaking-change proposals.
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        update-types:
+          - minor
+          - patch

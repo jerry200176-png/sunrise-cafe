@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "provenance_type": "human-authored",
-  "declared_at": "2026-07-27T04:25:00Z",
+  "declared_at": "2026-07-27T04:40:00Z",
   "author": "jerry-github-operator-audit",
-  "note": "Phase 9 CI hygiene after main sync: remove stale taste-skill agent manifest that blocked human-authored provenance; agent-provenance concurrency + contents:read."
+  "note": "Tier 0 SHA pin wave 1 + Dependabot github-actions weekly. Remove stale agent manifest precedence by refreshing human-authored."
 }
