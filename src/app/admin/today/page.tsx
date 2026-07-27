@@ -3,15 +3,14 @@
 import { useCallback, useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import {
-  ArrowLeft,
   Clock,
   DollarSign,
-  LogOut,
   Phone,
   RefreshCw,
   Users,
   AlertTriangle,
 } from "lucide-react";
+import { AdminShell } from "@/components/admin/AdminShell";
 
 type TodayBundle = {
   date: string;
@@ -133,50 +132,45 @@ export default function AdminTodayPage() {
   }, [load]);
 
   const s = data?.summary;
+  const subtitle = loading && !data
+    ? "載入中…"
+    : data?.date
+      ? `${data.date} · 尖峰一屏完成`
+      : "尖峰一屏完成";
 
   return (
-    <div className="min-h-screen bg-stone-100 text-stone-900">
-      <header className="sticky top-0 z-20 border-b border-stone-200 bg-white/95 px-3 py-3 backdrop-blur safe-area-pad">
-        <div className="mx-auto flex max-w-lg items-center gap-2">
-          <Link href="/admin/dashboard" className="rounded-lg p-2 hover:bg-stone-100" aria-label="返回">
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-base font-semibold tracking-tight">今日場控</h1>
-            <p className="truncate text-xs text-stone-500">{data?.date ?? "—"} · 尖峰一屏完成</p>
-          </div>
-          <button
-            type="button"
-            onClick={load}
-            disabled={loading || pending}
-            className="rounded-lg p-2 hover:bg-stone-100 disabled:opacity-50"
-            aria-label="重新整理"
+    <AdminShell
+      title="今日場控"
+      subtitle={subtitle}
+      maxWidth="lg"
+      actions={
+        <button
+          type="button"
+          onClick={load}
+          disabled={loading || pending}
+          className="flex h-10 w-10 items-center justify-center rounded-xl text-stone-500 transition-[background-color] duration-200 hover:bg-stone-100 disabled:opacity-50"
+          aria-label="重新整理"
+        >
+          <RefreshCw className={`h-5 w-5 ${loading || pending ? "animate-spin" : ""}`} strokeWidth={1.5} />
+        </button>
+      }
+      headerExtra={
+        branches.length > 1 ? (
+          <select
+            className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-sm transition-[border-color] duration-200 focus:border-amber-500 focus:outline-none"
+            value={branchId}
+            onChange={(e) => setBranchId(e.target.value)}
+            aria-label="分店"
           >
-            <RefreshCw className={`h-5 w-5 ${loading || pending ? "animate-spin" : ""}`} />
-          </button>
-          <Link href="/admin/login" className="rounded-lg p-2 hover:bg-stone-100" aria-label="登出">
-            <LogOut className="h-5 w-5" />
-          </Link>
-        </div>
-        {branches.length > 1 && (
-          <div className="mx-auto mt-2 max-w-lg">
-            <select
-              className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm"
-              value={branchId}
-              onChange={(e) => setBranchId(e.target.value)}
-              aria-label="分店"
-            >
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-      </header>
-
-      <main className="mx-auto max-w-lg space-y-4 px-3 py-4 pb-24">
+            {branches.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        ) : undefined
+      }
+    >
         {error && (
           <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-3 text-sm text-rose-800" role="alert">
             {error}
@@ -208,6 +202,7 @@ export default function AdminTodayPage() {
           </div>
         )}
 
+        <div className="space-y-4">
         {s && (
           <section aria-label="今日摘要" className="grid grid-cols-2 gap-2">
             {[
@@ -216,12 +211,12 @@ export default function AdminTodayPage() {
               { label: "未付訂金", value: s.unpaid_deposit, icon: DollarSign },
               { label: "待審核", value: s.pending_payment_reviews, icon: AlertTriangle },
             ].map((c) => (
-              <div key={c.label} className="rounded-xl bg-white p-3 shadow-sm ring-1 ring-stone-200">
+              <div key={c.label} className="rounded-2xl bg-white p-3.5 shadow-sm ring-1 ring-stone-200/80">
                 <div className="flex items-center gap-2 text-xs text-stone-500">
-                  <c.icon className="h-3.5 w-3.5" />
+                  <c.icon className="h-3.5 w-3.5 text-amber-700" strokeWidth={1.5} />
                   {c.label}
                 </div>
-                <p className="mt-1 text-2xl font-semibold tabular-nums">{c.value}</p>
+                <p className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-stone-900">{c.value}</p>
               </div>
             ))}
           </section>
@@ -230,19 +225,19 @@ export default function AdminTodayPage() {
         <section className="flex flex-wrap gap-2">
           <Link
             href="/admin/payments"
-            className="rounded-full bg-amber-600 px-3 py-1.5 text-xs font-medium text-white"
+            className="rounded-full bg-amber-600 px-3 py-1.5 text-xs font-medium text-white transition-[background-color] duration-200 hover:bg-amber-700"
           >
             付款審核 {s ? `(${s.pending_payment_reviews})` : ""}
           </Link>
           <Link
             href="/admin/waitlist"
-            className="rounded-full bg-stone-800 px-3 py-1.5 text-xs font-medium text-white"
+            className="rounded-full bg-stone-800 px-3 py-1.5 text-xs font-medium text-white transition-[background-color] duration-200 hover:bg-stone-700"
           >
             候補 {s ? `(${s.waitlist_open})` : ""}
           </Link>
           <Link
             href="/admin/tables"
-            className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium"
+            className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium transition-[border-color,background-color] duration-200 hover:border-amber-300"
           >
             訂位列表
           </Link>
@@ -257,8 +252,8 @@ export default function AdminTodayPage() {
           </p>
         )}
 
-        <section aria-label="即將到店" className="rounded-xl bg-white p-3 shadow-sm ring-1 ring-stone-200">
-          <h2 className="mb-2 text-sm font-semibold">即將到店 / 今日行程</h2>
+        <section aria-label="即將到店" className="rounded-2xl bg-white p-3.5 shadow-sm ring-1 ring-stone-200/80">
+          <h2 className="mb-2 text-sm font-semibold text-stone-800">即將到店 / 今日行程</h2>
           {!(data?.upcoming?.length) && !loading && (
             <p className="text-sm text-stone-500">今日尚無訂位</p>
           )}
@@ -283,9 +278,9 @@ export default function AdminTodayPage() {
                 </div>
                 <a
                   href={telHref(r.phone)}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-stone-100 px-2 py-2 text-xs font-medium"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-stone-100 px-2.5 py-2 text-xs font-medium transition-[background-color] duration-200 hover:bg-amber-50"
                 >
-                  <Phone className="h-3.5 w-3.5" />
+                  <Phone className="h-3.5 w-3.5" strokeWidth={1.5} />
                   打
                 </a>
               </li>
@@ -293,8 +288,8 @@ export default function AdminTodayPage() {
           </ul>
         </section>
 
-        <section aria-label="未付與逾期風險" className="rounded-xl bg-white p-3 shadow-sm ring-1 ring-stone-200">
-          <h2 className="mb-2 text-sm font-semibold">未付訂金 / 逾期風險</h2>
+        <section aria-label="未付與逾期風險" className="rounded-2xl bg-white p-3.5 shadow-sm ring-1 ring-stone-200/80">
+          <h2 className="mb-2 text-sm font-semibold text-stone-800">未付訂金 / 逾期風險</h2>
           {!(data?.unpaid?.length) && !loading && (
             <p className="text-sm text-stone-500">目前沒有未付訂金的今日訂位</p>
           )}
@@ -316,7 +311,7 @@ export default function AdminTodayPage() {
                     )}
                   </p>
                 </div>
-                <a href={telHref(r.phone)} className="rounded-lg bg-amber-50 px-2 py-2 text-xs text-amber-800">
+                <a href={telHref(r.phone)} className="rounded-xl bg-amber-50 px-2.5 py-2 text-xs text-amber-800 transition-[background-color] duration-200 hover:bg-amber-100">
                   催繳
                 </a>
               </li>
@@ -324,8 +319,8 @@ export default function AdminTodayPage() {
           </ul>
         </section>
 
-        <section aria-label="候補" className="rounded-xl bg-white p-3 shadow-sm ring-1 ring-stone-200">
-          <h2 className="mb-2 text-sm font-semibold">候補待處理</h2>
+        <section aria-label="候補" className="rounded-2xl bg-white p-3.5 shadow-sm ring-1 ring-stone-200/80">
+          <h2 className="mb-2 text-sm font-semibold text-stone-800">候補待處理</h2>
           {!(data?.waitlist?.length) && !loading && (
             <p className="text-sm text-stone-500">目前無候補</p>
           )}
@@ -339,14 +334,14 @@ export default function AdminTodayPage() {
                     {!w.line_user_id ? " · 需人工致電" : " · 有 LINE"}
                   </p>
                 </div>
-                <a href={telHref(w.phone)} className="rounded-lg bg-stone-100 px-2 py-2 text-xs">
-                  <Phone className="h-3.5 w-3.5" />
+                <a href={telHref(w.phone)} className="rounded-xl bg-stone-100 px-2.5 py-2 text-xs transition-[background-color] duration-200 hover:bg-stone-200">
+                  <Phone className="h-3.5 w-3.5" strokeWidth={1.5} />
                 </a>
               </li>
             ))}
           </ul>
         </section>
-      </main>
-    </div>
+        </div>
+    </AdminShell>
   );
 }

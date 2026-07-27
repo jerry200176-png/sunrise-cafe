@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, RefreshCw, LogOut, Clock, Bell, Trash2, Phone } from "lucide-react";
+import { RefreshCw, Clock, Bell, Trash2, Phone } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
+import { AdminShell } from "@/components/admin/AdminShell";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 
@@ -140,31 +141,28 @@ export default function AdminWaitlistPage() {
         : items.filter((i) => i.status === filter);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link href="/admin" className="text-gray-600 hover:text-gray-900">
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
-          <h1 className="text-lg font-bold text-gray-900">等位清單</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={load} className="p-2 text-gray-600 hover:bg-gray-100 rounded">
-            <RefreshCw className="w-4 h-4" />
-          </button>
-          <Link href="/api/admin/logout" className="p-2 text-gray-600 hover:bg-gray-100 rounded">
-            <LogOut className="w-4 h-4" />
-          </Link>
-        </div>
-      </header>
-
-      <main className="max-w-4xl mx-auto p-4 space-y-4">
+    <>
+    <AdminShell
+      title="等位清單"
+      subtitle={loading ? "載入中…" : `${waitingCount} 位等候中`}
+      actions={
+        <button
+          type="button"
+          onClick={() => void load()}
+          className="flex h-10 w-10 items-center justify-center rounded-xl text-stone-500 transition-[background-color] duration-200 hover:bg-stone-100"
+          aria-label="重新整理"
+        >
+          <RefreshCw className="h-4 w-4" strokeWidth={1.5} />
+        </button>
+      }
+    >
+      <div className="space-y-4">
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-800 text-sm">{error}</div>
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">{error}</div>
         )}
 
         {needsCallCount > 0 && (
-          <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-950">
+          <div className="rounded-2xl border border-orange-200 bg-orange-50 p-3 text-sm text-orange-950">
             <p className="font-semibold">有 {needsCallCount} 位等候中客人未綁定 LINE</p>
             <p className="mt-0.5 text-orange-800/90">系統無法自動推播，請來電通知空位。</p>
           </div>
@@ -183,10 +181,10 @@ export default function AdminWaitlistPage() {
               key={key}
               type="button"
               onClick={() => setFilter(key)}
-              className={`min-h-[44px] rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+              className={`min-h-[44px] rounded-full px-3 py-1 text-sm font-medium transition-[background-color,border-color,color] duration-200 ${
                 filter === key
                   ? "bg-amber-600 text-white"
-                  : "bg-white border border-gray-200 text-gray-700 hover:border-amber-300"
+                  : "border border-stone-200 bg-white text-stone-700 hover:border-amber-300"
               }`}
             >
               {label}
@@ -194,17 +192,17 @@ export default function AdminWaitlistPage() {
           ))}
         </div>
 
-        <section className="bg-white rounded-lg border">
+        <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
           {loading ? (
-            <p className="p-4 text-gray-500 text-sm">載入中…</p>
+            <p className="p-4 text-sm text-stone-500">載入中…</p>
           ) : visible.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
-              <Clock className="w-10 h-10 mx-auto mb-2 text-gray-300" />
+            <div className="p-8 text-center text-stone-500">
+              <Clock className="mx-auto mb-2 h-10 w-10 text-stone-300" strokeWidth={1.5} />
               <p className="text-sm">
                 {items.length === 0 ? "目前無等位紀錄" : "此篩選無等位紀錄"}
               </p>
               {items.length === 0 && (
-                <p className="text-xs mt-1 text-gray-400">客人從訂位頁加入等位後會顯示於此</p>
+                <p className="mt-1 text-xs text-stone-400">客人從訂位頁加入等位後會顯示於此</p>
               )}
             </div>
           ) : (
@@ -303,14 +301,15 @@ export default function AdminWaitlistPage() {
           )}
         </section>
 
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-stone-500">
           轉換率可於{" "}
-          <Link href="/admin/executive" className="text-amber-700 hover:underline">
+          <Link href="/admin/executive" className="font-medium text-amber-800 hover:underline">
             Executive
           </Link>{" "}
-          查看 <code className="bg-gray-100 px-1 rounded">waitlist_conversion_pct</code>
+          查看 <code className="rounded bg-stone-100 px-1">waitlist_conversion_pct</code>
         </p>
-      </main>
+      </div>
+    </AdminShell>
       <ConfirmDialog
         open={confirmRemoveId !== null}
         title="移除等位紀錄"
@@ -321,6 +320,6 @@ export default function AdminWaitlistPage() {
         onCancel={() => setConfirmRemoveId(null)}
       />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
-    </div>
+    </>
   );
 }

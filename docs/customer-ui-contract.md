@@ -11,7 +11,8 @@ Evidence: component sources under `src/components/customer/`, page wiring in `sr
 
 | In scope | Out of scope |
 |----------|--------------|
-| `CustomerShell` | Admin UI / AdminShell |
+| `CustomerShell` | — |
+| — | `AdminShell` (`src/components/admin/AdminShell.tsx`) |
 | `BookingStepProgress` | Full brand typography / color SSOT (see `DESIGN.md`) |
 | `EmptyState` | Toast libraries, skeletons, admin tables/modals |
 | Reuse of upstream `CopyBookingCodeButton` | Guarantees not backed by tests or measured audits |

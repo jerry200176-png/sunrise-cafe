@@ -2,13 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
-import { ArrowLeft, Plus, Pencil, Trash2, MapPin, LogOut, ChefHat, UtensilsCrossed, QrCode, Printer, Building2, LayoutGrid, ClipboardList, CalendarDays, CalendarX, BarChart2, Star, DollarSign, Activity, Clock } from "lucide-react";
+import { Plus, Pencil, Trash2, MapPin, ChefHat, UtensilsCrossed, QrCode, Printer, Building2, LayoutGrid, ClipboardList, CalendarDays, CalendarX, BarChart2, Star, DollarSign, Activity, Clock, AlertTriangle, LayoutDashboard } from "lucide-react";
 import type { Branch, Room, RentalNoteSection } from "@/types";
 import { BranchSwitcher } from "@/components/BranchSwitcher";
 import { ReservationList } from "@/components/ReservationList";
 import { AddReservationForm } from "@/components/AddReservationForm";
 import { AdminModal } from "@/components/AdminModal";
+import { AdminShell } from "@/components/admin/AdminShell";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 
@@ -444,96 +444,108 @@ export default function AdminBranchesRoomsPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-gray-50 p-6">
-        <p className="text-gray-500">載入中…</p>
-      </main>
+      <AdminShell title="後台管理" subtitle="載入中…" backHref="/" showLogout={false}>
+        <div className="space-y-3" aria-busy="true" aria-label="載入後台">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="h-24 animate-pulse rounded-2xl bg-stone-200/80" />
+          ))}
+        </div>
+      </AdminShell>
     );
   }
 
   return (
-    <main className="min-h-screen bg-stone-50">
-      {/* Header */}
-      <header className="border-b border-stone-200 bg-white shadow-sm">
-        <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-4 py-3.5">
-          <div className="flex items-center gap-3">
-            <Link href="/" className="rounded-lg p-1.5 text-stone-400 hover:bg-stone-100 hover:text-stone-600" aria-label="返回首頁">
-              <ArrowLeft className="h-5 w-5" />
-            </Link>
-            <div className="flex items-center gap-2.5">
-              <div className="relative h-8 w-8">
-                <Image src="/logo.webp" alt="昇咖啡" fill className="object-contain" />
-              </div>
-              <div>
-                <h1 className="text-base font-semibold tracking-wide text-stone-800">後台管理</h1>
-                <p className="text-[10px] tracking-widest text-stone-400 uppercase">Admin Panel</p>
-              </div>
+    <>
+      <AdminShell
+        title="後台管理"
+        subtitle="昇咖啡 · 營運中樞"
+        backHref="/"
+      >
+        <div className="space-y-6">
+          {/* Floor ops — primary */}
+          <section aria-label="今日營運">
+            <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-500">
+              今日營運
+            </p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[
+                { href: "/admin/today", icon: CalendarDays, label: "今日場控", hint: "尖峰一屏", primary: true },
+                { href: "/admin/payments", icon: DollarSign, label: "付款審核", hint: "截圖核准" },
+                { href: "/admin/waitlist", icon: Clock, label: "等位清單", hint: "候補通知" },
+                { href: "/admin/dashboard", icon: LayoutDashboard, label: "儀表板", hint: "訂位總覽" },
+              ].map(({ href, icon: Icon, label, hint, primary }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  className={`group flex flex-col gap-2 rounded-2xl border p-3.5 transition-[transform,border-color,background-color,box-shadow] duration-200 active:scale-[0.98] ${
+                    primary
+                      ? "border-amber-300/80 bg-gradient-to-br from-amber-600 to-amber-700 text-white shadow-[0_10px_24px_-14px_rgba(180,83,9,0.65)] hover:-translate-y-0.5"
+                      : "border-stone-200 bg-white text-stone-800 shadow-sm hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md"
+                  }`}
+                >
+                  <Icon
+                    className={`h-5 w-5 ${primary ? "text-amber-100" : "text-amber-700"}`}
+                    strokeWidth={1.5}
+                  />
+                  <span className="text-sm font-semibold tracking-wide">{label}</span>
+                  <span className={`text-[11px] ${primary ? "text-amber-100/80" : "text-stone-400"}`}>
+                    {hint}
+                  </span>
+                </Link>
+              ))}
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link
-              href="/admin/dashboard"
-              className="rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100 transition-colors"
-            >
-              儀表板
-            </Link>
-            <button
-              type="button"
-              onClick={async () => {
-                await fetch("/api/admin/logout", { method: "POST" });
-                window.location.href = "/admin/login";
-              }}
-              className="flex items-center gap-1.5 rounded-lg border border-stone-200 px-3 py-2 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors"
-            >
-              <LogOut className="h-4 w-4" /> 登出
-            </button>
-          </div>
-        </div>
-      </header>
+          </section>
 
-      <div className="mx-auto max-w-4xl px-4 py-6 space-y-6">
-
-        {/* 點餐系統快速入口 */}
-        <section className="rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50 to-orange-50/30 p-4">
-          <p className="mb-3 text-xs font-semibold tracking-widest text-amber-700 uppercase">自助點餐系統</p>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {[
-              { href: "/admin/orders", icon: ChefHat, label: "即時訂單" },
-              { href: "/admin/menu", icon: UtensilsCrossed, label: "菜單管理" },
-              { href: "/admin/tables", icon: QrCode, label: "桌位 QR" },
-              { href: "/admin/print-station", icon: Printer, label: "列印站" },
-              { href: "/admin/executive", icon: Activity, label: "Executive" },
-              { href: "/admin/reports", icon: BarChart2, label: "營收報表" },
-              { href: "/admin/payments", icon: DollarSign, label: "付款審核" },
-              { href: "/admin/waitlist", icon: Clock, label: "等位清單" },
-            ].map(({ href, icon: Icon, label }) => (
-              <Link key={href} href={href}
-                className="flex flex-col items-center gap-2 rounded-xl bg-white/80 border border-amber-100 p-3.5 text-sm font-medium text-stone-700 shadow-sm hover:border-amber-300 hover:bg-white hover:shadow-md transition-all"
-              >
-                <Icon className="h-6 w-6 text-amber-600" />
-                {label}
-              </Link>
-            ))}
-          </div>
-        </section>
+          {/* Tools — secondary */}
+          <section aria-label="系統工具">
+            <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-500">
+              系統工具
+            </p>
+            <ul className="divide-y divide-stone-200/80 overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
+              {[
+                { href: "/admin/orders", icon: ChefHat, label: "即時訂單" },
+                { href: "/admin/menu", icon: UtensilsCrossed, label: "菜單管理" },
+                { href: "/admin/tables", icon: QrCode, label: "桌位 QR" },
+                { href: "/admin/print-station", icon: Printer, label: "列印站" },
+                { href: "/admin/reports", icon: BarChart2, label: "營收報表" },
+                { href: "/admin/executive", icon: Activity, label: "Executive" }, // 與 /admin/executive 頁面標題「Executive Dashboard」一致；暫不另造中文名
+              ].map(({ href, icon: Icon, label }) => (
+                <li key={href}>
+                  <Link
+                    href={href}
+                    className="flex items-center gap-3 px-4 py-3.5 text-sm font-medium text-stone-700 transition-[background-color] duration-200 hover:bg-stone-50"
+                  >
+                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-stone-100 text-amber-700 ring-1 ring-stone-200/80">
+                      <Icon className="h-4 w-4" strokeWidth={1.5} />
+                    </span>
+                    <span className="flex-1">{label}</span>
+                    <span className="text-stone-300" aria-hidden>
+                      →
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
 
         {error && (
-          <div className="flex items-center gap-3 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800">
-            <span className="shrink-0 text-base">⚠️</span>
+          <div className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
+            <AlertTriangle className="h-4 w-4 shrink-0" strokeWidth={1.5} />
             {error}
           </div>
         )}
 
         {/* 分店管理 */}
         <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-stone-100 bg-stone-50/50 px-5 py-3.5">
+          <div className="flex items-center justify-between border-b border-stone-100 bg-stone-50/70 px-5 py-3.5">
             <div className="flex items-center gap-2.5">
-              <Building2 className="h-4 w-4 text-blue-500" />
+              <Building2 className="h-4 w-4 text-amber-700" strokeWidth={1.5} />
               <h2 className="text-sm font-semibold tracking-wide text-stone-700">分店管理</h2>
             </div>
             <button
               type="button"
               onClick={openAddBranch}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white transition-[background-color] duration-200 hover:bg-amber-700"
             >
               <Plus className="h-3.5 w-3.5" /> 新增分店
             </button>
@@ -647,7 +659,7 @@ export default function AdminBranchesRoomsPage() {
         <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 bg-stone-50/50 px-5 py-3.5">
             <div className="flex items-center gap-2">
-              <ClipboardList className="h-4 w-4 text-emerald-500" />
+              <ClipboardList className="h-4 w-4 text-amber-700" strokeWidth={1.5} />
               <h2 className="text-sm font-semibold tracking-wide text-stone-700">包廂租借注意事項</h2>
             </div>
             <div className="flex items-center gap-2">
@@ -900,7 +912,8 @@ export default function AdminBranchesRoomsPage() {
             <ReservationList branchId={reservationBranchId} rooms={roomsForReservations} />
           </div>
         </section>
-      </div>
+        </div>
+      </AdminShell>
 
       <AddReservationForm
         branchId={reservationBranchId}
@@ -921,7 +934,7 @@ export default function AdminBranchesRoomsPage() {
         open={branchFormOpen}
         title={editingBranch ? "編輯分店" : "新增分店"}
         onClose={() => setBranchFormOpen(false)}
-        icon={<Building2 className="h-4 w-4 text-blue-500" />}
+        icon={<Building2 className="h-4 w-4 text-amber-600" />}
       >
         <form onSubmit={submitBranch} className="space-y-3">
               <div>
@@ -1040,6 +1053,6 @@ export default function AdminBranchesRoomsPage() {
         onCancel={() => setConfirmDeleteRoomId(null)}
       />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
-    </main>
+    </>
   );
 }
