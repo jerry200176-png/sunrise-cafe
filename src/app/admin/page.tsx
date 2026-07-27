@@ -508,7 +508,7 @@ export default function AdminBranchesRoomsPage() {
                 { href: "/admin/tables", icon: QrCode, label: "桌位 QR" },
                 { href: "/admin/print-station", icon: Printer, label: "列印站" },
                 { href: "/admin/reports", icon: BarChart2, label: "營收報表" },
-                { href: "/admin/executive", icon: Activity, label: "Executive" },
+                { href: "/admin/executive", icon: Activity, label: "Executive" }, // 與 /admin/executive 頁面標題「Executive Dashboard」一致；暫不另造中文名
               ].map(({ href, icon: Icon, label }) => (
                 <li key={href}>
                   <Link

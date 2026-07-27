@@ -132,11 +132,16 @@ export default function AdminTodayPage() {
   }, [load]);
 
   const s = data?.summary;
+  const subtitle = loading && !data
+    ? "載入中…"
+    : data?.date
+      ? `${data.date} · 尖峰一屏完成`
+      : "尖峰一屏完成";
 
   return (
     <AdminShell
       title="今日場控"
-      subtitle={`${data?.date ?? "—"} · 尖峰一屏完成`}
+      subtitle={subtitle}
       maxWidth="lg"
       actions={
         <button

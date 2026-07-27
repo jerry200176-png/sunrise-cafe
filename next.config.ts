@@ -2,6 +2,9 @@ import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
+  // Hide the Next.js Dev Tools "N" badge — it sits bottom-left and overlays
+  // AdminShell's first bottom-nav item (今日) in mobile screenshots / QA.
+  devIndicators: false,
   images: {
     remotePatterns: [
       {

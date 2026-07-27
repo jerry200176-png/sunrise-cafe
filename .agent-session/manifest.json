@@ -4,14 +4,14 @@
   "project": "sunrise",
   "task_id": "taste-skill-home-redesign",
   "repo_remote": "https://github.com/jerry200176-png/sunrise-cafe.git",
-  "base_sha": "327152b5be578625bd507991485f19db88da542b",
+  "base_sha": "65f9ae73f325a7b0dc2e112520b280c111df13d4",
   "branch": "cursor/taste-skill-home-redesign-85c0",
-  "worktree_path": "/workspace",
+  "worktree_path": "/home/jerry/workspace/tasks/sunrise/taste-skill-home-redesign",
   "started_at": "2026-07-24T07:40:00Z",
   "production_mutation": false,
-  "preflight_result": "cloud-agent-bypass",
+  "preflight_result": "pass",
   "provenance_type": "agent-session",
   "agent_cli": "cursor-cloud",
-  "gateway_version": "cloud",
-  "notes": "Installed Leonxlnx/taste-skill (design-taste-frontend, redesign-existing-projects, high-end-visual-design); redesign-preserve home landing within DESIGN.md brand."
+  "gateway_version": "0.5.0",
+  "notes": "PR #253 closeout. Cursor Cloud run bc-019f9311 mirrors task worktree taste-skill-home-redesign. Scope: taste-skill install, guest home, AdminShell + hub/today/payments/dashboard/waitlist/login only."
 }
