@@ -4,6 +4,13 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: agent-provenance-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   provenance:
     name: Agent Session Provenance
