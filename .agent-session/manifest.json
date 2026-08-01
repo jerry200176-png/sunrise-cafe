@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "session_id": "b00b7a58d3d643878ba03388f60a0eff",
+  "project": "sunrise",
+  "task_id": "admin-ux-research-20260801",
+  "repo_remote": "https://github.com/jerry200176-png/sunrise-cafe.git",
+  "base_sha": "6605204efeeae3392883bef85110ebe5949beea2",
+  "branch": "chore/task-admin-ux-research-20260801",
+  "worktree_path": "/home/jerry/workspace/tasks/sunrise/admin-ux-research-20260801",
+  "started_at": "2026-08-01T05:47:08Z",
+  "production_mutation": false,
+  "preflight_result": "pass",
+  "provenance_type": "agent-session",
+  "agent_cli": null,
+  "gateway_version": "0.5.0"
+}
