@@ -1,0 +1,23 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: sunrise-cafe
+  description: Sunrise Cafe operations and ordering platform
+  annotations:
+    github.com/project-slug: jerry200176-png/sunrise-cafe
+    portfolio.company/governance-contract: company-governance-v1
+    portfolio.company/governance-overlay: docs/governance/README.md
+    portfolio.company/source-path: /home/jerry/workspace/sunrise-cafe
+spec:
+  type: service
+  lifecycle: production
+  owner: group:founder
+  system: company-portfolio
+  portfolio:
+    tier: critical
+    data_sensitivity: restricted
+    deploy_target: vercel-supabase
+    health_endpoint: /api/health
+    version_endpoint: /api/version
+    backup_recovery_owner: founder
+    last_verified_at: '2026-08-01T00:00:00+08:00'
