@@ -33,6 +33,13 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: TypeScript typecheck (advisory while baseline burns down)
+        run: npm run typecheck
+        continue-on-error: true
+
+      - name: TypeScript baseline regression gate
+        run: npm run typecheck:baseline
+
       - name: Verify migration artifacts
         run: npm run verify:migrations
 

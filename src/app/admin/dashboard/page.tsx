@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Calendar, DollarSign, Users, Bell, RefreshCw } from "lucide-react";
+import { Calendar, DollarSign, Users, Bell, RefreshCw, ListChecks, ClipboardCheck } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
+import { AdminEmptyState } from "@/components/admin/AdminEmptyState";
 import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import type { Branch } from "@/types";
@@ -61,6 +62,16 @@ interface TimelineData {
 
 const pad2 = (value: number) => String(value).padStart(2, "0");
 
+const taipeiToday = () =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(new Date());
+
+const formatTwd = (value: number) =>
+  new Intl.NumberFormat("zh-TW", {
+    style: "currency",
+    currency: "TWD",
+    maximumFractionDigits: 0,
+  }).format(value);
+
 const parseHm = (
   value: string | null | undefined,
   fallback: { h: number; m: number }
@@ -107,7 +118,8 @@ const buildAxis = (date: string, openTime?: string, closeTime?: string) => {
 export default function AdminDashboardPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchId, setBranchId] = useState("");
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(taipeiToday);
+  const [refreshToken, setRefreshToken] = useState(0);
   const [stats, setStats] = useState<Stats | null>(null);
   const [trend, setTrend] = useState<TrendPoint[]>([]);
   const [trendLoading, setTrendLoading] = useState(false);
@@ -208,7 +220,7 @@ export default function AdminDashboardPage() {
         setLoading(false);
         setTrendLoading(false);
       });
-  }, [branchId, date]);
+  }, [branchId, date, refreshToken]);
 
   const axis = buildAxis(date, timeline?.openTime, timeline?.closeTime);
   const timeToPercent = (iso: string) => {
@@ -224,6 +236,14 @@ export default function AdminDashboardPage() {
       : reminders;
   const maxTrendRevenue = Math.max(1, ...trend.map((p) => p.revenue));
   const maxTrendCount = Math.max(1, ...trend.map((p) => p.count));
+  const unpaidReminderCount = remindersForBranch.filter((r) => !r.is_deposit_paid).length;
+  const awaitingAttendanceCount = remindersForBranch.filter(
+    (r) => !r.guest_confirmed_at && !!r.status && ["pending", "confirmed"].includes(r.status)
+  ).length;
+  const unsentReminderCount = remindersForBranch.filter((r) => !r.is_notified).length;
+  const attentionCount = remindersForBranch.filter(
+    (r) => !r.is_deposit_paid || !r.guest_confirmed_at || !r.is_notified
+  ).length;
 
   return (
     <>
@@ -231,32 +251,63 @@ export default function AdminDashboardPage() {
       title="儀表板"
       subtitle="訂位與營運總覽"
       actions={
-        <Link
-          href="/admin/today"
-          className="rounded-xl bg-amber-600 px-3 py-2 text-sm font-medium text-white transition-[background-color] duration-200 hover:bg-amber-700"
-        >
-          今日場控
-        </Link>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              setRefreshToken((value) => value + 1);
+              void loadReminders();
+            }}
+            disabled={loading || remindersLoading}
+            className="flex h-10 w-10 items-center justify-center rounded-xl text-stone-500 transition-[background-color,color] duration-200 hover:bg-stone-100 hover:text-stone-800 disabled:opacity-50"
+            aria-label="重新整理儀表板"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading || remindersLoading ? "animate-spin" : ""}`} strokeWidth={1.5} />
+          </button>
+          <Link
+            href="/admin/today"
+            className="rounded-xl bg-amber-600 px-3 py-2 text-sm font-medium text-white transition-[background-color] duration-200 hover:bg-amber-700"
+          >
+            今日場控
+          </Link>
+        </div>
       }
     >
       <div className="space-y-6">
-        <div className="flex flex-wrap items-center gap-3">
-          <select
-            value={branchId}
-            onChange={(e) => setBranchId(e.target.value)}
-            className="rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm focus:border-amber-500 focus:outline-none"
-          >
-            <option value="">請選擇分店</option>
-            {branches.map((b) => (
-              <option key={b.id} value={b.id}>{b.name}</option>
-            ))}
-          </select>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm focus:border-amber-500 focus:outline-none"
-          />
+        <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm" aria-label="儀表板篩選">
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="min-w-[10rem] flex-1 text-xs font-medium text-stone-600">
+              分店
+              <select
+                value={branchId}
+                onChange={(e) => setBranchId(e.target.value)}
+                className="mt-1.5 w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-sm text-stone-900 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-100"
+              >
+                <option value="">請選擇分店</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs font-medium text-stone-600">
+              查看日期
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="mt-1.5 block rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-sm text-stone-900 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-100"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => setDate(taipeiToday())}
+              disabled={date === taipeiToday()}
+              className="min-h-11 rounded-xl border border-stone-300 px-3 py-2.5 text-sm font-medium text-stone-700 transition-[background-color,border-color] duration-200 hover:border-amber-300 hover:bg-amber-50 disabled:cursor-default disabled:opacity-45"
+            >
+              今天
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-stone-500">日期與訂位時間以台北時區顯示。</p>
         </div>
 
         {error && (
@@ -271,6 +322,29 @@ export default function AdminDashboardPage() {
 
         {!loading && stats && (
           <>
+            <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4" aria-labelledby="dashboard-attention-heading">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">先處理</p>
+                  <h2 id="dashboard-attention-heading" className="mt-1 text-lg font-semibold text-stone-900">
+                    {attentionCount > 0 ? `${attentionCount} 個營運提醒` : "今天目前沒有待處理提醒"}
+                  </h2>
+                  <p className="mt-1 text-sm text-stone-600">先看風險，再看趨勢與歷史數字。</p>
+                </div>
+                <ListChecks className="h-6 w-6 text-amber-700" strokeWidth={1.5} aria-hidden="true" />
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2 text-xs font-medium">
+                <Link href="/admin/today" className="rounded-full bg-white px-3 py-1.5 text-rose-800 ring-1 ring-rose-200 hover:bg-rose-50">
+                  未付訂金 {unpaidReminderCount}
+                </Link>
+                <Link href="/admin/today" className="rounded-full bg-white px-3 py-1.5 text-amber-900 ring-1 ring-amber-200 hover:bg-amber-50">
+                  待確認出席 {awaitingAttendanceCount}
+                </Link>
+                <span className="rounded-full bg-white px-3 py-1.5 text-stone-700 ring-1 ring-stone-200">
+                  未發明日提醒 {unsentReminderCount}
+                </span>
+              </div>
+            </section>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center gap-2 text-stone-500">
@@ -293,11 +367,11 @@ export default function AdminDashboardPage() {
                   <DollarSign className="h-5 w-5 text-amber-700" strokeWidth={1.5} />
                   <span className="text-sm">今日預估營收</span>
                 </div>
-                <p className="mt-2 text-2xl font-semibold tabular-nums text-stone-900">${stats.todayRevenue}</p>
+                <p className="mt-2 text-2xl font-semibold tabular-nums text-stone-900">{formatTwd(stats.todayRevenue)}</p>
               </div>
             </div>
 
-            <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+            <section className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-lg font-semibold text-gray-900">近 7 日概況</h2>
                 <span className="text-xs text-gray-500">結束日期：{date}</span>
@@ -307,7 +381,11 @@ export default function AdminDashboardPage() {
               ) : trendError ? (
                 <p className="text-sm text-red-600">{trendError}</p>
               ) : trend.length === 0 ? (
-                <p className="text-sm text-gray-500">暫無統計資料</p>
+                <AdminEmptyState
+                  icon={ClipboardCheck}
+                  title="目前沒有趨勢資料"
+                  description="選擇其他日期或先累積幾筆訂位，這裡會顯示營運變化。"
+                />
               ) : (
                 <div className="-mx-1 overflow-x-auto px-1 sm:mx-0 sm:px-0">
                 <div className="flex gap-2 sm:grid sm:grid-cols-7 sm:gap-3">
@@ -344,7 +422,7 @@ export default function AdminDashboardPage() {
                 </div>
                 </div>
               )}
-              <p className="mt-2 text-xs text-gray-500">
+              <p className="mt-2 text-xs text-stone-500">
                 橘色為營收、綠色為訂位筆數
               </p>
             </section>
@@ -445,7 +523,7 @@ export default function AdminDashboardPage() {
         )}
 
         {/* 明日提醒獨立於 stats：儀表板 API 失敗時仍須可操作 */}
-        <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <section id="tomorrow-reminders" className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
               <Bell className="h-5 w-5 text-amber-600" />
@@ -490,7 +568,11 @@ export default function AdminDashboardPage() {
           ) : remindersError ? (
             <p className="text-sm text-red-600">{remindersError}</p>
           ) : remindersForBranch.length === 0 ? (
-            <p className="text-sm text-gray-500">明日無需提醒的訂位</p>
+            <AdminEmptyState
+              icon={Bell}
+              title="明日沒有需要提醒的訂位"
+              description="有新的明日訂位時，提醒名單會出現在這裡。"
+            />
           ) : (
             <ul className="space-y-3">
               {remindersForBranch.map((r) => {
