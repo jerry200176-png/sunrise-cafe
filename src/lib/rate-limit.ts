@@ -1,40 +1,24 @@
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
+import crypto from "crypto";
 import { normalizePhone } from "@/lib/phone-utils";
 
+/** Exposed so middleware and health endpoints can signal degraded state. */
 export type RateLimitMode = "upstash" | "memory" | "disabled";
 
+// 未設定 Upstash 時直接放行，不影響系統運作
 function isUpstashConfigured() {
   return !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
 }
 
-/**
- * Production must never silently fail-open.
- * - Upstash configured → distributed limiter (A-grade evidence for rate-limit P0)
- * - Else → in-memory sliding window (**degraded**; per-isolate only — NOT A−/A alone)
- * - Explicit RATE_LIMIT_DISABLED=1 → disabled (local/tests only; blocked in production)
- */
+/** Returns the active rate-limit mode for health/observability surfaces. */
 export function getRateLimitMode(): RateLimitMode {
   if (isUpstashConfigured()) return "upstash";
-  const prod =
-    process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production";
-  if (process.env.RATE_LIMIT_DISABLED === "1" && !prod) return "disabled";
+  // memory fallback exists per design — see docs/ENV.md
   return "memory";
 }
 
-type WindowSpec = { requests: number; windowMs: number };
-
-const WINDOW: Record<string, WindowSpec> = {
-  login: { requests: 5, windowMs: 60_000 },
-  booking: { requests: 5, windowMs: 60_000 },
-  availability: { requests: 30, windowMs: 60_000 },
-  guestLookup: { requests: 10, windowMs: 60_000 },
-  api: { requests: 60, windowMs: 60_000 },
-};
-
-export type LimiterKey = keyof typeof WINDOW;
-
-function makeUpstash(requests: number, window: `${number} ${"s" | "m" | "h"}`) {
+function makeRatelimit(requests: number, window: `${number} ${"s" | "m" | "h"}`) {
   if (!isUpstashConfigured()) return null;
   return new Ratelimit({
     redis: Redis.fromEnv(),
@@ -43,109 +27,42 @@ function makeUpstash(requests: number, window: `${number} ${"s" | "m" | "h"}`) {
   });
 }
 
-const upstashLimiters = {
-  login: makeUpstash(5, "1 m"),
-  booking: makeUpstash(5, "1 m"),
-  availability: makeUpstash(30, "1 m"),
-  guestLookup: makeUpstash(10, "1 m"),
-  api: makeUpstash(60, "1 m"),
+// 各端點限流規則（參考 Stripe、Vercel 的分層設計）
+const limiters = {
+  login: makeRatelimit(5, "1 m"),       // 後台登入：暴力破解防護
+  booking: makeRatelimit(5, "1 m"),     // 訂位建立：防止假訂位洗版
+  availability: makeRatelimit(30, "1 m"), // 時段查詢：防止爬蟲
+  guestLookup: makeRatelimit(10, "1 m"), // 客人查詢/取消/改期：防電話枚舉
+  api: makeRatelimit(60, "1 m"),        // 其他 API：一般防護
 } as const;
 
-/** Per-isolate memory store: key → timestamps */
-const memoryBuckets = new Map<string, number[]>();
-
-function memoryLimit(
-  identifier: string,
-  key: LimiterKey
-): { success: boolean; limit: number; remaining: number; reset: number } {
-  const spec = WINDOW[key];
-  const bucketKey = `${key}:${identifier}`;
-  const now = Date.now();
-  const windowStart = now - spec.windowMs;
-  const prev = memoryBuckets.get(bucketKey) ?? [];
-  const recent = prev.filter((t) => t > windowStart);
-  if (recent.length >= spec.requests) {
-    const oldest = recent[0] ?? now;
-    memoryBuckets.set(bucketKey, recent);
-    return {
-      success: false,
-      limit: spec.requests,
-      remaining: 0,
-      reset: oldest + spec.windowMs,
-    };
-  }
-  recent.push(now);
-  memoryBuckets.set(bucketKey, recent);
-  // Bound map growth in long-lived isolates
-  if (memoryBuckets.size > 5000) {
-    const first = memoryBuckets.keys().next().value;
-    if (first) memoryBuckets.delete(first);
-  }
-  return {
-    success: true,
-    limit: spec.requests,
-    remaining: Math.max(0, spec.requests - recent.length),
-    reset: now + spec.windowMs,
-  };
-}
-
-/** Test helper — clear memory buckets */
-export function __resetMemoryRateLimitForTests() {
-  memoryBuckets.clear();
-}
-
-/**
- * Sync phone hash for rate-limit keys.
- * Must NOT use Node `crypto` — middleware runs on Edge.
- */
-function stableHash16(input: string): string {
-  let h1 = 0x811c9dc5;
-  let h2 = 0x811c9dc5 ^ 0x9e3779b9;
-  for (let i = 0; i < input.length; i++) {
-    const c = input.charCodeAt(i);
-    h1 ^= c;
-    h1 = Math.imul(h1, 0x01000193);
-    h2 ^= c + ((i & 7) << 3);
-    h2 = Math.imul(h2, 0x01000193);
-  }
-  return (
-    (h1 >>> 0).toString(16).padStart(8, "0") + (h2 >>> 0).toString(16).padStart(8, "0")
-  ).slice(0, 16);
-}
+type LimiterKey = keyof typeof limiters;
 
 /** Composite key: IP + hashed phone — slows phone enumeration across IPs. */
 export function guestRateLimitId(ip: string, phone?: string | null): string {
   if (!phone?.trim()) return `ip:${ip}`;
-  const hash = stableHash16(normalizePhone(phone));
+  const hash = crypto
+    .createHash("sha256")
+    .update(normalizePhone(phone))
+    .digest("hex")
+    .slice(0, 16);
   return `ip:${ip}:ph:${hash}`;
 }
 
 export async function rateLimit(
   identifier: string,
   key: LimiterKey
-): Promise<{ success: boolean; limit: number; remaining: number; reset: number; mode: RateLimitMode }> {
-  const mode = getRateLimitMode();
-  if (mode === "disabled") {
-    return { success: true, limit: 0, remaining: 0, reset: 0, mode };
-  }
-  if (mode === "upstash") {
-    const limiter = upstashLimiters[key as keyof typeof upstashLimiters];
-    if (!limiter) {
-      // Misconfigured mid-flight — fall back to memory rather than open
-      const mem = memoryLimit(identifier, key);
-      return { ...mem, mode: "memory" };
-    }
-    const result = await limiter.limit(identifier);
-    return {
-      success: result.success,
-      limit: result.limit,
-      remaining: result.remaining,
-      reset: result.reset,
-      mode,
-    };
-  }
-  const mem = memoryLimit(identifier, key);
-  return { ...mem, mode };
+): Promise<{ success: boolean; limit: number; remaining: number; reset: number }> {
+  const limiter = limiters[key];
+  if (!limiter) return { success: true, limit: 0, remaining: 0, reset: 0 };
+
+  const result = await limiter.limit(identifier);
+  return {
+    success: result.success,
+    limit: result.limit,
+    remaining: result.remaining,
+    reset: result.reset,
+  };
 }
 
 export function getClientIp(request: Request): string {

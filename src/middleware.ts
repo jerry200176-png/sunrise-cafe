@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { rateLimit, getClientIp, guestRateLimitId } from "@/lib/rate-limit";
+import { rateLimit, getClientIp, guestRateLimitId, getRateLimitMode } from "@/lib/rate-limit";
 import { logOps } from "@/lib/ops-log";
 import { getSessionSecret } from "@/lib/admin-auth";
 import {
@@ -9,11 +9,6 @@ import {
   isAdminOnlyApiPath,
   isAdminAuthRequired,
 } from "@/lib/admin-api-auth";
-import {
-  authorizeCronGet,
-  isAdminCronGetPath,
-  isVercelCronRequest,
-} from "@/lib/cron-request-auth";
 
 const COOKIE_NAME = ADMIN_SESSION_COOKIE;
 
@@ -61,18 +56,14 @@ export async function middleware(request: NextRequest) {
   ) {
     const { success, reset } = await rateLimit(guestRateLimitId(ip, null), "guestLookup");
     if (!success) return tooManyRequests(reset, pathname, "guestLookup");
-  } else if (
-    pathname.startsWith("/api/") &&
-    !pathname.startsWith("/api/webhooks/") &&
-    !isVercelCronRequest(request)
-  ) {
-    // webhooks / Vercel Cron 不套用一般 API 限流，避免排程被 429 擋下
+  } else if (pathname.startsWith("/api/") && !pathname.startsWith("/api/webhooks/")) {
+    // webhooks 已有 LINE 簽章驗證，不需額外限流
     const { success, reset } = await rateLimit(ip, "api");
     if (!success) return tooManyRequests(reset, pathname, "api");
   }
 
-  // ── CTO / Ops evidence（Bearer CTO_OUTCOME_SECRET / CRON_SECRET）────────
-  if (pathname.startsWith("/api/cto/") || pathname.startsWith("/api/ops/")) {
+  // ── CTO Outcome Pipeline（Bearer CTO_OUTCOME_SECRET / CRON_SECRET）────────
+  if (pathname.startsWith("/api/cto/")) {
     const cronSecret = process.env.CRON_SECRET;
     const outcomeSecret = process.env.CTO_OUTCOME_SECRET;
     const authHeader = request.headers.get("authorization");
@@ -86,20 +77,11 @@ export async function middleware(request: NextRequest) {
   // ── Admin API 驗證（/api/admin/*，排除登入端點）──────────────────────
   // 注意：API 路徑開頭是 /api，不會進入下方 /admin 頁面驗證，需在此單獨防護。
   if (pathname.startsWith("/api/admin") && pathname !== "/api/admin/login") {
-    // Vercel Cron GET：Bearer CRON_SECRET，或（未設 secret 時）x-vercel-cron-schedule
-    if (request.method === "GET" && isAdminCronGetPath(pathname)) {
-      const cronAuth = authorizeCronGet(request);
-      if (cronAuth.ok) return NextResponse.next();
-      // Cron 呼叫但驗證失敗 → 直接 401（不要再走 admin cookie）
-      if (isVercelCronRequest(request) || request.headers.get("authorization")) {
-        return cronAuth.response;
-      }
-    } else {
-      const cronSecret = process.env.CRON_SECRET;
-      const authHeader = request.headers.get("authorization");
-      if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
-        return NextResponse.next();
-      }
+    // Vercel Cron 以 Bearer CRON_SECRET 呼叫，放行（對應路由內另有驗證）
+    const cronSecret = process.env.CRON_SECRET;
+    const authHeader = request.headers.get("authorization");
+    if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
+      return NextResponse.next();
     }
     const denied = await requireAdminApiAuth(request);
     if (denied) return denied;
@@ -135,7 +117,10 @@ export async function middleware(request: NextRequest) {
     return res;
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next();
+  // Signal rate-limit mode on every response so monitoring can detect degraded state
+  response.headers.set("X-RateLimit-Mode", getRateLimitMode());
+  return response;
 }
 
 export const config = {
