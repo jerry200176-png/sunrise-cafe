@@ -68,11 +68,16 @@ if not wp.startswith(task_root):
 for bad in ("actions-runner","workspace-backups","/mnt/c/","/workspace/repos/","/workspace/sunrise-cafe"):
     if bad in wp:
         raise SystemExit(f'forbidden worktree {bad}')
-branch=os.environ.get("GITHUB_HEAD_REF") or subprocess.check_output(["git","rev-parse","--abbrev-ref","HEAD"], text=True).strip()
-if m["task_id"] not in branch:
-    raise SystemExit(f'task_id {m["task_id"]} not in branch {branch}')
-if m.get("branch") and m["branch"] != branch:
-    raise SystemExit(f'manifest branch {m["branch"]} != git branch {branch}')
+ci_branch=os.environ.get("GITHUB_HEAD_REF")
+local_branch=subprocess.check_output(["git","rev-parse","--abbrev-ref","HEAD"], text=True).strip()
+manifest_branch=m["branch"]
+if m["task_id"] not in manifest_branch:
+    raise SystemExit(f'task_id {m["task_id"]} not in manifest branch {manifest_branch}')
+if ci_branch:
+    if manifest_branch != ci_branch:
+        raise SystemExit(f'manifest branch {manifest_branch} != GitHub PR branch {ci_branch}')
+elif m.get("local_branch", local_branch) != local_branch:
+    raise SystemExit(f'manifest local_branch {m.get("local_branch")} != git branch {local_branch}')
 head=subprocess.check_output(["git","rev-parse","HEAD"], text=True).strip()
 if subprocess.call(["git","merge-base","--is-ancestor", m["base_sha"], head])!=0:
     raise SystemExit('base_sha not ancestor of HEAD')

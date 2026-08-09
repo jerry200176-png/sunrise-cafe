@@ -6,6 +6,7 @@
   "repo_remote": "https://github.com/jerry200176-png/sunrise-cafe.git",
   "base_sha": "9b5aabd8f6ac980461e3ec45a5a16acb05c3095f",
   "branch": "cubelv-cli-ops-20260808",
+  "local_branch": "chore/task-276-rate-limit-fix",
   "worktree_path": "/home/jerry/workspace/tasks/sunrise/276-rate-limit-fix",
   "started_at": "2026-08-08T23:21:09Z",
   "production_mutation": false,

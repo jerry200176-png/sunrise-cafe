@@ -56,7 +56,7 @@
 | `UPSTASH_REDIS_REST_URL` | Upstash Redis REST URL | console.upstash.com → 資料庫 → REST API |
 | `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis REST Token | 同上 |
 
-> 未設定時 Rate Limiting 自動停用，系統照常運作。  
+> 未設定時會退回每個 serverless isolate 各自計算的 in-memory sliding window（`memory` / degraded），不是停用。正式環境應設定 Upstash，才能提供跨 instance 的 distributed protection；`RATE_LIMIT_DISABLED=1` 僅允許 local/test，production 會拒絕。
 > 設定步驟：[console.upstash.com](https://console.upstash.com) 免費建立 Redis → 複製 REST URL 和 Token → 加入 Vercel 環境變數。
 
 ## Sentry（Error Monitoring）

@@ -1,5 +1,7 @@
 # Deploy production + apply pending DB migrations when main advances.
-# Complements verify-production (SHA poll) with an immediate deploy attempt.
+# Complements verify-production (SHA poll) with one immediate deploy attempt.
+# deploy.sh records Vercel quota/rate-limit failures and ends without retrying;
+# this keeps the sole deploy writer from burning quota in a retry loop.
 
 name: Production deploy and migrate
 
