@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { rateLimit, getClientIp, guestRateLimitId } from "@/lib/rate-limit";
+import { rateLimit, getClientIp, guestRateLimitId, getRateLimitMode } from "@/lib/rate-limit";
 import { logOps } from "@/lib/ops-log";
 import { getSessionSecret } from "@/lib/admin-auth";
 import {
@@ -21,14 +21,21 @@ async function verifySession(value: string, secret: string): Promise<boolean> {
   return verifyAdminSession(value, secret);
 }
 
+function withRateLimitMode(response: NextResponse): NextResponse {
+  response.headers.set("X-RateLimit-Mode", getRateLimitMode());
+  return response;
+}
+
 function tooManyRequests(reset: number, path: string, limiter: string) {
   logOps("guest", "guest.lookup_denied_rate_limit", { path, limiter });
-  return NextResponse.json(
-    { error: "Too Many Requests" },
-    {
-      status: 429,
-      headers: { "Retry-After": String(Math.ceil((reset - Date.now()) / 1000)) },
-    }
+  return withRateLimitMode(
+    NextResponse.json(
+      { error: "Too Many Requests" },
+      {
+        status: 429,
+        headers: { "Retry-After": String(Math.ceil((reset - Date.now()) / 1000)) },
+      }
+    )
   );
 }
 
@@ -79,8 +86,8 @@ export async function middleware(request: NextRequest) {
     const allowed =
       (outcomeSecret && authHeader === `Bearer ${outcomeSecret}`) ||
       (cronSecret && authHeader === `Bearer ${cronSecret}`);
-    if (allowed) return NextResponse.next();
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (allowed) return withRateLimitMode(NextResponse.next());
+    return withRateLimitMode(NextResponse.json({ error: "Unauthorized" }, { status: 401 }));
   }
 
   // ── Admin API 驗證（/api/admin/*，排除登入端點）──────────────────────
@@ -89,53 +96,53 @@ export async function middleware(request: NextRequest) {
     // Vercel Cron GET：Bearer CRON_SECRET，或（未設 secret 時）x-vercel-cron-schedule
     if (request.method === "GET" && isAdminCronGetPath(pathname)) {
       const cronAuth = authorizeCronGet(request);
-      if (cronAuth.ok) return NextResponse.next();
+      if (cronAuth.ok) return withRateLimitMode(NextResponse.next());
       // Cron 呼叫但驗證失敗 → 直接 401（不要再走 admin cookie）
       if (isVercelCronRequest(request) || request.headers.get("authorization")) {
-        return cronAuth.response;
+        return withRateLimitMode(cronAuth.response);
       }
     } else {
       const cronSecret = process.env.CRON_SECRET;
       const authHeader = request.headers.get("authorization");
       if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
-        return NextResponse.next();
+        return withRateLimitMode(NextResponse.next());
       }
     }
     const denied = await requireAdminApiAuth(request);
-    if (denied) return denied;
-    return NextResponse.next();
+    if (denied) return withRateLimitMode(denied);
+    return withRateLimitMode(NextResponse.next());
   }
 
   // ── Admin-only API（訂位讀取/變更、分店/設定變更等）────────────────
   if (isAdminOnlyApiPath(pathname, request.method)) {
     const denied = await requireAdminApiAuth(request);
-    if (denied) return denied;
-    return NextResponse.next();
+    if (denied) return withRateLimitMode(denied);
+    return withRateLimitMode(NextResponse.next());
   }
 
   // ── Admin 頁面 Session 驗證 ─────────────────────────────────────────
-  if (pathname === "/admin/login") return NextResponse.next();
-  if (!pathname.startsWith("/admin")) return NextResponse.next();
+  if (pathname === "/admin/login") return withRateLimitMode(NextResponse.next());
+  if (!pathname.startsWith("/admin")) return withRateLimitMode(NextResponse.next());
 
-  if (!isAdminAuthRequired()) return NextResponse.next();
+  if (!isAdminAuthRequired()) return withRateLimitMode(NextResponse.next());
   const signingKey = getSessionSecret();
   if (!signingKey) {
-    return NextResponse.redirect(new URL("/admin/login", request.url));
+    return withRateLimitMode(NextResponse.redirect(new URL("/admin/login", request.url)));
   }
 
   const cookie = request.cookies.get(COOKIE_NAME);
   if (!cookie?.value) {
-    return NextResponse.redirect(new URL("/admin/login", request.url));
+    return withRateLimitMode(NextResponse.redirect(new URL("/admin/login", request.url)));
   }
 
   const ok = await verifySession(cookie.value, signingKey);
   if (!ok) {
     const res = NextResponse.redirect(new URL("/admin/login", request.url));
     res.cookies.set(COOKIE_NAME, "", { path: "/", maxAge: 0 });
-    return res;
+    return withRateLimitMode(res);
   }
 
-  return NextResponse.next();
+  return withRateLimitMode(NextResponse.next());
 }
 
 export const config = {
