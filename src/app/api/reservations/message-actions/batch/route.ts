@@ -101,9 +101,9 @@ export async function POST(request: NextRequest) {
     if (rbacDenied) return NextResponse.json({ error: rbacDenied }, { status: 403 });
   }
 
-  let items: BatchReservationMessageItem[];
-  try {
-    items = contexts.map((context) => {
+  const renderErrors: string[] = [];
+  const items = contexts.map((context): BatchReservationMessageItem => {
+    try {
       const text = renderReservationMessage(
         "deposit_request" as ReservationMessageTemplateKey,
         context.reservation,
@@ -120,15 +120,24 @@ export async function POST(request: NextRequest) {
         deposit_amount: getDepositAmount(total),
         text,
       };
-    });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "無法產生訂金訊息" },
-      { status: 422 }
-    );
-  }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "無法產生訂金訊息";
+      renderErrors.push(`${context.reservation.booking_code ?? context.reservationId}：${message}`);
+      return {
+        reservation_id: context.reservationId,
+        customer_name: context.reservation.customer_name,
+        date_label: formatBatchReservationDate(context.reservation.start_time),
+        start_time: context.reservation.start_time,
+        end_time: context.reservation.end_time,
+        booking_code: context.reservation.booking_code ?? null,
+        deposit_amount: null,
+        text: "",
+        error: message,
+      };
+    }
+  });
 
-  const validation = validateBatchReservationContacts(
+  const contactValidation = validateBatchReservationContacts(
     contexts.map((context) => ({
       customer_name: context.reservation.customer_name,
       phone: context.phone,
@@ -137,8 +146,14 @@ export async function POST(request: NextRequest) {
       status: context.status,
     }))
   );
+  const validation = renderErrors.length > 0
+    ? {
+        can_batch_copy: false,
+        warnings: ["有訂位無法產生正式訊息，請檢查該筆資料後逐筆處理。", ...renderErrors],
+      }
+    : contactValidation;
   const isSingleCopy = reservationIds.length === 1;
-  const effectiveValidation = isSingleCopy
+  const effectiveValidation = isSingleCopy && renderErrors.length === 0
     ? { can_batch_copy: true, warnings: [] }
     : validation;
   const batchId = isUuid(body.batch_id) ? body.batch_id : randomUUID();

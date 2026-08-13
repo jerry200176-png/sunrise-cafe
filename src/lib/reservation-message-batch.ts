@@ -1,6 +1,7 @@
 import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { toTaipei } from "@/lib/datetime";
+import { normalizePhone } from "@/lib/phone-utils";
 
 export const MAX_BATCH_MESSAGE_RESERVATIONS = 50;
 
@@ -11,8 +12,9 @@ export type BatchReservationMessageItem = {
   start_time: string;
   end_time: string;
   booking_code: string | null;
-  deposit_amount: number;
+  deposit_amount: number | null;
   text: string;
+  error?: string;
 };
 
 export type BatchReservationMessageValidation = {
@@ -32,19 +34,13 @@ function normalizeName(value: string | null | undefined): string {
   return (value ?? "").trim().toLocaleLowerCase("zh-TW").replace(/\s+/g, "");
 }
 
-function normalizePhone(value: string | null | undefined): string {
-  const digits = (value ?? "").replace(/\D/g, "");
-  if (digits.startsWith("886") && digits.length >= 10) return `0${digits.slice(3)}`;
-  return digits;
-}
-
 function normalizeEmail(value: string | null | undefined): string {
   return (value ?? "").trim().toLocaleLowerCase("en-US");
 }
 
 export function batchContactKey(contact: BatchReservationMessageContact): string | null {
   const name = normalizeName(contact.customer_name);
-  const phone = normalizePhone(contact.phone);
+  const phone = normalizePhone(contact.phone ?? "");
   const email = normalizeEmail(contact.email);
   if (!name) return null;
   if (phone) return `name:${name}|phone:${phone}|email:${email || "∅"}`;
@@ -86,7 +82,7 @@ export function buildBatchReservationMessage(items: BatchReservationMessageItem[
       const code = item.booking_code ? `｜訂位碼：${item.booking_code}` : "";
       return [
         `===== 第 ${index + 1} 筆訂位｜${item.date_label}${code} =====`,
-        item.text,
+        item.error ? `【此筆訊息無法產生：${item.error}】` : item.text,
         "===== 本筆訂位訊息結束 =====",
       ].join("\n");
     })

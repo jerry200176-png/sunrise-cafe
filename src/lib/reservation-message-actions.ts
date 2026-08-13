@@ -175,19 +175,18 @@ export async function recordReservationMessageActions(
   client: SupabaseClient = defaultClient()
 ): Promise<string[]> {
   if (inputs.length === 0) return [];
+  const rows = inputs.map((input) => ({
+    reservation_id: input.reservationId,
+    template_key: input.templateKey,
+    channel: input.channel,
+    action: input.action,
+    actor_user_id: input.actorUserId ?? null,
+    rendered_text: input.renderedText,
+    ...(input.batchId ? { batch_id: input.batchId } : {}),
+  }));
   const { data, error } = await client
     .from("reservation_message_actions")
-    .insert(
-      inputs.map((input) => ({
-        reservation_id: input.reservationId,
-        template_key: input.templateKey,
-        channel: input.channel,
-        action: input.action,
-        actor_user_id: input.actorUserId ?? null,
-        rendered_text: input.renderedText,
-        batch_id: input.batchId ?? null,
-      }))
-    )
+    .insert(rows)
     .select("id")
     .order("created_at", { ascending: true });
 

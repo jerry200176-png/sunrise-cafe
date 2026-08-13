@@ -96,6 +96,10 @@ export function BatchDepositMessageWorkbench({
   };
 
   const copyOne = async (item: BatchReservationMessageItem) => {
+    if (item.error) {
+      setMessage(`「${item.booking_code ?? item.date_label}」目前無法複製：${item.error}`);
+      return;
+    }
     if (itemStates[item.reservation_id] === "copying") return;
     setItemStates((current) => ({ ...current, [item.reservation_id]: "copying" }));
     setMessage(null);
@@ -164,19 +168,19 @@ export function BatchDepositMessageWorkbench({
                     <div>
                       <p className="font-semibold text-gray-900">{index + 1}. {item.customer_name}</p>
                       <p className="text-sm text-gray-600">
-                        {item.date_label} · 訂位碼：{item.booking_code ?? "無"} · 訂金：${item.deposit_amount}
+                        {item.date_label} · 訂位碼：{item.booking_code ?? "無"} · 訂金：{item.deposit_amount == null ? "無法計算" : `$${item.deposit_amount}`}
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => void copyOne(item)}
-                      disabled={state === "copying"}
+                      disabled={state === "copying" || Boolean(item.error)}
                       className="min-h-11 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
                     >
-                      {state === "copying" ? "複製中…" : state === "copied" ? "已複製" : "單獨複製"}
+                      {item.error ? "無法複製" : state === "copying" ? "複製中…" : state === "copied" ? "已複製" : "單獨複製"}
                     </button>
                   </div>
-                  <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-sm leading-6 text-gray-800">{item.text}</pre>
+                  <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-sm leading-6 text-gray-800">{item.error ? `此筆無法產生訊息：${item.error}` : item.text}</pre>
                 </article>
               );
             })}
