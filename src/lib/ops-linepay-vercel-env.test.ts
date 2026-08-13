@@ -18,7 +18,9 @@ describe("LINE Pay Vercel sandbox env ops", () => {
     expect(script).not.toContain("decrypt=true");
     expect(script).not.toMatch(/echo .*CHANNEL_SECRET/);
     expect(workflow).toContain("secrets.VERCEL_TOKEN");
+    expect(script).toContain("restore-fixed-link");
     expect(workflow).toContain("set-sandbox-url");
+    expect(workflow).toContain("restore-fixed-link");
     expect(workflow).toContain("chore/task-linepay-sandbox-env-20260814");
     expect(workflow).toContain("LINE_PAY_CHANNEL_(ID|SECRET)=[^[:space:]]{8,}");
     expect(workflow).not.toContain("LINE_PAY_CHANNEL_SECRET: ${{");

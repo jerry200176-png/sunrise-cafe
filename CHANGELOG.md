@@ -8,6 +8,7 @@
 
 ### Ops — LINE Pay Vercel sandbox env gate (2026-08-14)
 - Allowlisted GitHub Action inspects production LINE Pay env names/presence and may set only `LINE_PAY_API_BASE_URL=https://sandbox-api-pay.line.me`
+- `restore-fixed-link` removes sandbox/dynamic LINE Pay env so guests keep the existing fixed LINE Pay URL
 - Does not print or rotate channel keys and does not run a payment test
 
 ### Guest UI — Taste Skill home redesign (2026-07-24)

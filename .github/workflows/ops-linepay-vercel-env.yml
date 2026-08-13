@@ -10,13 +10,14 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "inspect is read-only; set-sandbox-url writes only LINE_PAY_API_BASE_URL"
+        description: "inspect is read-only; set-sandbox-url writes sandbox host; restore-fixed-link removes sandbox/dynamic LINE Pay env"
         required: true
         default: inspect
         type: choice
         options:
           - inspect
           - set-sandbox-url
+          - restore-fixed-link
 
 concurrency:
   group: linepay-vercel-env-production
@@ -52,7 +53,7 @@ jobs:
             MODE=set-sandbox-url
           fi
           case "$MODE" in
-            inspect|set-sandbox-url) ;;
+            inspect|set-sandbox-url|restore-fixed-link) ;;
             *) echo "::error::mode not allowlisted"; exit 1 ;;
           esac
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"

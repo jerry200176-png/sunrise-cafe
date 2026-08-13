@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Inspect or set Sunrise production LINE Pay Vercel env without printing secrets.
-# Allowed mutation: LINE_PAY_API_BASE_URL=https://sandbox-api-pay.line.me
+# Allowed mutations:
+# - set-sandbox-url: LINE_PAY_API_BASE_URL=https://sandbox-api-pay.line.me
+# - restore-fixed-link: remove LINE_PAY_CHANNEL_ID / LINE_PAY_CHANNEL_SECRET /
+#   LINE_PAY_API_BASE_URL so guests fall back to the branch's fixed LINE Pay URL
 set -euo pipefail
 
 MODE="${MODE:-inspect}"
@@ -15,7 +18,7 @@ if [[ -z "${VERCEL_TOKEN:-}" ]]; then
   exit 1
 fi
 
-if [[ "$MODE" != inspect && "$MODE" != set-sandbox-url ]]; then
+if [[ "$MODE" != inspect && "$MODE" != set-sandbox-url && "$MODE" != restore-fixed-link ]]; then
   echo "MODE_BLOCKED: $MODE" >&2
   exit 1
 fi
@@ -86,6 +89,77 @@ echo "CURRENT_LINE_PAY_API_BASE_URL=${current_url:-<unset>}" | tee -a "$REPORT"
 
 if [[ "$MODE" = inspect ]]; then
   echo "INSPECT_ONLY: no Vercel env changed." | tee -a "$REPORT"
+  exit 0
+fi
+
+remove_line_pay_env() {
+  local name="$1"
+  local env_name="$2"
+  if npx vercel env ls "$env_name" --token "$VERCEL_TOKEN" | awk 'NR>1 {print $1}' | grep -qx "$name"; then
+    npx vercel env rm "$name" "$env_name" --yes --token "$VERCEL_TOKEN"
+    echo "REMOVED_${name}_${env_name}" | tee -a "$REPORT"
+  else
+    echo "ABSENT_${name}_${env_name}" | tee -a "$REPORT"
+  fi
+}
+
+if [[ "$MODE" = restore-fixed-link ]]; then
+  for env_name in production preview; do
+    remove_line_pay_env LINE_PAY_CHANNEL_ID "$env_name"
+    remove_line_pay_env LINE_PAY_CHANNEL_SECRET "$env_name"
+    remove_line_pay_env LINE_PAY_API_BASE_URL "$env_name"
+  done
+  npx vercel env pull "$PULL" --environment=production --yes --token "$VERCEL_TOKEN" >/dev/null
+  python3 - "$PULL" "$REPORT" <<'PY'
+import sys
+from pathlib import Path
+pull, report = Path(sys.argv[1]), Path(sys.argv[2])
+wanted = {}
+for line in pull.read_text(encoding="utf-8").splitlines():
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    key, value = line.split("=", 1)
+    if key.startswith("LINE_PAY_"):
+        wanted[key] = value.strip().strip('"').strip("'")
+lines = ["--- LINE Pay presence after restore-fixed-link ---"]
+for key in ("LINE_PAY_API_BASE_URL", "LINE_PAY_CHANNEL_ID", "LINE_PAY_CHANNEL_SECRET"):
+    value = wanted.get(key, "")
+    lines.append(f"{key}={'present' if value else 'absent'} len={len(value) if value else 0}")
+if wanted.get("LINE_PAY_CHANNEL_ID") or wanted.get("LINE_PAY_CHANNEL_SECRET"):
+    lines.append("DYNAMIC_LINEPAY_STILL_ENABLED")
+else:
+    lines.append("FIXED_LINK_RESTORED")
+report.write_text(report.read_text(encoding="utf-8") + "\n".join(lines) + "\n", encoding="utf-8")
+print("\n".join(lines))
+PY
+  before_sha="$(curl -sf "$PROD_URL/api/version" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("commit",""))' || true)"
+  echo "PROD_SHA_BEFORE=${before_sha:-unknown}" | tee -a "$REPORT"
+  redeploy_ok=0
+  if npx vercel redeploy "$PROD_URL" --token "$VERCEL_TOKEN"; then
+    redeploy_ok=1
+  else
+    project_id="$(python3 -c 'import json; print(json.load(open(".vercel/project.json"))["projectId"])')"
+    org_id="$(python3 -c 'import json; print(json.load(open(".vercel/project.json"))["orgId"])')"
+    deployment_id="$(curl -sf -H "Authorization: Bearer $VERCEL_TOKEN" \
+      "https://api.vercel.com/v6/deployments?projectId=${project_id}&teamId=${org_id}&target=production&limit=1" \
+      | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("deployments") or [{}])[0].get("uid",""))')"
+    if [[ -n "$deployment_id" ]] && curl -sf -X POST -H "Authorization: Bearer $VERCEL_TOKEN" \
+        -H "Content-Type: application/json" \
+        "https://api.vercel.com/v13/deployments?teamId=${org_id}&forceNew=1" \
+        -d "{\"name\":\"sunrise-cafe\",\"deploymentId\":\"${deployment_id}\",\"target\":\"production\"}" >/tmp/vercel-redeploy.json; then
+      redeploy_ok=1
+      echo "REDEPLOY_API_DEPLOYMENT=$deployment_id" | tee -a "$REPORT"
+    fi
+  fi
+  if [[ "$redeploy_ok" -eq 1 ]]; then
+    echo "REDEPLOY_REQUESTED" | tee -a "$REPORT"
+    sleep 8
+    after_sha="$(curl -sf "$PROD_URL/api/version" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("commit",""))' || true)"
+    echo "PROD_SHA_AFTER=${after_sha:-unknown}" | tee -a "$REPORT"
+  else
+    echo "REDEPLOY_SKIPPED_OR_FAILED: env is set; next production deploy will pick it up." | tee -a "$REPORT"
+  fi
+  echo "NO_PAYMENT_TEST: do not run live LINE Pay charges." | tee -a "$REPORT"
   exit 0
 fi
 
