@@ -149,7 +149,11 @@ export async function POST(request: NextRequest) {
   const validation = renderErrors.length > 0
     ? {
         can_batch_copy: false,
-        warnings: ["有訂位無法產生正式訊息，請檢查該筆資料後逐筆處理。", ...renderErrors],
+        warnings: [
+          ...contactValidation.warnings,
+          "有訂位無法產生正式訊息，請檢查該筆資料後逐筆處理。",
+          ...renderErrors,
+        ],
       }
     : contactValidation;
   const isSingleCopy = reservationIds.length === 1;
