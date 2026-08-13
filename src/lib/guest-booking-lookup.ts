@@ -20,6 +20,7 @@ import {
 import { createClient } from "@supabase/supabase-js";
 import { signAttendanceToken } from "@/lib/attendance-token";
 import { LINE_SITE_URL } from "@/lib/line-flex";
+import { isLinePayConfigured } from "@/lib/line-pay";
 
 function db() {
   return createClient(
@@ -51,6 +52,7 @@ export type GuestBookingItem = {
   branch_display_name: string | null;
   payment_info: string | null;
   line_pay_url: string | null;
+  line_pay_dynamic_enabled: boolean;
   start_time: string;
   end_time: string;
   status: string;
@@ -100,6 +102,7 @@ async function toGuestBookingItem(r: ReservationRow): Promise<GuestBookingItem> 
     branch_display_name: branch?.display_name ?? null,
     payment_info: branch?.payment_info ?? null,
     line_pay_url: branch?.line_pay_url ?? null,
+    line_pay_dynamic_enabled: isLinePayConfigured(),
     start_time: r.start_time,
     end_time: r.end_time,
     status: r.status,
