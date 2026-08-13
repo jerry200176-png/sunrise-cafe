@@ -12,6 +12,10 @@ import type { Reservation, ReservationStatus, Room } from "@/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { PromptDialog } from "@/components/PromptDialog";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
+import {
+  RESERVATION_MESSAGE_TEMPLATES,
+  type ReservationMessageTemplateKey,
+} from "@/lib/reservation-message";
 
 function getPricePerHour(room: Room, dateStr: string): number {
   return isWeekendDate(dateStr) ? Number(room.price_weekend) : Number(room.price_weekday);
@@ -79,6 +83,13 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   const [sendingLine, setSendingLine] = useState(false);
   const [sendingLinePaymentTo, setSendingLinePaymentTo] = useState<string | null>(null);
   const [branchConfig, setBranchConfig] = useState<BranchPaymentConfig | null>(null);
+  const [messageWorkbench, setMessageWorkbench] = useState<Reservation | null>(null);
+  const [messageTemplate, setMessageTemplate] =
+    useState<ReservationMessageTemplateKey>("booking_confirmation");
+  const [messageText, setMessageText] = useState("");
+  const [messageLoading, setMessageLoading] = useState(false);
+  const [messageCopied, setMessageCopied] = useState(false);
+  const [messageSubmitting, setMessageSubmitting] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string } | null>(null);
   const confirmResolver = useRef<((value: boolean) => void) | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -98,6 +109,98 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   const dismissToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
+
+  const loadMessagePreview = useCallback(
+    async (reservationId: string, templateKey: ReservationMessageTemplateKey) => {
+      setMessageLoading(true);
+      setMessageCopied(false);
+      try {
+        const response = await fetch(
+          `${RESERVATIONS_API}/${reservationId}/message-actions?template_key=${encodeURIComponent(templateKey)}`
+        );
+        const data = (await response.json().catch(() => ({}))) as {
+          text?: string;
+          error?: string;
+        };
+        if (!response.ok || !data.text) {
+          throw new Error(data.error ?? "無法產生訊息");
+        }
+        setMessageText(data.text);
+      } catch (error) {
+        setMessageText("");
+        showToast(error instanceof Error ? error.message : "無法產生訊息", "error");
+      } finally {
+        setMessageLoading(false);
+      }
+    },
+    [showToast]
+  );
+
+  const openMessageWorkbench = useCallback(
+    (reservation: Reservation) => {
+      setMessageWorkbench(reservation);
+      setMessageTemplate("booking_confirmation");
+      void loadMessagePreview(reservation.id, "booking_confirmation");
+    },
+    [loadMessagePreview]
+  );
+
+  const submitMessageAction = useCallback(
+    async (action: "copied" | "manual_sent") => {
+      if (!messageWorkbench) return false;
+      setMessageSubmitting(true);
+      try {
+        const response = await fetch(
+          `${RESERVATIONS_API}/${messageWorkbench.id}/message-actions`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              template_key: messageTemplate,
+              channel: "manual_line",
+              action,
+            }),
+          }
+        );
+        const data = (await response.json().catch(() => ({}))) as {
+          text?: string;
+          error?: string;
+        };
+        if (!response.ok) throw new Error(data.error ?? "訊息操作失敗");
+        if (data.text) setMessageText(data.text);
+        return true;
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : "訊息操作失敗", "error");
+        return false;
+      } finally {
+        setMessageSubmitting(false);
+      }
+    },
+    [messageTemplate, messageWorkbench, showToast]
+  );
+
+  const copyWorkbenchMessage = useCallback(async () => {
+    if (!messageText || messageLoading) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(messageText);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = messageText;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      const recorded = await submitMessageAction("copied");
+      if (recorded) {
+        setMessageCopied(true);
+        showToast("已複製訊息；請貼到客人的 LINE 對話", "success");
+      }
+    } catch {
+      showToast("複製失敗，請手動選取訊息內容", "error");
+    }
+  }, [messageLoading, messageText, showToast, submitMessageAction]);
 
   const openPrompt = useCallback(
     (title: string, message: string, placeholder?: string) => {
@@ -659,6 +762,13 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                     >
                       ❌ 拒絕
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => openMessageWorkbench(r)}
+                      className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                    >
+                      📝 訊息工作台
+                    </button>
                     {isDepositRequired(r.start_time.slice(0, 10)) && !r.is_deposit_paid && (
                       <button
                         type="button"
@@ -741,6 +851,13 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                   </div>
                 ) : activeTab === "upcoming" ? (
                   <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => openMessageWorkbench(r)}
+                      className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                    >
+                      📝 訊息工作台
+                    </button>
                     {r.status !== "checked_in" && r.status !== "completed" && (
                       <button
                         type="button"
@@ -889,6 +1006,100 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
           })}
         </ul>
       </div>
+
+      {messageWorkbench && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reservation-message-workbench-title"
+        >
+          <div className="flex max-h-[90dvh] w-full flex-col rounded-t-2xl bg-white shadow-xl sm:max-w-2xl sm:rounded-xl">
+            <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-4 py-3">
+              <div>
+                <h2 id="reservation-message-workbench-title" className="text-lg font-semibold">
+                  訊息工作台
+                </h2>
+                <p className="text-xs text-gray-500">
+                  {messageWorkbench.customer_name} · {messageWorkbench.booking_code ?? "無訂位碼"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMessageWorkbench(null)}
+                className="-mr-2 flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                aria-label="關閉訊息工作台"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+              <div className="rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-800">
+                {messageWorkbench.line_user_id
+                  ? "此訂位已綁定官方 LINE；需要人工轉發時仍可使用複製工作台。"
+                  : "此訂位尚未綁定官方 LINE；複製後請貼到員工與客人的 LINE 對話。"}
+              </div>
+              <div>
+                <label htmlFor="reservation-message-template" className="mb-1 block text-sm font-medium text-gray-700">
+                  訊息類型
+                </label>
+                <select
+                  id="reservation-message-template"
+                  value={messageTemplate}
+                  onChange={(event) => {
+                    const next = event.target.value as ReservationMessageTemplateKey;
+                    setMessageTemplate(next);
+                    void loadMessagePreview(messageWorkbench.id, next);
+                  }}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                >
+                  {RESERVATION_MESSAGE_TEMPLATES.map((template) => (
+                    <option key={template.key} value={template.key}>
+                      {template.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="reservation-message-preview" className="mb-1 block text-sm font-medium text-gray-700">
+                  預覽（系統會自動帶入訂位與分店付款資料）
+                </label>
+                <textarea
+                  id="reservation-message-preview"
+                  value={messageLoading ? "產生中…" : messageText}
+                  readOnly
+                  rows={12}
+                  className="w-full rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 font-mono text-sm leading-6 text-gray-800"
+                />
+              </div>
+            </div>
+            <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-gray-200 bg-white px-4 py-3">
+              <button
+                type="button"
+                onClick={() => void copyWorkbenchMessage()}
+                disabled={messageLoading || messageSubmitting || !messageText}
+                className="min-h-[44px] rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {messageSubmitting ? "處理中…" : "📋 產生並複製"}
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const recorded = await submitMessageAction("manual_sent");
+                  if (recorded) {
+                    showToast("已記錄人工傳送；這不是 LINE 送達回執", "success");
+                    setMessageCopied(false);
+                  }
+                }}
+                disabled={!messageCopied || messageLoading || messageSubmitting}
+                className="min-h-[44px] rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+              >
+                ✅ 標記已傳送
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {editing && (
         <div

@@ -49,6 +49,8 @@ describe("isAdminOnlyApiPath (RC2 P2)", () => {
 
   it("protects send-line and recurring admin", () => {
     expect(isAdminOnlyApiPath("/api/reservations/send-line", "POST")).toBe(true);
+    expect(isAdminOnlyApiPath("/api/reservations/abc/message-actions", "GET")).toBe(true);
+    expect(isAdminOnlyApiPath("/api/reservations/abc/message-actions", "POST")).toBe(true);
     expect(isAdminOnlyApiPath("/api/reservations/recurring/admin", "POST")).toBe(true);
   });
 
