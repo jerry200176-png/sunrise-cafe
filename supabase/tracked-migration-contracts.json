@@ -1,5 +1,20 @@
 [
   {
+    "version": "20260813-reservation-message-batch-id",
+    "file": "migration-reservation-message-batch-id.sql",
+    "critical": true,
+    "evidence": [
+      { "type": "table", "name": "reservation_message_actions", "introspect": "rest" },
+      { "type": "column", "table": "reservation_message_actions", "name": "batch_id", "introspect": "rest" },
+      {
+        "type": "index",
+        "name": "idx_reservation_message_actions_batch",
+        "introspect": "unsupported",
+        "note": "CREATE INDEX — not visible via PostgREST"
+      }
+    ]
+  },
+  {
     "version": "20260710-reservations-no-overlap",
     "file": "migration-reservations-no-overlap.sql",
     "critical": true,
