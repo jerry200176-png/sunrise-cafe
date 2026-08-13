@@ -36,8 +36,8 @@ fi
 {
   echo "=== LINE Pay Vercel env mode=$MODE generated=$(date -Iseconds) ==="
   echo "PROD_URL=$PROD_URL"
-  echo "--- env names (production) ---"
-  npx vercel env ls production --token "$VERCEL_TOKEN"
+  echo "--- LINE_PAY production env names ---"
+  npx vercel env ls production --token "$VERCEL_TOKEN" | awk 'NR==1 {next} $1 ~ /^LINE_PAY_/ {print $1, $4, $5}'
 } | tee "$REPORT"
 
 npx vercel env pull "$PULL" --environment=production --yes --token "$VERCEL_TOKEN" >/dev/null
@@ -89,12 +89,13 @@ if [[ "$MODE" = inspect ]]; then
   exit 0
 fi
 
-if [[ "$current_url" == "$SANDBOX_URL" ]]; then
+name_present=0
+if npx vercel env ls production --token "$VERCEL_TOKEN" | awk 'NR>1 {print $1}' | grep -qx LINE_PAY_API_BASE_URL; then
+  name_present=1
+fi
+if [[ "$current_url" == "$SANDBOX_URL" || "$name_present" -eq 1 ]]; then
   echo "SANDBOX_URL_ALREADY_SET" | tee -a "$REPORT"
 else
-  if npx vercel env ls production --token "$VERCEL_TOKEN" | awk 'NR>1 {print $1}' | grep -qx LINE_PAY_API_BASE_URL; then
-    npx vercel env rm LINE_PAY_API_BASE_URL production --yes --token "$VERCEL_TOKEN"
-  fi
   printf '%s' "$SANDBOX_URL" | npx vercel env add LINE_PAY_API_BASE_URL production --token "$VERCEL_TOKEN"
   echo "SET_LINE_PAY_API_BASE_URL=$SANDBOX_URL" | tee -a "$REPORT"
 fi
