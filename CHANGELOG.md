@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+### Ops — LINE Pay Vercel sandbox env gate (2026-08-14)
+- Allowlisted GitHub Action inspects production LINE Pay env names/presence and may set only `LINE_PAY_API_BASE_URL=https://sandbox-api-pay.line.me`
+- Does not print or rotate channel keys and does not run a payment test
+
 ### Guest UI — Taste Skill home redesign (2026-07-24)
 - 安裝 [Leonxlnx/taste-skill](https://github.com/Leonxlnx/taste-skill)（`design-taste-frontend` / `redesign-existing-projects` / `high-end-visual-design`）
 - 客人首頁改為 full-viewport hero、服務說明改不對稱編號列表；保留 Warm Artisan 品牌色票（見 `docs/internal/design/TASTE_SKILL_ADOPTION.md`）
