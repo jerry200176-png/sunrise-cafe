@@ -196,6 +196,7 @@ export function isAdminOnlyApiPath(pathname: string, method: string): boolean {
   if (isReservationMutationPath(pathname, method)) return true;
   if (pathname === "/api/reservations" && method === "GET") return true;
   if (pathname === "/api/reservations/send-line" && method === "POST") return true;
+  if (pathname === "/api/reservations/message-actions/batch" && method === "POST") return true;
   if (/^\/api\/reservations\/[^/]+\/message-actions$/.test(pathname) && (method === "GET" || method === "POST")) {
     return true;
   }
