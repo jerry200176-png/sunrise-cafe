@@ -54,8 +54,12 @@ function storeName(branch: BranchPaymentConfig): string {
   return resolveStoreName(branch);
 }
 
-function bookingCodeLine(bookingCode: string | null | undefined): string {
-  return bookingCode?.trim() ? `訂位碼：${bookingCode.trim()}` : "";
+function bookingCodeLine(bookingCode: string | null | undefined): string | null {
+  return bookingCode?.trim() ? `訂位碼：${bookingCode.trim()}` : null;
+}
+
+function joinMessageLines(lines: Array<string | null>): string {
+  return lines.filter((line): line is string => line !== null).join("\n");
 }
 
 /** Render the canonical customer-facing text for every reservation message template. */
@@ -67,7 +71,7 @@ export function renderReservationMessage(
   const { date, time } = reservationTime(reservation);
   const name = storeName(branch);
   const code = bookingCodeLine(reservation.booking_code);
-  const guestCount = reservation.guest_count ? `\n人數：${reservation.guest_count} 位` : "";
+  const guestCount = reservation.guest_count ? `人數：${reservation.guest_count} 位` : null;
 
   if (templateKey === "deposit_request") {
     if (reservation.total_price == null || Number(reservation.total_price) <= 0) {
@@ -85,7 +89,7 @@ export function renderReservationMessage(
   }
 
   if (templateKey === "booking_confirmation") {
-    return [
+    return joinMessageLines([
       `您好，這裡是${name}。`,
       "",
       "您的訂位已確認：",
@@ -95,9 +99,7 @@ export function renderReservationMessage(
       code,
       "",
       "如需異動，請提前聯繫店家，謝謝！",
-    ]
-      .filter((line) => line !== "")
-      .join("\n");
+    ]);
   }
 
   if (templateKey === "deposit_paid") {
@@ -108,7 +110,7 @@ export function renderReservationMessage(
       reservation.total_price != null && Number(reservation.total_price) > 0
         ? ` $${Math.ceil(Number(reservation.total_price) / 2)}`
         : "";
-    return [
+    return joinMessageLines([
       `您好，這裡是${name}。`,
       "",
       `已收到您的訂位訂金${amount}，訂位資料如下：`,
@@ -118,12 +120,10 @@ export function renderReservationMessage(
       code,
       "",
       "期待您的光臨，謝謝！",
-    ]
-      .filter((line) => line !== "")
-      .join("\n");
+    ]);
   }
 
-  return [
+  return joinMessageLines([
     `您好，這裡是${name}。`,
     "",
     `提醒您即將於 ${date} ${time} 到店。`,
@@ -131,7 +131,5 @@ export function renderReservationMessage(
     code,
     "",
     "如需異動，請提前聯繫店家，謝謝！",
-  ]
-    .filter((line) => line !== "")
-    .join("\n");
+  ]);
 }

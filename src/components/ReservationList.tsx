@@ -90,6 +90,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   const [messageLoading, setMessageLoading] = useState(false);
   const [messageCopied, setMessageCopied] = useState(false);
   const [messageSubmitting, setMessageSubmitting] = useState(false);
+  const messagePreviewRequest = useRef(0);
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string } | null>(null);
   const confirmResolver = useRef<((value: boolean) => void) | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -112,6 +113,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
 
   const loadMessagePreview = useCallback(
     async (reservationId: string, templateKey: ReservationMessageTemplateKey) => {
+      const requestId = ++messagePreviewRequest.current;
       setMessageLoading(true);
       setMessageCopied(false);
       try {
@@ -125,12 +127,18 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
         if (!response.ok || !data.text) {
           throw new Error(data.error ?? "無法產生訊息");
         }
-        setMessageText(data.text);
+        if (requestId === messagePreviewRequest.current) {
+          setMessageText(data.text);
+        }
       } catch (error) {
-        setMessageText("");
-        showToast(error instanceof Error ? error.message : "無法產生訊息", "error");
+        if (requestId === messagePreviewRequest.current) {
+          setMessageText("");
+          showToast(error instanceof Error ? error.message : "無法產生訊息", "error");
+        }
       } finally {
-        setMessageLoading(false);
+        if (requestId === messagePreviewRequest.current) {
+          setMessageLoading(false);
+        }
       }
     },
     [showToast]

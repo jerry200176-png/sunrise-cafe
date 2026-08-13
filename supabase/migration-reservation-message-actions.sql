@@ -1,7 +1,7 @@
 -- 人工轉發訂位訊息工作台的 append-only 操作紀錄
 CREATE TABLE IF NOT EXISTS reservation_message_actions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  reservation_id UUID NOT NULL REFERENCES reservations(id) ON DELETE RESTRICT,
+  reservation_id UUID REFERENCES reservations(id) ON DELETE SET NULL,
   template_key TEXT NOT NULL CHECK (
     template_key IN ('booking_confirmation', 'deposit_request', 'deposit_paid', 'arrival_reminder')
   ),
@@ -33,6 +33,17 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
+  -- ON DELETE SET NULL preserves the audit row when a reservation is deleted.
+  -- This is the only permitted mutation; all message fields remain immutable.
+  IF TG_OP = 'UPDATE' AND OLD.reservation_id IS NOT NULL AND NEW.reservation_id IS NULL
+     AND OLD.template_key = NEW.template_key
+     AND OLD.channel = NEW.channel
+     AND OLD.action = NEW.action
+     AND OLD.actor_user_id IS NOT DISTINCT FROM NEW.actor_user_id
+     AND OLD.rendered_text = NEW.rendered_text
+     AND OLD.created_at = NEW.created_at THEN
+    RETURN NEW;
+  END IF;
   RAISE EXCEPTION 'reservation_message_actions is append-only';
 END;
 $$;
