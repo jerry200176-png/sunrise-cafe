@@ -91,19 +91,36 @@ fi
 
 if [[ "$current_url" == "$SANDBOX_URL" ]]; then
   echo "SANDBOX_URL_ALREADY_SET" | tee -a "$REPORT"
-  exit 0
+else
+  if npx vercel env ls production --token "$VERCEL_TOKEN" | awk 'NR>1 {print $1}' | grep -qx LINE_PAY_API_BASE_URL; then
+    npx vercel env rm LINE_PAY_API_BASE_URL production --yes --token "$VERCEL_TOKEN"
+  fi
+  printf '%s' "$SANDBOX_URL" | npx vercel env add LINE_PAY_API_BASE_URL production --token "$VERCEL_TOKEN"
+  echo "SET_LINE_PAY_API_BASE_URL=$SANDBOX_URL" | tee -a "$REPORT"
 fi
-
-if npx vercel env ls production --token "$VERCEL_TOKEN" | awk 'NR>1 {print $1}' | grep -qx LINE_PAY_API_BASE_URL; then
-  npx vercel env rm LINE_PAY_API_BASE_URL production --yes --token "$VERCEL_TOKEN"
-fi
-printf '%s' "$SANDBOX_URL" | npx vercel env add LINE_PAY_API_BASE_URL production --token "$VERCEL_TOKEN"
-echo "SET_LINE_PAY_API_BASE_URL=$SANDBOX_URL" | tee -a "$REPORT"
 
 before_sha="$(curl -sf "$PROD_URL/api/version" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("commit",""))' || true)"
 echo "PROD_SHA_BEFORE=${before_sha:-unknown}" | tee -a "$REPORT"
-if npx vercel redeploy "$PROD_URL" --yes --token "$VERCEL_TOKEN"; then
+redeploy_ok=0
+if npx vercel redeploy "$PROD_URL" --token "$VERCEL_TOKEN"; then
+  redeploy_ok=1
+else
+  project_id="$(python3 -c 'import json; print(json.load(open(".vercel/project.json"))["projectId"])')"
+  org_id="$(python3 -c 'import json; print(json.load(open(".vercel/project.json"))["orgId"])')"
+  deployment_id="$(curl -sf -H "Authorization: Bearer $VERCEL_TOKEN" \
+    "https://api.vercel.com/v6/deployments?projectId=${project_id}&teamId=${org_id}&target=production&limit=1" \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("deployments") or [{}])[0].get("uid",""))')"
+  if [[ -n "$deployment_id" ]] && curl -sf -X POST -H "Authorization: Bearer $VERCEL_TOKEN" \
+      -H "Content-Type: application/json" \
+      "https://api.vercel.com/v13/deployments?teamId=${org_id}&forceNew=1" \
+      -d "{\"name\":\"sunrise-cafe\",\"deploymentId\":\"${deployment_id}\",\"target\":\"production\"}" >/tmp/vercel-redeploy.json; then
+    redeploy_ok=1
+    echo "REDEPLOY_API_DEPLOYMENT=$deployment_id" | tee -a "$REPORT"
+  fi
+fi
+if [[ "$redeploy_ok" -eq 1 ]]; then
   echo "REDEPLOY_REQUESTED" | tee -a "$REPORT"
+  sleep 8
   after_sha="$(curl -sf "$PROD_URL/api/version" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("commit",""))' || true)"
   echo "PROD_SHA_AFTER=${after_sha:-unknown}" | tee -a "$REPORT"
   if [[ -n "$before_sha" && -n "$after_sha" && "$before_sha" != "$after_sha" ]]; then
