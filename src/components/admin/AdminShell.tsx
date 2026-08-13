@@ -110,13 +110,13 @@ export function AdminShell({
         ) : null}
       </header>
 
-      <main className={`mx-auto ${width} px-3 py-4 sm:px-4 sm:py-6 ${showNav ? "pb-24" : "pb-10"}`}>
+      <main className={`mx-auto ${width} px-3 py-4 sm:px-4 sm:py-6 ${showNav ? "pb-24 md:pb-10" : "pb-10"}`}>
         {children}
       </main>
 
       {showNav ? (
         <nav
-          className="fixed inset-x-0 bottom-0 z-30 border-t border-stone-200/90 bg-white/95 backdrop-blur-md sticky-bottom-safe"
+          className="fixed inset-x-0 bottom-0 z-30 border-t border-stone-200/90 bg-white/95 backdrop-blur-md sticky-bottom-safe md:static md:z-auto md:border-t-0 md:bg-transparent md:backdrop-blur-none"
           aria-label="後台導覽"
         >
           <ul className={`mx-auto grid ${width} grid-cols-5 gap-0.5 px-1 pt-1.5`}>
