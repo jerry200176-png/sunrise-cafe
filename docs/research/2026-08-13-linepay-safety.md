@@ -27,3 +27,4 @@
 - A provider success response is not treated as local success until the order, transaction, and amount match.
 - A timeout stays `unknown`/`confirming`; it is not changed to failed only because the browser stopped waiting.
 - This is a safety skeleton. Real payment activation still needs the migration probe and a LINE Pay sandbox transaction. No Channel Secret is stored in this document or logs.
+- The Vercel project currently accepts daily cron precision only. The retry route is ready for an external or upgraded-plan scheduler when more frequent retries are needed.
