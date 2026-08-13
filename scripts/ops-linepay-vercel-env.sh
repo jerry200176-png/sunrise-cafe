@@ -109,6 +109,7 @@ if [[ "$MODE" = restore-fixed-link ]]; then
     remove_line_pay_env LINE_PAY_CHANNEL_SECRET "$env_name"
     remove_line_pay_env LINE_PAY_API_BASE_URL "$env_name"
   done
+  : > "$PULL"
   npx vercel env pull "$PULL" --environment=production --yes --token "$VERCEL_TOKEN" >/dev/null
   python3 - "$PULL" "$REPORT" <<'PY'
 import sys
