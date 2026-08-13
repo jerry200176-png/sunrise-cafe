@@ -62,10 +62,21 @@ async function applyMigration(connectionString) {
   const sql = postgres(connectionString, { max: 1, idle_timeout: 15, ssl: "require" });
   try {
     await sql.unsafe(SQL);
-    await sql.unsafe("NOTIFY pgrst, 'reload schema'");
   } finally {
     await sql.end({ timeout: 10 });
   }
+}
+
+async function waitForTable(maxAttempts = 5) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (await tableExists()) return true;
+    if (attempt < maxAttempts) {
+      const delayMs = attempt * 1000;
+      console.log(`PostgREST schema cache not ready; retrying in ${delayMs}ms …`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  return false;
 }
 
 async function main() {
@@ -83,8 +94,7 @@ async function main() {
 
   console.log("Applying migration-reservation-message-actions.sql …");
   await applyMigration(connectionString);
-  await new Promise((resolve) => setTimeout(resolve, 1000));
-  if (!(await tableExists())) {
+  if (!(await waitForTable())) {
     throw new Error("Migration ran but reservation_message_actions is still missing");
   }
   console.log("OK: reservation_message_actions ready");
