@@ -57,3 +57,6 @@ CREATE TRIGGER reservation_message_actions_append_only
 INSERT INTO schema_migrations (version, name)
 VALUES ('20260813-reservation-message-actions', 'migration-reservation-message-actions.sql')
 ON CONFLICT (version) DO NOTHING;
+
+-- Make the new relation immediately visible through Supabase PostgREST.
+NOTIFY pgrst, 'reload schema';

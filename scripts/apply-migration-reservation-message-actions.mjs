@@ -62,6 +62,7 @@ async function applyMigration(connectionString) {
   const sql = postgres(connectionString, { max: 1, idle_timeout: 15, ssl: "require" });
   try {
     await sql.unsafe(SQL);
+    await sql.unsafe("NOTIFY pgrst, 'reload schema'");
   } finally {
     await sql.end({ timeout: 10 });
   }
@@ -82,6 +83,7 @@ async function main() {
 
   console.log("Applying migration-reservation-message-actions.sql …");
   await applyMigration(connectionString);
+  await new Promise((resolve) => setTimeout(resolve, 1000));
   if (!(await tableExists())) {
     throw new Error("Migration ran but reservation_message_actions is still missing");
   }
