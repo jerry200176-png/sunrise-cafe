@@ -16,6 +16,8 @@ export type LinePayApiResponse = {
   info?: Record<string, unknown>;
 };
 
+export type LinePayRequestStatusCode = "0000" | "0110" | "0121" | "0122" | "0123";
+
 export type LinePayPaymentRequest = {
   amount: number;
   currency: "TWD";
@@ -67,21 +69,23 @@ function requiredCredentials(): { channelId: string; channelSecret: string } {
 
 async function callLinePayApi(
   apiPath: string,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
+  method: "GET" | "POST" = "POST",
+  acceptedReturnCodes: string[] = ["0000"]
 ): Promise<LinePayApiResponse> {
   const { channelId, channelSecret } = requiredCredentials();
   const nonce = randomUUID();
-  const bodyText = JSON.stringify(body);
+  const bodyText = method === "GET" ? "" : JSON.stringify(body);
   const authorization = createLinePaySignature(channelSecret, apiPath, bodyText, nonce);
   const response = await fetch(`${getLinePayApiBaseUrl()}${apiPath}`, {
-    method: "POST",
+    method,
     headers: {
       "Content-Type": "application/json",
       "X-LINE-ChannelId": channelId,
       "X-LINE-Authorization": authorization,
       "X-LINE-Authorization-Nonce": nonce,
     },
-    body: bodyText,
+    ...(method === "POST" ? { body: bodyText } : {}),
     cache: "no-store",
   });
   const responseText = await response.text();
@@ -92,7 +96,7 @@ async function callLinePayApi(
     throw new Error(`LINE Pay 回應格式錯誤 (${response.status})`);
   }
 
-  if (!response.ok || payload.returnCode !== "0000") {
+  if (!response.ok || !acceptedReturnCodes.includes(payload.returnCode ?? "")) {
     const code = payload.returnCode || String(response.status);
     const message = payload.returnMessage || "LINE Pay API 拒絕請求";
     throw new Error(`LINE Pay API 失敗 (${code}): ${message}`);
@@ -115,4 +119,28 @@ export async function confirmLinePayPayment(
     amount,
     currency,
   });
+}
+
+/** Check whether the customer finished the LINE Pay payment request. */
+export async function checkLinePayPaymentRequestStatus(
+  transactionId: string
+): Promise<LinePayApiResponse> {
+  return callLinePayApi(
+    `/v4/payments/requests/${encodeURIComponent(transactionId)}/check`,
+    {},
+    "GET",
+    ["0000", "0110", "0121", "0122", "0123"]
+  );
+}
+
+/** Read provider details after a timeout or redirect interruption. */
+export async function retrieveLinePayPaymentDetails(options: {
+  orderId?: string;
+  transactionId?: string;
+}): Promise<LinePayApiResponse> {
+  const query = new URLSearchParams();
+  if (options.orderId) query.append("orderId[]", options.orderId);
+  if (options.transactionId) query.append("transactionId[]", options.transactionId);
+  const suffix = query.toString();
+  return callLinePayApi(`/v4/payments${suffix ? `?${suffix}` : ""}`, {}, "GET");
 }

@@ -1,4 +1,26 @@
-[
+[{
+    "version": "20260813-line-pay-safety",
+    "file": "migration-line-pay-safety.sql",
+    "critical": true,
+    "evidence": [
+      { "type": "table", "name": "line_pay_notification_outbox", "introspect": "rest" },
+      { "type": "column", "table": "line_pay_payments", "name": "confirm_attempt_id", "introspect": "rest" },
+      { "type": "column", "table": "line_pay_payments", "name": "reconciliation_status", "introspect": "rest" },
+      { "type": "table", "name": "line_pay_notification_attempts", "introspect": "rest" },
+      {
+        "type": "function",
+        "name": "finalize_line_pay_payment",
+        "introspect": "unsupported",
+        "note": "Atomic provider-success local finalization and idempotent outbox insert"
+      },
+      {
+        "type": "rls",
+        "table": "line_pay_notification_outbox",
+        "introspect": "unsupported",
+        "note": "RLS and service-role policy are not visible via PostgREST"
+      }
+    ]
+  },
   {
     "version": "20260813-reservation-message-batch-id",
     "file": "migration-reservation-message-batch-id.sql",
