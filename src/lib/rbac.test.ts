@@ -38,6 +38,28 @@ describe("rbac", () => {
     expect(hasPermission(staff, "payments:read", "b1")).toBe(false);
   });
 
+  it("staff and branch managers can send messages only in scope", () => {
+    const staff = {
+      user_id: "s1",
+      role: "staff" as const,
+      branch_ids: ["b1"],
+      legacy: false,
+    };
+    expect(hasPermission(staff, "reservations:message_send", "b1")).toBe(true);
+    expect(hasPermission(staff, "reservations:message_send", "b2")).toBe(false);
+    expect(hasPermission(manager, "reservations:message_send", "b2")).toBe(true);
+  });
+
+  it("finance cannot send reservation messages", () => {
+    const finance = {
+      user_id: "f1",
+      role: "finance" as const,
+      branch_ids: ["b1"],
+      legacy: false,
+    };
+    expect(hasPermission(finance, "reservations:message_send", "b1")).toBe(false);
+  });
+
   it("finance can read payments not write reservations", () => {
     const finance = {
       user_id: "f1",

@@ -154,7 +154,10 @@ export async function PATCH(
     const triggerLine = patch.status === "confirmed" || patch.total_price !== undefined;
     let lineResult: string | null = null;
     if (triggerLine) {
-      const { result, detail } = await sendDepositPaymentRequest(id, { force: false });
+      const { result, detail } = await sendDepositPaymentRequest(id, {
+        force: false,
+        actorUserId: ctx.user_id,
+      });
       lineResult = detail ? `${result}: ${detail}` : result;
       if (result === "error") {
         console.error("[confirm] LINE 推播失敗:", detail);
