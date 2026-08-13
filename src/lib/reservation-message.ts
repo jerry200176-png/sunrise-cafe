@@ -71,7 +71,8 @@ export function renderReservationMessage(
   const { date, time } = reservationTime(reservation);
   const name = storeName(branch);
   const code = bookingCodeLine(reservation.booking_code);
-  const guestCount = reservation.guest_count ? `人數：${reservation.guest_count} 位` : null;
+  const guestCount =
+    reservation.guest_count != null ? `人數：${reservation.guest_count} 位` : null;
 
   if (templateKey === "deposit_request") {
     if (reservation.total_price == null || Number(reservation.total_price) <= 0) {
@@ -95,7 +96,8 @@ export function renderReservationMessage(
       "您的訂位已確認：",
       `日期：${date}`,
       `時段：${time}`,
-      `姓名：${reservation.customer_name}${guestCount}`,
+      `姓名：${reservation.customer_name}`,
+      guestCount,
       code,
       "",
       "如需異動，請提前聯繫店家，謝謝！",
@@ -116,7 +118,8 @@ export function renderReservationMessage(
       `已收到您的訂位訂金${amount}，訂位資料如下：`,
       `日期：${date}`,
       `時段：${time}`,
-      `姓名：${reservation.customer_name}${guestCount}`,
+      `姓名：${reservation.customer_name}`,
+      guestCount,
       code,
       "",
       "期待您的光臨，謝謝！",
@@ -127,7 +130,8 @@ export function renderReservationMessage(
     `您好，這裡是${name}。`,
     "",
     `提醒您即將於 ${date} ${time} 到店。`,
-    `姓名：${reservation.customer_name}${guestCount}`,
+    `姓名：${reservation.customer_name}`,
+    guestCount,
     code,
     "",
     "如需異動，請提前聯繫店家，謝謝！",

@@ -25,6 +25,8 @@ describe("renderReservationMessage", () => {
     expect(text).toContain("10:00–12:00");
     expect(text).toContain("ABC123");
     expect(text).toContain("4 位");
+    expect(text).toContain("姓名：王小明\n人數：4 位");
+    expect(text).not.toContain("王小明人數");
   });
 
   it("delegates deposit details to the canonical payment message", () => {
@@ -52,5 +54,16 @@ describe("renderReservationMessage", () => {
     expect(() =>
       renderReservationMessage("deposit_paid", { ...reservation, is_deposit_paid: false }, branch)
     ).toThrow("尚未標記訂金已收到");
+  });
+
+  it("omits the guest count line when the reservation has no guest count", () => {
+    const text = renderReservationMessage(
+      "booking_confirmation",
+      { ...reservation, guest_count: null },
+      branch
+    );
+    expect(text).toContain("姓名：王小明");
+    expect(text).not.toContain("人數：");
+    expect(text).not.toContain("null");
   });
 });
