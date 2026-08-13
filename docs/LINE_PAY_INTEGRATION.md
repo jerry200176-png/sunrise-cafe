@@ -24,6 +24,7 @@
 2. 在 LINE Pay 商戶端允許以下回呼網址：
    - Confirm: `https://sunrise-cafe-six.vercel.app/api/linepay/confirm`
    - Cancel: `https://sunrise-cafe-six.vercel.app/api/linepay/cancel`
+   - 建議在 Vercel Production 設定非敏感變數 `NEXT_PUBLIC_APP_URL=https://sunrise-cafe-six.vercel.app`，讓程式產生回呼網址時不依賴 fallback。
 3. 以 `LINE_PAY_API_BASE_URL=https://sandbox-api-pay.line.me` 與沙盒金鑰完成一筆 request → payment → confirm 測試。
 4. 將正式金鑰放入 Vercel Production Environment Variables，移除沙盒 base URL，重新部署。
 

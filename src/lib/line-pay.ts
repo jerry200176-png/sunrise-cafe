@@ -23,7 +23,6 @@ export type LinePayPaymentRequest = {
   packages: Array<{
     id: string;
     amount: number;
-    name: string;
     products: Array<{ name: string; quantity: number; price: number }>;
   }>;
   redirectUrls: { confirmUrl: string; cancelUrl: string };

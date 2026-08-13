@@ -107,7 +107,6 @@ export async function POST(request: NextRequest) {
       packages: [{
         id: "deposit",
         amount,
-        name: "包廂訂金",
         products: [{ name: `訂位 ${reservation.booking_code} 訂金`, quantity: 1, price: amount }],
       }],
       redirectUrls: {

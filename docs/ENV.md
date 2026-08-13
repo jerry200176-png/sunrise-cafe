@@ -49,6 +49,7 @@
 | `LINE_PAY_CHANNEL_ID` | LINE Pay 商戶 Channel ID | LINE Pay Merchant Center → Payment Integration |
 | `LINE_PAY_CHANNEL_SECRET` | LINE Pay 商戶 Channel Secret | LINE Pay Merchant Center → Payment Integration |
 | `LINE_PAY_API_BASE_URL` | 選填；預設 `https://api-pay.line.me`，沙盒用 `https://sandbox-api-pay.line.me` | LINE Pay Online API |
+| `NEXT_PUBLIC_APP_URL` | 建議在 Vercel Production 設為正式公開網址，供 LINE Pay 回呼網址使用；目前正式網址為 `https://sunrise-cafe-six.vercel.app` | Vercel → Settings → Environment Variables |
 
 回呼網址：
 
