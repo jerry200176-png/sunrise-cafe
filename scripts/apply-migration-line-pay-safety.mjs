@@ -5,6 +5,7 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
+const BASE_SQL = readFileSync(join(scriptDir, "../supabase/migration-line-pay-payments.sql"), "utf8");
 const SQL = readFileSync(join(scriptDir, "../supabase/migration-line-pay-safety.sql"), "utf8");
 
 function restBase() {
@@ -42,7 +43,12 @@ async function main() {
   if (!usablePostgresUrl(connectionString)) throw new Error("Safety schema is missing and no usable Postgres URL is configured");
   const { default: postgres } = await import("postgres");
   const sql = postgres(connectionString, { max: 1, idle_timeout: 15, ssl: "require" });
-  try { await sql.unsafe(SQL); } finally { await sql.end({ timeout: 10 }); }
+  try {
+    // The safety migration depends on the base ledger table from PR #283.
+    // Both files are idempotent, so this also repairs a partially applied deploy.
+    await sql.unsafe(BASE_SQL);
+    await sql.unsafe(SQL);
+  } finally { await sql.end({ timeout: 10 }); }
   await probe();
   console.log("OK: linepay safety schema ready");
 }
