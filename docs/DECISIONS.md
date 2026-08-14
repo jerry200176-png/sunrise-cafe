@@ -143,3 +143,29 @@ new Date(new Date(s).toLocaleString("en-US", { timeZone: "Asia/Taipei" }))
 
 **Rollback**：`ALTER TABLE reservations DROP CONSTRAINT reservations_no_overlap_excl;`
 
+
+---
+
+## ADR-011：訂金到期公式改為「訂位前留白」，取代「訂位後起算」
+
+**決策**：`computeDepositDeadline` 從 `min(建立訂位時間+24hr, 訂位開始時間)` 改為 `max(建立訂位時間+48hr, 訂位開始時間−6hr)`，並以「訂位開始時間」封頂。
+
+**背景**：店主反映舊制「太狠」。實際上是兩種客人都受害：
+- 提前多天訂位的客人：舊制期限固定在「建立後 24 小時」，訂位若在一週後，客人隔天就要繳訂金，跟訂位本身的急迫性無關。
+- 臨時訂位的客人：舊制期限被 `min()` 壓到訂位開始時間本身，繳費窗口等於「訂位建立到開始」的極短區間。
+
+參考市面訂位平台（OpenTable/Resy/Tock 皆於下訂當下用信用卡預授權，無「先訂後付」窗口；EZTABLE 退款/取消規則一律以「訂位前 N 小時」為錨點，而非「建立後 N 小時」）與開源訂房系統（tartware 用獨立 `deposit_due_date` 欄位，非公式推導）後，確認業界慣例的錨點是「距離訂位還有多久」，不是「訂位是何時建立的」——這正是舊制的技術病根。
+
+**新規則**：
+- 一律不早於「訂位開始前 6 小時」（給臨時訂位足夠的繳費空間）
+- 一律不晚於訂位開始時間本身（不會要求已到場才繳費）
+- 一般情況下給滿 48 小時（原本 24 小時）
+
+**取捨**：
+- ✅ 修正兩種客人都被舊制誤傷的情況，不需引入「先聯絡客人再決定」的人工審核流程（維持自動化，符合單店人力）
+- ✅ 不影響 `shouldAutoRelease`/`shouldSendDepositReminder` 等下游邏輯，只改 `computeDepositDeadline` 一個純函式
+- ⚠️ 仍是自動取消（非店主原本考慮的「整個拿掉」選項）——若之後發現誤取消率仍偏高，下一步可考慮改為「標記待審核」而非直接 `cancelled`（比照 inline 的人工確認模型）
+
+**實作**：`src/lib/deposit-deadline.ts`（`computeDepositDeadline`）+ 三處客服話術 fallback 文案（`src/lib/booking-policy.ts`、`src/lib/payment-message.ts`、`src/lib/line-cards.ts`）。
+
+**Rollback**：改回 `Math.min(createdMs + 24 * HOUR_MS, startMs)` 並回復三處文案；純函式改動，無 migration、無資料遷移。

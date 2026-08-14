@@ -1,14 +1,22 @@
 /**
  * 訂金到期邏輯（自動釋放未付款訂位 + 到期前提醒）
  *
- * 規則：訂金繳款期限 = 「建立訂位起 24 小時」與「訂位開始時間」兩者較早者
- * （避免訂位本身就在 24 小時內發生時，期限晚於訂位開始）。
+ * 規則（2026-08-14 調整，見 docs/DECISIONS.md ADR-009）：
+ * 訂金繳款期限 = max(建立訂位起 48 小時, 訂位開始前 6 小時)，並以「訂位開始時間」封頂。
+ *
+ * 舊規則是 min(建立時間+24h, 訂位開始時間)：訂位本身若很臨時（例如開始前 1–3
+ * 小時才訂），期限會被壓縮到只剩幾十分鐘甚至已經過期，等於臨時訂位幾乎不可能
+ * 在期限內繳訂金。新規則保證：
+ *   - 不論何時下訂，期限一律不早於「訂位開始前 6 小時」（給臨時訂位足夠時間）
+ *   - 不論何時下訂，期限一律不晚於訂位開始時間本身（不會要求已經到場後才繳費）
+ *   - 一般提前下訂的情況，給足 48 小時（而非舊制的 24 小時）
  */
 import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { toTaipei } from "@/lib/datetime";
 
-const DEADLINE_HOURS = 24;
+const DEADLINE_HOURS_FROM_CREATION = 48;
+const MIN_GRACE_HOURS_BEFORE_START = 6;
 const REMINDER_WINDOW_HOURS = 24;
 const URGENCY_SOON_HOURS = 6;
 const HOUR_MS = 60 * 60 * 1000;
@@ -25,7 +33,10 @@ export function getDepositUrgency(deadline: Date, now: Date = new Date()): Depos
 export function computeDepositDeadline(createdAt: string, startTime: string): Date {
   const createdMs = new Date(createdAt).getTime();
   const startMs = new Date(startTime).getTime();
-  return new Date(Math.min(createdMs + DEADLINE_HOURS * HOUR_MS, startMs));
+  const fromCreation = createdMs + DEADLINE_HOURS_FROM_CREATION * HOUR_MS;
+  const floorBeforeStart = startMs - MIN_GRACE_HOURS_BEFORE_START * HOUR_MS;
+  const deadline = Math.max(fromCreation, floorBeforeStart);
+  return new Date(Math.min(deadline, startMs));
 }
 
 /** 台灣牆鐘顯示：2026/07/16 (三) 20:00 */
