@@ -1,16 +1,16 @@
 {
   "schema_version": "1.0",
-  "session_id": "bd8e1acbd6f94b598bb20828d1eb8621",
+  "session_id": "35553a37ef5a416f9e09c873d9f552bc",
   "project": "sunrise",
-  "task_id": "deposit-overdue-release-policy",
+  "task_id": "governance-onboard-20260815",
   "repo_remote": "https://github.com/jerry200176-png/sunrise-cafe.git",
-  "base_sha": "c376e1556f89e9acc434d4cef6f6e4ce8b505395",
-  "branch": "chore/task-deposit-overdue-release-policy",
-  "worktree_path": "/home/jerry/workspace/tasks/sunrise/deposit-overdue-release-policy",
-  "started_at": "2026-08-14T08:16:14Z",
+  "base_sha": "17ab39781d89261932eb14866b69436b4f44ff39",
+  "branch": "chore/task-governance-onboard-20260815",
+  "worktree_path": "/home/jerry/workspace/tasks/sunrise/governance-onboard-20260815",
+  "started_at": "2026-08-15T06:51:54Z",
   "production_mutation": false,
   "preflight_result": "pass",
   "provenance_type": "agent-session",
-  "agent_cli": "claude",
+  "agent_cli": null,
   "gateway_version": "0.5.0"
 }
