@@ -1,0 +1,33 @@
+id: PROP-NNN
+created_at: YYYY-MM-DDTHH:MM:SS+00:00
+author: human:your-name
+ticket: TICKET-NNN
+kind: practice_change
+status: draft
+summary: >
+  Describe the proposed change.
+symptom:
+  - "What behavior triggered this proposal"
+root_cause: >
+  Why the current rules don't cover this case.
+proposed_change:
+  type: add_file
+  path: .exo/practices/your-practice.md
+expected_effect:
+  - "What should improve"
+risk_level: low
+blast_radius:
+  - practices_only
+rollback:
+  type: delete_file
+  path: .exo/practices/your-practice.md
+evidence:
+  observations:
+    - OBS-YYYY-MM-DD-001
+  audit_log_ranges:
+    - "audit.log.jsonl:NNN-NNN"
+requires:
+  approvals: 1
+  human_required: false
+notes:
+  - "No governance change"
