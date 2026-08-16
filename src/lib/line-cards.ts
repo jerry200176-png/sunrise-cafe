@@ -89,7 +89,7 @@ export function buildPaymentFlex(params: {
   const paragraphs = [`${params.customerName} 您好，已為您保留包廂`];
   let note = deadlineLabel
     ? `請於 ${deadlineLabel} 前完成訂金付款，逾期座位將自動釋放。`
-    : "請於期限內（最晚建立後 24 小時或訂位開始前）完成訂金付款，逾期座位將自動釋放。";
+    : "請於期限內（最晚建立後 48 小時或訂位開始前 6 小時，以較晚者為準）完成訂金付款，逾期座位將自動釋放。";
   if (paymentInfo) {
     note = `${paymentInfo.replace(/\n/g, " · ")}\n\n${
       code

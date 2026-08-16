@@ -67,6 +67,18 @@ async function applyMigration(connectionString) {
   }
 }
 
+async function waitForTable(maxAttempts = 5) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (await tableExists()) return true;
+    if (attempt < maxAttempts) {
+      const delayMs = attempt * 1000;
+      console.log(`PostgREST schema cache not ready; retrying in ${delayMs}ms …`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  return false;
+}
+
 async function main() {
   if (await tableExists()) {
     console.log("OK: reservation_message_actions already exists");
@@ -82,7 +94,7 @@ async function main() {
 
   console.log("Applying migration-reservation-message-actions.sql …");
   await applyMigration(connectionString);
-  if (!(await tableExists())) {
+  if (!(await waitForTable())) {
     throw new Error("Migration ran but reservation_message_actions is still missing");
   }
   console.log("OK: reservation_message_actions ready");

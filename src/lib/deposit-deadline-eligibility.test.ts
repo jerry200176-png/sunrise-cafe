@@ -50,7 +50,8 @@ describe("deposit deadline integration (status + timing)", () => {
   it("confirmed + unpaid + 已過期限 → 應釋放（資格 + 時間皆符合）", () => {
     expect(isEligibleForDepositDeadline("confirmed", false)).toBe(true);
     const deadline = computeDepositDeadline(createdAt, startTime);
-    const afterDeadline = new Date("2026-06-03T00:00:00Z");
+    // 期限為 max(created+48h, start-6h) 封頂 start = 06-10 12:00
+    const afterDeadline = new Date("2026-06-10T13:00:00Z");
     expect(shouldAutoRelease(deadline, afterDeadline)).toBe(true);
   });
 
@@ -62,8 +63,8 @@ describe("deposit deadline integration (status + timing)", () => {
     const createdAt = "2026-06-01T00:00:00Z";
     const startTime = "2026-06-10T18:00:00Z";
     const deadline = computeDepositDeadline(createdAt, startTime);
-    // 期限為 created+24h = 06-02；提醒視窗為期限前 24h 內
-    const now = new Date("2026-06-01T12:00:00Z");
+    // 期限為 max(created+48h, start-6h) 封頂 start = 06-10 12:00；提醒視窗為期限前 24h 內
+    const now = new Date("2026-06-09T18:00:00Z");
     expect(isEligibleForDepositDeadline("confirmed", false)).toBe(true);
     expect(shouldSendDepositReminder(deadline, null, now)).toBe(true);
   });

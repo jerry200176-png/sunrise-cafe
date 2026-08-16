@@ -8,6 +8,11 @@
    完整設計規範見 DESIGN.md
    ─────────────────────────────────────────────────────────── */
 :root {
+  /* Offline-safe system stacks; production build must not download remote fonts. */
+  --font-sans: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-serif: "Noto Serif TC", "Songti TC", "PMingLiU", serif;
+  --font-display: Georgia, "Times New Roman", serif;
+
   /* 紙感底色 */
   --paper: #faf6ef;
   --paper-deep: #f1e9da;

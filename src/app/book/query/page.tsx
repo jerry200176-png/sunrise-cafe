@@ -27,6 +27,7 @@ interface BookingItem {
   branch_display_name?: string | null;
   payment_info?: string | null;
   line_pay_url?: string | null;
+  line_pay_dynamic_enabled?: boolean;
   start_time: string;
   end_time: string;
   status: string;
@@ -86,6 +87,9 @@ function BookQueryContent() {
   const [list, setList] = useState<BookingItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [linePayError, setLinePayError] = useState<string | null>(null);
+  const [linePayLoadingId, setLinePayLoadingId] = useState<string | null>(null);
+  const [linePayResult, setLinePayResult] = useState<"success" | "failed" | "cancelled" | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [confirmingCancelId, setConfirmingCancelId] = useState<string | null>(null);
   const [pendingReschedule, setPendingReschedule] = useState<{ start: string; end: string } | null>(null);
@@ -140,6 +144,39 @@ function BookQueryContent() {
     [phone, bookingCode]
   );
 
+  const startLinePay = useCallback(
+    async (item: BookingItem) => {
+      setLinePayLoadingId(item.id);
+      setLinePayError(null);
+      trackGuestEvent("payment_line_pay_dynamic_click", item.booking_code);
+      try {
+        const res = await fetchWithTimeout("/api/linepay/request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            reservation_id: item.id,
+            phone: phone.trim(),
+            booking_code: item.booking_code,
+          }),
+        });
+        const data = (await res.json()) as {
+          error?: string;
+          paymentUrl?: { web?: string | null };
+        };
+        if (!res.ok || !data.paymentUrl?.web) {
+          setLinePayError(data.error ?? "LINE Pay 付款連結建立失敗，請稍後再試");
+          return;
+        }
+        window.location.assign(data.paymentUrl.web);
+      } catch (e) {
+        setLinePayError(e instanceof Error ? e.message : "LINE Pay 付款連結建立失敗");
+      } finally {
+        setLinePayLoadingId(null);
+      }
+    },
+    [phone, trackGuestEvent]
+  );
+
   const runSearch = useCallback(
     async (phoneVal: string, codeOrDate: string, mode: "code" | "date") => {
       if (!phoneVal.trim() || !codeOrDate.trim()) return;
@@ -190,6 +227,13 @@ function BookQueryContent() {
       runSearch(savedPhone, codeVal, "code");
     }
   }, [searchParams, runSearch]);
+
+  useEffect(() => {
+    const result = searchParams.get("linepay");
+    if (result === "success" || result === "failed" || result === "cancelled") {
+      setLinePayResult(result);
+    }
+  }, [searchParams]);
 
   const search = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -381,6 +425,28 @@ function BookQueryContent() {
 
   return (
     <CustomerShell title={t("query.headerTitle")}>
+      {linePayResult === "success" && (
+        <div role="status" className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900">
+          <p className="font-bold">{t("query.linePaySuccessTitle")}</p>
+          <p className="mt-1 text-sm">{t("query.linePaySuccessDesc")}</p>
+        </div>
+      )}
+      {linePayResult === "failed" && (
+        <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-red-900">
+          <p className="font-bold">{t("query.linePayFailedTitle")}</p>
+          <p className="mt-1 text-sm">{t("query.linePayFailedDesc")}</p>
+        </div>
+      )}
+      {linePayResult === "cancelled" && (
+        <div role="status" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+          {t("query.linePayCancelledTitle")}
+        </div>
+      )}
+      {linePayError && (
+        <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-red-900">
+          {linePayError}
+        </div>
+      )}
       <div className={unpaidDepositItem ? "pb-sticky-form" : ""}>
         {!hasSearched && !loading && (
           <div className="mb-6">
@@ -668,7 +734,7 @@ function BookQueryContent() {
                               </p>
                             )}
 
-                            {item.line_pay_url?.trim() && (
+                            {(item.line_pay_dynamic_enabled || item.line_pay_url?.trim()) && (
                               <>
                                 <div className="flex items-center gap-3 my-2 opacity-60">
                                   <div className="h-px flex-1 bg-gray-300"></div>
@@ -677,16 +743,28 @@ function BookQueryContent() {
                                 </div>
 
                                 <div className="mt-2 text-center">
-                                  <a
-                                    href={item.line_pay_url.trim()}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    onClick={() => trackGuestEvent("payment_line_pay_click")}
-                                    className="inline-flex w-full sm:w-auto justify-center items-center gap-2 rounded-lg bg-[#06C755] px-6 py-3 text-base font-bold text-white shadow hover:bg-[#05b34c] transition"
-                                  >
-                                    <span className="bg-white text-[#06C755] p-1 rounded font-black text-xs">LINE Pay</span>
-                                    {t("query.linePayButton")}
-                                  </a>
+                                  {item.line_pay_dynamic_enabled ? (
+                                    <button
+                                      type="button"
+                                      disabled={linePayLoadingId === item.id}
+                                      onClick={() => startLinePay(item)}
+                                      className="inline-flex w-full sm:w-auto justify-center items-center gap-2 rounded-lg bg-[#06C755] px-6 py-3 text-base font-bold text-white shadow hover:bg-[#05b34c] transition disabled:cursor-wait disabled:opacity-60"
+                                    >
+                                      <span className="bg-white text-[#06C755] p-1 rounded font-black text-xs">LINE Pay</span>
+                                      {linePayLoadingId === item.id ? t("query.linePayLoading") : t("query.linePayButton")}
+                                    </button>
+                                  ) : (
+                                    <a
+                                      href={item.line_pay_url?.trim()}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={() => trackGuestEvent("payment_line_pay_click")}
+                                      className="inline-flex w-full sm:w-auto justify-center items-center gap-2 rounded-lg bg-[#06C755] px-6 py-3 text-base font-bold text-white shadow hover:bg-[#05b34c] transition"
+                                    >
+                                      <span className="bg-white text-[#06C755] p-1 rounded font-black text-xs">LINE Pay</span>
+                                      {t("query.linePayButton")}
+                                    </a>
+                                  )}
                                 </div>
                               </>
                             )}
@@ -696,19 +774,27 @@ function BookQueryContent() {
                             <p className="font-bold text-lg text-[#06C755] mb-2">
                               {t("query.step2Title")}
                             </p>
-                            <p className="mb-4 text-gray-700 leading-relaxed text-base">
-                              {t("query.step2DescPart1")}<strong>{t("query.step2DescBold1")}</strong>{t("query.step2DescPart2")}<strong>{t("query.step2DescBold2")}</strong>{t("query.step2DescPart3")}
-                            </p>
-                            <a
-                              href={OFFICIAL_LINE_URL}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={() => trackGuestEvent("payment_line_official_click")}
-                              className="inline-flex w-full sm:w-auto justify-center items-center gap-2 rounded-lg border-2 border-[#06C755] bg-white px-6 py-3 text-base font-bold text-[#06C755] shadow-sm hover:bg-green-50 transition"
-                            >
-                              <span className="text-xl">💬</span>
-                              {t("query.officialLineButton")}
-                            </a>
+                            {item.line_pay_dynamic_enabled ? (
+                              <p className="mb-2 text-gray-700 leading-relaxed text-base">
+                                {t("query.linePayAutoRecorded")}
+                              </p>
+                            ) : (
+                              <>
+                                <p className="mb-4 text-gray-700 leading-relaxed text-base">
+                                  {t("query.step2DescPart1")}<strong>{t("query.step2DescBold1")}</strong>{t("query.step2DescPart2")}<strong>{t("query.step2DescBold2")}</strong>{t("query.step2DescPart3")}
+                                </p>
+                                <a
+                                  href={OFFICIAL_LINE_URL}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={() => trackGuestEvent("payment_line_official_click")}
+                                  className="inline-flex w-full sm:w-auto justify-center items-center gap-2 rounded-lg border-2 border-[#06C755] bg-white px-6 py-3 text-base font-bold text-[#06C755] shadow-sm hover:bg-green-50 transition"
+                                >
+                                  <span className="text-xl">💬</span>
+                                  {t("query.officialLineButton")}
+                                </a>
+                              </>
+                            )}
                           </div>
                         </div>
                       </>
@@ -931,24 +1017,31 @@ function BookQueryContent() {
             })}
           </p>
           <div className="flex gap-2">
-            {unpaidDepositItem.line_pay_url?.trim() ? (
-              <a
-                href={unpaidDepositItem.line_pay_url.trim()}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() =>
-                  trackGuestEvent(
-                    "payment_sticky_line_pay_click",
-                    unpaidDepositItem.booking_code
-                  )
-                }
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[#06C755] px-3 py-3 text-sm font-bold text-white shadow hover:bg-[#05b34c]"
-              >
-                <span className="rounded bg-white px-1 py-0.5 text-[10px] font-black text-[#06C755]">
-                  LINE Pay
-                </span>
-                {t("query.paymentStickyLinePay")}
-              </a>
+            {unpaidDepositItem.line_pay_dynamic_enabled || unpaidDepositItem.line_pay_url?.trim() ? (
+              unpaidDepositItem.line_pay_dynamic_enabled ? (
+                <button
+                  type="button"
+                  disabled={linePayLoadingId === unpaidDepositItem.id}
+                  onClick={() => startLinePay(unpaidDepositItem)}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[#06C755] px-3 py-3 text-sm font-bold text-white shadow hover:bg-[#05b34c] disabled:cursor-wait disabled:opacity-60"
+                >
+                  <span className="rounded bg-white px-1 py-0.5 text-[10px] font-black text-[#06C755]">
+                    LINE Pay
+                  </span>
+                  {linePayLoadingId === unpaidDepositItem.id ? t("query.linePayLoading") : t("query.paymentStickyLinePay")}
+                </button>
+              ) : (
+                <a
+                  href={unpaidDepositItem.line_pay_url?.trim()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => trackGuestEvent("payment_sticky_line_pay_click", unpaidDepositItem.booking_code)}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[#06C755] px-3 py-3 text-sm font-bold text-white shadow hover:bg-[#05b34c]"
+                >
+                  <span className="rounded bg-white px-1 py-0.5 text-[10px] font-black text-[#06C755]">LINE Pay</span>
+                  {t("query.paymentStickyLinePay")}
+                </a>
+              )
             ) : (
               <a
                 href={OFFICIAL_LINE_URL}
@@ -966,7 +1059,7 @@ function BookQueryContent() {
               rel="noopener noreferrer"
               onClick={() => trackGuestEvent("payment_sticky_line_official_click")}
               className={`flex items-center justify-center rounded-lg border-2 border-[#06C755] bg-white px-3 py-3 text-sm font-bold text-[#06C755] hover:bg-green-50 ${
-                unpaidDepositItem.line_pay_url?.trim() ? "min-w-[7rem]" : "hidden"
+                unpaidDepositItem.line_pay_dynamic_enabled || unpaidDepositItem.line_pay_url?.trim() ? "min-w-[7rem]" : "hidden"
               }`}
             >
               💬 {t("query.paymentStickyOfficialLine")}

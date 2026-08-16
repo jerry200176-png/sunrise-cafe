@@ -96,6 +96,12 @@ jobs:
           node scripts/apply-migration-reservation-message-actions.mjs || {
             echo "::warning::reservation_message_actions migration pending — run SQL manually if needed"
           }
+          node scripts/apply-migration-reservation-message-batch.mjs || {
+            echo "::warning::reservation_message_actions.batch_id migration pending — run SQL manually if needed"
+          }
+          node scripts/apply-migration-line-pay-safety.mjs || {
+            echo "::warning::LINE Pay safety migration pending — payment activation remains blocked"
+          }
           node scripts/apply-migration-market-parity.mjs || {
             echo "::warning::market-parity columns pending — need real SUPABASE_DB_URL secret"
           }

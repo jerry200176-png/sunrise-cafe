@@ -6,6 +6,16 @@
 
 ## [Unreleased]
 
+### Ops — LINE Pay Vercel sandbox env gate (2026-08-15)
+- Allowlisted GitHub Action inspects production LINE Pay env names/presence and may set only `LINE_PAY_API_BASE_URL=https://sandbox-api-pay.line.me`
+- `restore-fixed-link` removes sandbox/dynamic LINE Pay env so guests keep the existing fixed LINE Pay URL
+- Does not print or rotate channel keys and does not run a payment test
+
+### 訂金到期公式改為「訂位前留白」，不再「訂位後起算」(2026-08-14)
+- `computeDepositDeadline` 從 `min(建立訂位+24hr, 訂位開始時間)` 改為 `max(建立訂位+48hr, 訂位開始前6hr)` 並以訂位開始時間封頂（ADR-011）
+- 修正：提前多天訂位的客人不再被逼隔天就要繳訂金；臨時訂位的客人也有最低 6 小時繳費空間
+- 同步更新三處客服話術 fallback 文案（`booking-policy.ts`／`payment-message.ts`／`line-cards.ts`）
+
 ### Guest UI — Taste Skill home redesign (2026-07-24)
 - 安裝 [Leonxlnx/taste-skill](https://github.com/Leonxlnx/taste-skill)（`design-taste-frontend` / `redesign-existing-projects` / `high-end-visual-design`）
 - 客人首頁改為 full-viewport hero、服務說明改不對稱編號列表；保留 Warm Artisan 品牌色票（見 `docs/internal/design/TASTE_SKILL_ADOPTION.md`）

@@ -11,11 +11,13 @@ import { buildPaymentMessage, type BranchPaymentConfig } from "@/lib/payment-mes
 import type { Reservation, ReservationStatus, Room } from "@/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { PromptDialog } from "@/components/PromptDialog";
+import { BatchDepositMessageWorkbench } from "@/components/BatchDepositMessageWorkbench";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 import {
   RESERVATION_MESSAGE_TEMPLATES,
   type ReservationMessageTemplateKey,
 } from "@/lib/reservation-message";
+import type { BatchReservationMessageItem } from "@/lib/reservation-message-batch";
 
 function getPricePerHour(room: Room, dateStr: string): number {
   return isWeekendDate(dateStr) ? Number(room.price_weekend) : Number(room.price_weekday);
@@ -91,6 +93,16 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   const [messageCopied, setMessageCopied] = useState(false);
   const [messageSubmitting, setMessageSubmitting] = useState(false);
   const messagePreviewRequest = useRef(0);
+  const [selectedReservationIds, setSelectedReservationIds] = useState<string[]>([]);
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [batchWorkbench, setBatchWorkbench] = useState<{
+    reservationIds: string[];
+    batchId: string;
+    items: BatchReservationMessageItem[];
+    combinedText: string;
+    canBatchCopy: boolean;
+    warnings: string[];
+  } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string } | null>(null);
   const confirmResolver = useRef<((value: boolean) => void) | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -209,6 +221,70 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
       showToast("複製失敗，請手動選取訊息內容", "error");
     }
   }, [messageLoading, messageText, showToast, submitMessageAction]);
+
+  useEffect(() => {
+    setSelectedReservationIds([]);
+    setBatchWorkbench(null);
+  }, [branchId]);
+
+  const toggleReservationSelection = useCallback((reservationId: string) => {
+    setSelectedReservationIds((current) =>
+      current.includes(reservationId)
+        ? current.filter((id) => id !== reservationId)
+        : [...current, reservationId]
+    );
+  }, []);
+
+  const selectVisibleReservations = useCallback((ids: string[], checked: boolean) => {
+    setSelectedReservationIds((current) => {
+      if (checked) return Array.from(new Set([...current, ...ids]));
+      const visible = new Set(ids);
+      return current.filter((id) => !visible.has(id));
+    });
+  }, []);
+
+  const openBatchDepositWorkbench = useCallback(async () => {
+    const reservationIds = [...selectedReservationIds];
+    if (reservationIds.length === 0) {
+      showToast("請先選取至少一筆訂位", "error");
+      return;
+    }
+    setBatchLoading(true);
+    try {
+      const response = await fetch("/api/reservations/message-actions/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reservation_ids: reservationIds,
+          template_key: "deposit_request",
+          action: "preview",
+        }),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        batch_id?: string;
+        items?: BatchReservationMessageItem[];
+        combined_text?: string;
+        can_batch_copy?: boolean;
+        warnings?: string[];
+        error?: string;
+      };
+      if (!response.ok || !data.batch_id || !data.items || !data.combined_text) {
+        throw new Error(data.error ?? "無法產生批次訂金訊息");
+      }
+      setBatchWorkbench({
+        reservationIds,
+        batchId: data.batch_id,
+        items: data.items,
+        combinedText: data.combined_text,
+        canBatchCopy: data.can_batch_copy === true,
+        warnings: data.warnings ?? [],
+      });
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "無法產生批次訂金訊息", "error");
+    } finally {
+      setBatchLoading(false);
+    }
+  }, [selectedReservationIds, showToast]);
 
   const openPrompt = useCallback(
     (title: string, message: string, placeholder?: string) => {
@@ -564,6 +640,8 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   } else {
     sortedList.forEach((r) => displayList.push({ type: "item", item: r }));
   }
+  const allVisibleSelected =
+    sortedList.length > 0 && sortedList.every((reservation) => selectedReservationIds.includes(reservation.id));
 
   return (
     <>
@@ -614,6 +692,16 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
         </button>
       </div>
       <div className="mb-3 flex flex-wrap items-center gap-2 px-4">
+        <label className="flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={allVisibleSelected}
+            onChange={(event) => selectVisibleReservations(sortedList.map((reservation) => reservation.id), event.target.checked)}
+            aria-label="選取目前列表訂位"
+            className="h-5 w-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+          />
+          全選目前列表
+        </label>
         <input
           type="text"
           value={searchTerm}
@@ -633,6 +721,34 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
         </select>
         <span className="text-xs text-gray-500">共 {sortedList.length} 筆</span>
       </div>
+
+      {selectedReservationIds.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3" role="status">
+          <span className="text-sm font-semibold text-indigo-900">已選取 {selectedReservationIds.length} 筆訂位</span>
+          <button
+            type="button"
+            onClick={() => selectVisibleReservations(sortedList.map((reservation) => reservation.id), true)}
+            className="min-h-11 rounded-lg border border-indigo-300 bg-white px-3 py-2 text-sm text-indigo-700 hover:bg-indigo-100"
+          >
+            加選目前列表
+          </button>
+          <button
+            type="button"
+            onClick={() => void openBatchDepositWorkbench()}
+            disabled={batchLoading}
+            className="min-h-11 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {batchLoading ? "產生預覽中…" : "批次複製訂金訊息"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedReservationIds([])}
+            className="min-h-11 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-white"
+          >
+            清除選取
+          </button>
+        </div>
+      )}
 
       {query && sortedList.length === 0 && (
         <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -657,6 +773,13 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
               <li key={r.id} className="space-y-2 p-4 hover:bg-gray-50/80">
                 {/* Row 1: Name · Phone · Status */}
                 <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedReservationIds.includes(r.id)}
+                    onChange={() => toggleReservationSelection(r.id)}
+                    aria-label={`選取 ${r.customer_name} ${r.booking_code ?? ""} ${format(toTaipei(r.start_time), "yyyy/MM/dd")}`}
+                    className="h-5 w-5 shrink-0 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  />
                   <span className="text-base font-semibold text-gray-900">{r.customer_name}</span>
                   <span className="text-sm text-gray-500">{r.phone}</span>
                   {visitCount >= REGULAR_CUSTOMER_THRESHOLD && (
@@ -1107,6 +1230,18 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
             </div>
           </div>
         </div>
+      )}
+
+      {batchWorkbench && (
+        <BatchDepositMessageWorkbench
+          reservationIds={batchWorkbench.reservationIds}
+          batchId={batchWorkbench.batchId}
+          items={batchWorkbench.items}
+          combinedText={batchWorkbench.combinedText}
+          canBatchCopy={batchWorkbench.canBatchCopy}
+          warnings={batchWorkbench.warnings}
+          onClose={() => setBatchWorkbench(null)}
+        />
       )}
 
       {editing && (

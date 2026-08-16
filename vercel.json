@@ -28,6 +28,10 @@
         {
             "path": "/api/admin/reminders/deploy-health",
             "schedule": "0 14 * * *"
+        },
+        {
+            "path": "/api/linepay/notifications/retry",
+            "schedule": "0 4 * * *"
         }
     ]
 }
