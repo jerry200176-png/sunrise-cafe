@@ -1,0 +1,89 @@
+name: LINE Pay Vercel sandbox env (allowlisted)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ops-linepay-vercel-env.yml'
+      - 'scripts/ops-linepay-vercel-env.sh'
+      - 'src/lib/ops-linepay-vercel-env.test.ts'
+      - 'docs/ops/LINE_PAY_SANDBOX_ENV.md'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "inspect is read-only; set-sandbox-url writes sandbox host; restore-fixed-link removes sandbox/dynamic LINE Pay env"
+        required: true
+        default: inspect
+        type: choice
+        options:
+          - inspect
+          - set-sandbox-url
+          - restore-fixed-link
+
+concurrency:
+  group: linepay-vercel-env-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  operate:
+    name: ${{ github.event_name }} LINE Pay Vercel env
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - name: Resolve mode
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_MODE: ${{ inputs.mode }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          MODE=inspect
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            MODE="${INPUT_MODE:-inspect}"
+          elif [ "$EVENT_NAME" = pull_request ] && [ "$HEAD_REF" = "chore/task-linepay-sandbox-land-20260815" ]; then
+            MODE=set-sandbox-url
+          fi
+          case "$MODE" in
+            inspect|set-sandbox-url|restore-fixed-link) ;;
+            *) echo "::error::mode not allowlisted"; exit 1 ;;
+          esac
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+      - name: Inspect or set sandbox base URL
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          MODE: ${{ steps.scope.outputs.mode }}
+          PROD_URL: https://sunrise-cafe-six.vercel.app
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          bash scripts/ops-linepay-vercel-env.sh | tee out/linepay-vercel-env.txt
+          if grep -E 'LINE_PAY_CHANNEL_(ID|SECRET)=[^[:space:]]{8,}' out/linepay-vercel-env.txt; then
+            echo "::error::refusing to publish channel secret or id values"
+            exit 1
+          fi
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linepay-vercel-env-${{ steps.scope.outputs.mode }}-${{ github.run_id }}
+          path: out/linepay-vercel-env.txt
+          if-no-files-found: error
+          retention-days: 30
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo '### LINE Pay Vercel env'
+            echo '```text'
+            cat out/linepay-vercel-env.txt 2>/dev/null || echo 'No output captured.'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

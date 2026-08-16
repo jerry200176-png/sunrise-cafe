@@ -1,4 +1,71 @@
-[
+[{
+    "version": "20260813-line-pay-safety",
+    "file": "migration-line-pay-safety.sql",
+    "critical": true,
+    "evidence": [
+      { "type": "table", "name": "line_pay_notification_outbox", "introspect": "rest" },
+      { "type": "column", "table": "line_pay_payments", "name": "confirm_attempt_id", "introspect": "rest" },
+      { "type": "column", "table": "line_pay_payments", "name": "reconciliation_status", "introspect": "rest" },
+      { "type": "table", "name": "line_pay_notification_attempts", "introspect": "rest" },
+      {
+        "type": "function",
+        "name": "finalize_line_pay_payment",
+        "introspect": "unsupported",
+        "note": "Atomic provider-success local finalization and idempotent outbox insert"
+      },
+      {
+        "type": "rls",
+        "table": "line_pay_notification_outbox",
+        "introspect": "unsupported",
+        "note": "RLS and service-role policy are not visible via PostgREST"
+      }
+    ]
+  },
+  {
+    "version": "20260813-reservation-message-batch-id",
+    "file": "migration-reservation-message-batch-id.sql",
+    "critical": true,
+    "evidence": [
+      { "type": "table", "name": "reservation_message_actions", "introspect": "rest" },
+      { "type": "column", "table": "reservation_message_actions", "name": "batch_id", "introspect": "rest" },
+      {
+        "type": "index",
+        "name": "idx_reservation_message_actions_batch",
+        "introspect": "unsupported",
+        "note": "CREATE INDEX — not visible via PostgREST"
+      }
+    ]
+  },
+  {
+    "version": "20260813-line-pay-payments",
+    "file": "migration-line-pay-payments.sql",
+    "critical": true,
+    "evidence": [
+      { "type": "table", "name": "line_pay_payments", "introspect": "rest" },
+      { "type": "column", "table": "line_pay_payments", "name": "reservation_id", "introspect": "rest" },
+      { "type": "column", "table": "line_pay_payments", "name": "order_id", "introspect": "rest" },
+      { "type": "column", "table": "line_pay_payments", "name": "transaction_id", "introspect": "rest" },
+      { "type": "column", "table": "line_pay_payments", "name": "status", "introspect": "rest" },
+      {
+        "type": "index",
+        "name": "idx_line_pay_payments_reservation",
+        "introspect": "unsupported",
+        "note": "CREATE INDEX — not visible via PostgREST"
+      },
+      {
+        "type": "index",
+        "name": "idx_line_pay_payments_status",
+        "introspect": "unsupported",
+        "note": "CREATE INDEX — not visible via PostgREST"
+      },
+      {
+        "type": "rls",
+        "table": "line_pay_payments",
+        "introspect": "unsupported",
+        "note": "ENABLE ROW LEVEL SECURITY — not visible via PostgREST"
+      }
+    ]
+  },
   {
     "version": "20260710-reservations-no-overlap",
     "file": "migration-reservations-no-overlap.sql",

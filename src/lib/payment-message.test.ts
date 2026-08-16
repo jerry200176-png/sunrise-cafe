@@ -51,7 +51,7 @@ describe("buildPaymentMessage", () => {
   it("無 createdAt 時也不使用『今日內』模糊話術", () => {
     const msg = buildPaymentMessage({ ...base, branch: { name: "信義" } });
     expect(msg).not.toContain("今日內");
-    expect(msg).toContain("24 小時");
+    expect(msg).toContain("48 小時");
   });
 
   it("無付款資訊時降級為通用指示，不外洩任何分店帳號", () => {

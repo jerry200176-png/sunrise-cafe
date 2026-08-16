@@ -83,6 +83,19 @@ describe("AdminShell", () => {
     expect(screen.queryByLabelText("登出")).toBeNull();
   });
 
+  it("keeps the bottom nav in normal document flow on desktop", () => {
+    render(
+      <AdminShell title="後台管理">
+        <p>內容</p>
+      </AdminShell>
+    );
+    const main = screen.getByRole("main");
+    const nav = screen.getByRole("navigation", { name: "後台導覽" });
+    expect(main.className).toContain("md:pb-10");
+    expect(nav.className).toContain("md:static");
+    expect(nav.className).toContain("md:border-t-0");
+  });
+
   it("logout uses POST /api/admin/logout", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal("fetch", fetchMock);

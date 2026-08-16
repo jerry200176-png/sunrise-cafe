@@ -4,8 +4,9 @@
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { sendLineFlexMessage, buildPaymentFlex } from "@/lib/line";
-import type { BranchPaymentConfig } from "@/lib/payment-message";
+import { buildPaymentMessage, type BranchPaymentConfig } from "@/lib/payment-message";
 import { isWeekendDate } from "@/lib/booking-utils";
+import { recordReservationMessageAction } from "@/lib/reservation-message-actions";
 
 function defaultClient(): SupabaseClient {
   return createClient(
@@ -41,7 +42,7 @@ function firstBranch(room: RoomRow | null): { id: string; name: string } | null 
  */
 export async function sendDepositPaymentRequest(
   reservationId: string,
-  opts: { force?: boolean; client?: SupabaseClient } = {}
+  opts: { force?: boolean; client?: SupabaseClient; actorUserId?: string | null } = {}
 ): Promise<{ result: SendPaymentRequestResult; detail?: string }> {
   const force = opts.force === true;
   const db = opts.client ?? defaultClient();
@@ -152,9 +153,40 @@ export async function sendDepositPaymentRequest(
     bookingCode: (r.booking_code as string | null) ?? null,
     createdAt: (r.created_at as string | null) ?? null,
   });
+  const renderedText = buildPaymentMessage({
+    customerName: String(r.customer_name),
+    startTime: String(r.start_time),
+    endTime: String(r.end_time),
+    total,
+    branch,
+    bookingCode: (r.booking_code as string | null) ?? null,
+    createdAt: (r.created_at as string | null) ?? null,
+  });
+
+  const recordPushAction = async (action: "pushed" | "failed") => {
+    try {
+      await recordReservationMessageAction(
+        {
+          reservationId,
+          templateKey: "deposit_request",
+          channel: "official_line",
+          action,
+          actorUserId: opts.actorUserId,
+          renderedText,
+        },
+        db
+      );
+    } catch (auditError) {
+      console.warn(
+        `[payment-request] ${action} audit record failed:`,
+        auditError instanceof Error ? auditError.message : String(auditError)
+      );
+    }
+  };
 
   try {
     await sendLineFlexMessage(String(r.line_user_id), "訂金繳費通知", flex);
+    await recordPushAction("pushed");
     if (stampColumnReady) {
       const sentAt = new Date().toISOString();
       const { error: stampErr } = await db
@@ -175,6 +207,7 @@ export async function sendDepositPaymentRequest(
     return { result: "sent" };
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
+    await recordPushAction("failed");
     console.error("[payment-request] LINE push failed:", detail);
     return { result: "error", detail };
   }

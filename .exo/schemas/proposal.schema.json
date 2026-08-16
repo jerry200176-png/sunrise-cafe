@@ -1,0 +1,231 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Exo Proposal",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "created_at",
+    "author",
+    "kind",
+    "status",
+    "summary",
+    "symptom",
+    "root_cause",
+    "proposed_change",
+    "risk_level",
+    "rollback"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^PROP-[0-9]{3,}$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "author": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ticket": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "practice_change",
+        "governance_change",
+        "tooling_change"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "proposed",
+        "approved",
+        "rejected",
+        "applied",
+        "rolled_back"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 10
+    },
+    "symptom": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1
+    },
+    "root_cause": {
+      "type": "string",
+      "minLength": 10
+    },
+    "proposed_change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "path"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "expected_effect": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "risk_level": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "blast_radius": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "path"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "requires": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "approvals": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "human_required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "observations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "audit_log_ranges": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "approvals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "review_id",
+          "decision",
+          "reviewer",
+          "reviewer_type",
+          "created_at"
+        ],
+        "properties": {
+          "review_id": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approved",
+              "rejected"
+            ]
+          },
+          "reviewer": {
+            "type": "string"
+          },
+          "reviewer_type": {
+            "type": "string",
+            "enum": [
+              "human",
+              "agent"
+            ]
+          },
+          "note": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "applied_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "applied_by": {
+      "type": "string"
+    },
+    "applied_files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "distilled_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "distilled_by": {
+      "type": "string"
+    }
+  }
+}
