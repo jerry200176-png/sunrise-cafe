@@ -52,10 +52,17 @@ jobs:
         continue-on-error: true
 
       # Fail-closed secret scan — required for merge safety (do not continue-on-error).
+      # GITLEAKS_ENABLE_COMMENTS=false: Dependabot PRs always get a read-only
+      # GITHUB_TOKEN (a GitHub platform restriction, not something this repo's
+      # `permissions:` block can override), and the default PR-comment call
+      # needs write access -> every Dependabot PR failed here with
+      # "Resource not accessible by integration". The scan itself (the part
+      # that actually gates merges) doesn't need any token permissions.
       - name: Secret scan (gitleaks)
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
 
       - name: Build
         run: npm run build
