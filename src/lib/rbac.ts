@@ -25,6 +25,7 @@ const ROLE_PERMISSIONS: Record<AdminRole, string[]> = {
   branch_manager: [
     "reservations:read",
     "reservations:write",
+    "reservations:message_send",
     "reservations:cancel",
     "branches:read",
     "rooms:read",
@@ -39,6 +40,7 @@ const ROLE_PERMISSIONS: Record<AdminRole, string[]> = {
   staff: [
     "reservations:read",
     "reservations:write_status",
+    "reservations:message_send",
     "ops:read",
     "orders:read",
     "orders:write",

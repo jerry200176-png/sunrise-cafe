@@ -13,6 +13,7 @@ export const ADMIN_CRON_GET_PATHS = [
   "/api/admin/reminders/send-line-7d",
   "/api/admin/reminders/deposit-deadline",
   "/api/admin/reminders/deploy-health",
+  "/api/linepay/notifications/retry",
 ] as const;
 
 export function isAdminCronGetPath(pathname: string): boolean {

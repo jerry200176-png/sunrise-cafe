@@ -44,3 +44,5 @@ next-env.d.ts
 OIP.*
 *.rar
 test-results/
+# ExoProtocol: audit logs excluded (privacy.commit_logs=false)
+.exo/logs/
