@@ -11,12 +11,13 @@ jobs:
     name: Lint & Build
     runs-on: ubuntu-latest
     # Repo default workflow token permissions are read-only, so gitleaks-action's
-    # createCommitStatus call (used even with GITLEAKS_ENABLE_COMMENTS=false)
-    # was still failing with "Resource not accessible by integration" for
-    # every PR, not just Dependabot's. Grant just what that call needs.
+    # unconditional "GET .../pulls/{number}/commits" call (it runs before the
+    # GITLEAKS_ENABLE_COMMENTS check, to compute the diff range to scan) was
+    # failing with "Resource not accessible by integration" for every PR, not
+    # just Dependabot's. pull-requests: read is what that call needs.
     permissions:
       contents: read
-      statuses: write
+      pull-requests: read
 
     steps:
       - uses: actions/checkout@v4

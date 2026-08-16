@@ -3,5 +3,5 @@
   "provenance_type": "human-authored",
   "declared_at": "2026-08-16T10:30:00Z",
   "author": "jerry-claude-code-session",
-  "note": "CI fix: gitleaks needed statuses:write, blocked by repo default read-only workflow token."
+  "note": "CI fix: gitleaks-action needs pull-requests:read to list PR commits; repo default workflow permission is read-only for every run."
 }
