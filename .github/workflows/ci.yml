@@ -10,6 +10,13 @@ jobs:
   lint-and-build:
     name: Lint & Build
     runs-on: ubuntu-latest
+    # Repo default workflow token permissions are read-only, so gitleaks-action's
+    # createCommitStatus call (used even with GITLEAKS_ENABLE_COMMENTS=false)
+    # was still failing with "Resource not accessible by integration" for
+    # every PR, not just Dependabot's. Grant just what that call needs.
+    permissions:
+      contents: read
+      statuses: write
 
     steps:
       - uses: actions/checkout@v4
@@ -52,12 +59,9 @@ jobs:
         continue-on-error: true
 
       # Fail-closed secret scan — required for merge safety (do not continue-on-error).
-      # GITLEAKS_ENABLE_COMMENTS=false: Dependabot PRs always get a read-only
-      # GITHUB_TOKEN (a GitHub platform restriction, not something this repo's
-      # `permissions:` block can override), and the default PR-comment call
-      # needs write access -> every Dependabot PR failed here with
-      # "Resource not accessible by integration". The scan itself (the part
-      # that actually gates merges) doesn't need any token permissions.
+      # GITLEAKS_ENABLE_COMMENTS=false skips the PR-review-comment API call
+      # entirely (belt-and-suspenders on top of the job's `permissions:`
+      # above); the scan itself needs no token permissions at all.
       - name: Secret scan (gitleaks)
         uses: gitleaks/gitleaks-action@v2
         env:
