@@ -1,31 +1,6 @@
 import type { Metadata, Viewport } from "next";
-import { Fraunces, Noto_Serif_TC, Noto_Sans_TC } from "next/font/google";
 import { LocaleProvider } from "@/lib/i18n/LocaleContext";
 import "./globals.css";
-
-// 顯示用襯線（拉丁）：柔潤、有溫度，適合手作咖啡的調性
-const fraunces = Fraunces({
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-display",
-  axes: ["SOFT", "opsz"],
-});
-
-// 中文標題襯線
-const notoSerifTC = Noto_Serif_TC({
-  weight: ["400", "600", "700", "900"],
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-serif",
-});
-
-// 內文無襯線
-const notoSansTC = Noto_Sans_TC({
-  weight: ["300", "400", "500", "700"],
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-sans",
-});
 
 export const metadata: Metadata = {
   title: "昇咖啡 · 包廂租借預約",
@@ -66,7 +41,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-TW" className={`${fraunces.variable} ${notoSerifTC.variable} ${notoSansTC.variable}`}>
+    <html lang="zh-TW">
       <body className="antialiased">
         <a href="#main-content" className="skip-link">
           跳到主要內容

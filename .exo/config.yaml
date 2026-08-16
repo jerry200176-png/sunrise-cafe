@@ -1,0 +1,80 @@
+version: 1
+defaults:
+  ticket_budgets:
+    max_files_changed: 12
+    max_loc_changed: 400
+  ticket_checks: []
+checks_allowlist:
+- npm test
+- npm run lint
+- pytest
+- python -m pytest
+- python3 -m pytest
+global_checks: []
+do_allowlist:
+- npm run build
+recall_paths:
+- .exo
+- docs
+framework_paths:
+- .exo/cache/**
+- .exo/memory/**
+- .exo/locks/**
+- .exo/tickets/**
+- .exo/logs/**
+self_evolution:
+  trusted_approvers:
+  - agent:trusted
+  governance_cooldown_hours: 24
+scheduler:
+  enabled: false
+  global_concurrency_limit: null
+  lanes:
+  - name: feature
+    allowed_types:
+    - feature
+    count: 3
+  - name: bug
+    allowed_types:
+    - bug
+    count: 2
+  - name: chore
+    allowed_types:
+    - chore
+    - docs
+    count: 1
+control_caps:
+  decide_override:
+  - cap:override
+  policy_set:
+  - cap:policy-set
+  cas_head:
+  - cap:cas-head
+git_controls:
+  enabled: true
+  strict_diff_budgets: true
+  enforce_lock_branch: true
+  auto_create_lock_branch: true
+  auto_switch_lock_branch: true
+  require_clean_worktree_before_do: true
+  stale_lock_drift_hours: 24
+  base_branch_fallback: main
+  ignore_paths:
+  - .exo/logs/**
+  - .exo/cache/**
+  - .exo/locks/**
+  - .exo/tickets/**
+  - '**/__pycache__/**'
+  - '**/*.pyc'
+privacy:
+  commit_logs: false
+  redact_local_paths: true
+private_memory:
+  watch_paths: []
+  enabled: true
+coherence:
+  enabled: true
+  co_update_rules: []
+  docstring_languages:
+  - py
+  skip_patterns: []

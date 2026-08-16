@@ -101,3 +101,13 @@ export function assertReservationWriteAllowed(
   }
   return null;
 }
+
+export function assertReservationMessageSendAllowed(
+  ctx: AdminContext,
+  branchId: string
+): string | null {
+  if (!hasPermission(ctx, "reservations:message_send", branchId)) {
+    return "Forbidden";
+  }
+  return null;
+}

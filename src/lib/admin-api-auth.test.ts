@@ -20,7 +20,7 @@ const origVercelEnv = process.env.VERCEL_ENV;
 afterEach(() => {
   process.env.ADMIN_PASSWORD = origPassword;
   process.env.SESSION_SECRET = origSession;
-  process.env.NODE_ENV = origNodeEnv;
+  Reflect.set(process.env, "NODE_ENV", origNodeEnv);
   process.env.VERCEL_ENV = origVercelEnv;
 });
 
@@ -49,6 +49,8 @@ describe("isAdminOnlyApiPath (RC2 P2)", () => {
 
   it("protects send-line and recurring admin", () => {
     expect(isAdminOnlyApiPath("/api/reservations/send-line", "POST")).toBe(true);
+    expect(isAdminOnlyApiPath("/api/reservations/abc/message-actions", "GET")).toBe(true);
+    expect(isAdminOnlyApiPath("/api/reservations/abc/message-actions", "POST")).toBe(true);
     expect(isAdminOnlyApiPath("/api/reservations/recurring/admin", "POST")).toBe(true);
   });
 
@@ -113,13 +115,13 @@ describe("isAdminAuthRequired", () => {
 
   it("requires auth in production even without ADMIN_PASSWORD", () => {
     delete process.env.ADMIN_PASSWORD;
-    process.env.NODE_ENV = "production";
+    Reflect.set(process.env, "NODE_ENV", "production");
     expect(isAdminAuthRequired()).toBe(true);
   });
 
   it("allows dev mode without password", () => {
     delete process.env.ADMIN_PASSWORD;
-    process.env.NODE_ENV = "development";
+    Reflect.set(process.env, "NODE_ENV", "development");
     delete process.env.VERCEL_ENV;
     expect(isAdminAuthRequired()).toBe(false);
   });
@@ -148,7 +150,7 @@ describe("getAdminContext", () => {
 
   it("returns owner in legacy mode when auth not required", async () => {
     delete process.env.ADMIN_PASSWORD;
-    process.env.NODE_ENV = "development";
+    Reflect.set(process.env, "NODE_ENV", "development");
     delete process.env.VERCEL_ENV;
     const req = new NextRequest("http://localhost/api/admin/me");
     const ctx = await getAdminContext(req);
@@ -160,7 +162,7 @@ describe("getAdminContext", () => {
 describe("requireAdminApiAuth", () => {
   it("allows when admin auth not required (dev mode)", async () => {
     delete process.env.ADMIN_PASSWORD;
-    process.env.NODE_ENV = "development";
+    Reflect.set(process.env, "NODE_ENV", "development");
     delete process.env.VERCEL_ENV;
     const req = new NextRequest("http://localhost/api/reservations/x", { method: "PATCH" });
     expect(await requireAdminApiAuth(req)).toBeNull();
@@ -169,7 +171,7 @@ describe("requireAdminApiAuth", () => {
   it("returns 503 in production when no signing key configured", async () => {
     delete process.env.ADMIN_PASSWORD;
     delete process.env.SESSION_SECRET;
-    process.env.NODE_ENV = "production";
+    Reflect.set(process.env, "NODE_ENV", "production");
     const req = new NextRequest("http://localhost/api/reservations/x", { method: "PATCH" });
     const res = await requireAdminApiAuth(req);
     expect(res?.status).toBe(503);

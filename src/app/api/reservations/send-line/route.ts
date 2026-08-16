@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAdminConfigured } from "@/lib/supabase-admin";
 import { requireAdminApiAuth, getAdminContext } from "@/lib/admin-api-auth";
-import { assertReservationWriteAllowed } from "@/lib/reservation-access";
+import { assertReservationMessageSendAllowed } from "@/lib/reservation-access";
 import { fetchReservationBranchId } from "@/lib/supabase-admin";
 import { sendDepositPaymentRequest } from "@/lib/payment-request-line";
 
@@ -22,12 +22,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "找不到訂位或分店" }, { status: 404 });
   }
   const ctx = await getAdminContext(request);
-  const rbacDenied = assertReservationWriteAllowed(ctx, branchId);
+  const rbacDenied = assertReservationMessageSendAllowed(ctx, branchId);
   if (rbacDenied) {
     return NextResponse.json({ error: rbacDenied }, { status: 403 });
   }
 
-  const { result, detail } = await sendDepositPaymentRequest(id, { force: true });
+  const { result, detail } = await sendDepositPaymentRequest(id, {
+    force: true,
+    actorUserId: ctx.user_id,
+  });
 
   if (result === "sent") {
     return NextResponse.json({ ok: true, result });

@@ -40,6 +40,24 @@
 |------|------|----------|
 | `LINE_CUSTOMER_ACCESS_TOKEN` | 客人 Bot 的 Access Token | LINE Developers → Messaging API |
 
+## LINE Pay — 自動對帳
+
+每筆訂位使用專屬付款單；付款完成後自動對應訂位、標記訂金已收並通知店家群組。兩個金鑰只放在 Vercel Production Environment Variables 或本機 `.env.local`，不可寫入 git。
+
+| 變數 | 說明 | 取得位置 |
+|------|------|----------|
+| `LINE_PAY_CHANNEL_ID` | LINE Pay 商戶 Channel ID | LINE Pay Merchant Center → Payment Integration |
+| `LINE_PAY_CHANNEL_SECRET` | LINE Pay 商戶 Channel Secret | LINE Pay Merchant Center → Payment Integration |
+| `LINE_PAY_API_BASE_URL` | 選填；預設 `https://api-pay.line.me`，沙盒用 `https://sandbox-api-pay.line.me` | LINE Pay Online API |
+| `NEXT_PUBLIC_APP_URL` | 建議在 Vercel Production 設為正式公開網址，供 LINE Pay 回呼網址使用；目前正式網址為 `https://sunrise-cafe-six.vercel.app` | Vercel → Settings → Environment Variables |
+
+回呼網址：
+
+- Confirm: `https://sunrise-cafe-six.vercel.app/api/linepay/confirm`
+- Cancel: `https://sunrise-cafe-six.vercel.app/api/linepay/cancel`
+
+正式啟用前要先執行 `supabase/migration-line-pay-payments.sql`，再用沙盒帳號完成 request → payment → confirm 測試。未設定憑證時，網站會繼續顯示舊的固定付款連結。
+
 ## LINE — Login
 
 用於訂位表單的 LINE OAuth 登入，讓系統取得客人 LINE User ID。
