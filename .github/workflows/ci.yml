@@ -10,6 +10,14 @@ jobs:
   lint-and-build:
     name: Lint & Build
     runs-on: ubuntu-latest
+    # Repo default workflow token permissions are read-only, so gitleaks-action's
+    # unconditional "GET .../pulls/{number}/commits" call (it runs before the
+    # GITLEAKS_ENABLE_COMMENTS check, to compute the diff range to scan) was
+    # failing with "Resource not accessible by integration" for every PR, not
+    # just Dependabot's. pull-requests: read is what that call needs.
+    permissions:
+      contents: read
+      pull-requests: read
 
     steps:
       - uses: actions/checkout@v4
@@ -52,10 +60,14 @@ jobs:
         continue-on-error: true
 
       # Fail-closed secret scan — required for merge safety (do not continue-on-error).
+      # GITLEAKS_ENABLE_COMMENTS=false skips the PR-review-comment API call
+      # entirely (belt-and-suspenders on top of the job's `permissions:`
+      # above); the scan itself needs no token permissions at all.
       - name: Secret scan (gitleaks)
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
 
       - name: Build
         run: npm run build
