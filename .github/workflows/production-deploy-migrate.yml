@@ -132,6 +132,28 @@ jobs:
           echo "ops_events probe: HTTP $CODE"
           [ "$CODE" = "200" ] || cat /tmp/ops_probe.json || true
 
+      - name: Verify deploy-health Cron runtime
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::CRON_SECRET is required for the production deploy-health probe"
+            exit 1
+          fi
+          CODE=$(curl -sS -o /tmp/deploy_health_probe.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "https://sunrise-cafe-six.vercel.app/api/admin/reminders/deploy-health")
+          echo "deploy-health probe: HTTP $CODE"
+          jq '{ok, sha_parity, benign_drift, main, prod}' /tmp/deploy_health_probe.json
+          [ "$CODE" = "200" ]
+          jq -e '.ok == true and (.sha_parity == true or .benign_drift == true)' \
+            /tmp/deploy_health_probe.json >/dev/null
+          if grep -Fq 'Could not resolve main branch SHA' /tmp/deploy_health_probe.json; then
+            echo "::error::legacy GitHub main-SHA resolution error is still present"
+            exit 1
+          fi
+
       - name: Verify market-parity columns
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
