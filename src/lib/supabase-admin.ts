@@ -473,8 +473,8 @@ export async function fetchTomorrowsReservations() {
   return data;
 }
 
-// ✅ 明日 LINE 自動提醒只處理已確認收訂金的訂位；未付款保留給後台人工追蹤。
-// force=true 只略過 is_notified 限制，不略過付款狀態限制。
+// ✅ 明日 LINE 自動提醒包含 pending / confirmed 訂位，不論是否已付訂金。
+// force=true 只略過 is_notified 限制。
 // delivery ledger additionally prevents overlapping sends.
 export async function fetchReservationsForReminder(force: boolean = false) {
   const nowTW = new Date(
@@ -519,7 +519,6 @@ export async function fetchReservationsForReminder(force: boolean = false) {
     .gte("start_time", startRange)
     .lte("start_time", endRange)
     .in("status", ["pending", "confirmed"])
-    .eq("is_deposit_paid", true)
     .order("start_time", { ascending: true });
 
   if (!force) {
@@ -541,7 +540,6 @@ export async function fetchReservationsForReminder(force: boolean = false) {
       .gte("start_time", startRange)
       .lte("start_time", endRange)
       .in("status", ["pending", "confirmed"])
-      .eq("is_deposit_paid", true)
       .eq("is_notified", false)
       .order("start_time", { ascending: true });
     if (fallbackError) throw fallbackError;
