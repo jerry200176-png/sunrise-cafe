@@ -1,3 +1,11 @@
+import {
+  GITHUB_API_REQUEST_TIMEOUT_MS,
+  GITHUB_API_RETRY_DELAYS_MS,
+  githubApiHeaders,
+  isRetryableGithubResponse,
+  waitForGithubRetry,
+} from "@/lib/github-api";
+
 /**
  * Assess whether main↔prod SHA drift needs a deploy / LINE alert.
  *
@@ -37,49 +45,72 @@ type GithubCompareResponse = {
   status?: string;
 };
 
+type DeployParityOptions = {
+  fetchImpl?: typeof fetch;
+  sleep?: (milliseconds: number) => Promise<void>;
+};
+
 /**
  * Compare prodSha...mainSha via public GitHub API.
  * On API failure, compareOk=false so callers can fall back to alerting.
  */
 export async function assessDeployParity(
   prodSha: string,
-  mainSha: string
+  mainSha: string,
+  options: DeployParityOptions = {}
 ): Promise<DeployParityAssessment> {
   if (prodSha === mainSha) {
     return { exactMatch: true, benignDrift: false, changedFiles: [], compareOk: true };
   }
 
-  try {
-    const res = await fetch(
-      `https://api.github.com/repos/${REPO}/compare/${prodSha}...${mainSha}`,
-      {
-        headers: { Accept: "application/vnd.github+json" },
-        cache: "no-store",
-        signal: AbortSignal.timeout(15_000),
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const sleep = options.sleep ?? waitForGithubRetry;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const res = await fetchImpl(
+        `https://api.github.com/repos/${REPO}/compare/${prodSha}...${mainSha}`,
+        {
+          headers: githubApiHeaders(),
+          cache: "no-store",
+          signal: AbortSignal.timeout(GITHUB_API_REQUEST_TIMEOUT_MS),
+        }
+      );
+      if (!res.ok) {
+        console.error("[deploy-parity] GitHub compare", res.status, `attempt=${attempt}`);
+        if (!isRetryableGithubResponse(res) || attempt === 3) {
+          return { exactMatch: false, benignDrift: false, changedFiles: [], compareOk: false };
+        }
+      } else {
+        const body = (await res.json()) as GithubCompareResponse;
+        const changedFiles = (body.files ?? [])
+          .map((f) => f.filename)
+          .filter((name): name is string => typeof name === "string" && name.length > 0);
+
+        // Empty file list with ahead status can happen for empty commits — treat as benign.
+        const benignDrift =
+          changedFiles.length === 0 || changedFiles.every((f) => isBenignDeployPath(f));
+
+        return {
+          exactMatch: false,
+          benignDrift,
+          changedFiles,
+          compareOk: true,
+        };
       }
-    );
-    if (!res.ok) {
-      console.error("[deploy-parity] GitHub compare", res.status);
-      return { exactMatch: false, benignDrift: false, changedFiles: [], compareOk: false };
+    } catch (err) {
+      console.error("[deploy-parity] compare failed", `attempt=${attempt}:`, err);
+      if (attempt === 3) {
+        return { exactMatch: false, benignDrift: false, changedFiles: [], compareOk: false };
+      }
     }
 
-    const body = (await res.json()) as GithubCompareResponse;
-    const changedFiles = (body.files ?? [])
-      .map((f) => f.filename)
-      .filter((name): name is string => typeof name === "string" && name.length > 0);
-
-    // Empty file list with ahead status can happen for empty commits — treat as benign.
-    const benignDrift =
-      changedFiles.length === 0 || changedFiles.every((f) => isBenignDeployPath(f));
-
-    return {
-      exactMatch: false,
-      benignDrift,
-      changedFiles,
-      compareOk: true,
-    };
-  } catch (err) {
-    console.error("[deploy-parity] compare failed:", err);
-    return { exactMatch: false, benignDrift: false, changedFiles: [], compareOk: false };
+    if (attempt < 3) {
+      const delay =
+        GITHUB_API_RETRY_DELAYS_MS[attempt - 1] ?? GITHUB_API_RETRY_DELAYS_MS.at(-1)!;
+      await sleep(delay);
+    }
   }
+
+  return { exactMatch: false, benignDrift: false, changedFiles: [], compareOk: false };
 }

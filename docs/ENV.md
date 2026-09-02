@@ -94,6 +94,14 @@
 |------|------|
 | `CRON_SECRET` | Vercel Cron 呼叫 send-line 時的驗證 token，未設定則跳過驗證 |
 
+## GitHub deploy-health
+
+| 變數 | 說明 |
+|------|------|
+| `GITHUB_TOKEN` | deploy-health 讀取 private repository 的 `main` SHA 與 compare 結果；使用僅限 `jerry200176-png/sunrise-cafe`、`Contents: Read` 的 fine-grained token，僅放在 Vercel Production |
+
+> Token 未設定或權限不足時，deploy-health 會保留 fail-safe 並告警；不會以 fallback 或 hardcode SHA 掩蓋錯誤。
+
 ## CTO Outcome Pipeline
 
 | 變數 | 說明 | 設定位置 |
