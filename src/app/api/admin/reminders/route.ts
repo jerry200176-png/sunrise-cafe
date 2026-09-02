@@ -1,8 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { fetchTomorrowsReservations, isAdminConfigured } from "@/lib/supabase-admin";
+import { getAdminContext, requirePermission } from "@/lib/admin-api-auth";
+import { canAccessBranch } from "@/lib/rbac";
 
 /** GET: 回傳明日待提醒訂位列表（供排程或後台檢視） */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = await requirePermission(request, "reservations:read");
+  if (denied) return denied;
   if (!isAdminConfigured()) {
     return NextResponse.json(
       { error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY" },
@@ -10,7 +14,11 @@ export async function GET() {
     );
   }
   try {
-    const rows = await fetchTomorrowsReservations();
+    const ctx = await getAdminContext(request);
+    const rows = (await fetchTomorrowsReservations()).filter((r: Record<string, unknown>) => {
+      const room = r.room as { branch_id?: string; branch?: { id?: string } } | undefined;
+      return canAccessBranch(ctx, room?.branch_id ?? room?.branch?.id ?? null);
+    });
     const formatted = rows.map((r: Record<string, unknown>) => {
       const room = r.room as { name?: string; branch?: { name?: string } } | undefined;
       return {

@@ -1,17 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchDashboardBundle } from "@/lib/admin-dashboard-data";
 import { isAdminConfigured } from "@/lib/supabase-admin";
+import { requirePermission } from "@/lib/admin-api-auth";
+import { taipeiDateString } from "@/lib/datetime";
 
 /** Single round-trip dashboard bundle: stats + timeline + 7d trend (ADM-005b). */
 export async function GET(request: NextRequest) {
   const branchId = request.nextUrl.searchParams.get("branchId");
   const date =
     request.nextUrl.searchParams.get("date") ??
-    new Date().toISOString().slice(0, 10);
+    taipeiDateString();
 
   if (!branchId) {
     return NextResponse.json({ error: "缺少 branchId" }, { status: 400 });
   }
+  const denied = await requirePermission(request, "reservations:read", branchId);
+  if (denied) return denied;
   if (!isAdminConfigured()) {
     return NextResponse.json(
       { error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY" },
