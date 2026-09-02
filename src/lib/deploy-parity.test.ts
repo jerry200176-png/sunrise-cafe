@@ -16,7 +16,11 @@ describe("isBenignDeployPath", () => {
 });
 
 describe("assessDeployParity", () => {
+  const originalToken = process.env.GITHUB_TOKEN;
+
   afterEach(() => {
+    if (originalToken === undefined) delete process.env.GITHUB_TOKEN;
+    else process.env.GITHUB_TOKEN = originalToken;
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -66,6 +70,39 @@ describe("assessDeployParity", () => {
     const result = await assessDeployParity("prodsha", "mainsha");
     expect(result.benignDrift).toBe(false);
     expect(result.compareOk).toBe(true);
+  });
+
+  it("authenticates GitHub compare requests for the private repository", async () => {
+    process.env.GITHUB_TOKEN = "read-only-token";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ files: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await assessDeployParity("prodsha", "mainsha");
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer read-only-token");
+    expect(headers["X-GitHub-Api-Version"]).toBe("2022-11-28");
+  });
+
+  it("retries transient compare failures", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 503, headers: new Headers() })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ files: [] }) });
+    const sleepMock = vi.fn().mockResolvedValue(undefined);
+
+    const result = await assessDeployParity("prodsha", "mainsha", {
+      fetchImpl: fetchMock,
+      sleep: sleepMock,
+    });
+
+    expect(result.compareOk).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sleepMock).toHaveBeenCalledWith(250);
   });
 
   it("fails open to actionable when compare API errors", async () => {
