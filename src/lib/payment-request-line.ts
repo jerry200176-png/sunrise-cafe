@@ -7,6 +7,10 @@ import { sendLineFlexMessage, buildPaymentFlex } from "@/lib/line";
 import { buildPaymentMessage, type BranchPaymentConfig } from "@/lib/payment-message";
 import { isWeekendDate } from "@/lib/booking-utils";
 import { recordReservationMessageAction } from "@/lib/reservation-message-actions";
+import {
+  claimLineGuestNotificationDelivery,
+  markLineGuestNotificationDelivery,
+} from "@/lib/line-guest-delivery";
 
 function defaultClient(): SupabaseClient {
   return createClient(
@@ -163,6 +167,26 @@ export async function sendDepositPaymentRequest(
     createdAt: (r.created_at as string | null) ?? null,
   });
 
+  let deliveryId: string | null = null;
+  if (!force) {
+    try {
+      const claim = await claimLineGuestNotificationDelivery({
+        notificationType: "deposit_request",
+        reservationId,
+        recipientId: String(r.line_user_id),
+        client: db,
+      });
+      if (claim.available) {
+        if (!claim.id) return { result: "skipped_already_sent" };
+        deliveryId = claim.id;
+      }
+    } catch (claimError) {
+      const detail = claimError instanceof Error ? claimError.message : String(claimError);
+      console.error("[payment-request] LINE delivery claim failed:", detail);
+      return { result: "error", detail };
+    }
+  }
+
   const recordPushAction = async (action: "pushed" | "failed") => {
     try {
       await recordReservationMessageAction(
@@ -187,6 +211,16 @@ export async function sendDepositPaymentRequest(
   try {
     await sendLineFlexMessage(String(r.line_user_id), "訂金繳費通知", flex);
     await recordPushAction("pushed");
+    if (deliveryId) {
+      try {
+        await markLineGuestNotificationDelivery(deliveryId, { status: "sent" }, db);
+      } catch (ledgerError) {
+        console.warn(
+          "[payment-request] delivery ledger success record failed:",
+          ledgerError instanceof Error ? ledgerError.message : String(ledgerError)
+        );
+      }
+    }
     if (stampColumnReady) {
       const sentAt = new Date().toISOString();
       const { error: stampErr } = await db
@@ -208,6 +242,16 @@ export async function sendDepositPaymentRequest(
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     await recordPushAction("failed");
+    if (deliveryId) {
+      try {
+        await markLineGuestNotificationDelivery(deliveryId, { status: "failed", error: detail }, db);
+      } catch (ledgerError) {
+        console.warn(
+          "[payment-request] delivery ledger failure record failed:",
+          ledgerError instanceof Error ? ledgerError.message : String(ledgerError)
+        );
+      }
+    }
     console.error("[payment-request] LINE push failed:", detail);
     return { result: "error", detail };
   }
