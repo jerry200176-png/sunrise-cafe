@@ -22,6 +22,12 @@ vi.mock("@/lib/line", () => ({
   buildReminderFlex: vi.fn(() => ({ type: "bubble" })),
 }));
 
+vi.mock("@/lib/line-delivery", () => ({
+  claimLineReminderDelivery: vi.fn(async () => ({ available: false, id: null })),
+  markLineReminderDelivery: vi.fn(async () => {}),
+  safeLineDeliveryError: vi.fn((error: unknown) => String(error)),
+}));
+
 vi.mock("@/lib/attendance-token", () => ({
   signAttendanceToken: vi.fn(() => "tok"),
 }));
@@ -86,7 +92,7 @@ describe("runSendLineReminder — sent=0 regression", () => {
     const json = await res.json();
 
     expect(res.status).toBe(200);
-    expect(json.sent).toBe(0);
+    expect(json.sent).toBe(1);
     expect(json.result).toBe("already_notified");
     expect(json.heartbeat).toBe("already_notified");
     expect(sendLineMessage).toHaveBeenCalledTimes(1);
@@ -169,7 +175,7 @@ describe("runSendLineReminder — retry regression", () => {
     const json = await res.json();
 
     expect(json.result).toBe("sent");
-    expect(json.sent_count).toBe(1);
+    expect(json.sent_count).toBe(2);
     expect(json.guest_sent_count).toBe(1);
     expect(sendLineFlexToGroup).toHaveBeenCalled();
     expect(updateReservationAdmin).toHaveBeenCalledWith("p1", { is_notified: true });
@@ -198,5 +204,40 @@ describe("runSendLineReminder — retry regression", () => {
     expect(json2.result).toBe("already_notified");
     expect(sendLineFlexToGroup).not.toHaveBeenCalled();
     expect(sendLineMessageToGroup).toHaveBeenCalled();
+  });
+
+  it("batches multiple D-1 reservations for one guest into one personal push", async () => {
+    vi.mocked(fetchBranches).mockResolvedValue([
+      { id: "b1", name: "大安店", line_group_id: "G123" },
+    ] as never);
+    vi.mocked(fetchReservationsForReminder).mockResolvedValue([
+      {
+        id: "p1",
+        booking_code: "A1",
+        start_time: "2026-07-17T10:00:00+08:00",
+        end_time: "2026-07-17T12:00:00+08:00",
+        customer_name: "A",
+        phone: "0912",
+        line_user_id: "U1",
+        room: { name: "包廂1", branch_id: "b1", branch: { id: "b1", name: "大安店" } },
+      },
+      {
+        id: "p2",
+        booking_code: "A2",
+        start_time: "2026-07-17T14:00:00+08:00",
+        end_time: "2026-07-17T16:00:00+08:00",
+        customer_name: "A",
+        phone: "0912",
+        line_user_id: "U1",
+        room: { name: "包廂2", branch_id: "b1", branch: { id: "b1", name: "大安店" } },
+      },
+    ] as never);
+
+    const res = await runSendLineReminder({ trigger_source: "cron" });
+    const json = await res.json();
+
+    expect(json.sent_count).toBe(2);
+    expect(json.guest_sent_count).toBe(1);
+    expect(sendLineFlexMessage).toHaveBeenCalledTimes(1);
   });
 });

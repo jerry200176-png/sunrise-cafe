@@ -6,6 +6,7 @@ import {
 } from "@/lib/supabase-admin";
 import { sendLineFlex, buildRescheduleGroupFlex } from "@/lib/line-notify";
 import { notifyWaitlist } from "@/lib/waitlist";
+import { resetLineReminderDeliveries } from "@/lib/line-delivery";
 
 import { verifyGuestBookingById } from "@/lib/guest-auth";
 import { enforceGuestLookupLimit } from "@/lib/guest-rate-limit";
@@ -94,7 +95,9 @@ export async function POST(request: NextRequest) {
       end_time: newEnd,
       guest_count: newGuestCount ?? match.guest_count,
       is_notified: false,
+      d1_guest_reminder_sent_at: null,
     });
+    await resetLineReminderDeliveries(id);
 
     try {
       await sendLineFlex(

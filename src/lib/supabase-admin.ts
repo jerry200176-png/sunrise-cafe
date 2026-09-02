@@ -229,6 +229,7 @@ export async function updateReservationAdmin(
   updates: {
     status?: string;
     is_notified?: boolean;
+    d1_guest_reminder_sent_at?: string | null;
     is_reminded_7d?: boolean;
     is_deposit_paid?: boolean;
     deposit_payment_note?: string | null;
@@ -472,7 +473,7 @@ export async function fetchTomorrowsReservations() {
   return data;
 }
 
-// ✅ 補回遺失的函式：fetchReservationsForReminder (專供 LINE 自動提醒使用，預設只抓 is_notified = false，可透過 force=true 略過此限制)
+// ✅ 明日提醒候選：只納入仍可能履約的訂位；delivery ledger 負責並發去重。
 export async function fetchReservationsForReminder(force: boolean = false) {
   const nowTW = new Date(
     new Date().toLocaleString("en-US", { timeZone: "Asia/Taipei" })
@@ -502,6 +503,7 @@ export async function fetchReservationsForReminder(force: boolean = false) {
       status,
       notes,
       line_user_id,
+      d1_guest_reminder_sent_at,
       room:rooms (
         name,
         branch_id,
@@ -513,15 +515,33 @@ export async function fetchReservationsForReminder(force: boolean = false) {
     `)
     .gte("start_time", startRange)
     .lte("start_time", endRange)
-    .neq("status", "cancelled")
+    .in("status", ["pending", "confirmed"])
     .order("start_time", { ascending: true });
 
   if (!force) {
-    query = query.eq("is_notified", false);
+    query = query.or("is_notified.eq.false,d1_guest_reminder_sent_at.is.null");
   }
 
   const { data, error } = await query;
 
+  if (error && /d1_guest_reminder_sent_at/i.test(error.message)) {
+    // Compatibility during the migration rollout; the delivery ledger still
+    // protects any rows returned by this legacy query from duplicate pushes.
+    const { data: fallback, error: fallbackError } = await supabaseAdmin()
+      .from("reservations")
+      .select(`
+      id, booking_code, room_id, start_time, end_time, customer_name, phone,
+      email, guest_count, is_notified, status, notes, line_user_id,
+      room:rooms (name, branch_id, branch:branches(id, name))
+    `)
+      .gte("start_time", startRange)
+      .lte("start_time", endRange)
+      .in("status", ["pending", "confirmed"])
+      .eq("is_notified", false)
+      .order("start_time", { ascending: true });
+    if (fallbackError) throw fallbackError;
+    return fallback;
+  }
   if (error) throw error;
   return data;
 }
@@ -542,10 +562,10 @@ export async function fetchReservationsIn7Days() {
 
   const { data, error } = await supabaseAdmin()
     .from("reservations")
-    .select("id, customer_name, start_time, end_time, line_user_id, room:rooms(name, branch:branches(name))")
+    .select("id, booking_code, customer_name, start_time, end_time, guest_count, notes, line_user_id, room:rooms(name, branch:branches(name))")
     .gte("start_time", startRange)
     .lte("start_time", endRange)
-    .neq("status", "cancelled")
+    .in("status", ["pending", "confirmed"])
     .eq("is_reminded_7d", false)
     .not("line_user_id", "is", null)
     .order("start_time", { ascending: true });

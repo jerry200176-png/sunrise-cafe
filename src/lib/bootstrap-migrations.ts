@@ -13,6 +13,10 @@ const MARKET_PARITY_SQL = readFileSync(
   join(process.cwd(), "supabase/migration-market-parity-rounds-3-7.sql"),
   "utf8"
 );
+const LINE_DELIVERIES_SQL = readFileSync(
+  join(process.cwd(), "supabase/migration-line-reminder-deliveries.sql"),
+  "utf8"
+);
 
 function pgConnectionString(): string | null {
   const url =
@@ -48,6 +52,11 @@ async function opsEventsReady(): Promise<boolean> {
   return exists === true;
 }
 
+async function lineDeliveriesReady(): Promise<boolean> {
+  const exists = await restColumnExists("line_reminder_deliveries", "id");
+  return exists === true;
+}
+
 let bootstrapPromise: Promise<void> | null = null;
 
 export function runBootstrapMigrations(): Promise<void> {
@@ -80,6 +89,13 @@ async function bootstrapMigrations(): Promise<void> {
       if (guest === false) {
         console.log("[bootstrap-migrations] applying market-parity Round 3–7 columns");
         await sql.unsafe(MARKET_PARITY_SQL);
+      }
+
+      if (!(await lineDeliveriesReady())) {
+        console.log("[bootstrap-migrations] applying line reminder delivery ledger");
+        await sql.unsafe(LINE_DELIVERIES_SQL);
+      } else {
+        console.log("[bootstrap-migrations] line reminder delivery ledger already ready");
       }
     } finally {
       await sql.end({ timeout: 10 });
