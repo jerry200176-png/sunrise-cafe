@@ -91,7 +91,7 @@ export function AddReservationForm({
     setNotes("");
     setDate("");
     setTime("");
-    setDuration(1);
+    setDuration(2);
     setRepeatEnabled(false);
     setSelectedWeekdays([]);
     setEndDate(format(addMonths(new Date(), 1), "yyyy-MM-dd"));
@@ -173,7 +173,7 @@ export function AddReservationForm({
         const pricePerHour = getPricePerHour(room, date);
         const total_price = Math.round(pricePerHour * duration);
 
-        const res = await fetch("/api/reservations", {
+        const res = await fetch("/api/admin/reservations", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -186,7 +186,6 @@ export function AddReservationForm({
             total_price,
             guest_count: guestCount === "" ? null : Number(guestCount),
             notes: notes.trim() || null,
-            status: "confirmed",
           }),
         });
 
