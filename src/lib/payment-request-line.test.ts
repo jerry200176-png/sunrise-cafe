@@ -1,15 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { sendDepositPaymentRequest } from "./payment-request-line";
 
+vi.mock("@/lib/line-guest-delivery", () => ({
+  claimLineGuestNotificationDelivery: vi.fn(),
+  markLineGuestNotificationDelivery: vi.fn(),
+}));
+
 vi.mock("@/lib/line", () => ({
   sendLineFlexMessage: vi.fn(),
   buildPaymentFlex: vi.fn(() => ({ type: "bubble" })),
 }));
 
 import { sendLineFlexMessage, buildPaymentFlex } from "@/lib/line";
+import {
+  claimLineGuestNotificationDelivery,
+  markLineGuestNotificationDelivery,
+} from "@/lib/line-guest-delivery";
 
 const mockSend = vi.mocked(sendLineFlexMessage);
 const mockBuild = vi.mocked(buildPaymentFlex);
+const mockClaim = vi.mocked(claimLineGuestNotificationDelivery);
+const mockMark = vi.mocked(markLineGuestNotificationDelivery);
 
 function mockClient(reservation: Record<string, unknown> | null) {
   const updateEq = vi.fn(() => Promise.resolve({ error: null }));
@@ -52,6 +63,8 @@ beforeEach(() => {
   mockSend.mockReset();
   mockBuild.mockClear();
   mockSend.mockResolvedValue(undefined);
+  mockClaim.mockResolvedValue({ available: false, id: null });
+  mockMark.mockResolvedValue(undefined);
 });
 
 describe("sendDepositPaymentRequest", () => {
@@ -110,6 +123,74 @@ describe("sendDepositPaymentRequest", () => {
     expect(r.result).toBe("sent");
     expect(mockSend).toHaveBeenCalledTimes(1);
     expect(client._update).toHaveBeenCalled();
+  });
+
+  it("skips when the durable delivery claim is already held", async () => {
+    mockClaim.mockResolvedValue({ available: true, id: null });
+    const client = mockClient({
+      id: "r1",
+      line_user_id: "U1",
+      customer_name: "王",
+      booking_code: "ABC123",
+      start_time: "2026-08-01T10:00:00+08:00",
+      end_time: "2026-08-01T12:00:00+08:00",
+      total_price: 2000,
+      status: "confirmed",
+      is_deposit_paid: false,
+      payment_request_sent_at: null,
+      room: null,
+    });
+
+    const r = await sendDepositPaymentRequest("r1", { client: client as never });
+    expect(r.result).toBe("skipped_already_sent");
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("marks the claimed delivery after LINE succeeds", async () => {
+    mockClaim.mockResolvedValue({ available: true, id: "delivery-1" });
+    const client = mockClient({
+      id: "r1",
+      line_user_id: "U1",
+      customer_name: "王",
+      booking_code: "ABC123",
+      start_time: "2026-08-01T10:00:00+08:00",
+      end_time: "2026-08-01T12:00:00+08:00",
+      total_price: 2000,
+      status: "confirmed",
+      is_deposit_paid: false,
+      payment_request_sent_at: null,
+      room: null,
+    });
+
+    const r = await sendDepositPaymentRequest("r1", { client: client as never });
+    expect(r.result).toBe("sent");
+    expect(mockMark).toHaveBeenCalledWith("delivery-1", { status: "sent" }, client);
+  });
+
+  it("marks the claimed delivery failed so a later automatic attempt can retry", async () => {
+    mockClaim.mockResolvedValue({ available: true, id: "delivery-1" });
+    mockSend.mockRejectedValue(new Error("LINE unavailable"));
+    const client = mockClient({
+      id: "r1",
+      line_user_id: "U1",
+      customer_name: "王",
+      booking_code: "ABC123",
+      start_time: "2026-08-01T10:00:00+08:00",
+      end_time: "2026-08-01T12:00:00+08:00",
+      total_price: 2000,
+      status: "confirmed",
+      is_deposit_paid: false,
+      payment_request_sent_at: null,
+      room: null,
+    });
+
+    const r = await sendDepositPaymentRequest("r1", { client: client as never });
+    expect(r.result).toBe("error");
+    expect(mockMark).toHaveBeenCalledWith(
+      "delivery-1",
+      { status: "failed", error: "LINE unavailable" },
+      client
+    );
   });
 
   it("force resend even when already stamped", async () => {

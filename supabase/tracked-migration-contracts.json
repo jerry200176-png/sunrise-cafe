@@ -204,5 +204,26 @@
         "note": "CREATE POLICY — not visible via PostgREST"
       }
     ]
+  },
+  {
+    "version": "20260903-line-guest-notification-deliveries",
+    "file": "migration-line-guest-notification-deliveries.sql",
+    "critical": true,
+    "evidence": [
+      { "type": "table", "name": "line_guest_notification_deliveries", "introspect": "rest" },
+      { "type": "column", "table": "line_guest_notification_deliveries", "name": "status", "introspect": "rest" },
+      {
+        "type": "function",
+        "name": "claim_line_guest_notification_delivery",
+        "introspect": "unsupported",
+        "note": "Atomic claim prevents duplicate automatic LINE pushes"
+      },
+      {
+        "type": "rls",
+        "table": "line_guest_notification_deliveries",
+        "introspect": "unsupported",
+        "note": "Service role only delivery ledger"
+      }
+    ]
   }
 ]

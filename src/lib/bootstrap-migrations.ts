@@ -17,6 +17,10 @@ const LINE_DELIVERIES_SQL = readFileSync(
   join(process.cwd(), "supabase/migration-line-reminder-deliveries.sql"),
   "utf8"
 );
+const LINE_GUEST_DELIVERIES_SQL = readFileSync(
+  join(process.cwd(), "supabase/migration-line-guest-notification-deliveries.sql"),
+  "utf8"
+);
 
 function pgConnectionString(): string | null {
   const url =
@@ -54,6 +58,11 @@ async function opsEventsReady(): Promise<boolean> {
 
 async function lineDeliveriesReady(): Promise<boolean> {
   const exists = await restColumnExists("line_reminder_deliveries", "id");
+  return exists === true;
+}
+
+async function lineGuestDeliveriesReady(): Promise<boolean> {
+  const exists = await restColumnExists("line_guest_notification_deliveries", "id");
   return exists === true;
 }
 
@@ -96,6 +105,13 @@ async function bootstrapMigrations(): Promise<void> {
         await sql.unsafe(LINE_DELIVERIES_SQL);
       } else {
         console.log("[bootstrap-migrations] line reminder delivery ledger already ready");
+      }
+
+      if (!(await lineGuestDeliveriesReady())) {
+        console.log("[bootstrap-migrations] applying LINE guest notification delivery ledger");
+        await sql.unsafe(LINE_GUEST_DELIVERIES_SQL);
+      } else {
+        console.log("[bootstrap-migrations] LINE guest notification delivery ledger already ready");
       }
     } finally {
       await sql.end({ timeout: 10 });
