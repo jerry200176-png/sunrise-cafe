@@ -94,13 +94,19 @@
 |------|------|
 | `CRON_SECRET` | Vercel Cron 呼叫 send-line 時的驗證 token，未設定則跳過驗證 |
 
-## GitHub deploy-health
+## Deploy-health source of truth
 
-| 變數 | 說明 |
-|------|------|
-| `GITHUB_TOKEN` | deploy-health 讀取 private repository 的 `main` SHA 與 compare 結果；使用僅限 `jerry200176-png/sunrise-cafe`、`Contents: Read` 的 fine-grained token，僅放在 Vercel Production |
+deploy-health 不需要 Vercel Production 的 GitHub token。既有的
+`production-deploy-migrate` GitHub Actions workflow 在處理 `main` 時，使用
+workflow 內建的 repository-scoped identity 記錄 `github.sha` 到 Supabase
+`ops_events`；production Cron 只讀取這筆受控 metadata，再與公開的
+`/api/version` 比對。這避免個人 PAT、GitHub App private key 與 runtime
+GitHub API dependency。
 
-> Token 未設定或權限不足時，deploy-health 會保留 fail-safe 並告警；不會以 fallback 或 hardcode SHA 掩蓋錯誤。
+若 `NEXT_PUBLIC_SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY` 或 workflow
+metadata 缺失，deploy-health 會保留 fail-safe 並回報 source unavailable；
+不會以 fallback 或 hardcode SHA 掩蓋錯誤。`CRON_SECRET` 仍是獨立且必要的
+Cron auth gate。
 
 ## CTO Outcome Pipeline
 

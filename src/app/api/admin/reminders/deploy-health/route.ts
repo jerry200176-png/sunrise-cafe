@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchMainCommitSha } from "@/lib/github-main-sha";
+import { fetchExpectedMainHead } from "@/lib/expected-main-head";
 import { fetchProductionVersion } from "@/lib/production-version";
-import { assessDeployParity } from "@/lib/deploy-parity";
 import { notifyDeployMismatch } from "@/lib/deploy-alert";
 import { errorToDetail } from "@/lib/cron-alert";
 import { runCronJob } from "@/lib/job-runs";
@@ -12,17 +11,17 @@ async function handleRun() {
   try {
     await runBootstrapMigrations();
 
-    const [mainSha, prod] = await Promise.all([fetchMainCommitSha(), fetchProductionVersion()]);
+    const [mainHead, prod] = await Promise.all([fetchExpectedMainHead(), fetchProductionVersion()]);
 
-    if (!mainSha) {
-      return NextResponse.json({ ok: false, error: "Could not resolve main branch SHA" }, { status: 503 });
+    if (!mainHead) {
+      return NextResponse.json({ ok: false, error: "Could not resolve trusted deployment head" }, { status: 503 });
     }
     if (!prod.reachable || !prod.commit) {
       return NextResponse.json({ ok: false, error: "Production /api/version unreachable" }, { status: 503 });
     }
 
-    const assessment = await assessDeployParity(prod.commit, mainSha);
-    if (assessment.exactMatch) {
+    const mainSha = mainHead.sha;
+    if (prod.commit.toLowerCase() === mainSha) {
       return NextResponse.json({
         ok: true,
         sha_parity: true,
@@ -31,9 +30,9 @@ async function handleRun() {
       });
     }
 
-    // BI snapshot / docs-only commits use [skip ci] and intentionally skip Vercel.
-    // Exact tip mismatch is expected; do not page the LINE group.
-    if (assessment.compareOk && assessment.benignDrift) {
+    // BI snapshot / docs-only commits intentionally skip Vercel. The trusted
+    // workflow records this classification so runtime never needs GitHub API.
+    if (mainHead.runtimeChanged === false) {
       return NextResponse.json({
         ok: true,
         sha_parity: true,
@@ -41,7 +40,6 @@ async function handleRun() {
         benign_drift: true,
         main: mainSha.slice(0, 7),
         prod: prod.commit_short,
-        changed_files: assessment.changedFiles,
         hint: "main tip only differs on non-runtime paths (BI/docs) — no production deploy needed",
       });
     }
@@ -53,7 +51,6 @@ async function handleRun() {
       main: mainSha.slice(0, 7),
       prod: prod.commit_short,
       alerted,
-      changed_files: assessment.changedFiles,
       hint: "Run vercel deploy --prod or check Vercel dashboard",
     });
   } catch (err) {
