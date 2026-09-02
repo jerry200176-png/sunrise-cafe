@@ -75,8 +75,8 @@ describe("runSendLineReminder — sent=0 regression", () => {
   it("sends already-notified heartbeat instead of silence when tomorrow exists", async () => {
     vi.mocked(fetchReservationsForReminder).mockResolvedValue([]);
     vi.mocked(fetchTomorrowsReservations).mockResolvedValue([
-      { id: "r1", is_notified: true },
-      { id: "r2", is_notified: true },
+      { id: "r1", is_notified: true, is_deposit_paid: true },
+      { id: "r2", is_notified: true, is_deposit_paid: true },
     ] as never);
 
     const res = await runSendLineReminder({
@@ -106,6 +106,24 @@ describe("runSendLineReminder — sent=0 regression", () => {
     expect(json.result).toBe("empty_cat");
     expect(json.heartbeat).toBe("cat");
     expect(sendLineMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not send a heartbeat when tomorrow only has unpaid reservations", async () => {
+    vi.mocked(fetchReservationsForReminder).mockResolvedValue([]);
+    vi.mocked(fetchTomorrowsReservations).mockResolvedValue([
+      { id: "unpaid-1", is_notified: false, is_deposit_paid: false },
+    ] as never);
+
+    const res = await runSendLineReminder({
+      sendHeartbeatOnEmpty: true,
+      trigger_source: "cron",
+    });
+    const json = await res.json();
+
+    expect(json.result).toBe("already_notified");
+    expect(json.sent).toBe(0);
+    expect(sendLineMessage).not.toHaveBeenCalled();
+    expect(sendLineMessageToGroup).not.toHaveBeenCalled();
   });
 });
 
@@ -156,6 +174,7 @@ describe("runSendLineReminder — retry regression", () => {
         customer_name: "A",
         phone: "0912",
         line_user_id: "U1",
+        is_deposit_paid: true,
         room: { name: "包廂1", branch_id: "b1", branch: { id: "b1", name: "大安店" } },
       },
     ];
@@ -185,6 +204,7 @@ describe("runSendLineReminder — retry regression", () => {
     vi.mocked(fetchTomorrowsReservations).mockResolvedValue([
       {
         id: "p1",
+        is_deposit_paid: true,
         room: { name: "包廂1", branch_id: "b1", branch: { id: "b1", name: "大安店" } },
       },
     ] as never);
@@ -198,5 +218,44 @@ describe("runSendLineReminder — retry regression", () => {
     expect(json2.result).toBe("already_notified");
     expect(sendLineFlexToGroup).not.toHaveBeenCalled();
     expect(sendLineMessageToGroup).toHaveBeenCalled();
+  });
+
+  it("skips unpaid reservations without changing their payment or notification state", async () => {
+    const paid = {
+      id: "paid-1",
+      booking_code: "PAID1",
+      start_time: "2026-07-17T10:00:00+08:00",
+      end_time: "2026-07-17T12:00:00+08:00",
+      customer_name: "Paid",
+      phone: "0912",
+      line_user_id: "UPAID",
+      is_deposit_paid: true,
+      room: { name: "包廂1", branch_id: "b1", branch: { id: "b1", name: "大安店" } },
+    };
+    const unpaid = {
+      ...paid,
+      id: "unpaid-1",
+      booking_code: "UNPAID",
+      line_user_id: "UUNPAID",
+      is_deposit_paid: false,
+    };
+    vi.mocked(fetchReservationsForReminder).mockResolvedValue([paid, unpaid] as never);
+
+    const res = await runSendLineReminder({
+      enforceDayIdempotency: true,
+      trigger_source: "cron",
+    });
+    const json = await res.json();
+
+    expect(json.sent_count).toBe(1);
+    expect(json.guest_sent_count).toBe(1);
+    expect(sendLineFlexMessage).toHaveBeenCalledWith("UPAID", "明日訂位提醒", expect.anything());
+    expect(sendLineFlexMessage).not.toHaveBeenCalledWith(
+      "UUNPAID",
+      expect.anything(),
+      expect.anything()
+    );
+    expect(updateReservationAdmin).toHaveBeenCalledWith("paid-1", { is_notified: true });
+    expect(updateReservationAdmin).not.toHaveBeenCalledWith("unpaid-1", { is_notified: true });
   });
 });
