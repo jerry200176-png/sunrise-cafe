@@ -3,11 +3,13 @@ import { runCronJob } from "@/lib/job-runs";
 import { authorizeCronGet } from "@/lib/cron-request-auth";
 import { runSendLineReminder } from "@/lib/send-line-reminder";
 import { resolveReminderTriggerSource } from "@/lib/reminder-trigger-source";
+import { runBootstrapMigrations } from "@/lib/bootstrap-migrations";
 
 export async function GET(request: NextRequest) {
   const cronAuth = authorizeCronGet(request);
   if (!cronAuth.ok) return cronAuth.response;
   const trigger_source = resolveReminderTriggerSource(request, "GET");
+  await runBootstrapMigrations();
   return runCronJob(
     "send-line",
     () =>
@@ -23,6 +25,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const trigger_source = resolveReminderTriggerSource(request, "POST");
+  await runBootstrapMigrations();
   // Manual: never day-lock (staff may intentionally re-check); still no re-send of is_notified rows
   return runCronJob(
     "send-line",

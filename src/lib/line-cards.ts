@@ -161,6 +161,23 @@ export function buildReminderFlex(params: {
   });
 }
 
+export type GuestReminderDigestRow = Parameters<typeof buildReminderFlex>[0];
+
+/** Batch multiple reminders for one guest into the fewest valid LINE pushes. */
+export function buildGuestReminderDigestFlexChunks(
+  rows: GuestReminderDigestRow[]
+): LineFlexContainer[] {
+  const bubbles = rows.map((row) => buildReminderFlex(row));
+  const chunks: LineFlexContainer[] = [];
+  for (let i = 0; i < bubbles.length; i += REMINDER_DIGEST_CAROUSEL_MAX) {
+    chunks.push({
+      type: "carousel",
+      contents: bubbles.slice(i, i + REMINDER_DIGEST_CAROUSEL_MAX),
+    });
+  }
+  return chunks;
+}
+
 export function buildWaitlistFlex(params: {
   startTime: string;
   endTime: string;

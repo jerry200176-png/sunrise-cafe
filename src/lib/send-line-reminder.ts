@@ -17,7 +17,11 @@ import {
   buildReminderDigestFlexChunks,
   isLineConfigured,
 } from "@/lib/line-notify";
-import { sendLineFlexMessage, buildReminderFlex } from "@/lib/line";
+import { sendLineFlexMessage } from "@/lib/line";
+import {
+  buildGuestReminderDigestFlexChunks,
+  REMINDER_DIGEST_CAROUSEL_MAX,
+} from "@/lib/line-cards";
 import { errorToDetail } from "@/lib/cron-alert";
 import { reservationMatchesBranch, type ReminderReservationShape } from "@/lib/reminder-branch-match";
 import { signAttendanceToken } from "@/lib/attendance-token";
@@ -31,6 +35,12 @@ import {
   buildReminderRunEvidence,
   mapTriggerToSource,
 } from "@/lib/reminder-run-evidence";
+import {
+  claimLineReminderDelivery,
+  markLineReminderDelivery,
+  safeLineDeliveryError,
+  type LineReminderDeliveryType,
+} from "@/lib/line-delivery";
 
 export const CAT_MESSAGES = [
   "喵～沒訂位！Ivy 妳備好零食了嗎？本喵五分鐘後到 🐱",
@@ -92,22 +102,94 @@ function toEnriched(r: Record<string, unknown>) {
   };
 }
 
+function reminderDate(row: Record<string, unknown>): string {
+  return taipeiDateString(new Date(String(row.start_time)));
+}
+
+type ClaimedRow = { row: Record<string, unknown>; deliveryId: string | null };
+type ClaimRowsResult = { toSend: ClaimedRow[]; handledRows: Record<string, unknown>[] };
+
+async function claimRows(
+  rows: Record<string, unknown>[],
+  reminderType: LineReminderDeliveryType,
+  reminderDateValue: string,
+  recipientType: "group" | "guest",
+  recipientId: string
+): Promise<ClaimRowsResult> {
+  const toSend: ClaimedRow[] = [];
+  const handledRows: Record<string, unknown>[] = [];
+  for (const row of rows) {
+    const result = await claimLineReminderDelivery({
+      reminderType,
+      reminderDate: reminderDateValue,
+      reservationId: String(row.id),
+      recipientType,
+      recipientId,
+    });
+    // Before the migration is available, preserve the old flag-based behavior.
+    // Once the ledger exists, only an explicit claim may send.
+    if (!result.available || result.id) toSend.push({ row, deliveryId: result.id });
+    else handledRows.push(row);
+  }
+  return { toSend, handledRows };
+}
+
+async function settleClaims(claimed: ClaimedRow[], status: "sent" | "failed", error?: unknown) {
+  await Promise.all(
+    claimed
+      .filter((item) => item.deliveryId)
+      .map((item) =>
+        markLineReminderDelivery(item.deliveryId!, {
+          status,
+          error: status === "failed" ? safeLineDeliveryError(error) : null,
+        })
+      )
+  );
+}
+
 async function pushDigestToGroup(
   rows: Record<string, unknown>[],
   groupId: string | null,
-  labelPrefix: string
+  labelPrefix: string,
+  reminderType: "d1_group" = "d1_group"
 ) {
-  const enriched = rows.map(toEnriched);
-  const chunks = buildReminderDigestFlexChunks(enriched);
-  for (let i = 0; i < chunks.length; i++) {
-    const part = chunks.length > 1 ? `（${i + 1}/${chunks.length}）` : "";
+  const sentRows: Record<string, unknown>[] = [];
+  const handledRows: Record<string, unknown>[] = [];
+  let messageCount = 0;
+  let errorCount = 0;
+  const recipientId = groupId ?? "legacy-group";
+  const date = reminderDate(rows[0]!);
+  for (let offset = 0; offset < rows.length; offset += REMINDER_DIGEST_CAROUSEL_MAX) {
+    const rowChunk = rows.slice(offset, offset + REMINDER_DIGEST_CAROUSEL_MAX);
+    const claims = await claimRows(rowChunk, reminderType, date, "group", recipientId);
+    handledRows.push(...claims.handledRows);
+    if (claims.toSend.length === 0) continue;
+    const claimed = claims.toSend;
+    handledRows.push(...claimed.map((item) => item.row));
+    const enriched = claimed.map((item) => toEnriched(item.row));
+    const part = rows.length > REMINDER_DIGEST_CAROUSEL_MAX
+      ? `（${Math.floor(offset / REMINDER_DIGEST_CAROUSEL_MAX) + 1}/${Math.ceil(rows.length / REMINDER_DIGEST_CAROUSEL_MAX)}）`
+      : "";
     const alt = `${labelPrefix}，共 ${rows.length} 筆${part}`;
-    if (groupId) {
-      await sendLineFlexToGroup(alt, chunks[i]!, groupId);
-    } else {
-      await sendLineFlex(alt, chunks[i]!);
+    let accepted = false;
+    try {
+      const [chunk] = buildReminderDigestFlexChunks(enriched);
+      if (groupId) await sendLineFlexToGroup(alt, chunk!, groupId);
+      else await sendLineFlex(alt, chunk!);
+      accepted = true;
+      messageCount++;
+      await settleClaims(claimed, "sent");
+      await Promise.all(
+        claimed.map((item) => updateReservationAdmin(String(item.row.id), { is_notified: true }))
+      );
+      sentRows.push(...claimed.map((item) => item.row));
+    } catch (error) {
+      errorCount++;
+      await settleClaims(claimed, accepted ? "sent" : "failed", error);
+      console.error(`[send-line] 群組摘要傳送失敗: ${safeLineDeliveryError(error)}`);
     }
   }
+  return { sent: messageCount, errors: errorCount, rows: sentRows, handled: handledRows };
 }
 
 async function pushTextToGroups(
@@ -284,6 +366,7 @@ export async function runSendLineReminder(
       isDepositPaid
     );
     let totalSent = 0;
+    let line_rejected = 0;
     let heartbeat: ReminderHeartbeat = "none";
     let skipped_count = 0;
 
@@ -331,11 +414,12 @@ export async function runSendLineReminder(
             : heartbeat === "already_notified"
               ? "already_notified"
               : "already_notified";
+        const heartbeatSent = heartbeat === "cat" || heartbeat === "already_notified" ? 1 : 0;
         const observability = finalizeObs(
           {
             ...base,
             reservation_count: skipped_count,
-            sent_count: 0,
+            sent_count: heartbeatSent,
             skipped_count,
             guest_sent_count: 0,
             result,
@@ -346,16 +430,17 @@ export async function runSendLineReminder(
         );
         return NextResponse.json({
           ok: true,
-          sent: 0,
+          sent: heartbeatSent,
+          message_count: heartbeatSent,
           message: "沒有尚未通知的明日訂位（可能已全部發送過）",
           ...observability,
         });
       }
 
-      await pushDigestToGroup(allRows, null, "📅 明日訂位提醒");
-      await Promise.all(allRows.map((r) => updateReservationAdmin(r.id as string, { is_notified: true })));
-      totalSent = allRows.length;
-      heartbeat = "digest";
+      const result = await pushDigestToGroup(allRows, null, "📅 明日訂位提醒");
+      totalSent = result.sent;
+      line_rejected += result.errors;
+      heartbeat = result.sent > 0 ? "digest" : "none";
     } else {
       const matchedIds = new Set<string>();
       const allTomorrow = sendHeartbeatOnEmpty ? await fetchTomorrowsReservations() : null;
@@ -391,24 +476,20 @@ export async function runSendLineReminder(
           continue;
         }
 
-        await pushDigestToGroup(branchRows, groupId, "📅 明日訂位提醒");
-        await Promise.all(
-          branchRows.map((r) => updateReservationAdmin(r.id as string, { is_notified: true }))
-        );
-        for (const r of branchRows) matchedIds.add(r.id as string);
-        totalSent += branchRows.length;
-        heartbeat = "digest";
+        const result = await pushDigestToGroup(branchRows, groupId, "📅 明日訂位提醒");
+        for (const r of result.handled) matchedIds.add(r.id as string);
+        totalSent += result.sent;
+        line_rejected += result.errors;
+        heartbeat = result.sent > 0 ? "digest" : heartbeat;
       }
 
       const unmatched = allRows.filter((r) => !matchedIds.has(r.id as string));
       if (unmatched.length > 0) {
         if (isLineConfigured()) {
-          await pushDigestToGroup(unmatched, null, "📅 明日訂位提醒（未設定分店群組）");
-          await Promise.all(
-            unmatched.map((r) => updateReservationAdmin(r.id as string, { is_notified: true }))
-          );
-          totalSent += unmatched.length;
-          heartbeat = "digest";
+          const result = await pushDigestToGroup(unmatched, null, "📅 明日訂位提醒（未設定分店群組）");
+          totalSent += result.sent;
+          line_rejected += result.errors;
+          heartbeat = result.sent > 0 ? "digest" : heartbeat;
           console.warn(
             `[send-line] multi-branch: ${unmatched.length} row(s) fell back to LINE_GROUP_ID`
           );
@@ -420,39 +501,79 @@ export async function runSendLineReminder(
       }
     }
 
-    // Guest personal reminders (only paid, pending rows — idempotent via is_notified)
+    // Paid guest reminders are batched per recipient. The separate marker prevents
+    // a group-only success from suppressing a guest retry after a LINE failure.
     let guest_sent_count = 0;
     let guest_rejected = 0;
-    for (const r of allRows) {
-      const lineUserId = r.line_user_id as string | null;
-      if (!lineUserId) continue;
-      try {
-        const room = r.room as { name?: string; branch?: { name?: string } } | undefined;
-        const reservationId = r.id as string;
-        const bookingCode = (r.booking_code as string | null) ?? null;
-        const confirmAttendanceUrl = reservationId
-          ? `${LINE_SITE_URL}/book/confirm-visit?token=${encodeURIComponent(signAttendanceToken(reservationId))}`
-          : null;
-        const flex = buildReminderFlex({
-          leadLabel: "明日",
-          branchName: room?.branch?.name ?? "昇昇咖啡",
-          roomName: room?.name ?? null,
-          startTime: r.start_time as string,
-          endTime: r.end_time as string,
-          bookingCode,
-          confirmAttendanceUrl,
-        });
-        await sendLineFlexMessage(lineUserId, "明日訂位提醒", flex);
-        guest_sent_count += 1;
-      } catch {
-        guest_rejected += 1;
+    const guestRows = allRows.filter(
+      (row) => row.line_user_id && !row.d1_guest_reminder_sent_at
+    );
+    const guestByUser = new Map<string, Record<string, unknown>[]>();
+    for (const row of guestRows) {
+      const userId = String(row.line_user_id);
+      const rows = guestByUser.get(userId) ?? [];
+      rows.push(row);
+      guestByUser.set(userId, rows);
+    }
+    for (const [lineUserId, rows] of guestByUser) {
+      for (let offset = 0; offset < rows.length; offset += REMINDER_DIGEST_CAROUSEL_MAX) {
+        const rowChunk = rows.slice(offset, offset + REMINDER_DIGEST_CAROUSEL_MAX);
+        const claims = await claimRows(
+          rowChunk,
+          "d1_guest",
+          reminderDate(rowChunk[0]!),
+          "guest",
+          lineUserId
+        );
+        if (claims.toSend.length === 0) continue;
+        const claimed = claims.toSend;
+        let accepted = false;
+        try {
+          const flexRows = claimed.map(({ row }) => {
+            const room = row.room as { name?: string; branch?: { name?: string } } | undefined;
+            const reservationId = String(row.id);
+            return {
+              leadLabel: "明日",
+              branchName: room?.branch?.name ?? "昇昇咖啡",
+              roomName: room?.name ?? null,
+              startTime: String(row.start_time),
+              endTime: String(row.end_time),
+              bookingCode: (row.booking_code as string | null) ?? null,
+              confirmAttendanceUrl: `${LINE_SITE_URL}/book/confirm-visit?token=${encodeURIComponent(signAttendanceToken(reservationId))}`,
+            };
+          });
+          const [flex] = buildGuestReminderDigestFlexChunks(flexRows);
+          const part = rows.length > REMINDER_DIGEST_CAROUSEL_MAX
+            ? `（${Math.floor(offset / REMINDER_DIGEST_CAROUSEL_MAX) + 1}/${Math.ceil(rows.length / REMINDER_DIGEST_CAROUSEL_MAX)}）`
+            : "";
+          await sendLineFlexMessage(lineUserId, `明日訂位提醒${part}`, flex!);
+          accepted = true;
+          guest_sent_count += 1;
+          await settleClaims(claimed, "sent");
+          await Promise.all(
+            claimed.map(({ row }) =>
+              updateReservationAdmin(String(row.id), {
+                d1_guest_reminder_sent_at: new Date().toISOString(),
+              })
+            )
+          );
+        } catch (error) {
+          guest_rejected += 1;
+          await settleClaims(claimed, accepted ? "sent" : "failed", error);
+          console.error(`[send-line] 客人摘要傳送失敗: ${safeLineDeliveryError(error)}`);
+        }
       }
     }
 
+    const totalRejected = line_rejected + guest_rejected;
+    const heartbeatSent = heartbeat === "cat" || heartbeat === "already_notified" ? 1 : 0;
+    const totalMessages = totalSent + guest_sent_count + heartbeatSent;
     const result: ReminderRunObservability["result"] =
-      guest_rejected > 0 && totalSent + guest_sent_count > 0
+      totalRejected > 0 && totalSent + guest_sent_count > 0
         ? "partial"
-        : totalSent > 0 || guest_sent_count > 0
+        : totalRejected > 0
+          ? "error"
+          : totalSent > 0 || guest_sent_count > 0
           ? "sent"
           : heartbeat === "cat"
             ? "empty_cat"
@@ -462,17 +583,15 @@ export async function runSendLineReminder(
       {
         ...base,
         reservation_count: allRows.length + skipped_count,
-        sent_count: totalSent,
+        sent_count: totalMessages,
         skipped_count: skipped_count + (allRows.length === 0 ? 0 : 0),
         guest_sent_count,
         result,
         heartbeat,
         duplicate: false,
         accepted_count:
-          totalSent +
-          guest_sent_count +
-          (heartbeat === "cat" || heartbeat === "already_notified" ? 1 : 0),
-        rejected_count: guest_rejected,
+          totalMessages,
+        rejected_count: totalRejected,
       },
       started
     );
@@ -484,13 +603,14 @@ export async function runSendLineReminder(
     }
 
     return NextResponse.json({
-      ok: guest_rejected === 0,
-      sent: totalSent,
-      errors: guest_rejected,
+      ok: totalRejected === 0,
+      sent: totalMessages,
+      message_count: totalMessages,
+      errors: line_rejected + guest_rejected,
       message:
-        totalSent === 0
+        totalMessages === 0
           ? "沒有尚未通知的明日訂位（可能已全部發送過）"
-          : `已發送 ${totalSent} 筆明日提醒（LINE accepted≠delivered）`,
+          : `已發送 ${totalMessages} 則 LINE 訊息（LINE accepted≠delivered）`,
       ...observability,
     });
   } catch (err) {

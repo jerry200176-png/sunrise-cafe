@@ -19,13 +19,19 @@ import {
   shouldSendUrgentDepositReminder,
 } from "@/lib/deposit-deadline";
 import { notifyWaitlist } from "@/lib/waitlist";
-import { toTaipei } from "@/lib/datetime";
+import { toTaipei, taipeiDateString } from "@/lib/datetime";
 import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { logPayment, logDepositStatusChange } from "@/lib/payment-log";
 import { errorToDetail } from "@/lib/cron-alert";
 import { runCronJob } from "@/lib/job-runs";
 import { authorizeCronGet } from "@/lib/cron-request-auth";
+import { runBootstrapMigrations } from "@/lib/bootstrap-migrations";
+import {
+  claimLineReminderDelivery,
+  markLineReminderDelivery,
+  safeLineDeliveryError,
+} from "@/lib/line-delivery";
 
 type Row = {
   id: string;
@@ -70,6 +76,7 @@ async function sendDepositReminder(r: Row, urgency: "ok" | "soon") {
 }
 
 async function handleRun() {
+  await runBootstrapMigrations();
   if (!isAdminConfigured()) {
     return NextResponse.json({ error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY" }, { status: 503 });
   }
@@ -81,6 +88,7 @@ async function handleRun() {
   let reminded = 0;
   let urgentReminded = 0;
   let errors = 0;
+  let messageCount = 0;
 
   logPayment("deposit_deadline.cron_run", { candidate_count: rows.length });
 
@@ -90,31 +98,84 @@ async function handleRun() {
 
     if (shouldAutoRelease(deadline, now)) {
       try {
+        const guestClaim = r.line_user_id
+          ? await claimLineReminderDelivery({
+              reminderType: "deposit_release_guest",
+              reminderDate: taipeiDateString(new Date(r.start_time)),
+              reservationId: r.id,
+              recipientType: "guest",
+              recipientId: r.line_user_id,
+            })
+          : null;
+        const groupClaim = await claimLineReminderDelivery({
+          reminderType: "deposit_release_group",
+          reminderDate: taipeiDateString(new Date(r.start_time)),
+          reservationId: r.id,
+          recipientType: "group",
+          recipientId: "legacy-group",
+        });
+        if (
+          groupClaim.available &&
+          !groupClaim.id &&
+          (guestClaim === null || (guestClaim.available && !guestClaim.id))
+        ) {
+          // Another run claimed this release, or the reservation became paid/
+          // inactive between the candidate query and this atomic claim.
+          continue;
+        }
         await updateReservationAdmin(r.id, { status: "cancelled" });
 
-        if (r.line_user_id) {
-          await sendLineFlexMessage(
-            r.line_user_id,
-            "訂位已釋放",
-            buildGuestDepositReleasedFlex({
-              branchName,
-              bookingCode: r.booking_code,
-              startTime: r.start_time,
-              endTime: r.end_time,
-            })
-          ).catch((err) => console.error("[deposit-deadline] 客人通知失敗:", err));
+        if (r.line_user_id && (!guestClaim?.available || guestClaim.id)) {
+          try {
+            await sendLineFlexMessage(
+              r.line_user_id,
+              "訂位已釋放",
+              buildGuestDepositReleasedFlex({
+                branchName,
+                bookingCode: r.booking_code,
+                startTime: r.start_time,
+                endTime: r.end_time,
+              })
+            );
+            messageCount++;
+            if (guestClaim?.id) await markLineReminderDelivery(guestClaim.id, { status: "sent" });
+          } catch (err) {
+            errors++;
+            if (guestClaim?.id) {
+              await markLineReminderDelivery(guestClaim.id, {
+                status: "failed",
+                error: safeLineDeliveryError(err),
+              });
+            }
+            console.error("[deposit-deadline] 客人通知失敗:", safeLineDeliveryError(err));
+          }
         }
 
-        await sendLineFlex(
-          `訂金逾期釋放：${r.customer_name}`,
-          buildDepositReleasedGroupFlex({
-            customerName: r.customer_name,
-            phone: r.phone,
-            bookingCode: r.booking_code,
-            startTime: r.start_time,
-            endTime: r.end_time,
-          })
-        ).catch((err) => console.error("[deposit-deadline] 群組通知失敗:", err));
+        if (!groupClaim.available || groupClaim.id) {
+          try {
+            await sendLineFlex(
+              `訂金逾期釋放：${r.customer_name}`,
+              buildDepositReleasedGroupFlex({
+                customerName: r.customer_name,
+                phone: r.phone,
+                bookingCode: r.booking_code,
+                startTime: r.start_time,
+                endTime: r.end_time,
+              })
+            );
+            messageCount++;
+            if (groupClaim.id) await markLineReminderDelivery(groupClaim.id, { status: "sent" });
+          } catch (err) {
+            errors++;
+            if (groupClaim.id) {
+              await markLineReminderDelivery(groupClaim.id, {
+                status: "failed",
+                error: safeLineDeliveryError(err),
+              });
+            }
+            console.error("[deposit-deadline] 群組通知失敗:", safeLineDeliveryError(err));
+          }
+        }
 
         notifyWaitlist(r.room?.id ?? "", r.start_time, r.end_time).catch((err) =>
           console.error("[deposit-deadline] waitlist notify failed:", err)
@@ -143,9 +204,23 @@ async function handleRun() {
     if (!r.line_user_id) continue;
 
     if (shouldSendDepositReminder(deadline, r.deposit_reminder_sent_at, now)) {
+      let deliveryId: string | null = null;
+      let lineAccepted = false;
       try {
+        const claim = await claimLineReminderDelivery({
+          reminderType: "deposit_initial",
+          reminderDate: taipeiDateString(new Date(r.start_time)),
+          reservationId: r.id,
+          recipientType: "guest",
+          recipientId: r.line_user_id,
+        });
+        if (claim.available && !claim.id) continue;
+        deliveryId = claim.id;
         const urgency = getDepositUrgency(deadline, now) === "soon" ? "soon" : "ok";
         await sendDepositReminder(r, urgency);
+        lineAccepted = true;
+        messageCount++;
+        if (deliveryId) await markLineReminderDelivery(deliveryId, { status: "sent" });
         const stamp = now.toISOString();
         await updateReservationAdmin(r.id, {
           deposit_reminder_sent_at: stamp,
@@ -160,7 +235,13 @@ async function handleRun() {
         });
       } catch (err) {
         errors++;
-        console.error(`[deposit-deadline] 提醒失敗 id=${r.id}:`, err);
+        if (deliveryId && !lineAccepted) {
+          await markLineReminderDelivery(deliveryId, {
+            status: "failed",
+            error: safeLineDeliveryError(err),
+          });
+        }
+        console.error(`[deposit-deadline] 提醒失敗 id=${r.id}:`, safeLineDeliveryError(err));
       }
       continue;
     }
@@ -173,8 +254,22 @@ async function handleRun() {
         now
       )
     ) {
+      let deliveryId: string | null = null;
+      let lineAccepted = false;
       try {
+        const claim = await claimLineReminderDelivery({
+          reminderType: "deposit_urgent",
+          reminderDate: taipeiDateString(new Date(r.start_time)),
+          reservationId: r.id,
+          recipientType: "guest",
+          recipientId: r.line_user_id,
+        });
+        if (claim.available && !claim.id) continue;
+        deliveryId = claim.id;
         await sendDepositReminder(r, "soon");
+        lineAccepted = true;
+        messageCount++;
+        if (deliveryId) await markLineReminderDelivery(deliveryId, { status: "sent" });
         await updateReservationAdmin(r.id, {
           deposit_urgent_reminder_sent_at: now.toISOString(),
         });
@@ -192,13 +287,29 @@ async function handleRun() {
           console.warn("[deposit-deadline] urgent column missing; skip stamp:", err.message);
         } else {
           errors++;
-          console.error(`[deposit-deadline] 迫近提醒失敗 id=${r.id}:`, err);
+          if (deliveryId && !lineAccepted) {
+            await markLineReminderDelivery(deliveryId, {
+              status: "failed",
+              error: safeLineDeliveryError(err),
+            });
+          }
+          console.error(`[deposit-deadline] 迫近提醒失敗 id=${r.id}:`, safeLineDeliveryError(err));
         }
       }
     }
   }
 
-  return NextResponse.json({ ok: true, released, reminded, urgentReminded, errors });
+  return NextResponse.json({
+    ok: errors === 0,
+    sent: messageCount,
+    message_count: messageCount,
+    accepted_count: messageCount,
+    rejected_count: errors,
+    released,
+    reminded,
+    urgentReminded,
+    errors,
+  });
   } catch (err) {
     return NextResponse.json({ error: errorToDetail(err) }, { status: 500 });
   }
@@ -208,10 +319,12 @@ async function handleRun() {
 export async function GET(request: NextRequest) {
   const cronAuth = authorizeCronGet(request);
   if (!cronAuth.ok) return cronAuth.response;
+  await runBootstrapMigrations();
   return runCronJob("deposit-deadline", () => handleRun());
 }
 
 /** POST: 手動觸發 */
 export async function POST() {
+  await runBootstrapMigrations();
   return runCronJob("deposit-deadline", () => handleRun());
 }
