@@ -74,10 +74,6 @@ export type ReminderRunObservability = {
 
 export type BranchRow = { id: string; name: string; line_group_id?: string | null };
 
-function isDepositPaid(row: Record<string, unknown>): boolean {
-  return row.is_deposit_paid === true;
-}
-
 export function alreadyNotifiedCronMessage(count: number, now = new Date()): string {
   const when = now.toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
   return `📅 明日訂位提醒已執行\n共 ${count} 筆訂位，皆已通知過（無需重送）\n時間：${when}`;
@@ -362,9 +358,7 @@ export async function runSendLineReminder(
     const branches = (await fetchBranches()) as BranchRow[];
     const activeBranches = branches.filter((b) => b.line_group_id);
     const useLegacyMode = activeBranches.length === 0;
-    const allRows = ((await fetchReservationsForReminder(force)) as Record<string, unknown>[]).filter(
-      isDepositPaid
-    );
+    const allRows = (await fetchReservationsForReminder(force)) as Record<string, unknown>[];
     let totalSent = 0;
     let line_rejected = 0;
     let heartbeat: ReminderHeartbeat = "none";
@@ -393,13 +387,12 @@ export async function runSendLineReminder(
         if (sendHeartbeatOnEmpty) {
           const allTomorrow = await fetchTomorrowsReservations();
           const tomorrowRows = (allTomorrow ?? []) as Record<string, unknown>[];
-          const eligibleTomorrow = tomorrowRows.filter(isDepositPaid);
-          const tomorrowCount = eligibleTomorrow.length;
+          const tomorrowCount = tomorrowRows.length;
           skipped_count = tomorrowCount;
           if (tomorrowRows.length === 0) {
             await sendLineMessage(emptyCatMessage());
             heartbeat = "cat";
-          } else if (tomorrowCount > 0) {
+          } else {
             await pushTextToGroups(
               alreadyNotifiedCronMessage(tomorrowCount, started),
               activeBranches,
@@ -456,16 +449,15 @@ export async function runSendLineReminder(
             const branchTomorrow = allTomorrow.filter((r: Record<string, unknown>) =>
               reservationMatchesBranch(r as ReminderReservationShape, branch)
             );
-            const eligibleBranchTomorrow = branchTomorrow.filter(isDepositPaid);
             if (branchTomorrow.length === 0) {
               await sendLineMessageToGroup(emptyCatMessage(), groupId).catch((e) =>
                 console.error(`[send-line] cat msg failed for branch ${branch.name}:`, e)
               );
               heartbeat = heartbeat === "digest" ? "digest" : "cat";
-            } else if (eligibleBranchTomorrow.length > 0) {
-              skipped_count += eligibleBranchTomorrow.length;
+            } else {
+              skipped_count += branchTomorrow.length;
               await sendLineMessageToGroup(
-                alreadyNotifiedCronMessage(eligibleBranchTomorrow.length, started),
+                alreadyNotifiedCronMessage(branchTomorrow.length, started),
                 groupId
               ).catch((e) =>
                 console.error(`[send-line] status msg failed for branch ${branch.name}:`, e)

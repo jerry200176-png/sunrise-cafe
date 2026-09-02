@@ -114,7 +114,7 @@ describe("runSendLineReminder — sent=0 regression", () => {
     expect(sendLineMessage).toHaveBeenCalledTimes(1);
   });
 
-  it("does not send a heartbeat when tomorrow only has unpaid reservations", async () => {
+  it("sends an already-notified heartbeat when tomorrow has unpaid reservations", async () => {
     vi.mocked(fetchReservationsForReminder).mockResolvedValue([]);
     vi.mocked(fetchTomorrowsReservations).mockResolvedValue([
       { id: "unpaid-1", is_notified: false, is_deposit_paid: false },
@@ -127,9 +127,9 @@ describe("runSendLineReminder — sent=0 regression", () => {
     const json = await res.json();
 
     expect(json.result).toBe("already_notified");
-    expect(json.sent).toBe(0);
-    expect(sendLineMessage).not.toHaveBeenCalled();
-    expect(sendLineMessageToGroup).not.toHaveBeenCalled();
+    expect(json.sent).toBe(1);
+    expect(sendLineMessage).toHaveBeenCalledTimes(1);
+    expect(String(vi.mocked(sendLineMessage).mock.calls[0]![0])).toContain("共 1 筆");
   });
 });
 
@@ -263,26 +263,19 @@ describe("runSendLineReminder — retry regression", () => {
     expect(sendLineFlexMessage).toHaveBeenCalledTimes(1);
   });
 
-  it("skips unpaid reservations without changing their payment or notification state", async () => {
-    const paid = {
-      id: "paid-1",
-      booking_code: "PAID1",
-      start_time: "2026-07-17T10:00:00+08:00",
-      end_time: "2026-07-17T12:00:00+08:00",
-      customer_name: "Paid",
-      phone: "0912",
-      line_user_id: "UPAID",
-      is_deposit_paid: true,
-      room: { name: "包廂1", branch_id: "b1", branch: { id: "b1", name: "大安店" } },
-    };
+  it("includes unpaid reservations in the group reminder", async () => {
     const unpaid = {
-      ...paid,
       id: "unpaid-1",
       booking_code: "UNPAID",
-      line_user_id: "UUNPAID",
+      start_time: "2026-07-17T10:00:00+08:00",
+      end_time: "2026-07-17T12:00:00+08:00",
+      customer_name: "Unpaid",
+      phone: "0912",
+      line_user_id: null,
       is_deposit_paid: false,
+      room: { name: "包廂1", branch_id: "b1", branch: { id: "b1", name: "大安店" } },
     };
-    vi.mocked(fetchReservationsForReminder).mockResolvedValue([paid, unpaid] as never);
+    vi.mocked(fetchReservationsForReminder).mockResolvedValue([unpaid] as never);
 
     const res = await runSendLineReminder({
       enforceDayIdempotency: true,
@@ -290,15 +283,9 @@ describe("runSendLineReminder — retry regression", () => {
     });
     const json = await res.json();
 
-    expect(json.sent_count).toBe(2);
-    expect(json.guest_sent_count).toBe(1);
-    expect(sendLineFlexMessage).toHaveBeenCalledWith("UPAID", "明日訂位提醒", expect.anything());
-    expect(sendLineFlexMessage).not.toHaveBeenCalledWith(
-      "UUNPAID",
-      expect.anything(),
-      expect.anything()
-    );
-    expect(updateReservationAdmin).toHaveBeenCalledWith("paid-1", { is_notified: true });
-    expect(updateReservationAdmin).not.toHaveBeenCalledWith("unpaid-1", { is_notified: true });
+    expect(json.sent_count).toBe(1);
+    expect(json.guest_sent_count).toBe(0);
+    expect(sendLineFlexToGroup).toHaveBeenCalledTimes(1);
+    expect(updateReservationAdmin).toHaveBeenCalledWith("unpaid-1", { is_notified: true });
   });
 });
