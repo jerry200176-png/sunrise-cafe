@@ -70,7 +70,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   const [editPhone, setEditPhone] = useState("");
   const [editDate, setEditDate] = useState("");
   const [editTime, setEditTime] = useState("");
-  const [editDuration, setEditDuration] = useState(1);
+  const [editDuration, setEditDuration] = useState(2);
   const [editTotalPrice, setEditTotalPrice] = useState<number | "">("");
   const [editGuestCount, setEditGuestCount] = useState<number | "">("");
   const [editNotes, setEditNotes] = useState("");
@@ -415,7 +415,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
     setEditDate(startParts.date);
     setEditTime(startParts.time);
     const diffHours = (endParts.ms - startParts.ms) / (60 * 60 * 1000);
-    setEditDuration(diffHours > 0 ? Math.round(diffHours * 2) / 2 : 1);
+    setEditDuration(diffHours >= 2 ? Math.round(diffHours * 2) / 2 : 2);
     setEditTotalPrice(r.total_price != null ? Number(r.total_price) : "");
     setEditGuestCount(r.guest_count ?? "");
     setEditNotes(r.notes ?? "");
@@ -826,7 +826,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                   {r.total_price != null && (
                     <span className="font-medium text-gray-800">${Number(r.total_price)}</span>
                   )}
-                  {isDepositRequired(r.start_time.slice(0, 10)) && (
+                  {isDepositRequired(reservationDateKey(r.start_time)) && (
                     r.is_deposit_paid ? (
                       <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-800 border border-green-200">
                         ✅ 已付訂金{r.deposit_payment_note ? `（${r.deposit_payment_note}）` : ""}
@@ -900,7 +900,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                     >
                       📝 訊息工作台
                     </button>
-                    {isDepositRequired(r.start_time.slice(0, 10)) && !r.is_deposit_paid && (
+                    {isDepositRequired(reservationDateKey(r.start_time)) && !r.is_deposit_paid && (
                       <button
                         type="button"
                         onClick={async () => {
@@ -917,7 +917,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                         ✅ 標記已付訂金
                       </button>
                     )}
-                    {isDepositRequired(r.start_time.slice(0, 10)) && r.total_price != null && (
+                    {isDepositRequired(reservationDateKey(r.start_time)) && r.total_price != null && (
                       <button
                         type="button"
                         onClick={async () => {
@@ -953,7 +953,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                         📋 複製繳費通知
                       </button>
                     )}
-                    {isDepositRequired(r.start_time.slice(0, 10)) && r.total_price != null && (
+                    {isDepositRequired(reservationDateKey(r.start_time)) && r.total_price != null && (
                       <button
                         type="button"
                         disabled={sendingLinePaymentTo === r.id}
@@ -1007,7 +1007,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                         💵 已結帳
                       </button>
                     )}
-                    {isDepositRequired(r.start_time.slice(0, 10)) && !r.is_deposit_paid && (
+                    {isDepositRequired(reservationDateKey(r.start_time)) && !r.is_deposit_paid && (
                       <button
                         type="button"
                         onClick={async () => {
@@ -1024,7 +1024,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                         ✅ 標記訂金
                       </button>
                     )}
-                    {isDepositRequired(r.start_time.slice(0, 10)) && r.total_price != null && !r.is_deposit_paid && (
+                    {isDepositRequired(reservationDateKey(r.start_time)) && r.total_price != null && !r.is_deposit_paid && (
                       <button
                         type="button"
                         disabled={sendingLinePaymentTo === r.id}
@@ -1319,7 +1319,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
                     onChange={(e) => setEditDuration(Number(e.target.value))}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
                   >
-                    {Array.from({ length: 19 }, (_, i) => 1 + i * 0.5).map((h) => (
+                    {Array.from({ length: 13 }, (_, i) => 2 + i * 0.5).map((h) => (
                       <option key={h} value={h}>{h} 小時</option>
                     ))}
                   </select>
