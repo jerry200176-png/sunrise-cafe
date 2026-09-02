@@ -135,10 +135,19 @@ jobs:
       - name: Verify deploy-health Cron runtime
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
+          trap 'rm -f .env.vercel.prod' EXIT
+          if [ -z "${CRON_SECRET:-}" ] && [ -n "${VERCEL_TOKEN:-}" ]; then
+            # CRON_SECRET is intentionally a Vercel-only production secret in
+            # this repo. Reuse the existing deploy credential only inside the
+            # ephemeral runner; never print or persist the secret.
+            bash scripts/vercel-production-env.sh .env.vercel.prod >/dev/null 2>&1
+            CRON_SECRET=$(sed -n 's/^CRON_SECRET=//p' .env.vercel.prod | head -1 | sed -E 's/^"//; s/"$//')
+          fi
           if [ -z "${CRON_SECRET:-}" ]; then
-            echo "::error::CRON_SECRET is required for the production deploy-health probe"
+            echo "::error::CRON_SECRET is unavailable for the production deploy-health probe"
             exit 1
           fi
           CODE=$(curl -sS -o /tmp/deploy_health_probe.json -w '%{http_code}' \
