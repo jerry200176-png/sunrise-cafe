@@ -6,9 +6,12 @@
 name: Production deploy and migrate
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type DEPLOY to authorize a Founder-approved production activation"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -20,9 +23,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  authorize:
+    name: Founder authorization
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require repository owner and explicit confirmation
+        env:
+          ACTOR: ${{ github.actor }}
+          OWNER: ${{ github.repository_owner }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$ACTOR" != "$OWNER" ]; then
+            echo "Refusing: only the repository owner may authorize production activation"
+            exit 1
+          fi
+          if [ "$CONFIRM" != "DEPLOY" ]; then
+            echo "Refusing: confirm input must be exactly DEPLOY"
+            exit 1
+          fi
+
   deploy:
     name: Vercel production deploy
+    needs: authorize
     runs-on: ubuntu-latest
+    # Use the Production environment as an additional protection when its
+    # plan supports required reviewers; authorization above is mandatory.
+    environment: Production
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
