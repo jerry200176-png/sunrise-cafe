@@ -472,7 +472,8 @@ export async function fetchTomorrowsReservations() {
   return data;
 }
 
-// ✅ 補回遺失的函式：fetchReservationsForReminder (專供 LINE 自動提醒使用，預設只抓 is_notified = false，可透過 force=true 略過此限制)
+// ✅ 明日 LINE 自動提醒只處理已確認收訂金的訂位；未付款保留給後台人工追蹤。
+// force=true 只略過 is_notified 限制，不略過付款狀態限制。
 export async function fetchReservationsForReminder(force: boolean = false) {
   const nowTW = new Date(
     new Date().toLocaleString("en-US", { timeZone: "Asia/Taipei" })
@@ -500,6 +501,7 @@ export async function fetchReservationsForReminder(force: boolean = false) {
       guest_count,
       is_notified,
       status,
+      is_deposit_paid,
       notes,
       line_user_id,
       room:rooms (
@@ -514,6 +516,7 @@ export async function fetchReservationsForReminder(force: boolean = false) {
     .gte("start_time", startRange)
     .lte("start_time", endRange)
     .neq("status", "cancelled")
+    .eq("is_deposit_paid", true)
     .order("start_time", { ascending: true });
 
   if (!force) {
