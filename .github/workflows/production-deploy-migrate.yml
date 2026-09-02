@@ -119,6 +119,9 @@ jobs:
           node scripts/apply-migration-market-parity.mjs || {
             echo "::warning::market-parity columns pending — need real SUPABASE_DB_URL secret"
           }
+          node scripts/apply-migration-line-guest-notification-deliveries.mjs || {
+            echo "::warning::LINE guest notification ledger pending — need real SUPABASE_DB_URL secret"
+          }
 
       - name: Verify ops_events
         env:
