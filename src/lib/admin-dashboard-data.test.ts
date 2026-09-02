@@ -51,6 +51,19 @@ describe("admin-dashboard-data", () => {
     expect(stats.todayRevenue).toBe(800);
     expect(stats.totalRooms).toBe(2);
     expect(stats.roomsInUseCount).toBe(1);
+    expect(stats.roomsBookedCount).toBe(1);
+  });
+
+  it("uses Taipei calendar boundaries for stats and trend", () => {
+    const boundaryReservations: DashboardReservation[] = [
+      { ...reservations[0], start_time: "2026-07-09T16:00:00.000Z", end_time: "2026-07-09T18:00:00.000Z" },
+      { ...reservations[0], room_id: "r2", start_time: "2026-07-10T15:59:59.000Z", end_time: "2026-07-10T16:30:00.000Z" },
+      { ...reservations[0], room_id: "r2", start_time: "2026-07-10T16:00:00.000Z", end_time: "2026-07-10T18:00:00.000Z" },
+    ];
+    const stats = buildDashboardStats("2026-07-10", boundaryReservations, rooms, new Date("2026-07-10T05:00:00.000Z"));
+    expect(stats.todayCount).toBe(2);
+    expect(stats.roomsBookedCount).toBe(2);
+    expect(buildDashboardTrend("2026-07-10", boundaryReservations).points[6]?.count).toBe(2);
   });
 
   it("buildDashboardTimeline groups by room", () => {

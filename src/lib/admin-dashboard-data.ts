@@ -8,12 +8,16 @@ import {
 } from "@/lib/supabase-admin";
 
 export type DashboardReservation = {
+  id?: string;
+  booking_code?: string | null;
   room_id: string;
   start_time: string;
   end_time: string;
   status: string;
   total_price: number | null;
   customer_name: string;
+  guest_count?: number | null;
+  is_deposit_paid?: boolean | null;
 };
 
 export type DashboardRoom = {
@@ -32,6 +36,7 @@ export type DashboardStats = {
   todayCount: number;
   todayRevenue: number;
   roomsInUseCount: number;
+  roomsBookedCount?: number;
   totalRooms: number;
 };
 
@@ -45,11 +50,15 @@ export type DashboardTimelineRoom = {
   roomId: string;
   roomName: string;
   reservations: {
+    id?: string;
+    booking_code?: string | null;
     start_time: string;
     end_time: string;
     customer_name: string;
     status: string;
     total_price: number | null;
+    guest_count?: number | null;
+    is_deposit_paid?: boolean | null;
   }[];
 };
 
@@ -69,9 +78,19 @@ export type DashboardBundle = {
 };
 
 function dayRange(date: string) {
+  // Supabase timestamps are UTC, but the staff workflow is organized by
+  // Taipei calendar days.  A UTC range is off by one day around 16:00 UTC.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new Error("invalid date (expect YYYY-MM-DD)");
+  }
+  const start = new Date(`${date}T00:00:00+08:00`);
+  if (Number.isNaN(start.getTime())) {
+    throw new Error("invalid date (expect YYYY-MM-DD)");
+  }
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
   return {
-    start: `${date}T00:00:00.000Z`,
-    end: `${date}T23:59:59.999Z`,
+    start: start.toISOString(),
+    end: end.toISOString(),
   };
 }
 
@@ -94,7 +113,7 @@ export function buildDashboardStats(
   const nowIso = now.toISOString();
 
   const todayList = reservations.filter(
-    (r) => r.status !== "cancelled" && r.start_time >= dayStart && r.start_time <= dayEnd
+    (r) => r.status !== "cancelled" && r.start_time >= dayStart && r.start_time < dayEnd
   );
   const inUseNow = reservations.filter(
     (r) =>
@@ -102,6 +121,12 @@ export function buildDashboardStats(
       r.status !== "completed" &&
       r.start_time <= nowIso &&
       r.end_time > nowIso
+  );
+  const bookedOnDate = reservations.filter(
+    (r) =>
+      r.status !== "cancelled" &&
+      r.start_time < dayEnd &&
+      r.end_time > dayStart
   );
 
   return {
@@ -111,6 +136,7 @@ export function buildDashboardStats(
       todayList.reduce((sum, r) => sum + (Number(r.total_price) || 0), 0)
     ),
     roomsInUseCount: new Set(inUseNow.map((r) => r.room_id)).size,
+    roomsBookedCount: new Set(bookedOnDate.map((r) => r.room_id)).size,
     totalRooms: rooms.length,
   };
 }
@@ -131,11 +157,15 @@ export function buildDashboardTimeline(
       roomId: rm.id,
       roomName: rm.name,
       reservations: dayReservations.map((r) => ({
+        id: r.id,
+        booking_code: r.booking_code,
         start_time: r.start_time,
         end_time: r.end_time,
         customer_name: r.customer_name,
         status: r.status,
         total_price: r.total_price,
+        guest_count: r.guest_count,
+        is_deposit_paid: r.is_deposit_paid,
       })),
     };
   });
@@ -159,7 +189,7 @@ export function buildDashboardTrend(
   const points = dayList.map((date) => {
     const { start, end } = dayRange(date);
     const filtered = reservations.filter(
-      (r) => r.status !== "cancelled" && r.start_time >= start && r.start_time <= end
+      (r) => r.status !== "cancelled" && r.start_time >= start && r.start_time < end
     );
     return {
       date,

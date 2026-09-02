@@ -3,6 +3,7 @@
  * Run: PLAYWRIGHT_BASE_URL=http://127.0.0.1:3000 npx playwright test e2e/reminder-admin.spec.ts
  */
 import { test, expect, type Page } from "@playwright/test";
+import { seedAdminSession } from "./helpers/admin-session";
 
 const VIEWPORTS = [
   { name: "mobile", width: 390, height: 844 },
@@ -46,7 +47,26 @@ async function mockReminderApis(page: Page) {
       contentType: "application/json",
       body: JSON.stringify({
         stats: { todayCount: 1, roomsInUseCount: 0, totalRooms: 1, todayRevenue: 0 },
-        timeline: { branchName: "大安店", openTime: "10:00", closeTime: "22:00", rooms: [] },
+        timeline: {
+          branchName: "大安店",
+          openTime: "10:00",
+          closeTime: "22:00",
+          rooms: [{
+            roomId: "room1",
+            roomName: "包廂 A",
+            reservations: [{
+              id: "r1",
+              booking_code: "ABC123",
+              customer_name: "測試客人",
+              start_time: start,
+              end_time: end,
+              status: "confirmed",
+              is_deposit_paid: false,
+              guest_count: 4,
+              total_price: 2000,
+            }],
+          }],
+        },
         trend: { points: [] },
       }),
     });
@@ -121,18 +141,9 @@ for (const vp of VIEWPORTS) {
   test.describe(`Tomorrow reminder UI — ${vp.name}`, () => {
     test.use({ viewport: { width: vp.width, height: vp.height } });
 
-    test.beforeEach(async ({ page }) => {
-      if (process.env.E2E_ADMIN_PASSWORD) {
-        await page.goto("/admin/login");
-        await page.locator("input[type='password']").fill(process.env.E2E_ADMIN_PASSWORD);
-        await page.getByRole("button", { name: /登入/ }).click();
-        await page.waitForURL((url) => !url.pathname.includes("/login"), { timeout: 10_000 });
-        return;
-      }
+    test.beforeEach(async ({ page, context }) => {
+      await seedAdminSession(context);
       await page.goto("/admin");
-      if (page.url().includes("/login")) {
-        test.skip(true, "需 E2E_ADMIN_PASSWORD，或本機未設 ADMIN_PASSWORD 的 dev fail-open");
-      }
     });
 
     test("儀表板明日提醒區塊可讀、無水平溢出、觸控夠大", async ({ page }) => {
@@ -166,6 +177,26 @@ for (const vp of VIEWPORTS) {
         await confirm.click();
       }
       await expect(page.getByText(/已發送|成功發送|明日提醒/).first()).toBeVisible({ timeout: 10_000 });
+    });
+
+    test("時間軸日期快捷鍵與訂金／狀態標籤可讀", async ({ page }) => {
+      await mockReminderApis(page);
+      await page.goto("/admin/dashboard");
+      await expect(page.getByRole("heading", { name: /時間軸/ })).toBeVisible({ timeout: 15_000 });
+      const mobileCard = page.locator("li:visible").filter({ hasText: "測試客人" }).filter({ hasText: "已確認" }).filter({ hasText: "未付訂金" }).first();
+      const desktopCard = page.locator('[title*="已確認"][title*="未付訂金"]:visible').first();
+      await expect(mobileCard.or(desktopCard)).toBeVisible();
+
+      const tomorrow = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(
+        new Date(Date.now() + 24 * 60 * 60 * 1000)
+      );
+      const nextDashboard = page.waitForRequest((request) => {
+        const url = new URL(request.url());
+        return url.pathname === "/api/admin/dashboard" && url.searchParams.get("date") === tomorrow;
+      });
+      await page.getByRole("button", { name: "明天" }).click();
+      await nextDashboard;
+      await expect(page.getByText(tomorrow).first()).toBeVisible();
     });
   });
 }

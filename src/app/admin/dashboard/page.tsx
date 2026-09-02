@@ -2,11 +2,20 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Calendar, DollarSign, Users, Bell, RefreshCw, ListChecks, ClipboardCheck } from "lucide-react";
+import {
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  DollarSign,
+  Users,
+  Bell,
+  RefreshCw,
+  ListChecks,
+  ClipboardCheck,
+} from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { AdminEmptyState } from "@/components/admin/AdminEmptyState";
-import { format, parseISO } from "date-fns";
-import { zhTW } from "date-fns/locale";
+import { formatTaipeiTime } from "@/lib/datetime";
 import type { Branch } from "@/types";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 
@@ -15,6 +24,7 @@ interface Stats {
   todayCount: number;
   todayRevenue: number;
   roomsInUseCount: number;
+  roomsBookedCount?: number;
   totalRooms: number;
 }
 
@@ -44,11 +54,15 @@ interface TimelineRoom {
   roomId: string;
   roomName: string;
   reservations: {
+    id?: string;
     start_time: string;
     end_time: string;
     customer_name: string;
     status: string;
     total_price: number | null;
+    booking_code?: string | null;
+    guest_count?: number | null;
+    is_deposit_paid?: boolean | null;
   }[];
 }
 
@@ -64,6 +78,48 @@ const pad2 = (value: number) => String(value).padStart(2, "0");
 
 const taipeiToday = () =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(new Date());
+
+const formatTaipeiDate = (date: string) =>
+  new Intl.DateTimeFormat("zh-TW", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+  }).format(new Date(`${date}T12:00:00+08:00`));
+
+const formatTaipeiDateTime = (iso: string) => {
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(new Date(iso));
+  return `${formatTaipeiDate(date)} ${formatTaipeiTime(iso)}`;
+};
+
+function shiftDate(date: string, days: number) {
+  const [year, month, day] = date.split("-").map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1, day + days));
+  return [shifted.getUTCFullYear(), shifted.getUTCMonth() + 1, shifted.getUTCDate()]
+    .map((value) => String(value).padStart(2, "0"))
+    .join("-");
+}
+
+function statusLabel(status: string) {
+  return {
+    pending: "待確認",
+    confirmed: "已確認",
+    checked_in: "使用中",
+    completed: "已完成",
+    cancelled: "已取消",
+  }[status] ?? status;
+}
+
+function reservationTone(status: string) {
+  return {
+    pending: "border-amber-300 bg-amber-50 text-amber-950",
+    confirmed: "border-emerald-300 bg-emerald-50 text-emerald-950",
+    checked_in: "border-sky-300 bg-sky-50 text-sky-950",
+    completed: "border-stone-300 bg-stone-100 text-stone-700",
+    cancelled: "border-stone-200 bg-stone-100 text-stone-400 line-through",
+  }[status] ?? "border-stone-300 bg-white text-stone-900";
+}
 
 const formatTwd = (value: number) =>
   new Intl.NumberFormat("zh-TW", {
@@ -90,21 +146,18 @@ const buildAxis = (date: string, openTime?: string, closeTime?: string) => {
   const start = new Date(`${date}T${pad2(open.h)}:${pad2(open.m)}:00+08:00`);
   const end = new Date(`${date}T${pad2(close.h)}:${pad2(close.m)}:00+08:00`);
   if (end.getTime() <= start.getTime()) {
-    end.setDate(end.getDate() + 1);
+    end.setTime(end.getTime() + 24 * 60 * 60 * 1000);
   }
   const startMs = start.getTime();
   const endMs = end.getTime();
   const marks: { label: string; percent: number }[] = [];
-  const cursor = new Date(start);
-  cursor.setMinutes(0, 0, 0);
-  if (cursor.getTime() < startMs) cursor.setHours(cursor.getHours() + 1);
-  while (cursor.getTime() <= endMs) {
-    const percent = ((cursor.getTime() - startMs) / (endMs - startMs)) * 100;
+  const firstMarkMs = Math.ceil(startMs / 3_600_000) * 3_600_000;
+  for (let cursorMs = firstMarkMs; cursorMs <= endMs; cursorMs += 3_600_000) {
+    const percent = ((cursorMs - startMs) / (endMs - startMs)) * 100;
     marks.push({
-      label: format(cursor, "HH:mm"),
+      label: formatTaipeiTime(new Date(cursorMs).toISOString()),
       percent: Math.max(0, Math.min(100, percent)),
     });
-    cursor.setHours(cursor.getHours() + 1);
   }
   return {
     dayStart: start.toISOString(),
@@ -244,6 +297,7 @@ export default function AdminDashboardPage() {
   const attentionCount = remindersForBranch.filter(
     (r) => !r.is_deposit_paid || !r.guest_confirmed_at || !r.is_notified
   ).length;
+  const viewingToday = date === taipeiToday();
 
   return (
     <>
@@ -298,6 +352,24 @@ export default function AdminDashboardPage() {
                 className="mt-1.5 block rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-sm text-stone-900 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-100"
               />
             </label>
+            <div className="flex items-end gap-1" aria-label="切換日期">
+              <button
+                type="button"
+                onClick={() => setDate((value) => shiftDate(value, -1))}
+                className="flex h-11 w-11 items-center justify-center rounded-xl border border-stone-300 text-stone-600 transition-[background-color,border-color] hover:border-amber-300 hover:bg-amber-50"
+                aria-label="前一天"
+              >
+                <ChevronLeft className="h-4 w-4" strokeWidth={1.8} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setDate((value) => shiftDate(value, 1))}
+                className="flex h-11 w-11 items-center justify-center rounded-xl border border-stone-300 text-stone-600 transition-[background-color,border-color] hover:border-amber-300 hover:bg-amber-50"
+                aria-label="後一天"
+              >
+                <ChevronRight className="h-4 w-4" strokeWidth={1.8} />
+              </button>
+            </div>
             <button
               type="button"
               onClick={() => setDate(taipeiToday())}
@@ -305,6 +377,14 @@ export default function AdminDashboardPage() {
               className="min-h-11 rounded-xl border border-stone-300 px-3 py-2.5 text-sm font-medium text-stone-700 transition-[background-color,border-color] duration-200 hover:border-amber-300 hover:bg-amber-50 disabled:cursor-default disabled:opacity-45"
             >
               今天
+            </button>
+            <button
+              type="button"
+              onClick={() => setDate(shiftDate(taipeiToday(), 1))}
+              disabled={date === shiftDate(taipeiToday(), 1)}
+              className="min-h-11 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm font-medium text-amber-900 transition-[background-color,border-color] hover:border-amber-400 hover:bg-amber-100 disabled:cursor-default disabled:opacity-45"
+            >
+              明天
             </button>
           </div>
           <p className="mt-2 text-xs text-stone-500">日期與訂位時間以台北時區顯示。</p>
@@ -349,23 +429,23 @@ export default function AdminDashboardPage() {
               <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center gap-2 text-stone-500">
                   <Calendar className="h-5 w-5 text-amber-700" strokeWidth={1.5} />
-                  <span className="text-sm">今日總訂位數</span>
+                  <span className="text-sm">{viewingToday ? "今日" : `${date.slice(5)} `}總訂位數</span>
                 </div>
                 <p className="mt-2 text-2xl font-semibold tabular-nums text-stone-900">{stats.todayCount}</p>
               </div>
               <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center gap-2 text-stone-500">
                   <Users className="h-5 w-5 text-amber-700" strokeWidth={1.5} />
-                  <span className="text-sm">目前使用中包廂</span>
+                  <span className="text-sm">{viewingToday ? "目前使用中包廂" : "當日有訂包廂"}</span>
                 </div>
                 <p className="mt-2 text-2xl font-semibold tabular-nums text-stone-900">
-                  {stats.roomsInUseCount} / {stats.totalRooms}
+                  {viewingToday ? stats.roomsInUseCount : (stats.roomsBookedCount ?? 0)} / {stats.totalRooms}
                 </p>
               </div>
               <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center gap-2 text-stone-500">
                   <DollarSign className="h-5 w-5 text-amber-700" strokeWidth={1.5} />
-                  <span className="text-sm">今日預估營收</span>
+                  <span className="text-sm">{viewingToday ? "今日" : `${date.slice(5)} `}預估營收</span>
                 </div>
                 <p className="mt-2 text-2xl font-semibold tabular-nums text-stone-900">{formatTwd(stats.todayRevenue)}</p>
               </div>
@@ -413,7 +493,7 @@ export default function AdminDashboardPage() {
                           />
                         </div>
                         <span className="text-[11px] text-gray-500">
-                          {format(parseISO(p.date), "MM/dd")}
+                          {p.date.slice(5).replace("-", "/")}
                         </span>
                         <span className="text-[11px] text-gray-600">{p.count} 筆</span>
                       </div>
@@ -430,24 +510,39 @@ export default function AdminDashboardPage() {
             {timeline && (
               <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                 <h2 className="mb-4 text-lg font-semibold text-gray-900">
-                  時間軸 · {timeline.branchName} · {format(parseISO(date), "yyyy/MM/dd (EEE)", { locale: zhTW })}
+                  時間軸 · {timeline.branchName} · {formatTaipeiDate(date)}
                 </h2>
 
                 {/* Mobile: 清單式 */}
                 <div className="space-y-3 md:hidden">
                   {timeline.rooms.map((room) => (
                     <div key={room.roomId} className="rounded-lg border border-gray-200 bg-gray-50/50 p-3">
-                      <p className="mb-2 text-sm font-semibold text-gray-800">{room.roomName}</p>
-                      {room.reservations.length === 0 ? (
-                        <p className="text-xs text-gray-400">今日無訂位</p>
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-gray-800">{room.roomName}</p>
+                        <span className="text-xs tabular-nums text-gray-500">{room.reservations.filter((r) => r.status !== "cancelled").length} 筆</span>
+                      </div>
+                      {room.reservations.filter((r) => r.status !== "cancelled").length === 0 ? (
+                        <p className="text-xs text-gray-400">當日無訂位</p>
                       ) : (
                         <ul className="space-y-2">
-                          {room.reservations.map((r, i) => (
-                            <li key={i} className="rounded-md border border-white bg-white px-2.5 py-2 text-sm">
-                              <span className="font-medium text-gray-900">{r.customer_name}</span>
-                              <span className="ml-2 text-xs text-gray-500">
-                                {format(parseISO(r.start_time), "HH:mm")}–{format(parseISO(r.end_time), "HH:mm")}
-                              </span>
+                          {room.reservations.filter((r) => r.status !== "cancelled").map((r, i) => (
+                            <li
+                              key={r.id ?? `${r.start_time}-${r.end_time}-${i}`}
+                              aria-label={`${r.customer_name} ${statusLabel(r.status)} ${r.is_deposit_paid ? "已付訂金" : "未付訂金"}`}
+                              className={`rounded-md border px-2.5 py-2 text-sm ${reservationTone(r.status)}`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="truncate font-medium">{r.customer_name}</span>
+                                <span className="shrink-0 text-xs tabular-nums">
+                                  {formatTaipeiTime(r.start_time)}–{formatTaipeiTime(r.end_time)}
+                                </span>
+                              </div>
+                              <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] opacity-80">
+                                <span>{statusLabel(r.status)}</span>
+                                <span>{r.is_deposit_paid ? "已付訂金" : "未付訂金"}</span>
+                                {r.guest_count ? <span>{r.guest_count} 人</span> : null}
+                                {r.booking_code ? <span>{r.booking_code}</span> : null}
+                              </div>
                             </li>
                           ))}
                         </ul>
@@ -495,16 +590,17 @@ export default function AdminDashboardPage() {
                               return (
                                 <div
                                   key={`${r.start_time}-${r.end_time}`}
-                                  className="absolute top-1 bottom-1 z-10 rounded bg-amber-200 px-1 overflow-hidden"
+                                  aria-label={`${r.customer_name} ${statusLabel(r.status)} ${r.is_deposit_paid ? "已付訂金" : "未付訂金"}`}
+                                  className={`absolute top-1 bottom-1 z-10 overflow-hidden rounded border px-1 ${reservationTone(r.status)}`}
                                   style={{
                                     left: `${left}%`,
                                     width: `${w}%`,
                                     minWidth: "4px",
                                   }}
-                                  title={`${r.customer_name} ${format(parseISO(r.start_time), "HH:mm")}-${format(parseISO(r.end_time), "HH:mm")}`}
+                                  title={`${r.customer_name} ${formatTaipeiTime(r.start_time)}-${formatTaipeiTime(r.end_time)} · ${statusLabel(r.status)} · ${r.is_deposit_paid ? "已付訂金" : "未付訂金"}`}
                                 >
-                                  <span className="block truncate text-xs text-amber-900">
-                                    {r.customer_name} {format(parseISO(r.start_time), "HH:mm")}
+                                  <span className="block truncate text-xs">
+                                    {r.customer_name} {formatTaipeiTime(r.start_time)}
                                   </span>
                                 </div>
                               );
@@ -576,10 +672,8 @@ export default function AdminDashboardPage() {
           ) : (
             <ul className="space-y-3">
               {remindersForBranch.map((r) => {
-                const startLabel = format(parseISO(r.start_time), "yyyy/MM/dd (EEE) HH:mm", {
-                  locale: zhTW,
-                });
-                const endLabel = format(parseISO(r.end_time), "HH:mm");
+                const startLabel = formatTaipeiDateTime(r.start_time);
+                const endLabel = formatTaipeiTime(r.end_time);
                 const message = `您好 ${r.customer_name}，提醒您明天 ${startLabel}–${endLabel} 的預約（${r.branch_name} ${r.room_name}）。如需更改請提前告知，謝謝！`;
                 return (
                   <li key={r.id} className="rounded-lg border border-gray-200 p-3">

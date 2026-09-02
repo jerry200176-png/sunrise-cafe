@@ -5,6 +5,8 @@ import {
   type DashboardRoom,
 } from "@/lib/admin-dashboard-data";
 import { fetchReservationsAdmin, fetchRooms, isAdminConfigured } from "@/lib/supabase-admin";
+import { requirePermission } from "@/lib/admin-api-auth";
+import { taipeiDateString } from "@/lib/datetime";
 
 export async function GET(request: NextRequest) {
   const branchId = request.nextUrl.searchParams.get("branchId");
@@ -12,13 +14,15 @@ export async function GET(request: NextRequest) {
   if (!branchId) {
     return NextResponse.json({ error: "缺少 branchId" }, { status: 400 });
   }
+  const denied = await requirePermission(request, "reservations:read", branchId);
+  if (denied) return denied;
   if (!isAdminConfigured()) {
     return NextResponse.json(
       { error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY" },
       { status: 503 }
     );
   }
-  const date = dateParam || new Date().toISOString().slice(0, 10);
+  const date = dateParam || taipeiDateString();
 
   try {
     const [reservations, rooms] = await Promise.all([
