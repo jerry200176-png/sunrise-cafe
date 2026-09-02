@@ -1,0 +1,38 @@
+id: INT-20260902-173005-2JIO
+title: Founder production approval gate
+intent: Founder production approval gate
+kind: intent
+brain_dump: Ensure production activation requires explicit Founder approval. Add the
+  GitHub Production environment gate to the production deploy workflow; do not deploy
+  or mutate production data. Preserve CI and existing deployment behavior after approval.
+boundary: Only production workflow gate configuration and required session metadata;
+  do not change application code, secrets, production data, or deployment state.
+success_condition: Production deploy job declares environment Production; CI passes;
+  no production deployment is initiated by this task.
+risk: high
+priority: 3
+labels: []
+scope:
+  allow:
+  - .github/workflows/production-deploy-migrate.yml
+  - .exo/cache/**
+  - .exo/memory/**
+  - .exo/locks/**
+  - .exo/tickets/**
+  - .exo/logs/**
+  deny: []
+budgets:
+  max_files_changed: 2
+  max_loc_changed: 20
+checks:
+- npm test
+type: feature
+status: todo
+parent_id: null
+spec_ref: null
+notes: []
+blockers: []
+created_at: '2026-09-02T17:30:05+08:00'
+children:
+- TKT-20260902-173029-FU5F
+resource_profile: default

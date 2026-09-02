@@ -1,0 +1,36 @@
+id: TKT-20260902-173029-FU5F
+title: Wire Founder approval into production deploy
+intent: Wire Founder approval into production deploy
+kind: task
+parent_id: INT-20260902-173005-2JIO
+boundary: Do not change application code, secrets, production data, or execute production
+  deploys.
+success_condition: The production deploy job references the Production environment
+  so GitHub blocks activation pending its configured Founder reviewer; tests/checks
+  pass.
+priority: 1
+labels: []
+scope:
+  allow:
+  - .github/workflows/production-deploy-migrate.yml
+  - .exo/cache/**
+  - .exo/memory/**
+  - .exo/locks/**
+  - .exo/tickets/**
+  - .exo/logs/**
+  deny: []
+budgets:
+  max_files_changed: 1
+  max_loc_changed: 10
+checks:
+- npm test
+type: feature
+status: todo
+spec_ref: null
+notes: []
+blockers: []
+created_at: '2026-09-02T17:30:29+08:00'
+brain_dump: ''
+risk: medium
+children: []
+resource_profile: default
