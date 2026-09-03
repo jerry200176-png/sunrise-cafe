@@ -32,7 +32,7 @@ checks:
 - npm test
 - npm run lint
 type: feature
-status: todo
+status: done
 parent_id: null
 spec_ref: null
 notes: []
@@ -40,3 +40,5 @@ blockers: []
 created_at: '2026-09-03T02:37:26+08:00'
 children: []
 resource_profile: default
+commits:
+- ec6a7347a3cbc540e64b58202f0a5bdae99a12f9

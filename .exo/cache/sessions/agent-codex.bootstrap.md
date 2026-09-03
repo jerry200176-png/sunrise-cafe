@@ -1,31 +1,31 @@
 ╔══════════════════════════════════════════════════════╗
 ║  >>> EXO GOVERNED SESSION                            ║
 ║  protocol: ExoProtocol v1 | mode: work               ║
-║  ticket: INT-20260903-023726-2M79 | actor: agent:codex║
+║  ticket: TKT-20260903-103430-SFLJ | actor: agent:codex║
 ║  model: gpt-5                                        ║
-║  branch: chore/task-reservation-ledger-production-migration-20260903║
+║  branch: chore/dashboard-reservation-focus-20260903  ║
 ╚══════════════════════════════════════════════════════╝
 
 # Exo Agent Session Bootstrap
 
-session_id: SES-20260903023739-A8CBF011
+session_id: SES-20260903103459-1A067014
 actor: agent:codex
 vendor: openai
 model: gpt-5
 mode: work
 context_window_tokens: unknown
-ticket_id: INT-20260903-023726-2M79
-ticket_title: Apply guest notification ledger in production
+ticket_id: TKT-20260903-103430-SFLJ
+ticket_title: Deep-link dashboard reservations into edit workflow
 ticket_status: todo
-ticket_priority: 95
+ticket_priority: 1
 topic_id: repo:default
 lock_owner: agent:codex
-git_branch: chore/task-reservation-ledger-production-migration-20260903
-lock_branch: codex/INT-20260903-023726-2M79
-lock_expires_at: 2026-09-03T04:37:39+08:00
+git_branch: chore/dashboard-reservation-focus-20260903
+lock_branch: codex/TKT-20260903-103430-SFLJ
+lock_expires_at: 2026-09-03T12:34:59+08:00
 
 ## Scope
-- allow: ["scripts/apply-migration-line-guest-notification-deliveries.mjs", ".github/workflows/production-deploy-migrate.yml", ".exo/cache/**", ".exo/memory/**", ".exo/locks/**", ".exo/tickets/**", ".exo/logs/**"]
+- allow: ["src/app/admin/dashboard/page.tsx", "src/app/admin/page.tsx", "src/components/ReservationList.tsx", "src/components/**/*.test.tsx", ".exo/cache/**", ".exo/memory/**", ".exo/locks/**", ".exo/tickets/**", ".exo/logs/**"]
 - deny: []
 
 ## Checks
@@ -38,8 +38,8 @@ lock_expires_at: 2026-09-03T04:37:39+08:00
 
 ## Machine Context
 - cpu_cores: 12
-- load_avg_1m: 2.6
-- ram: 3.3GB available / 4.8GB total
+- load_avg_1m: 1.1
+- ram: 3.6GB available / 4.8GB total
 
 ## Prior Session Memento
 (none)
@@ -57,10 +57,10 @@ After building a reusable utility, REGISTER it:
 - `src.lib.line-guest-delivery.ts:markLineGuestNotificationDelivery`: Record sent or failed state for an automatic guest LINE notification delivery.
 
 ## Current Task
-Add an idempotent production migration runner and invoke it from the sole production deploy workflow.
+Deep-link dashboard reservations into edit workflow
 
 ## Lifecycle Commands
-- heartbeat: EXO_ACTOR=agent:codex python3 -m exo.cli lease-heartbeat --ticket-id INT-20260903-023726-2M79 --owner agent:codex
+- heartbeat: EXO_ACTOR=agent:codex python3 -m exo.cli lease-heartbeat --ticket-id TKT-20260903-103430-SFLJ --owner agent:codex
 - run worker once: EXO_ACTOR=agent:codex python3 -m exo.cli worker-poll --require-session --limit 50
 - suspend: EXO_ACTOR=agent:codex python3 -m exo.cli session-suspend --reason "<why pausing>"
-- finish: EXO_ACTOR=agent:codex python3 -m exo.cli session-finish --summary "<what changed>" --set-status review --ticket-id INT-20260903-023726-2M79
+- finish: EXO_ACTOR=agent:codex python3 -m exo.cli session-finish --summary "<what changed>" --set-status review --ticket-id TKT-20260903-103430-SFLJ
