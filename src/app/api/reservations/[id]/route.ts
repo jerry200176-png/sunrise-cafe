@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateReservationAdmin, deleteReservationAdmin, isAdminConfigured } from "@/lib/supabase-admin";
-import { sendLineFlexMessage, buildReviewInviteFlex } from "@/lib/line";
+import {
+  sendLineFlexMessage,
+  buildReviewInviteFlex,
+} from "@/lib/line";
 import { sendDepositPaymentRequest } from "@/lib/payment-request-line";
 import { notifyWaitlist } from "@/lib/waitlist";
 import { fetchSettings } from "@/lib/supabase-fetch";
@@ -12,6 +15,8 @@ import {
 import { fetchReservationBranchId } from "@/lib/supabase-admin";
 import { logDepositStatusChange } from "@/lib/payment-log";
 import { createClient } from "@supabase/supabase-js";
+import { deliverLineGuestNotification } from "@/lib/line-guest-delivery";
+import { buildGuestBookingCancelledFlex } from "@/lib/line-cards";
 function supabaseAdmin() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,6 +25,18 @@ function supabaseAdmin() {
 }
 
 type RoomWithBranch = { name?: string; branch: { id?: string; name: string }[] }[];
+type CancellationNoticeRow = {
+  line_user_id?: string | null;
+  customer_name?: string | null;
+  booking_code?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  room?: { branch?: { name?: string } | { name?: string }[] | null } | { branch?: { name?: string } | { name?: string }[] | null }[] | null;
+};
+
+function firstRelation<T>(value: T | T[] | null | undefined): T | null {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
 
 export async function PATCH(
   request: NextRequest,
@@ -86,7 +103,44 @@ export async function PATCH(
       if (data) beforeRow = data;
     }
 
+    let cancellationNotice: CancellationNoticeRow | null = null;
+    if (patch.status === "cancelled") {
+      const { data } = await supabaseAdmin()
+        .from("reservations")
+        .select("line_user_id, customer_name, booking_code, start_time, end_time, room:rooms(branch:branches(name))")
+        .eq("id", id)
+        .maybeSingle();
+      cancellationNotice = data as CancellationNoticeRow | null;
+    }
+
     await updateReservationAdmin(id, patch);
+
+    if (cancellationNotice?.line_user_id) {
+      const room = firstRelation(cancellationNotice.room);
+      const branch = firstRelation(room?.branch);
+      try {
+        const result = await deliverLineGuestNotification({
+          notificationType: "booking_cancelled",
+          reservationId: id,
+          recipientId: cancellationNotice.line_user_id,
+          send: () =>
+            sendLineFlexMessage(
+              cancellationNotice.line_user_id!,
+              "訂位已取消",
+              buildGuestBookingCancelledFlex({
+                customerName: cancellationNotice.customer_name ?? "您好",
+                branchName: branch?.name ?? "昇咖啡",
+                bookingCode: cancellationNotice.booking_code,
+                startTime: cancellationNotice.start_time!,
+                endTime: cancellationNotice.end_time!,
+              })
+            ),
+        });
+        if (result === "error") console.error("[reservations/id] guest cancellation notify failed");
+      } catch (err) {
+        console.error("[reservations/id] guest cancellation claim failed:", err);
+      }
+    }
 
     if (beforeRow && touchesDeposit) {
       const afterPaid =
