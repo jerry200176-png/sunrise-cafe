@@ -93,6 +93,11 @@ const formatTaipeiDateTime = (iso: string) => {
   return `${formatTaipeiDate(date)} ${formatTaipeiTime(iso)}`;
 };
 
+const reservationManagementHref = (branchId: string, reservationId?: string) =>
+  reservationId
+    ? `/admin?branchId=${encodeURIComponent(branchId)}&reservation=${encodeURIComponent(reservationId)}`
+    : "/admin";
+
 function shiftDate(date: string, days: number) {
   const [year, month, day] = date.split("-").map(Number);
   const shifted = new Date(Date.UTC(year, month - 1, day + days));
@@ -543,6 +548,14 @@ export default function AdminDashboardPage() {
                                 {r.guest_count ? <span>{r.guest_count} 人</span> : null}
                                 {r.booking_code ? <span>{r.booking_code}</span> : null}
                               </div>
+                              {r.id ? (
+                                <Link
+                                  href={reservationManagementHref(branchId, r.id)}
+                                  className="mt-2 inline-flex min-h-10 items-center rounded-md border border-current/30 px-2.5 py-1.5 text-xs font-semibold no-underline hover:bg-white/60"
+                                >
+                                  開啟訂位管理
+                                </Link>
+                              ) : null}
                             </li>
                           ))}
                         </ul>
@@ -587,21 +600,39 @@ export default function AdminDashboardPage() {
                               const left = timeToPercent(r.start_time);
                               const right = timeToPercent(r.end_time);
                               const w = Math.max(2, right - left);
-                              return (
+                              const className = `absolute top-1 bottom-1 z-10 block overflow-hidden rounded border px-1 no-underline ${reservationTone(r.status)}`;
+                              const style = {
+                                left: `${left}%`,
+                                width: `${w}%`,
+                                minWidth: "4px",
+                              };
+                              const label = `${r.customer_name} ${statusLabel(r.status)} ${r.is_deposit_paid ? "已付訂金" : "未付訂金"}`;
+                              const title = `${r.customer_name} ${formatTaipeiTime(r.start_time)}-${formatTaipeiTime(r.end_time)} · ${statusLabel(r.status)} · ${r.is_deposit_paid ? "已付訂金" : "未付訂金"}`;
+                              const content = (
+                                <span className="block truncate text-xs">
+                                  {r.customer_name} {formatTaipeiTime(r.start_time)}
+                                </span>
+                              );
+                              return r.id ? (
+                                <Link
+                                  key={r.id}
+                                  href={reservationManagementHref(branchId, r.id)}
+                                  aria-label={label}
+                                  className={className}
+                                  style={style}
+                                  title={title}
+                                >
+                                  {content}
+                                </Link>
+                              ) : (
                                 <div
                                   key={`${r.start_time}-${r.end_time}`}
-                                  aria-label={`${r.customer_name} ${statusLabel(r.status)} ${r.is_deposit_paid ? "已付訂金" : "未付訂金"}`}
-                                  className={`absolute top-1 bottom-1 z-10 overflow-hidden rounded border px-1 ${reservationTone(r.status)}`}
-                                  style={{
-                                    left: `${left}%`,
-                                    width: `${w}%`,
-                                    minWidth: "4px",
-                                  }}
-                                  title={`${r.customer_name} ${formatTaipeiTime(r.start_time)}-${formatTaipeiTime(r.end_time)} · ${statusLabel(r.status)} · ${r.is_deposit_paid ? "已付訂金" : "未付訂金"}`}
+                                  aria-label={label}
+                                  className={className}
+                                  style={style}
+                                  title={title}
                                 >
-                                  <span className="block truncate text-xs">
-                                    {r.customer_name} {formatTaipeiTime(r.start_time)}
-                                  </span>
+                                  {content}
                                 </div>
                               );
                             })}

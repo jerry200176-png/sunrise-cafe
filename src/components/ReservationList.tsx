@@ -56,12 +56,23 @@ const STATUS_STYLES: Record<string, string> = {
 const normalizeText = (value: string) =>
   value.toLowerCase().replace(/\s+/g, "");
 
+const toTaiwanParts = (iso: string) => {
+  const d = new Date(iso);
+  const tw = new Date(d.getTime() + 8 * 60 * 60 * 1000);
+  return {
+    date: tw.toISOString().slice(0, 10),
+    time: `${String(tw.getUTCHours()).padStart(2, "0")}:${String(tw.getUTCMinutes()).padStart(2, "0")}`,
+    ms: d.getTime(),
+  };
+};
+
 interface ReservationListProps {
   branchId: string | null;
   rooms?: Room[];
+  focusReservationId?: string | null;
 }
 
-export function ReservationList({ branchId, rooms = [] }: ReservationListProps) {
+export function ReservationList({ branchId, rooms = [], focusReservationId = null }: ReservationListProps) {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -93,6 +104,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   const [messageCopied, setMessageCopied] = useState(false);
   const [messageSubmitting, setMessageSubmitting] = useState(false);
   const messagePreviewRequest = useRef(0);
+  const openedFocusReservationId = useRef<string | null>(null);
   const [selectedReservationIds, setSelectedReservationIds] = useState<string[]>([]);
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchWorkbench, setBatchWorkbench] = useState<{
@@ -225,6 +237,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
   useEffect(() => {
     setSelectedReservationIds([]);
     setBatchWorkbench(null);
+    openedFocusReservationId.current = null;
   }, [branchId]);
 
   const toggleReservationSelection = useCallback((reservationId: string) => {
@@ -396,17 +409,7 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
     }
   }, [branchId, fetchReservations]);
 
-  const toTaiwanParts = (iso: string) => {
-    const d = new Date(iso);
-    const tw = new Date(d.getTime() + 8 * 60 * 60 * 1000);
-    return {
-      date: tw.toISOString().slice(0, 10),
-      time: `${String(tw.getUTCHours()).padStart(2, "0")}:${String(tw.getUTCMinutes()).padStart(2, "0")}`,
-      ms: d.getTime(),
-    };
-  };
-
-  const openEdit = (r: Reservation) => {
+  const openEdit = useCallback((r: Reservation) => {
     setEditing(r);
     setEditName(r.customer_name);
     setEditPhone(r.phone);
@@ -421,12 +424,30 @@ export function ReservationList({ branchId, rooms = [] }: ReservationListProps) 
     setEditNotes(r.notes ?? "");
     setEditStatus(r.status as ReservationStatus);
     setEditError(null);
-  };
+  }, []);
 
   const closeEdit = () => {
     setEditing(null);
     setEditError(null);
   };
+
+  useEffect(() => {
+    if (!focusReservationId) {
+      openedFocusReservationId.current = null;
+      return;
+    }
+    if (
+      loading ||
+      editing ||
+      openedFocusReservationId.current === focusReservationId
+    ) {
+      return;
+    }
+    const target = reservations.find((reservation) => reservation.id === focusReservationId);
+    if (!target) return;
+    openedFocusReservationId.current = focusReservationId;
+    openEdit(target);
+  }, [editing, focusReservationId, loading, openEdit, reservations]);
 
   const submitEdit = async (e: React.FormEvent) => {
     e.preventDefault();

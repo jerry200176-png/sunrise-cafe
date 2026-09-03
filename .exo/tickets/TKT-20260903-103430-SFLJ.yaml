@@ -1,0 +1,47 @@
+id: TKT-20260903-103430-SFLJ
+title: Deep-link dashboard reservations into edit workflow
+intent: Deep-link dashboard reservations into edit workflow
+kind: task
+parent_id: INT-20260902-230413-ZKLJ
+boundary: Only improve dashboard-to-reservation management navigation. Do not change
+  booking data semantics, notifications, CRM, waitlist, payment behavior, or autonomous-loop
+  behavior.
+success_condition: A staff member can select a reservation from the dashboard timeline
+  on mobile or desktop and arrive at the existing reservation edit view with the correct
+  branch and reservation already focused; direct links remain safe when reservation
+  id is absent.
+priority: 1
+labels:
+- reservation
+- staff-ux
+scope:
+  allow:
+  - src/app/admin/dashboard/page.tsx
+  - src/app/admin/page.tsx
+  - src/components/ReservationList.tsx
+  - src/components/**/*.test.tsx
+  - .exo/cache/**
+  - .exo/memory/**
+  - .exo/locks/**
+  - .exo/tickets/**
+  - .exo/logs/**
+  deny: []
+budgets:
+  max_files_changed: 8
+  max_loc_changed: 300
+checks:
+- npm test
+- npm run lint
+type: feature
+status: review
+spec_ref: null
+notes: []
+blockers: []
+created_at: '2026-09-03T10:34:30+08:00'
+brain_dump: ''
+risk: medium
+children: []
+resource_profile: default
+commits:
+- ca673c776e0673aa6bcc1279a16f4d5fc17ea907
+- d821d7088d332b3051317df6f3a5ffc91afde732
