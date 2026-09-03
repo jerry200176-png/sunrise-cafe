@@ -1,0 +1,53 @@
+id: TKT-20260903-094116-MRA4
+title: Guest LINE lifecycle notifications for cancel, reschedule, and attendance
+intent: Guest LINE lifecycle notifications for cancel, reschedule, and attendance
+kind: task
+parent_id: INT-20260902-230413-ZKLJ
+boundary: Only add guest-facing LINE lifecycle notification delivery and its durable
+  dedupe wiring. Do not change CRM, waitlist behavior, payment provider behavior,
+  autonomous-loop behavior, or public booking semantics.
+success_condition: Confirmed admin cancellation and guest cancellation send one deduped
+  guest LINE notice when line_user_id exists; guest reschedule sends one notice and
+  resets reminder delivery state; attendance confirmation preserves staff alert and
+  has tested guest notification behavior; migration and production workflow are wired
+  and tests pass.
+priority: 1
+labels:
+- reservation
+- line
+scope:
+  allow:
+  - src/app/api/**
+  - src/lib/**
+  - supabase/**
+  - scripts/**
+  - .github/workflows/**
+  - .exo/cache/**
+  - .exo/memory/**
+  - .exo/locks/**
+  - .exo/tickets/**
+  - .exo/logs/**
+  deny:
+  - src/app/admin/**
+  - src/components/**
+budgets:
+  max_files_changed: 12
+  max_loc_changed: 600
+checks:
+- npm test
+- npm run lint
+type: feature
+status: review
+spec_ref: null
+notes:
+- 'Scope correction after audit: lifecycle delivery requires three guest events, event-versioned
+  dedupe, and production migration runner wiring.'
+blockers: []
+created_at: '2026-09-03T09:41:16+08:00'
+brain_dump: ''
+risk: medium
+children: []
+resource_profile: default
+commits:
+- 196cb8da94e029e1edd44d915ccbe92861ff760c
+- ed30390bf9b624e5594b8d809b6fbf6b44d9a54d

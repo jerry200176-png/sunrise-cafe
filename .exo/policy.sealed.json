@@ -11,7 +11,7 @@
     "python3 -m pytest"
   ],
   "coherence_rules": [],
-  "composed_at": "2026-09-02T23:04:26+08:00",
+  "composed_at": "2026-09-03T10:22:04+08:00",
   "deny_patterns": [
     "**/.env*",
     ".git/**",
@@ -86,7 +86,7 @@
     ]
   },
   "hooks_hash": "",
-  "integrity_hash": "3c9ff31c02e9831ef7859527ad63cb9175cd17b612e6037907f9ed71c4c438bb",
+  "integrity_hash": "23b352751bbecb1f38035c01b33c907bfd22b49bd82cfa068bc25b2ab6785670",
   "scope_deny_from_features": [],
   "sources": {
     "config": "e750ee60e8ae0eeaa0d7f62592530ad73d2368545e7d63eafa64963696d7f034",

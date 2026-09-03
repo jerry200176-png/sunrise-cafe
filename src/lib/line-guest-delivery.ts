@@ -6,6 +6,12 @@ export type LineGuestDeliveryClaim =
   | { available: true; id: null }
   | { available: false; id: null };
 
+export type LineGuestNotificationType =
+  | "deposit_request"
+  | "booking_cancelled"
+  | "booking_rescheduled"
+  | "attendance_confirmed";
+
 function isLedgerUnavailable(error: { message?: string; code?: string } | null): boolean {
   return Boolean(
     error &&
@@ -19,9 +25,10 @@ function isLedgerUnavailable(error: { message?: string; code?: string } | null):
 
 /** Atomically claim an automatic guest notification before calling LINE. */
 export async function claimLineGuestNotificationDelivery(input: {
-  notificationType: "deposit_request";
+  notificationType: LineGuestNotificationType;
   reservationId: string;
   recipientId: string;
+  eventKey?: string;
   client?: SupabaseClient;
 }): Promise<LineGuestDeliveryClaim> {
   const { data, error } = await (input.client ?? supabaseAdmin())
@@ -29,6 +36,7 @@ export async function claimLineGuestNotificationDelivery(input: {
       p_notification_type: input.notificationType,
       p_reservation_id: input.reservationId,
       p_recipient_id: input.recipientId,
+      p_event_key: input.eventKey ?? "default",
     })
     .maybeSingle();
 
@@ -46,6 +54,60 @@ export async function claimLineGuestNotificationDelivery(input: {
     available: true,
     id: (data as { delivery_id?: string } | null)?.delivery_id ?? null,
   };
+}
+
+/** Deliver one automatic guest notification after its durable claim succeeds. */
+export async function deliverLineGuestNotification(input: {
+  notificationType: Exclude<LineGuestNotificationType, "deposit_request">;
+  reservationId: string;
+  recipientId: string;
+  eventKey?: string;
+  send: () => Promise<void>;
+  client?: SupabaseClient;
+}): Promise<"sent" | "skipped" | "error"> {
+  const claim = await claimLineGuestNotificationDelivery({
+    notificationType: input.notificationType,
+    reservationId: input.reservationId,
+    recipientId: input.recipientId,
+    eventKey: input.eventKey,
+    client: input.client,
+  });
+  if (claim.available && !claim.id) return "skipped";
+
+  try {
+    await input.send();
+    if (claim.id) {
+      try {
+        await markLineGuestNotificationDelivery(claim.id, { status: "sent" }, input.client);
+      } catch (error) {
+        console.warn(
+          "[line-guest-delivery] success state update failed:",
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+    }
+    return "sent";
+  } catch (error) {
+    if (claim.id) {
+      try {
+        await markLineGuestNotificationDelivery(
+          claim.id,
+          { status: "failed", error: error instanceof Error ? error.message : String(error) },
+          input.client
+        );
+      } catch (markError) {
+        console.warn(
+          "[line-guest-delivery] failure state update failed:",
+          markError instanceof Error ? markError.message : String(markError)
+        );
+      }
+    }
+    console.error(
+      `[line-guest-delivery] ${input.notificationType} push failed:`,
+      error instanceof Error ? error.message : String(error)
+    );
+    return "error";
+  }
 }
 
 export async function markLineGuestNotificationDelivery(

@@ -21,3 +21,14 @@ tools:
   used_by: []
   last_used: ''
   created_at: '2026-09-03T02:13:10+08:00'
+- id: src.lib.line-guest-delivery.ts:deliverLineGuestNotification
+  module: src/lib/line-guest-delivery.ts
+  function: deliverLineGuestNotification
+  description: Claim, send, and mark one automatic guest LINE lifecycle notification
+    with durable dedupe and failure recording.
+  signature: ''
+  tags: []
+  created_by: ''
+  used_by: []
+  last_used: '2026-09-03T09:55:55+08:00'
+  created_at: '2026-09-03T09:55:50+08:00'

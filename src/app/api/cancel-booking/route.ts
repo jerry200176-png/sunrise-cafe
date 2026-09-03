@@ -8,6 +8,22 @@ import { verifyGuestBookingById } from "@/lib/guest-auth";
 import { enforceGuestLookupLimit } from "@/lib/guest-rate-limit";
 import { evaluateGuestCancel } from "@/lib/cancel-refund-policy";
 import { logOps } from "@/lib/ops-log";
+import { sendLineFlexMessage } from "@/lib/line";
+import { buildGuestBookingCancelledFlex } from "@/lib/line-cards";
+import { deliverLineGuestNotification } from "@/lib/line-guest-delivery";
+
+type GuestCancellationRow = {
+  line_user_id?: string | null;
+  customer_name?: string | null;
+  booking_code?: string | null;
+  start_time: string;
+  end_time: string;
+  room?: { branch?: { name?: string } | { name?: string }[] | null } | { branch?: { name?: string } | { name?: string }[] | null }[] | null;
+};
+
+function firstRelation<T>(value: T | T[] | null | undefined): T | null {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
 
 export async function POST(request: NextRequest) {
   if (!isAdminConfigured()) {
@@ -65,6 +81,33 @@ export async function POST(request: NextRequest) {
     }
 
     await updateReservationAdmin(match.id, { status: "cancelled" });
+
+    const guest = match as GuestCancellationRow;
+    if (guest.line_user_id) {
+      const room = firstRelation(guest.room);
+      const branch = firstRelation(room?.branch);
+      try {
+        await deliverLineGuestNotification({
+          notificationType: "booking_cancelled",
+          reservationId: match.id,
+          recipientId: guest.line_user_id,
+          send: () =>
+            sendLineFlexMessage(
+              guest.line_user_id!,
+              "訂位已取消",
+              buildGuestBookingCancelledFlex({
+                customerName: guest.customer_name ?? "您好",
+                branchName: branch?.name ?? "昇咖啡",
+                bookingCode: guest.booking_code,
+                startTime: guest.start_time,
+                endTime: guest.end_time,
+              })
+            ),
+        });
+      } catch (err) {
+        console.error("[cancel-booking] guest LINE notify failed:", err);
+      }
+    }
 
     notifyWaitlist(match.room_id, match.start_time, match.end_time).catch((err) =>
       console.error("[cancel-booking] waitlist notify failed:", err)

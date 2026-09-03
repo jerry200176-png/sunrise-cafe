@@ -9,6 +9,11 @@ const SQL = readFileSync(
   join(scriptDir, "../supabase/migration-line-guest-notification-deliveries.sql"),
   "utf8"
 );
+const LIFECYCLE_VERSION = "20260903-line-guest-notification-lifecycle";
+const LIFECYCLE_SQL = readFileSync(
+  join(scriptDir, "../supabase/migration-line-guest-notification-lifecycle.sql"),
+  "utf8"
+);
 
 function restBase() {
   return (process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? "").replace(
@@ -59,14 +64,28 @@ async function tableExists() {
   );
 }
 
-async function applyMigration(connectionString) {
+async function applyMigration(connectionString, sqlText) {
   const { default: postgres } = await import("postgres");
   const sql = postgres(connectionString, { max: 1, idle_timeout: 15, ssl: "require" });
   try {
-    await sql.unsafe(SQL);
+    await sql.unsafe(sqlText);
   } finally {
     await sql.end({ timeout: 10 });
   }
+}
+
+async function migrationApplied(version) {
+  const base = restBase();
+  const key = serviceKey();
+  const response = await fetch(
+    `${base}/rest/v1/schema_migrations?select=version&version=eq.${encodeURIComponent(version)}`,
+    { headers: { apikey: key, Authorization: `Bearer ${key}` } }
+  );
+  const body = await response.text();
+  if (!response.ok) {
+    throw new Error(`schema_migrations probe HTTP ${response.status}: ${body.slice(0, 300)}`);
+  }
+  return JSON.parse(body).some((row) => row.version === version);
 }
 
 async function waitForTable(maxAttempts = 5) {
@@ -82,24 +101,34 @@ async function waitForTable(maxAttempts = 5) {
 }
 
 async function main() {
-  if (await tableExists()) {
-    console.log("OK: line_guest_notification_deliveries already exists");
+  const connectionString = postgresUrl();
+  if (!(await tableExists())) {
+    if (!hasUsablePostgresUrl(connectionString)) {
+      throw new Error(
+        "line_guest_notification_deliveries is missing and no usable SUPABASE_DB_URL/Postgres URL is configured"
+      );
+    }
+    console.log("Applying migration-line-guest-notification-deliveries.sql …");
+    await applyMigration(connectionString, SQL);
+    if (!(await waitForTable())) {
+      throw new Error("Migration ran but line_guest_notification_deliveries is still missing");
+    }
+    console.log("OK: line_guest_notification_deliveries ready");
+  }
+
+  if (await migrationApplied(LIFECYCLE_VERSION)) {
+    console.log(`OK: ${LIFECYCLE_VERSION} already applied`);
     return;
   }
-
-  const connectionString = postgresUrl();
   if (!hasUsablePostgresUrl(connectionString)) {
-    throw new Error(
-      "line_guest_notification_deliveries is missing and no usable SUPABASE_DB_URL/Postgres URL is configured"
-    );
+    throw new Error(`${LIFECYCLE_VERSION} is missing and no usable SUPABASE_DB_URL/Postgres URL is configured`);
   }
-
-  console.log("Applying migration-line-guest-notification-deliveries.sql …");
-  await applyMigration(connectionString);
-  if (!(await waitForTable())) {
-    throw new Error("Migration ran but line_guest_notification_deliveries is still missing");
+  console.log("Applying migration-line-guest-notification-lifecycle.sql …");
+  await applyMigration(connectionString, LIFECYCLE_SQL);
+  if (!(await migrationApplied(LIFECYCLE_VERSION))) {
+    throw new Error(`${LIFECYCLE_VERSION} ran but ledger verification failed`);
   }
-  console.log("OK: line_guest_notification_deliveries ready");
+  console.log(`OK: ${LIFECYCLE_VERSION} ready`);
 }
 
 main().catch((error) => {
