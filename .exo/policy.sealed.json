@@ -12,6 +12,7 @@
   ],
   "coherence_rules": [],
   "composed_at": "2026-09-03T11:10:19+08:00",
+  "composed_at": "2026-09-03T10:53:45+08:00",
   "deny_patterns": [
     "**/.env*",
     ".git/**",
@@ -87,6 +88,7 @@
   },
   "hooks_hash": "",
   "integrity_hash": "0f123252c481c5c6edecf05840a3da0dcd4328477c388d6edfac378689c29211",
+  "integrity_hash": "3a1e41d14a99fb185deaff6e2f9b00fbb1e26e4a05ead4bda04db348762d103a",
   "scope_deny_from_features": [],
   "sources": {
     "config": "e750ee60e8ae0eeaa0d7f62592530ad73d2368545e7d63eafa64963696d7f034",

@@ -348,6 +348,89 @@ export function buildGuestDepositReleasedFlex(params: {
   });
 }
 
+export function buildGuestBookingCancelledFlex(params: {
+  customerName: string;
+  branchName: string;
+  bookingCode?: string | null;
+  startTime: string;
+  endTime: string;
+}): LineFlexContainer {
+  return flexBubble({
+    icon: "❌",
+    title: "訂位已取消",
+    subtitle: params.branchName,
+    accentColor: LINE_BRAND.danger,
+    paragraphs: [`${params.customerName} 您好，您的包廂訂位已取消。`],
+    rows: [
+      ...(params.bookingCode ? [{ label: "訂位碼", value: params.bookingCode }] : []),
+      ...dateTimeRows(params.startTime, params.endTime),
+    ],
+    note: "如仍有需求，歡迎重新預約。",
+    primaryAction: { label: "重新預約", uri: LINE_BOOK_URL },
+    showSiteLink: true,
+  });
+}
+
+export function buildGuestBookingRescheduledFlex(params: {
+  customerName: string;
+  branchName: string;
+  bookingCode?: string | null;
+  oldStart: string;
+  oldEnd: string;
+  newStart: string;
+  newEnd: string;
+}): LineFlexContainer {
+  const oldDate = dateTimeRows(params.oldStart, params.oldEnd);
+  const newDate = dateTimeRows(params.newStart, params.newEnd);
+  return flexBubble({
+    icon: "📅",
+    title: "訂位已改期",
+    subtitle: params.branchName,
+    accentColor: LINE_BRAND.caramel,
+    paragraphs: [`${params.customerName} 您好，您的訂位已更新為以下時段。`],
+    rows: [
+      ...(params.bookingCode ? [{ label: "訂位碼", value: params.bookingCode }] : []),
+      { label: "原時段", value: `${oldDate[0].value} ${oldDate[1].value}` },
+      { label: "新時段", value: `${newDate[0].value} ${newDate[1].value}` },
+    ],
+    note: "如需再次異動，請提前於查詢頁辦理。",
+    primaryAction: {
+      label: "查看訂位詳情",
+      uri: params.bookingCode
+        ? `${LINE_QUERY_URL}?code=${encodeURIComponent(params.bookingCode)}`
+        : LINE_QUERY_URL,
+    },
+    showSiteLink: true,
+  });
+}
+
+export function buildGuestAttendanceConfirmedFlex(params: {
+  customerName: string;
+  branchName: string;
+  bookingCode?: string | null;
+  startTime: string;
+  endTime: string;
+}): LineFlexContainer {
+  return flexBubble({
+    icon: "✅",
+    title: "已確認到店",
+    subtitle: params.branchName,
+    accentColor: LINE_BRAND.successBright,
+    paragraphs: ["謝謝您確認出席，我們期待您的光臨！"],
+    rows: [
+      ...(params.bookingCode ? [{ label: "訂位碼", value: params.bookingCode }] : []),
+      ...dateTimeRows(params.startTime, params.endTime),
+    ],
+    primaryAction: {
+      label: "查看訂位詳情",
+      uri: params.bookingCode
+        ? `${LINE_QUERY_URL}?code=${encodeURIComponent(params.bookingCode)}`
+        : LINE_QUERY_URL,
+    },
+    showSiteLink: true,
+  });
+}
+
 export function buildReviewInviteFlex(params: {
   customerName: string;
   branchName: string;
