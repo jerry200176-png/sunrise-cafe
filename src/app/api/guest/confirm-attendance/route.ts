@@ -8,6 +8,9 @@ import {
   sendLineFlexToGroup,
   buildGuestAttendanceConfirmedGroupFlex,
 } from "@/lib/line-notify";
+import { sendLineFlexMessage } from "@/lib/line";
+import { buildGuestAttendanceConfirmedFlex } from "@/lib/line-cards";
+import { deliverLineGuestNotification } from "@/lib/line-guest-delivery";
 
 function db() {
   return createClient(
@@ -23,7 +26,7 @@ async function loadReservation(id: string) {
   const { data, error } = await db()
     .from("reservations")
     .select(
-      "id, booking_code, customer_name, phone, start_time, end_time, status, guest_confirmed_at, is_deposit_paid, room:rooms(name, branch:branches(name, line_group_id))"
+      "id, booking_code, customer_name, phone, line_user_id, start_time, end_time, status, guest_confirmed_at, is_deposit_paid, room:rooms(name, branch:branches(name, line_group_id))"
     )
     .eq("id", id)
     .maybeSingle();
@@ -78,6 +81,32 @@ async function notifyStaffAttendance(r: Record<string, unknown>) {
     }
   } catch (err) {
     console.error("[confirm-attendance] staff LINE notify failed:", err);
+  }
+}
+
+async function notifyGuestAttendance(r: Record<string, unknown>) {
+  if (!r.line_user_id) return;
+  const { branchName } = roomBranch(r);
+  try {
+    await deliverLineGuestNotification({
+      notificationType: "attendance_confirmed",
+      reservationId: String(r.id),
+      recipientId: String(r.line_user_id),
+      send: () =>
+        sendLineFlexMessage(
+          String(r.line_user_id),
+          "已確認到店",
+          buildGuestAttendanceConfirmedFlex({
+            customerName: String(r.customer_name ?? "您好"),
+            branchName,
+            bookingCode: r.booking_code == null ? null : String(r.booking_code),
+            startTime: String(r.start_time),
+            endTime: String(r.end_time),
+          })
+        ),
+    });
+  } catch (err) {
+    console.error("[confirm-attendance] guest LINE notify failed:", err);
   }
 }
 
@@ -151,6 +180,7 @@ export async function POST(request: NextRequest) {
   const updated = { ...r, guest_confirmed_at: now };
   // Fire-and-forget staff notify — don't block guest response
   void notifyStaffAttendance(updated);
+  void notifyGuestAttendance(updated);
 
   return NextResponse.json({
     ok: true,

@@ -5,6 +5,9 @@ import {
   isAdminConfigured,
 } from "@/lib/supabase-admin";
 import { sendLineFlex, buildRescheduleGroupFlex } from "@/lib/line-notify";
+import { sendLineFlexMessage } from "@/lib/line";
+import { buildGuestBookingRescheduledFlex } from "@/lib/line-cards";
+import { deliverLineGuestNotification } from "@/lib/line-guest-delivery";
 import { notifyWaitlist } from "@/lib/waitlist";
 import { resetLineReminderDeliveries } from "@/lib/line-delivery";
 
@@ -98,6 +101,37 @@ export async function POST(request: NextRequest) {
       d1_guest_reminder_sent_at: null,
     });
     await resetLineReminderDeliveries(id);
+
+    if (match.line_user_id) {
+      const roomRaw = match.room as { branch?: { name?: string } | { name?: string }[] | null } | { branch?: { name?: string } | { name?: string }[] | null }[] | null;
+      const room = Array.isArray(roomRaw) ? roomRaw[0] : roomRaw;
+      const branchRaw = room?.branch;
+      const branch = Array.isArray(branchRaw) ? branchRaw[0] : branchRaw;
+      try {
+        await deliverLineGuestNotification({
+          notificationType: "booking_rescheduled",
+          reservationId: id,
+          recipientId: String(match.line_user_id),
+          eventKey: `${newStart}|${newEnd}`,
+          send: () =>
+            sendLineFlexMessage(
+              String(match.line_user_id),
+              "訂位已改期",
+              buildGuestBookingRescheduledFlex({
+                customerName: match.customer_name,
+                branchName: branch?.name ?? "昇咖啡",
+                bookingCode: match.booking_code,
+                oldStart,
+                oldEnd,
+                newStart,
+                newEnd,
+              })
+            ),
+        });
+      } catch (err) {
+        console.error("[reschedule-booking] guest LINE notify failed:", err);
+      }
+    }
 
     try {
       await sendLineFlex(

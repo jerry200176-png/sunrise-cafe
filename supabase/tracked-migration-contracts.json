@@ -225,5 +225,20 @@
         "note": "Service role only delivery ledger"
       }
     ]
+  },
+  {
+    "version": "20260903-line-guest-notification-lifecycle",
+    "file": "migration-line-guest-notification-lifecycle.sql",
+    "critical": true,
+    "evidence": [
+      { "type": "table", "name": "line_guest_notification_deliveries", "introspect": "rest" },
+      { "type": "column", "table": "line_guest_notification_deliveries", "name": "event_key", "introspect": "rest" },
+      {
+        "type": "function",
+        "name": "claim_line_guest_notification_delivery",
+        "introspect": "unsupported",
+        "note": "Lifecycle event types and failed-claim retry behavior are applied atomically"
+      }
+    ]
   }
 ]

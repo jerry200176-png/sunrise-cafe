@@ -32,14 +32,15 @@ scope:
   - src/components/**
 budgets:
   max_files_changed: 12
-  max_loc_changed: 400
+  max_loc_changed: 600
 checks:
 - npm test
 - npm run lint
 type: feature
 status: todo
 spec_ref: null
-notes: []
+notes:
+- 'Scope correction after audit: lifecycle delivery requires three guest events, event-versioned dedupe, and production migration runner wiring.'
 blockers: []
 created_at: '2026-09-03T09:41:16+08:00'
 brain_dump: ''
