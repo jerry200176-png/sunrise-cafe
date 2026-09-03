@@ -74,6 +74,11 @@ function telHref(phone: string) {
   return digits ? `tel:${digits}` : `tel:${phone}`;
 }
 
+function reservationManagementHref(branchId: string, reservationId: string) {
+  if (!branchId || !reservationId) return "/admin";
+  return `/admin?branchId=${encodeURIComponent(branchId)}&reservation=${encodeURIComponent(reservationId)}`;
+}
+
 function fmtTime(iso: string) {
   try {
     return new Intl.DateTimeFormat("zh-TW", {
@@ -276,6 +281,12 @@ export default function AdminTodayPage() {
                       : `已過 ${Math.abs(r.hours_until_start)}h`}
                   </p>
                 </div>
+                <Link
+                  href={reservationManagementHref(branchId, r.id)}
+                  className="inline-flex shrink-0 items-center rounded-xl border border-stone-300 bg-white px-2.5 py-2 text-xs font-medium text-stone-700 transition-[background-color] duration-200 hover:bg-amber-50"
+                >
+                  管理
+                </Link>
                 <a
                   href={telHref(r.phone)}
                   className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-stone-100 px-2.5 py-2 text-xs font-medium transition-[background-color] duration-200 hover:bg-amber-50"
@@ -311,6 +322,12 @@ export default function AdminTodayPage() {
                     )}
                   </p>
                 </div>
+                <Link
+                  href={reservationManagementHref(branchId, r.id)}
+                  className="rounded-xl border border-stone-300 bg-white px-2.5 py-2 text-xs font-medium text-stone-700 transition-[background-color] duration-200 hover:bg-amber-50"
+                >
+                  管理
+                </Link>
                 <a href={telHref(r.phone)} className="rounded-xl bg-amber-50 px-2.5 py-2 text-xs text-amber-800 transition-[background-color] duration-200 hover:bg-amber-100">
                   催繳
                 </a>
