@@ -1,0 +1,68 @@
+{
+  "actor": "agent:codex",
+  "bootstrap_path": ".exo/cache/sessions/agent-codex.bootstrap.md",
+  "concurrent": false,
+  "context_window_tokens": null,
+  "git_branch": "chore/task-TKT-20260903-110554-J9HK",
+  "git_head_sha": "1d7fcd4ca0292ccfd552c65da9fb54b07d1ec14f",
+  "handoff_from": null,
+  "lock": {
+    "created_at": "2026-09-03T11:06:46+08:00",
+    "expires_at": "2026-09-03T13:06:46+08:00",
+    "fencing_token": 5,
+    "heartbeat_at": "2026-09-03T11:06:46+08:00",
+    "lease_expires_at": "2026-09-03T13:06:46+08:00",
+    "owner": "agent:codex",
+    "role": "developer",
+    "ticket_id": "TKT-20260903-110554-J9HK",
+    "updated_at": "2026-09-03T11:06:46+08:00",
+    "workspace": {
+      "base": "main",
+      "branch": "codex/TKT-20260903-110554-J9HK"
+    }
+  },
+  "machine_snapshot": {
+    "cpu_count": 12,
+    "load_avg_1m": 0.4,
+    "ram_available_gb": 3.6,
+    "ram_total_gb": 4.8
+  },
+  "mode": "work",
+  "model": "gpt-5",
+  "pid": 283776,
+  "pr_check": null,
+  "role": "developer",
+  "session_id": "SES-20260903110646-09DCF343",
+  "start_advisories": [
+    {
+      "detail": {
+        "actor": "agent:codex",
+        "branch": "chore/dashboard-reservation-focus-20260903",
+        "overlapping_patterns": [
+          "src/app/admin/**",
+          "src/**",
+          "src/components/**",
+          "src/components/**/*.test.tsx",
+          ".exo/cache/**",
+          ".exo/**",
+          ".exo/memory/**",
+          ".exo/locks/**",
+          ".exo/tickets/**",
+          ".exo/logs/**"
+        ],
+        "session_id": "SES-20260903103459-1A067014",
+        "ticket_id": "TKT-20260903-103430-SFLJ"
+      },
+      "kind": "unmerged_work",
+      "message": "Unmerged work on branch chore/dashboard-reservation-focus-20260903 (ticket=TKT-20260903-103430-SFLJ, actor=agent:codex) \u2014 Added dashboard mobile and desktop reservation deep links into the existing bran",
+      "severity": "info"
+    }
+  ],
+  "started_at": "2026-09-03T11:06:46+08:00",
+  "status": "active",
+  "task": "Deep-link today operations into reservation management",
+  "ticket_id": "TKT-20260903-110554-J9HK",
+  "topic_id": "repo:default",
+  "vendor": "openai",
+  "writing_session": null
+}
