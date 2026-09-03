@@ -13,6 +13,8 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 
 export default function AdminBranchesRoomsPage() {
+  const [focusBranchId, setFocusBranchId] = useState<string | null>(null);
+  const [focusReservationId, setFocusReservationId] = useState<string | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
@@ -79,6 +81,12 @@ export default function AdminBranchesRoomsPage() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setFocusBranchId(params.get("branchId"));
+    setFocusReservationId(params.get("reservation"));
+  }, []);
+
   const loadBranches = async () => {
     const res = await fetch("/api/branches");
     const data = await res.json();
@@ -106,6 +114,12 @@ export default function AdminBranchesRoomsPage() {
       setLoading(false);
     })();
   }, []);
+
+  useEffect(() => {
+    if (focusBranchId && branches.some((branch) => branch.id === focusBranchId)) {
+      setReservationBranchId(focusBranchId);
+    }
+  }, [branches, focusBranchId]);
 
   useEffect(() => {
     loadRooms();
@@ -882,7 +896,7 @@ export default function AdminBranchesRoomsPage() {
         </section>
 
         {/* 訂位管理 */}
-        <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
+        <section id="reservation-management" className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 bg-stone-50/50 px-5 py-3.5">
             <div className="flex items-center gap-2">
               <CalendarDays className="h-4 w-4 text-violet-500" />
@@ -909,7 +923,11 @@ export default function AdminBranchesRoomsPage() {
             </div>
           </div>
           <div className="p-4">
-            <ReservationList branchId={reservationBranchId} rooms={roomsForReservations} />
+            <ReservationList
+              branchId={reservationBranchId}
+              rooms={roomsForReservations}
+              focusReservationId={focusReservationId}
+            />
           </div>
         </section>
         </div>
