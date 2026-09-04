@@ -206,6 +206,27 @@
     ]
   },
   {
+    "version": "20260902-line-reminder-deliveries",
+    "file": "migration-line-reminder-deliveries.sql",
+    "critical": true,
+    "evidence": [
+      { "type": "table", "name": "line_reminder_deliveries", "introspect": "rest" },
+      { "type": "column", "table": "line_reminder_deliveries", "name": "status", "introspect": "rest" },
+      {
+        "type": "function",
+        "name": "claim_line_reminder_delivery",
+        "introspect": "unsupported",
+        "note": "Atomic claim prevents duplicate send-line / deposit reminder pushes"
+      },
+      {
+        "type": "rls",
+        "table": "line_reminder_deliveries",
+        "introspect": "unsupported",
+        "note": "Service role only delivery ledger"
+      }
+    ]
+  },
+  {
     "version": "20260903-line-guest-notification-deliveries",
     "file": "migration-line-guest-notification-deliveries.sql",
     "critical": true,

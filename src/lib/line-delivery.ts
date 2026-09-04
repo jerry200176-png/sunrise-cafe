@@ -44,7 +44,10 @@ export async function claimLineReminderDelivery(input: {
   if (error) {
     if (isLedgerUnavailable(error)) {
       if (process.env.VERCEL_ENV === "production") {
-        throw new Error("LINE reminder delivery ledger unavailable in production");
+        const detail = [error.code, error.message].filter(Boolean).join(": ").slice(0, 240);
+        throw new Error(
+          `LINE reminder delivery ledger unavailable in production${detail ? ` (${detail})` : ""}`
+        );
       }
       return { available: false, id: null };
     }
