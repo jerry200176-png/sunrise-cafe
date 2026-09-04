@@ -1,16 +1,16 @@
 {
   "schema_version": "1.0",
-  "session_id": "SES-20260903110646-09DCF343",
+  "session_id": "f832e079f3574258bfb33a7f2cfead9b",
   "project": "sunrise",
-  "task_id": "TKT-20260903-110554-J9HK",
+  "task_id": "send-line-ledger-20260904",
   "repo_remote": "https://github.com/jerry200176-png/sunrise-cafe.git",
-  "base_sha": "ec6a7347a3cbc540e64b58202f0a5bdae99a12f9",
-  "branch": "chore/task-TKT-20260903-110554-J9HK",
-  "worktree_path": "/home/jerry/workspace/tasks/sunrise/TKT-20260903-110554-J9HK",
-  "started_at": "2026-09-03T03:06:46Z",
+  "base_sha": "6630b9eb003e2d5459c84c9452f2413cc93ba8ab",
+  "branch": "chore/task-send-line-ledger-20260904",
+  "worktree_path": "/home/jerry/workspace/tasks/sunrise/send-line-ledger-20260904",
+  "started_at": "2026-09-04T12:42:29Z",
   "production_mutation": false,
   "preflight_result": "pass",
   "provenance_type": "agent-session",
-  "agent_cli": "codex",
+  "agent_cli": null,
   "gateway_version": "0.5.0"
 }

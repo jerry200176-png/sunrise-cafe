@@ -109,6 +109,8 @@ $$;
 REVOKE ALL ON FUNCTION claim_line_reminder_delivery(TEXT, DATE, UUID, TEXT, TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION claim_line_reminder_delivery(TEXT, DATE, UUID, TEXT, TEXT) TO service_role;
 
+NOTIFY pgrst, 'reload schema';
+
 INSERT INTO schema_migrations (version, name)
 VALUES ('20260902-line-reminder-deliveries', 'migration-line-reminder-deliveries.sql')
 ON CONFLICT (version) DO NOTHING;
