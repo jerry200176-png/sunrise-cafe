@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "session_id": "f832e079f3574258bfb33a7f2cfead9b",
   "project": "sunrise",
-  "task_id": "send-line-ledger-20260904",
+  "task_id": "verify-send-line-cron-ledger",
   "repo_remote": "https://github.com/jerry200176-png/sunrise-cafe.git",
   "base_sha": "5b158f20d852bf2e1a332989f3b308678e7617bc",
   "branch": "chore/verify-send-line-cron-ledger",
