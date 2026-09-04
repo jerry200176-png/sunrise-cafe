@@ -1,5 +1,6 @@
 # Backup trigger for tomorrow LINE reminders if Vercel Hobby cron is late/missed.
 # Primary: Vercel cron UTC 12:00 (TW 20:00–20:59). This runs UTC 13:10 (TW 21:10).
+# CRON_SECRET is Vercel-only by design; pull via VERCEL_TOKEN when the GH secret is unset.
 name: Send-line reminder backup
 
 on:
@@ -18,39 +19,79 @@ jobs:
   trigger:
     name: Trigger send-line + verify
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - name: Call production send-line cron
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Resolve CRON_SECRET + run send-line twice + verify
         env:
           PROD_URL: https://sunrise-cafe-six.vercel.app
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -z "${CRON_SECRET:-}" ]; then
-            echo "::warning::GitHub secret CRON_SECRET is empty — cannot backup-trigger. Set it to the same value as Vercel CRON_SECRET."
-            exit 0
+          if [ -z "${CRON_SECRET:-}" ] && [ -n "${VERCEL_TOKEN:-}" ]; then
+            npm ci --ignore-scripts >/dev/null
+            bash scripts/vercel-production-env.sh .env.vercel.prod >/dev/null
+            CRON_SECRET=$(sed -n 's/^CRON_SECRET=//p' .env.vercel.prod | head -1 | sed -E 's/^"//; s/"$//')
+            export CRON_SECRET
           fi
-          CODE=$(curl -sS -o /tmp/send-line.json -w "%{http_code}" \
-            -H "Authorization: Bearer ${CRON_SECRET}" \
-            -H "x-reminder-trigger: github" \
-            "${PROD_URL}/api/admin/reminders/send-line")
-          echo "GET send-line → HTTP ${CODE}"
-          head -c 800 /tmp/send-line.json; echo
-          if [ "$CODE" != "200" ]; then
-            echo "::error::send-line backup failed with HTTP ${CODE}"
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::CRON_SECRET unavailable (GitHub secret empty and Vercel pull failed)"
             exit 1
           fi
 
-      - name: Verify cron diagnostics
-        if: always()
-        env:
-          PROD_URL: https://sunrise-cafe-six.vercel.app
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-        run: |
-          set -euo pipefail
-          if [ -z "${CRON_SECRET:-}" ]; then
-            exit 0
+          call_send_line() {
+            local out="$1"
+            curl -sS -o "$out" -w "%{http_code}" \
+              -H "Authorization: Bearer ${CRON_SECRET}" \
+              -H "x-reminder-trigger: github" \
+              "${PROD_URL}/api/admin/reminders/send-line"
+          }
+
+          CODE1=$(call_send_line /tmp/send-line-1.json)
+          echo "GET send-line #1 → HTTP ${CODE1}"
+          head -c 1200 /tmp/send-line-1.json; echo
+          [ "$CODE1" = "200" ] || { echo "::error::send-line #1 failed"; exit 1; }
+          if grep -Fqi 'ledger unavailable' /tmp/send-line-1.json; then
+            echo "::error::ledger still unavailable on #1"
+            exit 1
           fi
+          RESULT1=$(jq -r '.result // .meta.result // empty' /tmp/send-line-1.json 2>/dev/null || true)
+          echo "result_1=${RESULT1}"
+
+          CODE2=$(call_send_line /tmp/send-line-2.json)
+          echo "GET send-line #2 → HTTP ${CODE2}"
+          head -c 1200 /tmp/send-line-2.json; echo
+          [ "$CODE2" = "200" ] || { echo "::error::send-line #2 failed"; exit 1; }
+          if grep -Fqi 'ledger unavailable' /tmp/send-line-2.json; then
+            echo "::error::ledger unavailable on #2"
+            exit 1
+          fi
+          RESULT2=$(jq -r '.result // .meta.result // empty' /tmp/send-line-2.json 2>/dev/null || true)
+          echo "result_2=${RESULT2}"
+          case "$RESULT2" in
+            duplicate_skip|already_notified|sent|partial|empty_cat|"")
+              echo "idempotency ok (result_2=${RESULT2:-absent})"
+              ;;
+            error)
+              echo "::error::second run returned error"
+              exit 1
+              ;;
+            *)
+              echo "::warning::unexpected second result=${RESULT2}"
+              ;;
+          esac
+
           curl -sS -H "Authorization: Bearer ${CRON_SECRET}" \
             "${PROD_URL}/api/admin/reminders/verify" | tee /tmp/verify.json
           echo
+          jq -e 'type == "object"' /tmp/verify.json >/dev/null
+          if grep -Fqi 'ledger unavailable' /tmp/verify.json; then
+            echo "::error::verify still reports ledger unavailable"
+            exit 1
+          fi
