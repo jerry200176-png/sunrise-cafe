@@ -66,6 +66,21 @@ describe("reminder-run-evidence", () => {
     expect(e.duplicate_suppressed_count).toBe(1);
   });
 
+  it("classifies an out-of-window scheduled run as policy skipped", () => {
+    const e = buildReminderRunEvidence({
+      invoked_at: "2026-09-04T16:52:31.938Z",
+      source: "github_backup",
+      candidate_reservation_count: 0,
+      recipient_count: 0,
+      message_attempt_count: 0,
+      accepted_count: 0,
+      rejected_count: 0,
+      result: "schedule_window_skip",
+    });
+    expect(e.status).toBe("skipped_by_policy");
+    expect(e.delivery_certainty).toBe("not_attempted");
+  });
+
   it("opaques recipient ids and redacts LINE user-looking tokens in errors", () => {
     expect(opaqueRecipientId("U" + "a".repeat(32)).startsWith("rcp_")).toBe(true);
     const e = buildReminderRunEvidence({
