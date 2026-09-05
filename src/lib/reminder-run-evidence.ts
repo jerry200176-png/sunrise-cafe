@@ -58,6 +58,7 @@ export function buildReminderRunEvidence(input: {
     | "already_notified"
     | "empty_cat"
     | "duplicate_skip"
+    | "schedule_window_skip"
     | "error"
     | "partial";
   application_sha?: string | null;
@@ -66,6 +67,7 @@ export function buildReminderRunEvidence(input: {
   const duplicate = input.duplicate_suppressed_count ?? 0;
   let status: ReminderRunEvidence["status"];
   if (input.result === "duplicate_skip") status = "duplicate_skip";
+  else if (input.result === "schedule_window_skip") status = "skipped_by_policy";
   else if (input.result === "error") status = "failed";
   else if (input.result === "partial" || (input.accepted_count > 0 && input.rejected_count > 0))
     status = "partial";

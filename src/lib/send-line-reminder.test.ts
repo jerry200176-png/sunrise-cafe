@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/supabase-admin", () => ({
   isAdminConfigured: vi.fn(() => true),
@@ -73,9 +73,16 @@ describe("alreadyNotifiedCronMessage / emptyCatMessage", () => {
 
 describe("runSendLineReminder — sent=0 regression", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    // Scheduled tests run inside the valid Vercel cron window.
+    vi.setSystemTime(new Date("2026-09-04T12:30:00.000Z"));
     vi.clearAllMocks();
     vi.mocked(findSuccessfulSendLineRunToday).mockResolvedValue(null);
     vi.mocked(fetchBranches).mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("sends already-notified heartbeat instead of silence when tomorrow exists", async () => {
@@ -114,6 +121,41 @@ describe("runSendLineReminder — sent=0 regression", () => {
     expect(sendLineMessage).toHaveBeenCalledTimes(1);
   });
 
+  it("does not turn a reservation query failure into a cat message", async () => {
+    vi.mocked(fetchReservationsForReminder).mockRejectedValue(
+      new Error("Supabase reservations unavailable")
+    );
+
+    const res = await runSendLineReminder({
+      sendHeartbeatOnEmpty: true,
+      trigger_source: "cron",
+    });
+    const json = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(json.result).toBe("error");
+    expect(json.error).toContain("Supabase reservations unavailable");
+    expect(sendLineMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not turn the all-tomorrow verification failure into a cat message", async () => {
+    vi.mocked(fetchReservationsForReminder).mockResolvedValue([]);
+    vi.mocked(fetchTomorrowsReservations).mockRejectedValue(
+      new Error("Supabase tomorrow query unavailable")
+    );
+
+    const res = await runSendLineReminder({
+      sendHeartbeatOnEmpty: true,
+      trigger_source: "cron",
+    });
+    const json = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(json.result).toBe("error");
+    expect(json.error).toContain("Supabase tomorrow query unavailable");
+    expect(sendLineMessage).not.toHaveBeenCalled();
+  });
+
   it("sends an already-notified heartbeat when tomorrow has unpaid reservations", async () => {
     vi.mocked(fetchReservationsForReminder).mockResolvedValue([]);
     vi.mocked(fetchTomorrowsReservations).mockResolvedValue([
@@ -135,8 +177,15 @@ describe("runSendLineReminder — sent=0 regression", () => {
 
 describe("runSendLineReminder — duplicated cron regression", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    // GitHub backup runs after the primary Vercel window.
+    vi.setSystemTime(new Date("2026-09-04T13:30:00.000Z"));
     vi.clearAllMocks();
     vi.mocked(fetchBranches).mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("skips LINE when a successful run already exists today", async () => {
@@ -163,11 +212,36 @@ describe("runSendLineReminder — duplicated cron regression", () => {
 
 describe("runSendLineReminder — retry regression", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-04T12:30:00.000Z"));
     vi.clearAllMocks();
     vi.mocked(findSuccessfulSendLineRunToday).mockResolvedValue(null);
     vi.mocked(fetchBranches).mockResolvedValue([
       { id: "b1", name: "大安店", line_group_id: "G123" },
     ] as never);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("skips a delayed scheduled run after midnight without querying or sending", async () => {
+    vi.setSystemTime(new Date("2026-09-04T16:52:31.938Z"));
+
+    const res = await runSendLineReminder({
+      sendHeartbeatOnEmpty: true,
+      enforceDayIdempotency: true,
+      trigger_source: "github",
+    });
+    const json = await res.json();
+
+    expect(json.result).toBe("schedule_window_skip");
+    expect(json.taipei_date).toBe("2026-09-05");
+    expect(json.sent_count).toBe(0);
+    expect(fetchReservationsForReminder).not.toHaveBeenCalled();
+    expect(fetchTomorrowsReservations).not.toHaveBeenCalled();
+    expect(sendLineMessage).not.toHaveBeenCalled();
+    expect(sendLineFlexToGroup).not.toHaveBeenCalled();
   });
 
   it("only sends pending rows and marks them notified (idempotent retry)", async () => {

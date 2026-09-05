@@ -9,7 +9,6 @@ export function resolveReminderTriggerSource(
   if (method === "POST") return "manual";
   const header = request.headers.get("x-reminder-trigger")?.toLowerCase();
   if (header === "github") return "github";
-  if (header === "manual") return "manual";
   if (isVercelCronRequest(request)) return "cron";
   return "cron";
 }

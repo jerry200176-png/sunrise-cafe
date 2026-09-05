@@ -35,6 +35,7 @@ import {
   buildReminderRunEvidence,
   mapTriggerToSource,
 } from "@/lib/reminder-run-evidence";
+import { reminderScheduleWindow } from "@/lib/reminder-schedule";
 import {
   claimLineReminderDelivery,
   markLineReminderDelivery,
@@ -61,7 +62,14 @@ export type ReminderRunObservability = {
   sent_count: number;
   skipped_count: number;
   guest_sent_count: number;
-  result: "sent" | "already_notified" | "empty_cat" | "duplicate_skip" | "error" | "partial";
+  result:
+    | "sent"
+    | "already_notified"
+    | "empty_cat"
+    | "duplicate_skip"
+    | "schedule_window_skip"
+    | "error"
+    | "partial";
   error: string | null;
   heartbeat: ReminderHeartbeat;
   taipei_date: string;
@@ -285,6 +293,8 @@ function finalizeObs(
           ? "error"
           : observability.result === "duplicate_skip"
             ? "duplicate_skip"
+            : observability.result === "schedule_window_skip"
+              ? "schedule_window_skip"
             : observability.result === "empty_cat"
               ? "empty_cat"
               : observability.result === "already_notified"
@@ -307,6 +317,30 @@ export async function runSendLineReminder(
   const trigger_source = options.trigger_source ?? "manual";
   const started = new Date();
   const base = obsBase(trigger_source, started);
+
+  const schedule = reminderScheduleWindow(trigger_source, started);
+  if (!schedule.allowed) {
+    const observability = finalizeObs(
+      {
+        ...base,
+        reservation_count: 0,
+        sent_count: 0,
+        skipped_count: 0,
+        guest_sent_count: 0,
+        result: "schedule_window_skip",
+        heartbeat: "none",
+        duplicate: false,
+        error: null,
+      },
+      started
+    );
+    return NextResponse.json({
+      ok: true,
+      sent: 0,
+      message: `略過非預定提醒時段（${schedule.window}，台北 ${schedule.localTime}）`,
+      ...observability,
+    });
+  }
 
   if (!isAdminConfigured()) {
     const observability = finalizeObs(
