@@ -5,7 +5,7 @@ import {
   getBlockedSlots,
 } from "@/lib/supabase-admin";
 import { hasValidAdminSession } from "@/lib/admin-api-auth";
-import { getRateLimitMode } from "@/lib/rate-limit";
+import { getRateLimitGrade, getRateLimitMode } from "@/lib/rate-limit";
 import { isStripeEnabled } from "@/lib/stripe";
 
 /**
@@ -88,13 +88,15 @@ export async function GET(request: NextRequest) {
   }
 
   const rateLimitMode = getRateLimitMode();
+  const rateLimitGrade = getRateLimitGrade(rateLimitMode);
   const defenses = {
     rate_limit_mode: rateLimitMode,
-    rate_limit_grade:
-      rateLimitMode === "upstash"
-        ? "distributed"
-        : rateLimitMode === "memory"
-          ? "degraded_per_isolate"
+    rate_limit_grade: rateLimitGrade,
+    rate_limit_protection:
+      rateLimitGrade === "distributed"
+        ? "shared_across_isolates"
+        : rateLimitGrade === "degraded_per_isolate"
+          ? "per_isolate_enforced_not_fail_open"
           : "disabled",
     stripe_enabled: isStripeEnabled(),
   };

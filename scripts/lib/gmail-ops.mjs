@@ -129,6 +129,10 @@ export function triageInboxMessage(subject, from, dateIso, options = {}) {
   return { archive: true, reason: "github_low_signal" };
 }
 
+/**
+ * @param {Array<{ kind?: string, date?: string, subject?: string, from?: string }>} messages
+ * @param {{ prodShaMatchesMain?: boolean | null }} [opts]
+ */
 export function buildRecommendations(messages, { prodShaMatchesMain = null } = {}) {
   const recs = [];
   const prodFails = messages.filter((m) => m.kind === "vercel_production");

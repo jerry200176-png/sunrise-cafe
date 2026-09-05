@@ -30,7 +30,7 @@ describe("authorizeCronGet", () => {
   beforeEach(() => {
     delete process.env.CRON_SECRET;
     delete process.env.VERCEL_ENV;
-    process.env.NODE_ENV = "test";
+    Reflect.set(process.env, "NODE_ENV", "test");
   });
 
   it("accepts Bearer CRON_SECRET when set", () => {
@@ -53,7 +53,7 @@ describe("authorizeCronGet", () => {
   });
 
   it("rejects production request with neither secret nor cron header", () => {
-    process.env.NODE_ENV = "production";
+    Reflect.set(process.env, "NODE_ENV", "production");
     const r = authorizeCronGet(req());
     expect(r.ok).toBe(false);
   });

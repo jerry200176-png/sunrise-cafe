@@ -4,6 +4,12 @@ import { normalizePhone } from "@/lib/phone-utils";
 
 export type RateLimitMode = "upstash" | "memory" | "disabled";
 
+/** Health/evidence grade for operators — not a second limiter implementation. */
+export type RateLimitGrade =
+  | "distributed"
+  | "degraded_per_isolate"
+  | "disabled";
+
 function isUpstashConfigured() {
   return !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
 }
@@ -13,6 +19,10 @@ function isUpstashConfigured() {
  * - Upstash configured → distributed limiter (A-grade evidence for rate-limit P0)
  * - Else → in-memory sliding window (**degraded**; per-isolate only — NOT A−/A alone)
  * - Explicit RATE_LIMIT_DISABLED=1 → disabled (local/tests only; blocked in production)
+ *
+ * `degraded_per_isolate` means each serverless isolate still enforces WINDOW quotas,
+ * but effective cluster capacity ≈ isolate_count × limit (cross-instance protection weak).
+ * It is not fail-open / disabled.
  */
 export function getRateLimitMode(): RateLimitMode {
   if (isUpstashConfigured()) return "upstash";
@@ -20,6 +30,12 @@ export function getRateLimitMode(): RateLimitMode {
     process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production";
   if (process.env.RATE_LIMIT_DISABLED === "1" && !prod) return "disabled";
   return "memory";
+}
+
+export function getRateLimitGrade(mode: RateLimitMode = getRateLimitMode()): RateLimitGrade {
+  if (mode === "upstash") return "distributed";
+  if (mode === "memory") return "degraded_per_isolate";
+  return "disabled";
 }
 
 type WindowSpec = { requests: number; windowMs: number };

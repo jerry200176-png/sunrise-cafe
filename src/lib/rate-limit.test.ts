@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   __resetMemoryRateLimitForTests,
+  getRateLimitGrade,
   getRateLimitMode,
   guestRateLimitId,
   rateLimit,
@@ -16,7 +17,7 @@ afterEach(() => {
   process.env.UPSTASH_REDIS_REST_URL = origUrl;
   process.env.UPSTASH_REDIS_REST_TOKEN = origToken;
   process.env.RATE_LIMIT_DISABLED = origDisabled;
-  process.env.NODE_ENV = origNode;
+  Reflect.set(process.env, "NODE_ENV", origNode);
   process.env.VERCEL_ENV = origVercel;
   __resetMemoryRateLimitForTests();
 });
@@ -46,6 +47,14 @@ describe("getRateLimitMode / memory enforce", () => {
     delete process.env.UPSTASH_REDIS_REST_TOKEN;
     delete process.env.RATE_LIMIT_DISABLED;
     expect(getRateLimitMode()).toBe("memory");
+    expect(getRateLimitGrade()).toBe("degraded_per_isolate");
+  });
+
+  it("reports distributed grade when Upstash env present", () => {
+    process.env.UPSTASH_REDIS_REST_URL = "https://example.upstash.io";
+    process.env.UPSTASH_REDIS_REST_TOKEN = "test-token";
+    expect(getRateLimitMode()).toBe("upstash");
+    expect(getRateLimitGrade()).toBe("distributed");
   });
 
   it("memory limiter rejects after quota", async () => {
