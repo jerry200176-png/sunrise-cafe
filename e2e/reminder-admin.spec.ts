@@ -150,7 +150,7 @@ for (const vp of VIEWPORTS) {
       await mockReminderApis(page);
       await page.goto("/admin/dashboard");
       await expect(page.getByRole("heading", { name: "明日提醒" })).toBeVisible({ timeout: 15_000 });
-      await expect(page.getByText("測試客人")).toBeVisible();
+      await expect(page.getByText("測試客人", { exact: true })).toBeVisible();
       const copyBtn = page.getByRole("button", { name: "複製提醒" });
       const markBtn = page.getByRole("button", { name: "標記已通知" });
       await expect(copyBtn).toBeVisible();
