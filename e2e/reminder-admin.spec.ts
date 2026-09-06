@@ -149,10 +149,11 @@ for (const vp of VIEWPORTS) {
     test("儀表板明日提醒區塊可讀、無水平溢出、觸控夠大", async ({ page }) => {
       await mockReminderApis(page);
       await page.goto("/admin/dashboard");
-      await expect(page.getByRole("heading", { name: "明日提醒" })).toBeVisible({ timeout: 15_000 });
-      await expect(page.getByText("測試客人", { exact: true })).toBeVisible();
-      const copyBtn = page.getByRole("button", { name: "複製提醒" });
-      const markBtn = page.getByRole("button", { name: "標記已通知" });
+      const section = page.locator("#tomorrow-reminders");
+      await expect(section.getByRole("heading", { name: "明日提醒" })).toBeVisible({ timeout: 15_000 });
+      await expect(section.getByText("測試客人")).toBeVisible();
+      const copyBtn = section.getByRole("button", { name: "複製提醒" });
+      const markBtn = section.getByRole("button", { name: "標記已通知" });
       await expect(copyBtn).toBeVisible();
       await expect(markBtn).toBeVisible();
       const copyBox = await copyBtn.boundingBox();
