@@ -201,6 +201,47 @@ curl -s https://sunrise-cafe-six.vercel.app/api/admin/payments/migration-status 
 
 ---
 
+## 訂金已確認 LINE 通知人工對帳（>24h Ambiguity Reconciliation）
+
+### 觸發背景
+當訂金被核准時，系統會為 LINE 推播產生一組唯一的 `X-Line-Retry-Key` 並在 24 小時內重試。
+若遭遇 LINE 服務異常或網路連線中斷超過 24 小時，因 LINE 伺服器僅保留 key 24 小時，系統會主動停止自動重發（防止 duplicate push），發送群組告警並記錄 `ops_events`（`payment.approved_notification_reconciliation_required`）。
+
+告警訊息範例：
+```text
+⚠️【LINE 訂金通知需人工對帳】
+訂位編號：ABC1234
+顧客姓名：王小明
+原因：LINE 24小時重試窗口已過期，可能曾嘗試推播，已停止自動補送以防重複通知。
+請執行對帳確認 LINE OA / 群組推播記錄：
+• 已送出：scripts/reconcile-payment-notification.mjs <res_id> --mark-sent
+• 確認未送出：scripts/reconcile-payment-notification.mjs <res_id> --safe-retry
+```
+
+### Operator 查證步驟（Evidence Verification）
+
+在執行任何對帳操作前，操作員**必須**查證以下兩項事證：
+
+1. **查證 LINE 員工群組（Staff Group）**：
+   - 在 Sunrise 員工 LINE 群組內搜尋該「訂位編號」或「顧客姓名」。
+   - 確認是否曾出現「💰 客人已付訂金：...」的通知。
+2. **查證 LINE 官方帳號後台（LINE OA Manager）**：
+   - 若該訂位有綁定 LINE 帳號（`line_user_id` 非空）：登入 [LINE Official Account Manager](https://manager.line.biz/)。
+   - 進入「一對一聊天」搜尋顧客姓名，確認對話視窗內是否已送達「訂金已確認」Flex 訊息卡片。
+
+### 選擇操作指令
+
+查證完成後，根據客觀事證執行對應指令（**嚴禁直接在資料庫修改 retry key 欄位**）：
+
+| 查證結果 | 決策 | 執行指令 | 系統行為 |
+|---|---|---|---|
+| LINE OA 或群組**已有**送達紀錄 | 標記已送達，不再補送 | `node scripts/reconcile-payment-notification.mjs <reservation_id> --mark-sent` | 驗證待對帳狀態，原子更新 `deposit_approved_notified_at`，不呼叫 LINE API，寫入 `ops_events` 審計日誌。 |
+| LINE OA 與群組**皆無**任何送達紀錄 | 確認未送出，安全補送 | `node scripts/reconcile-payment-notification.mjs <reservation_id> --safe-retry` | 驗證待對帳狀態，以 `evidenceNoProviderAttempt=true` 調用既有通知路徑，產生安全全新 retry key 派送推播，寫入 `ops_events` 審計日誌。 |
+
+*註：指令支援 `--dry-run` 供事前檢查狀態，亦會 fail-closed 拒絕處理非待對帳（如未付訂、已標記完成、或仍處於 24 小時窗口內）的訂位。*
+
+---
+
 ## 系統監控
 
 - **Vercel Logs**：Dashboard → 專案 → Logs（即時 serverless function log）

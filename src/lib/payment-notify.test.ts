@@ -5,6 +5,10 @@ import {
   __resetPaymentNotifyInFlightForTests,
   DISPATCH_CLAIM_LEASE_MS,
   isLineRetryKeyExpired,
+  formatReconciliationRequiredAlert,
+  verifyReconciliationRequired,
+  reconcilePaymentNotificationMarkSent,
+  reconcilePaymentNotificationSafeRetry,
 } from "./payment-notify";
 import * as lineNotify from "./line-notify";
 import * as line from "./line";
@@ -627,5 +631,222 @@ describe("payment-notify", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toBe("deposit_not_paid");
     expect(sendLineFlexSpy).not.toHaveBeenCalled();
+  });
+
+  describe("operational reconciliation follow-up", () => {
+    it("formatReconciliationRequiredAlert formats alert with details and CLI actions", () => {
+      const text = formatReconciliationRequiredAlert({
+        reservationId: "res-123",
+        bookingCode: "BK1234",
+        customerName: "Alice",
+        groupRetryKey: "key-123",
+        retryKeyCreatedAt: "2026-09-07T00:00:00.000Z",
+      });
+
+      expect(text).toContain("⚠️【LINE 訂金通知需人工對帳】");
+      expect(text).toContain("BK1234");
+      expect(text).toContain("Alice");
+      expect(text).toContain("scripts/reconcile-payment-notification.mjs res-123 --mark-sent");
+      expect(text).toContain("scripts/reconcile-payment-notification.mjs res-123 --safe-retry");
+    });
+
+    it("sends staff LINE alert on reconciliation_required and records ops_events", async () => {
+      const beyond24hIso = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+      const mockClient = createFakeSupabase({
+        ...defaultRow,
+        deposit_approved_retry_key: "00000000-0000-4000-8000-000000000099",
+        deposit_approved_retry_key_created_at: beyond24hIso,
+      });
+
+      vi.spyOn(lineNotify, "isLineConfigured").mockReturnValue(true);
+      const sendLineMessageSpy = vi.spyOn(lineNotify, "sendLineMessage").mockResolvedValue(undefined);
+
+      const result = await notifyPaymentApproved("res-123", { client: mockClient });
+
+      expect(result.ok).toBe(false);
+      expect(result.reconciliation_required).toBe(true);
+
+      // Staff LINE alert was dispatched
+      expect(sendLineMessageSpy).toHaveBeenCalledTimes(1);
+      const alertMessage = sendLineMessageSpy.mock.calls[0][0];
+      expect(alertMessage).toContain("⚠️【LINE 訂金通知需人工對帳】");
+      expect(alertMessage).toContain("XYZ789");
+      expect(alertMessage).toContain("scripts/reconcile-payment-notification.mjs res-123 --mark-sent");
+
+      // ops_events audit event was retained
+      const opsEvents = mockClient.getOpsEvents();
+      expect(opsEvents.some((e) => e.action === "payment.approved_notification_reconciliation_required")).toBe(true);
+    });
+
+    it("verifyReconciliationRequired validates preconditions and fails closed on invalid state", async () => {
+      const beyond24hIso = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+
+      // 1. Valid reconciliation_required state
+      const validClient = createFakeSupabase({
+        ...defaultRow,
+        deposit_approved_retry_key: "key-123",
+        deposit_approved_retry_key_created_at: beyond24hIso,
+        deposit_approved_notified_at: null,
+      });
+      const validRes = await verifyReconciliationRequired("res-123", validClient as unknown as SupabaseClient);
+      expect(validRes.ok).toBe(true);
+
+      // 2. Fails closed: non-existent reservation
+      const missingRes = await verifyReconciliationRequired("res-missing", validClient as unknown as SupabaseClient);
+      expect(missingRes.ok).toBe(false);
+      expect(missingRes.error).toBe("reservation_not_found");
+
+      // 3. Fails closed: deposit not paid
+      const unpaidClient = createFakeSupabase({
+        ...defaultRow,
+        is_deposit_paid: false,
+        deposit_approved_retry_key: "key-123",
+        deposit_approved_retry_key_created_at: beyond24hIso,
+      });
+      const unpaidRes = await verifyReconciliationRequired("res-123", unpaidClient as unknown as SupabaseClient);
+      expect(unpaidRes.ok).toBe(false);
+      expect(unpaidRes.error).toBe("deposit_not_paid");
+
+      // 4. Fails closed: already resolved / notified
+      const alreadyNotifiedClient = createFakeSupabase({
+        ...defaultRow,
+        deposit_approved_notified_at: new Date().toISOString(),
+        deposit_approved_retry_key: "key-123",
+        deposit_approved_retry_key_created_at: beyond24hIso,
+      });
+      const alreadyNotifiedRes = await verifyReconciliationRequired("res-123", alreadyNotifiedClient as unknown as SupabaseClient);
+      expect(alreadyNotifiedRes.ok).toBe(false);
+      expect(alreadyNotifiedRes.error).toBe("already_resolved");
+
+      // 5. Fails closed: no prior retry key
+      const noKeyClient = createFakeSupabase({
+        ...defaultRow,
+        deposit_approved_retry_key: null,
+      });
+      const noKeyRes = await verifyReconciliationRequired("res-123", noKeyClient as unknown as SupabaseClient);
+      expect(noKeyRes.ok).toBe(false);
+      expect(noKeyRes.error).toBe("no_prior_retry_key");
+
+      // 6. Fails closed: retry key still valid within 24h
+      const recentIso = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      const within24hClient = createFakeSupabase({
+        ...defaultRow,
+        deposit_approved_retry_key: "key-123",
+        deposit_approved_retry_key_created_at: recentIso,
+      });
+      const within24hRes = await verifyReconciliationRequired("res-123", within24hClient as unknown as SupabaseClient);
+      expect(within24hRes.ok).toBe(false);
+      expect(within24hRes.error).toBe("retry_key_still_valid_within_24h");
+    });
+
+    it("reconcilePaymentNotificationMarkSent marks state resolved without sending LINE and records audit event", async () => {
+      const beyond24hIso = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+      const mockClient = createFakeSupabase({
+        ...defaultRow,
+        deposit_approved_claim_at: "2026-09-08T00:00:00.000Z",
+        deposit_approved_notified_at: null,
+        deposit_approved_retry_key: "key-123",
+        deposit_approved_retry_key_created_at: beyond24hIso,
+      });
+
+      const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex");
+      const sendLineFlexMessageSpy = vi.spyOn(line, "sendLineFlexMessage");
+
+      const result = await reconcilePaymentNotificationMarkSent("res-123", {
+        actor: "test_operator",
+        client: mockClient as unknown as SupabaseClient,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.method).toBe("mark_sent");
+      expect(result.reservation_id).toBe("res-123");
+      expect(result.booking_code).toBe("XYZ789");
+      expect(result.notified_at).toBeDefined();
+
+      // Database state updated
+      const row = mockClient.getRow();
+      expect(row.deposit_approved_notified_at).toBeDefined();
+      expect(row.deposit_approved_claim_at).toBeNull();
+      // Retry key preserved (not touched)
+      expect(row.deposit_approved_retry_key).toBe("key-123");
+
+      // NO LINE message dispatched
+      expect(sendLineFlexSpy).not.toHaveBeenCalled();
+      expect(sendLineFlexMessageSpy).not.toHaveBeenCalled();
+
+      // ops_events recorded
+      const opsEvents = mockClient.getOpsEvents();
+      const reconcileEvent = opsEvents.find((e) => e.action === "payment.approved_notification_reconciled");
+      expect(reconcileEvent).toBeDefined();
+      expect(reconcileEvent?.detail).toMatchObject({
+        reservation_id: "res-123",
+        booking_code: "XYZ789",
+        method: "mark_sent",
+        actor: "test_operator",
+      });
+
+      // Idempotency: calling again fails closed because already resolved
+      const repeatResult = await reconcilePaymentNotificationMarkSent("res-123", {
+        client: mockClient as unknown as SupabaseClient,
+      });
+      expect(repeatResult.ok).toBe(false);
+      expect(repeatResult.error).toBe("already_resolved");
+    });
+
+    it("reconcilePaymentNotificationSafeRetry invokes canonical notification path with evidenceNoProviderAttempt=true", async () => {
+      const beyond24hIso = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+      const mockClient = createFakeSupabase({
+        ...defaultRow,
+        deposit_approved_claim_at: null,
+        deposit_approved_notified_at: null,
+        deposit_approved_retry_key: "old-key-123",
+        deposit_approved_guest_retry_key: "old-guest-key-123",
+        deposit_approved_retry_key_created_at: beyond24hIso,
+      });
+
+      const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex").mockResolvedValue(undefined);
+      const sendLineFlexMessageSpy = vi.spyOn(line, "sendLineFlexMessage").mockResolvedValue(undefined);
+
+      const result = await reconcilePaymentNotificationSafeRetry("res-123", {
+        actor: "test_operator",
+        client: mockClient as unknown as SupabaseClient,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.method).toBe("safe_retry");
+      expect(result.notify_result?.ok).toBe(true);
+      expect(result.notify_result?.group_notified).toBe(true);
+      expect(result.notify_result?.guest_notified).toBe(true);
+
+      // A fresh key was minted (not the old expired key)
+      expect(result.notify_result?.group_retry_key).not.toBe("old-key-123");
+
+      // Canonical notifications sent to LINE
+      expect(sendLineFlexSpy).toHaveBeenCalledTimes(1);
+      expect(sendLineFlexMessageSpy).toHaveBeenCalledTimes(1);
+
+      // Database state updated with notified_at
+      const row = mockClient.getRow();
+      expect(row.deposit_approved_notified_at).toBeDefined();
+      expect(row.deposit_approved_retry_key).not.toBe("old-key-123");
+
+      // ops_events recorded
+      const opsEvents = mockClient.getOpsEvents();
+      const reconcileEvent = opsEvents.find((e) => e.action === "payment.approved_notification_reconciled");
+      expect(reconcileEvent).toBeDefined();
+      expect(reconcileEvent?.detail).toMatchObject({
+        reservation_id: "res-123",
+        booking_code: "XYZ789",
+        method: "safe_retry",
+        actor: "test_operator",
+      });
+
+      // Subsequent attempt fails closed because already resolved
+      const repeatResult = await reconcilePaymentNotificationSafeRetry("res-123", {
+        client: mockClient as unknown as SupabaseClient,
+      });
+      expect(repeatResult.ok).toBe(false);
+      expect(repeatResult.error).toBe("already_resolved");
+    });
   });
 });
