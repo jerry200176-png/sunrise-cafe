@@ -51,7 +51,7 @@ async function lineCustomerFetch(
   if (res.status === 409 && options?.retryKey) {
     const acceptedReqId = res.headers.get("x-line-accepted-request-id");
     console.info(
-      `[line] 409 Conflict: retryKey ${options.retryKey} already accepted (acceptedReqId: ${acceptedReqId})`
+      `[line] 409 Conflict: retryKey ${options.retryKey} already accepted by LINE Platform (acceptedReqId: ${acceptedReqId})`
     );
     return;
   }

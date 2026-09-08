@@ -204,8 +204,11 @@ describe("payment-notify", () => {
     expect(updatedRow.deposit_approved_guest_retry_key).toBeTruthy();
 
     const opsEvents = mockClient.getOpsEvents();
-    expect(opsEvents).toHaveLength(1);
-    expect(opsEvents[0].action).toBe("payment.approved_notified");
+    expect(opsEvents).toHaveLength(2);
+    expect(opsEvents[0].action).toBe("payment.approved_attempt");
+    expect(opsEvents[1].action).toBe("payment.approved_notified");
+    expect((opsEvents[1].detail as Record<string, unknown>).accepted_by_platform).toBe(true);
+    expect(result.accepted_by_platform).toBe(true);
   });
 
   it("safely retries after LINE transient failure without permanent lockout", async () => {
@@ -421,9 +424,8 @@ describe("payment-notify", () => {
     expect(finalRow.deposit_approved_guest_retry_key).toBe(stableGuestRetryUuid);
   });
 
-  it("regression: 24h retry-key constraint reuses key within 24h, mints fresh key when >24h", async () => {
+  it("regression: 24h retry-key helper correctly evaluates retention threshold", () => {
     const now = Date.now();
-
     // 1. Within 24 hours (e.g. 23 hours ago) -> key is valid
     const within24hIso = new Date(now - 23 * 60 * 60 * 1000).toISOString();
     expect(isLineRetryKeyExpired(within24hIso, now)).toBe(false);
@@ -431,32 +433,186 @@ describe("payment-notify", () => {
     // 2. Beyond 24 hours (e.g. 25 hours ago) -> key is expired under LINE retention window
     const beyond24hIso = new Date(now - 25 * 60 * 60 * 1000).toISOString();
     expect(isLineRetryKeyExpired(beyond24hIso, now)).toBe(true);
+  });
 
-    // 3. Test execution when key is expired (> 24h)
-    const expiredGroupRetryUuid = "00000000-0000-4000-8000-000000000099";
+  it("regression: >24h accepted-then-timeout ambiguity stops automatic delivery and enters reconciliation_required", async () => {
+    // Scenario: Provider request was accepted by LINE 25h ago, but caller timed out waiting for
+    // HTTP response before deposit_approved_notified_at was stamped.
+    // Now >24h have passed. Re-attempting delivery MUST NOT mint a new key or dispatch to LINE,
+    // because that risks a duplicate message to staff/guest. It must enter reconciliation_required.
+    const beyond24hIso = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    const priorAttemptKey = "00000000-0000-4000-8000-000000000099";
+
+    const mockClient = createFakeSupabase({
+      ...defaultRow,
+      deposit_approved_claim_at: null, // lease released after timeout
+      deposit_approved_notified_at: null, // not stamped because client timed out
+      deposit_approved_retry_key: priorAttemptKey,
+      deposit_approved_guest_retry_key: "00000000-0000-4000-8000-000000000098",
+      deposit_approved_retry_key_created_at: beyond24hIso,
+    });
+
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex");
+    const sendLineFlexMessageSpy = vi.spyOn(line, "sendLineFlexMessage");
+
+    const result = await notifyPaymentApproved("res-123", { client: mockClient });
+
+    // 1. Automatic delivery halted
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("reconciliation_required");
+    expect(result.reconciliation_required).toBe(true);
+    expect(result.reason).toContain("LINE 24h retry window expired");
+
+    // 2. No provider dispatch occurred (avoids duplicate notification risk)
+    expect(sendLineFlexSpy).not.toHaveBeenCalled();
+    expect(sendLineFlexMessageSpy).not.toHaveBeenCalled();
+
+    // 3. Database row was NOT mutated with a newly minted retry key
+    const finalRow = mockClient.getRow();
+    expect(finalRow.deposit_approved_retry_key).toBe(priorAttemptKey);
+    expect(finalRow.deposit_approved_notified_at).toBeNull();
+
+    // 4. Recorded in ops_events for administrative audit and manual reconciliation
+    const opsEvents = mockClient.getOpsEvents();
+    expect(opsEvents).toHaveLength(1);
+    expect(opsEvents[0].action).toBe("payment.approved_notification_reconciliation_required");
+    expect(opsEvents[0].detail).toMatchObject({
+      reservation_id: "res-123",
+      group_retry_key: priorAttemptKey,
+      reason: "retry_key_expired_with_possible_provider_attempt",
+    });
+  });
+
+  it("regression: >24h unresolved provider attempt stops automatic delivery without minting a fresh key", async () => {
+    // Scenario: A prior provider attempt was made with key K >24h ago, but provider returned 5xx
+    // or connection dropped, leaving delivery unresolved and unconfirmed.
+    // >24h later, retrying must enter reconciliation_required instead of blindly minting a new key.
+    const beyond24hIso = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    const unresolvedKey = "00000000-0000-4000-8000-000000000097";
+
     const mockClient = createFakeSupabase({
       ...defaultRow,
       deposit_approved_claim_at: null,
-      deposit_approved_retry_key: expiredGroupRetryUuid,
-      deposit_approved_guest_retry_key: "00000000-0000-4000-8000-000000000098",
+      deposit_approved_notified_at: null,
+      deposit_approved_retry_key: unresolvedKey,
+      deposit_approved_guest_retry_key: "00000000-0000-4000-8000-000000000096",
+      deposit_approved_retry_key_created_at: beyond24hIso,
+    });
+
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex");
+    const sendLineFlexMessageSpy = vi.spyOn(line, "sendLineFlexMessage");
+
+    const result = await notifyPaymentApproved("res-123", { client: mockClient });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("reconciliation_required");
+    expect(result.reconciliation_required).toBe(true);
+    expect(sendLineFlexSpy).not.toHaveBeenCalled();
+    expect(sendLineFlexMessageSpy).not.toHaveBeenCalled();
+
+    const finalRow = mockClient.getRow();
+    expect(finalRow.deposit_approved_retry_key).toBe(unresolvedKey);
+    expect(finalRow.deposit_approved_notified_at).toBeNull();
+  });
+
+  it("regression: safe fresh-key creation before any provider attempt", async () => {
+    // Scenario: First logical payment approval notification.
+    // deposit_approved_retry_key is null, proving no provider request was ever attempted.
+    // Minting a fresh key is safe and required.
+    const mockClient = createFakeSupabase({
+      ...defaultRow,
+      deposit_approved_claim_at: null,
+      deposit_approved_notified_at: null,
+      deposit_approved_retry_key: null,
+      deposit_approved_guest_retry_key: null,
+      deposit_approved_retry_key_created_at: null,
+    });
+
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex").mockResolvedValue(undefined);
+    const sendLineFlexMessageSpy = vi.spyOn(line, "sendLineFlexMessage").mockResolvedValue(undefined);
+
+    const result = await notifyPaymentApproved("res-123", { client: mockClient });
+
+    expect(result.ok).toBe(true);
+    expect(result.accepted_by_platform).toBe(true);
+    expect(result.group_notified).toBe(true);
+    expect(result.guest_notified).toBe(true);
+
+    const finalRow = mockClient.getRow();
+    // Fresh UUIDs were minted and stored
+    expect(finalRow.deposit_approved_retry_key).toBeTruthy();
+    expect(finalRow.deposit_approved_guest_retry_key).toBeTruthy();
+    expect(finalRow.deposit_approved_retry_key_created_at).toBeTruthy();
+    expect(finalRow.deposit_approved_notified_at).toBeTruthy();
+
+    expect(sendLineFlexSpy).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Object),
+      { retryKey: finalRow.deposit_approved_retry_key }
+    );
+    expect(sendLineFlexMessageSpy).toHaveBeenCalledWith(
+      defaultRow.line_user_id,
+      expect.any(String),
+      expect.any(Object),
+      { retryKey: finalRow.deposit_approved_guest_retry_key }
+    );
+  });
+
+  it("regression: safe fresh-key creation after >24h when explicit evidence proves no provider attempt", async () => {
+    // Scenario: Key was allocated in DB >24h ago, but explicit audit evidence confirms
+    // no provider request was ever attempted for that key. Minting a fresh key is safe.
+    const beyond24hIso = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    const oldNeverAttemptedKey = "00000000-0000-4000-8000-000000000095";
+
+    const mockClient = createFakeSupabase({
+      ...defaultRow,
+      deposit_approved_claim_at: null,
+      deposit_approved_notified_at: null,
+      deposit_approved_retry_key: oldNeverAttemptedKey,
+      deposit_approved_guest_retry_key: "00000000-0000-4000-8000-000000000094",
       deposit_approved_retry_key_created_at: beyond24hIso,
     });
 
     const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex").mockResolvedValue(undefined);
     vi.spyOn(line, "sendLineFlexMessage").mockResolvedValue(undefined);
 
-    const result = await notifyPaymentApproved("res-123", { client: mockClient });
+    const result = await notifyPaymentApproved("res-123", {
+      client: mockClient,
+      evidenceNoProviderAttempt: true,
+    });
 
     expect(result.ok).toBe(true);
-    // Fresh UUID was minted because old key was >24h old!
+    expect(result.accepted_by_platform).toBe(true);
+
     const finalRow = mockClient.getRow();
-    expect(finalRow.deposit_approved_retry_key).not.toBe(expiredGroupRetryUuid);
+    expect(finalRow.deposit_approved_retry_key).not.toBe(oldNeverAttemptedKey);
     expect(finalRow.deposit_approved_retry_key).toBeTruthy();
     expect(sendLineFlexSpy).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(Object),
       { retryKey: finalRow.deposit_approved_retry_key }
     );
+  });
+
+  it("regression: 2xx and 409+x-line-accepted-request-id semantics represent accepted by LINE Platform, not guaranteed delivered", async () => {
+    const mockClient = createFakeSupabase(defaultRow);
+
+    // Both staff group and guest bot pushes succeed (accepted by LINE Platform)
+    vi.spyOn(lineNotify, "sendLineFlex").mockResolvedValue(undefined);
+    vi.spyOn(line, "sendLineFlexMessage").mockResolvedValue(undefined);
+
+    const result = await notifyPaymentApproved("res-123", { client: mockClient });
+
+    expect(result.ok).toBe(true);
+    // Explicit contract: accepted by LINE Platform, not guaranteed delivered to handset
+    expect(result.accepted_by_platform).toBe(true);
+    expect(result.group_notified).toBe(true);
+    expect(result.guest_notified).toBe(true);
+
+    const opsEvents = mockClient.getOpsEvents();
+    const notifiedEvent = opsEvents.find((e) => e.action === "payment.approved_notified");
+    expect(notifiedEvent).toBeDefined();
+    expect((notifiedEvent?.detail as Record<string, unknown>).accepted_by_platform).toBe(true);
   });
 
   it("aborts if deposit is not marked paid", async () => {
