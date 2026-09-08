@@ -39,59 +39,102 @@ export function isLineConfigured(): boolean {
   return Boolean(token && groupId);
 }
 
-export async function sendLineMessageToGroup(text: string, groupId: string): Promise<void> {
+export type LineSendOptions = {
+  retryKey?: string;
+};
+
+export async function sendLineMessageToGroup(
+  text: string,
+  groupId: string,
+  options?: LineSendOptions
+): Promise<void> {
   const { token } = getLineConfig();
   if (!token) throw new Error("缺少 LINE_CHANNEL_ACCESS_TOKEN");
 
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+  if (options?.retryKey) {
+    headers["X-Line-Retry-Key"] = options.retryKey;
+  }
+
   const res = await fetch(LINE_API_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    headers,
     body: JSON.stringify({ to: groupId, messages: [{ type: "text", text }] }),
   });
+  if (res.status === 409 && options?.retryKey) {
+    const acceptedReqId = res.headers.get("x-line-accepted-request-id");
+    console.info(
+      `[line-notify] 409 Conflict: retryKey ${options.retryKey} already accepted (acceptedReqId: ${acceptedReqId})`
+    );
+    return;
+  }
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`LINE API 錯誤 (${res.status}): ${body}`);
   }
 }
 
-export async function sendLineMessage(text: string): Promise<void> {
+export async function sendLineMessage(text: string, options?: LineSendOptions): Promise<void> {
   const { token, groupId } = getLineConfig();
   if (!token || !groupId) {
     throw new Error(
       "缺少 LINE 設定：請在 .env.local 填入 LINE_CHANNEL_ACCESS_TOKEN 和 LINE_GROUP_ID"
     );
   }
-  return sendLineMessageToGroup(text, groupId);
+  return sendLineMessageToGroup(text, groupId, options);
 }
 
 export async function sendLineFlexToGroup(
   altText: string,
   contents: LineFlexContainer,
-  groupId: string
+  groupId: string,
+  options?: LineSendOptions
 ): Promise<void> {
   const { token } = getLineConfig();
   if (!token) throw new Error("缺少 LINE_CHANNEL_ACCESS_TOKEN");
 
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+  if (options?.retryKey) {
+    headers["X-Line-Retry-Key"] = options.retryKey;
+  }
+
   const res = await fetch(LINE_API_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    headers,
     body: JSON.stringify({
       to: groupId,
       messages: [{ type: "flex", altText, contents }],
     }),
   });
+  if (res.status === 409 && options?.retryKey) {
+    const acceptedReqId = res.headers.get("x-line-accepted-request-id");
+    console.info(
+      `[line-notify] 409 Conflict: retryKey ${options.retryKey} already accepted (acceptedReqId: ${acceptedReqId})`
+    );
+    return;
+  }
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`LINE API 錯誤 (${res.status}): ${body}`);
   }
 }
 
-export async function sendLineFlex(altText: string, contents: LineFlexContainer): Promise<void> {
+export async function sendLineFlex(
+  altText: string,
+  contents: LineFlexContainer,
+  options?: LineSendOptions
+): Promise<void> {
   const { token, groupId } = getLineConfig();
   if (!token || !groupId) {
     throw new Error(
       "缺少 LINE 設定：請在 .env.local 填入 LINE_CHANNEL_ACCESS_TOKEN 和 LINE_GROUP_ID"
     );
   }
-  return sendLineFlexToGroup(altText, contents, groupId);
+  return sendLineFlexToGroup(altText, contents, groupId, options);
 }

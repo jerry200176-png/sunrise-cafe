@@ -280,5 +280,16 @@
       { "type": "column", "table": "reservations", "name": "deposit_approved_claim_at", "introspect": "rest" },
       { "type": "index", "name": "idx_reservations_deposit_approved_claim", "introspect": "unsupported", "note": "Partial index on deposit_approved_claim_at" }
     ]
+  },
+  {
+    "version": "20260908-deposit-approved-retry-key",
+    "file": "migration-deposit-approved-retry-key.sql",
+    "critical": true,
+    "evidence": [
+      { "type": "column", "table": "reservations", "name": "deposit_approved_retry_key", "introspect": "rest" },
+      { "type": "column", "table": "reservations", "name": "deposit_approved_guest_retry_key", "introspect": "rest" },
+      { "type": "column", "table": "reservations", "name": "deposit_approved_retry_key_created_at", "introspect": "rest" },
+      { "type": "index", "name": "idx_reservations_deposit_approved_retry_key", "introspect": "unsupported", "note": "Index on deposit_approved_retry_key" }
+    ]
   }
 ]
