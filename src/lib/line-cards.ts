@@ -252,7 +252,12 @@ export function buildGuestBindErrorFlex(kind: "not_found" | "phone_prompt" | "ph
   });
 }
 
-export function buildGuestPaymentPendingFlex(): LineFlexContainer {
+export function buildGuestPaymentPendingFlex(params?: { bookingCode?: string | null }): LineFlexContainer {
+  const code = params?.bookingCode?.trim();
+  const queryUrl = code
+    ? `${LINE_QUERY_URL}?code=${encodeURIComponent(code)}`
+    : LINE_QUERY_URL;
+
   return flexBubble({
     icon: "📋",
     title: "付款已收到",
@@ -260,7 +265,8 @@ export function buildGuestPaymentPendingFlex(): LineFlexContainer {
     accentColor: LINE_BRAND.caramel,
     paragraphs: [GUEST_REPLY_PAYMENT_PENDING_REVIEW],
     note: "審核完成後會再通知您，無需重複傳送。",
-    primaryAction: { label: "查看訂位", uri: LINE_QUERY_URL },
+    primaryAction: { label: "查看訂位狀態", uri: queryUrl },
+    showSiteLink: true,
   });
 }
 

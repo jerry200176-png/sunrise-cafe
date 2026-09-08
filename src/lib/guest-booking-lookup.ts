@@ -50,6 +50,8 @@ export type GuestBookingItem = {
   room_name: string;
   branch_name: string;
   branch_display_name: string | null;
+  branch_address: string | null;
+  branch_phone: string | null;
   payment_info: string | null;
   line_pay_url: string | null;
   line_pay_dynamic_enabled: boolean;
@@ -100,6 +102,8 @@ async function toGuestBookingItem(r: ReservationRow): Promise<GuestBookingItem> 
     room_name: room?.name ?? "—",
     branch_name: branch?.name ?? "—",
     branch_display_name: branch?.display_name ?? null,
+    branch_address: branch?.address ?? null,
+    branch_phone: branch?.phone ?? null,
     payment_info: branch?.payment_info ?? null,
     line_pay_url: branch?.line_pay_url ?? null,
     line_pay_dynamic_enabled: isLinePayConfigured(),

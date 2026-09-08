@@ -57,3 +57,25 @@ export function taipeiRangeLabel(start: string, end: string): string {
   const d = `${s.getFullYear()}/${pad(s.getMonth() + 1)}/${pad(s.getDate())}`;
   return `${d} ${pad(s.getHours())}:${pad(s.getMinutes())}–${pad(e.getHours())}:${pad(e.getMinutes())}`;
 }
+
+export function buildGoogleCalendarUrl(opts: {
+  summary: string;
+  description: string;
+  location?: string;
+  startTime: string;
+  endTime: string;
+}): string {
+  const dtStart = toIcsUtc(opts.startTime);
+  const dtEnd = toIcsUtc(opts.endTime);
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: opts.summary,
+    dates: `${dtStart}/${dtEnd}`,
+    details: opts.description,
+  });
+  if (opts.location) {
+    params.set("location", opts.location);
+  }
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+

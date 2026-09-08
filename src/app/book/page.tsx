@@ -494,6 +494,7 @@ export default function BookPage() {
             ? new Date(new Date(selectedStart).getTime() + duration * 3600_000).toISOString()
             : undefined;
         const totalPrice = getTotalPrice();
+        const currentBranch = branches.find((b) => b.id === branchId);
         saveBookingSuccessMeta({
           code,
           createdAt: new Date().toISOString(),
@@ -502,7 +503,11 @@ export default function BookPage() {
           totalPrice,
           depositAmount: totalPrice != null ? getDepositAmount(totalPrice) : null,
           roomName,
-          branchName,
+          branchName: currentBranch?.display_name || currentBranch?.name || branchName,
+          branchAddress: currentBranch?.address ?? null,
+          branchPhone: currentBranch?.phone ?? null,
+          paymentInfo: currentBranch?.payment_info || depositInfo || null,
+          linePayUrl: currentBranch?.line_pay_url ?? null,
           customerName: name.trim(),
         });
 

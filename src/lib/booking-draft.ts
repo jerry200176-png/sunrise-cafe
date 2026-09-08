@@ -28,6 +28,10 @@ export type BookingSuccessMeta = {
   depositAmount?: number | null;
   roomName?: string;
   branchName?: string;
+  branchAddress?: string | null;
+  branchPhone?: string | null;
+  paymentInfo?: string | null;
+  linePayUrl?: string | null;
   customerName?: string;
 };
 
