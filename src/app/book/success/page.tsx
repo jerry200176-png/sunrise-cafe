@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { CheckCircle2, ArrowLeft, Clock, Copy, CalendarPlus } from "lucide-react";
+import { CheckCircle2, ArrowLeft, Clock, Copy, CalendarPlus, Calendar, MapPin, Phone, ExternalLink } from "lucide-react";
 import { encodeLineBindState } from "@/lib/line-bind";
 import { CopyBookingCodeButton } from "@/components/CopyBookingCodeButton";
 import { useLocale } from "@/lib/i18n/LocaleContext";
@@ -16,6 +16,7 @@ import {
   getDepositUrgency,
 } from "@/lib/deposit-deadline";
 import { formatBookingPolicyLines } from "@/lib/booking-policy";
+import { buildGoogleCalendarUrl } from "@/lib/booking-ics";
 
 const LINE_LOGIN_CLIENT_ID =
   process.env.NEXT_PUBLIC_LINE_LOGIN_CHANNEL_ID ?? "2009884734";
@@ -40,6 +41,47 @@ function SuccessContent() {
   const [meta, setMeta] = useState<BookingSuccessMeta | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [receiptCopied, setReceiptCopied] = useState(false);
+  const [paymentInfoCopied, setPaymentInfoCopied] = useState(false);
+
+  const googleCalendarUrl = useMemo(() => {
+    if (!code || !meta?.startTime) return null;
+    const store = meta.branchName || "昇昇咖啡";
+    const room = meta.roomName ? ` · ${meta.roomName}` : "";
+    const endIso =
+      meta.endTime ||
+      new Date(new Date(meta.startTime).getTime() + 2 * 3600_000).toISOString();
+    const effectivePhone = bindPhone.trim();
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const manageUrl = origin
+      ? `${origin}/book/query?code=${encodeURIComponent(code)}${effectivePhone ? `&phone=${encodeURIComponent(effectivePhone)}` : ""}`
+      : `/book/query?code=${encodeURIComponent(code)}`;
+    return buildGoogleCalendarUrl({
+      summary: `${store}${room}`,
+      description: `訂位碼：${code}\n訂位人：${meta.customerName || "貴賓"}\n查看訂位：${manageUrl}`,
+      location: meta.branchAddress || meta.branchName || "昇昇咖啡",
+      startTime: meta.startTime,
+      endTime: endIso,
+    });
+  }, [code, meta, bindPhone]);
+
+  async function copyPaymentInfo(text: string) {
+    if (!text.trim()) return;
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+      else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setPaymentInfoCopied(true);
+      window.setTimeout(() => setPaymentInfoCopied(false), 2000);
+    } catch {
+      /* ignore */
+    }
+  }
 
   useEffect(() => {
     const saved = sessionStorage.getItem("booking_success_phone");
@@ -79,6 +121,12 @@ function SuccessContent() {
 
   async function copyReceipt() {
     if (!meta && !code) return;
+    const effectivePhone = bindPhone.trim();
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const manageUrl = origin
+      ? `${origin}/book/query?code=${encodeURIComponent(meta?.code ?? code)}${effectivePhone ? `&phone=${encodeURIComponent(effectivePhone)}` : ""}`
+      : `/book/query?code=${encodeURIComponent(meta?.code ?? code)}`;
+
     const lines = [
       meta?.branchName ? `店名：${meta.branchName}` : "店名：昇昇咖啡",
       meta?.roomName ? `包廂：${meta.roomName}` : null,
@@ -93,7 +141,8 @@ function SuccessContent() {
         : null,
       meta?.depositAmount != null ? `訂金：$${meta.depositAmount}` : null,
       deadlineInfo ? `繳款期限：${deadlineInfo.label}` : null,
-      "查詢／取消：開啟網站「查詢我的訂位」",
+      meta?.branchAddress ? `地址：${meta.branchAddress}` : null,
+      `查詢／取消訂位：${manageUrl}`,
     ].filter(Boolean) as string[];
     const text = lines.join("\n");
     try {
@@ -195,6 +244,27 @@ function SuccessContent() {
                   {t("success.depositAmount", { amount: String(meta.depositAmount) })}
                 </p>
               )}
+              {meta?.paymentInfo && (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-white p-3 shadow-sm">
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <p className="text-xs font-bold text-amber-900">{t("success.depositPaymentTitle")}</p>
+                    <button
+                      type="button"
+                      onClick={() => copyPaymentInfo(meta.paymentInfo!)}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 hover:text-amber-800"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      {paymentInfoCopied ? t("query.paymentInfoCopied") : t("query.copyPaymentInfo")}
+                    </button>
+                  </div>
+                  <p className="whitespace-pre-line text-xs text-gray-800 font-mono leading-relaxed bg-amber-50/50 p-2.5 rounded border border-amber-100">
+                    {meta.paymentInfo}
+                  </p>
+                  <p className="mt-1.5 text-xs text-amber-700">
+                    {t("success.depositPaymentHint")}
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -219,14 +289,63 @@ function SuccessContent() {
             </ul>
           </div>
 
-          {code && bindPhone.trim() && (
-            <a
-              href={`/api/guest/calendar?code=${encodeURIComponent(code)}&phone=${encodeURIComponent(bindPhone.trim())}`}
-              className="mt-4 inline-flex w-full min-h-11 items-center justify-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2.5 text-sm font-semibold text-amber-950 hover:bg-amber-50"
-            >
-              <CalendarPlus className="h-4 w-4" />
-              {t("success.addToCalendar")}
-            </a>
+          {(meta?.branchAddress || meta?.branchPhone) && (
+            <div className="mt-4 rounded-xl border border-amber-200/80 bg-amber-50/50 p-4">
+              <p className="text-sm font-semibold text-amber-950 mb-1">{t("common.storeInfo")}</p>
+              <p className="font-medium text-sm text-gray-900">
+                {meta.branchName || "昇昇咖啡"}
+              </p>
+              {meta.branchAddress && (
+                <div className="mt-2 flex items-start gap-1.5 text-xs text-gray-700">
+                  <MapPin className="h-4 w-4 shrink-0 text-amber-700 mt-0.5" />
+                  <div>
+                    <span>{meta.branchAddress}</span>
+                    <a
+                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(meta.branchAddress)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-2 inline-flex items-center gap-0.5 text-amber-700 underline hover:text-amber-800"
+                    >
+                      {t("common.openInMaps")}
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                </div>
+              )}
+              {meta.branchPhone && (
+                <div className="mt-1.5 flex items-center gap-1.5 text-xs text-gray-700">
+                  <Phone className="h-4 w-4 shrink-0 text-amber-700" />
+                  <a href={`tel:${meta.branchPhone.replace(/[^\d+]/g, "")}`} className="hover:underline">
+                    {meta.branchPhone}
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+
+          {code && (
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {googleCalendarUrl && (
+                <a
+                  href={googleCalendarUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-amber-300 bg-amber-500 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-600 transition"
+                >
+                  <CalendarPlus className="h-4 w-4" />
+                  {t("calendar.google")}
+                </a>
+              )}
+              {bindPhone.trim() && (
+                <a
+                  href={`/api/guest/calendar?code=${encodeURIComponent(code)}&phone=${encodeURIComponent(bindPhone.trim())}`}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2.5 text-sm font-semibold text-amber-950 hover:bg-amber-50 transition"
+                >
+                  <Calendar className="h-4 w-4" />
+                  {t("calendar.apple")}
+                </a>
+              )}
+            </div>
           )}
 
           {code && (

@@ -44,6 +44,7 @@ describe("line-cards LINE API shape", () => {
     }), "payment");
 
     assertValidBubble(buildGuestPaymentPendingFlex(), "payment-pending");
+    assertValidBubble(buildGuestPaymentPendingFlex({ bookingCode: "ABC123" }), "payment-pending-with-code");
     assertValidBubble(buildGuestPaymentApprovedFlex({
       customerName: "測試",
       bookingCode: "ABC123",

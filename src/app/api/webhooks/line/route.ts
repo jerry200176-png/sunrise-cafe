@@ -209,7 +209,11 @@ async function handlePaymentReport(
         pending_count: pending,
       });
       if (replyToken) {
-        await replyFlex(replyToken, "付款已收到", buildGuestPaymentPendingFlex());
+        await replyFlex(
+          replyToken,
+          "付款已收到",
+          buildGuestPaymentPendingFlex({ bookingCode: reservation.booking_code })
+        );
       }
       return;
     }
@@ -254,7 +258,11 @@ async function handlePaymentReport(
   }
 
   if (replyToken) {
-    await replyFlex(replyToken, "付款已收到", buildGuestPaymentPendingFlex());
+    await replyFlex(
+      replyToken,
+      "付款已收到",
+      buildGuestPaymentPendingFlex({ bookingCode: reservation.booking_code })
+    );
   }
 }
 

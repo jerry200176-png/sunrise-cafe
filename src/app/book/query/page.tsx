@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, Suspense, useMemo } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Calendar, Clock, Search } from "lucide-react";
+import { Calendar, Clock, Search, Copy, CalendarPlus, MapPin, Phone, ExternalLink } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { enUS, ja, zhTW } from "date-fns/locale";
 import { useLocale } from "@/lib/i18n/LocaleContext";
@@ -16,6 +16,7 @@ import {
   availableStarts,
   durationHoursBetween,
 } from "@/lib/slot-grid";
+import { buildGoogleCalendarUrl } from "@/lib/booking-ics";
 
 interface BookingItem {
   id: string;
@@ -25,6 +26,8 @@ interface BookingItem {
   room_name: string;
   branch_name: string;
   branch_display_name?: string | null;
+  branch_address?: string | null;
+  branch_phone?: string | null;
   payment_info?: string | null;
   line_pay_url?: string | null;
   line_pay_dynamic_enabled?: boolean;
@@ -102,8 +105,58 @@ function BookQueryContent() {
   const [rescheduleSubmitting, setRescheduleSubmitting] = useState(false);
   const [rescheduleError, setRescheduleError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
+  const [paymentInfoCopiedId, setPaymentInfoCopiedId] = useState<string | null>(null);
+  const [copiedBookingId, setCopiedBookingId] = useState<string | null>(null);
   const depositViewedRef = useRef<Set<string>>(new Set());
   const stickyViewedRef = useRef(false);
+
+  const copyPaymentInfo = useCallback((id: string, text: string) => {
+    if (!text.trim()) return;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    setPaymentInfoCopiedId(id);
+    window.setTimeout(() => setPaymentInfoCopiedId(null), 2000);
+  }, []);
+
+  const copyBookingDetails = useCallback((item: BookingItem) => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const effectivePhone = phone.trim();
+    const manageUrl = origin
+      ? `${origin}/book/query?code=${encodeURIComponent(item.booking_code)}${effectivePhone ? `&phone=${encodeURIComponent(effectivePhone)}` : ""}`
+      : `/book/query?code=${encodeURIComponent(item.booking_code)}`;
+    const store = item.branch_display_name || item.branch_name || "昇昇咖啡";
+    const lines = [
+      `店名：${store}`,
+      `包廂：${item.room_name}`,
+      `訂位人：${item.customer_name}`,
+      `訂位碼：${item.booking_code}`,
+      `時段：${format(parseISO(item.start_time), "yyyy/MM/dd (EEE)")} ${format(parseISO(item.start_time), "HH:mm")}–${format(parseISO(item.end_time), "HH:mm")}`,
+      item.guest_count ? `人數：${item.guest_count} 人` : null,
+      item.branch_address ? `地址：${item.branch_address}` : null,
+      `查詢或修改訂位：${manageUrl}`,
+    ].filter(Boolean) as string[];
+    const text = lines.join("\n");
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    setCopiedBookingId(item.id);
+    window.setTimeout(() => setCopiedBookingId(null), 2000);
+  }, [phone]);
 
   const unpaidDepositItems = useMemo(
     () =>
@@ -220,11 +273,13 @@ function BookQueryContent() {
     const codeVal = codeFromUrl ? codeFromUrl.trim().toUpperCase() : "";
     if (codeVal) setBookingCode(codeVal);
 
+    const phoneFromUrl = searchParams.get("phone")?.trim() ?? "";
     const savedPhone = sessionStorage.getItem("booking_success_phone") ?? "";
-    if (savedPhone) setPhone(savedPhone);
+    const effectivePhone = phoneFromUrl || savedPhone;
+    if (effectivePhone) setPhone(effectivePhone);
 
-    if (savedPhone && codeVal) {
-      runSearch(savedPhone, codeVal, "code");
+    if (effectivePhone && codeVal) {
+      runSearch(effectivePhone, codeVal, "code");
     }
   }, [searchParams, runSearch]);
 
@@ -567,19 +622,47 @@ function BookQueryContent() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className="font-medium text-gray-900">
-                      {item.branch_name} · {item.room_name}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-medium text-gray-900">
+                        {item.branch_display_name || item.branch_name} · {item.room_name}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => copyBookingDetails(item)}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-900 border border-gray-200 px-2 py-0.5 rounded hover:bg-gray-50"
+                      >
+                        <Copy className="h-3 w-3" />
+                        {copiedBookingId === item.id ? t("query.receiptCopied") : t("query.copyReceipt")}
+                      </button>
+                    </div>
                     <p className="mt-0.5 text-sm text-gray-500">
                       {t("query.bookingCode")}<span className="font-mono">{item.booking_code}</span>
                     </p>
                     {phone.trim() && item.status !== "cancelled" && (
-                      <a
-                        href={`/api/guest/calendar?code=${encodeURIComponent(item.booking_code)}&phone=${encodeURIComponent(phone.trim())}`}
-                        className="mt-2 inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100"
-                      >
-                        {t("query.addToCalendar")}
-                      </a>
+                      <div className="mt-2.5 flex flex-wrap gap-2">
+                        <a
+                          href={buildGoogleCalendarUrl({
+                            summary: `${item.branch_display_name || item.branch_name || "昇昇咖啡"} · ${item.room_name}`,
+                            description: `訂位碼：${item.booking_code}\n訂位人：${item.customer_name}\n查看訂位：${typeof window !== "undefined" ? window.location.origin : ""}/book/query?code=${encodeURIComponent(item.booking_code)}&phone=${encodeURIComponent(phone.trim())}`,
+                            location: item.branch_address || item.branch_display_name || item.branch_name || "昇昇咖啡",
+                            startTime: item.start_time,
+                            endTime: item.end_time,
+                          })}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-500 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-amber-600 transition"
+                        >
+                          <CalendarPlus className="h-4 w-4" />
+                          {t("calendar.google")}
+                        </a>
+                        <a
+                          href={`/api/guest/calendar?code=${encodeURIComponent(item.booking_code)}&phone=${encodeURIComponent(phone.trim())}`}
+                          className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100 transition"
+                        >
+                          <Calendar className="h-4 w-4" />
+                          {t("calendar.apple")}
+                        </a>
+                      </div>
                     )}
                     <p className="mt-1 flex items-center gap-1 text-sm text-gray-600">
                       <Calendar className="h-4 w-4" />
@@ -594,6 +677,36 @@ function BookQueryContent() {
                     </p>
                     {item.total_price != null && (
                       <p className="mt-0.5 text-sm text-gray-600">${item.total_price}</p>
+                    )}
+                    {(item.branch_address || item.branch_phone) && (
+                      <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50/80 p-2.5 text-xs text-gray-600">
+                        <p className="font-medium text-gray-800 mb-1">{t("common.storeInfo")}</p>
+                        {item.branch_address && (
+                          <div className="flex items-start gap-1.5 mt-0.5">
+                            <MapPin className="h-3.5 w-3.5 shrink-0 text-amber-700 mt-0.5" />
+                            <div>
+                              <span>{item.branch_address}</span>
+                              <a
+                                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.branch_address)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="ml-2 inline-flex items-center gap-0.5 text-amber-700 underline hover:text-amber-800"
+                              >
+                                {t("common.openInMaps")}
+                                <ExternalLink className="h-3 w-3" />
+                              </a>
+                            </div>
+                          </div>
+                        )}
+                        {item.branch_phone && (
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <Phone className="h-3.5 w-3.5 shrink-0 text-amber-700" />
+                            <a href={`tel:${item.branch_phone.replace(/[^\d+]/g, "")}`} className="hover:underline">
+                              {item.branch_phone}
+                            </a>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                   <span
@@ -621,8 +734,12 @@ function BookQueryContent() {
 
                 {/* 付款審核狀態（截圖已送／被退回）*/}
                 {!item.is_deposit_paid && item.payment_review_status === "pending_review" && (
-                  <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-                    {t("query.paymentReviewPending")}
+                  <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900 flex items-start gap-2">
+                    <Clock className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold">{t("query.paymentReviewPending")}</p>
+                      <p className="mt-0.5 text-xs text-blue-700">店家審核通常於 1 小時內完成，核對後系統將自動發送 LINE 確認。</p>
+                    </div>
                   </div>
                 )}
                 {!item.is_deposit_paid && item.payment_review_status === "rejected" && (
@@ -641,7 +758,7 @@ function BookQueryContent() {
                     }`}
                   >
                     {item.guest_confirmed_at ? (
-                      <p>{t("query.attendanceConfirmed")}</p>
+                      <p className="font-medium text-emerald-800">✅ {t("query.attendanceConfirmed")}</p>
                     ) : (
                       <div className="space-y-2">
                         <p>
@@ -652,7 +769,7 @@ function BookQueryContent() {
                         {item.confirm_attendance_url && (
                           <a
                             href={item.confirm_attendance_url}
-                            className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-sky-700 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-800"
+                            className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition"
                           >
                             {t("query.attendanceConfirmCta")}
                           </a>
@@ -725,8 +842,20 @@ function BookQueryContent() {
                               {t("query.step1Title")}
                             </p>
                             {item.payment_info?.trim() ? (
-                              <div className="bg-white p-3 rounded border border-gray-200 shadow-sm mb-3 whitespace-pre-line text-base">
-                                {item.payment_info.trim()}
+                              <div className="bg-white p-3 rounded border border-gray-200 shadow-sm mb-3 text-base">
+                                <div className="whitespace-pre-line mb-2.5">
+                                  {item.payment_info.trim()}
+                                </div>
+                                <div className="flex justify-end pt-2 border-t border-gray-100">
+                                  <button
+                                    type="button"
+                                    onClick={() => copyPaymentInfo(item.id, item.payment_info!.trim())}
+                                    className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100 transition"
+                                  >
+                                    <Copy className="h-3.5 w-3.5" />
+                                    {paymentInfoCopiedId === item.id ? t("query.paymentInfoCopied") : t("query.copyPaymentInfo")}
+                                  </button>
+                                </div>
                               </div>
                             ) : (
                               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded p-3 mb-3">

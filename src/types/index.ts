@@ -2,11 +2,14 @@
 export interface Branch {
   id: string;
   name: string;
+  display_name?: string | null;
   address: string | null;
   phone: string | null;
   open_time: string | null;
   close_time: string | null;
   closed_dates?: string[];
+  payment_info?: string | null;
+  line_pay_url?: string | null;
   created_at: string;
 }
 

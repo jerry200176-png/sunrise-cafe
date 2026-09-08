@@ -113,9 +113,17 @@ function ConfirmVisitContent() {
               <p className="mt-1 text-sm text-gray-700">
                 {data.branch_name} · {data.room_name}
               </p>
+              {data.start_time && data.end_time && (
+                <p className="mt-1 text-xs text-amber-800 font-medium">
+                  {new Date(data.start_time).toLocaleDateString("zh-TW", { timeZone: "Asia/Taipei" })}{" "}
+                  {new Date(data.start_time).toLocaleTimeString("zh-TW", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hour12: false })}
+                  ～
+                  {new Date(data.end_time).toLocaleTimeString("zh-TW", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hour12: false })}
+                </p>
+              )}
               <Link
                 href={`/book/query?code=${encodeURIComponent(data.booking_code)}`}
-                className="mt-6 inline-block w-full rounded-lg bg-amber-600 py-3 text-center font-medium text-white"
+                className="mt-6 inline-block w-full rounded-lg bg-amber-600 py-3 text-center font-medium text-white hover:bg-amber-700 transition"
               >
                 {t("confirmVisit.queryCta")}
               </Link>
@@ -129,7 +137,7 @@ function ConfirmVisitContent() {
                 {t("confirmVisit.title")}
               </h1>
               <p className="mt-2 text-center text-sm text-gray-600">{t("confirmVisit.subtitle")}</p>
-              <div className="mt-5 rounded-xl bg-amber-50 p-4 text-sm text-amber-950 space-y-1">
+              <div className="mt-5 rounded-xl bg-amber-50 p-4 text-sm text-amber-950 space-y-1.5">
                 <p>
                   <span className="text-amber-700">{t("confirmVisit.code")}</span>{" "}
                   <span className="font-mono font-bold">{data.booking_code}</span>
@@ -137,19 +145,27 @@ function ConfirmVisitContent() {
                 <p>
                   {data.customer_name} · {data.branch_name} {data.room_name}
                 </p>
+                {data.start_time && data.end_time && (
+                  <p className="text-xs text-amber-800 font-medium">
+                    {new Date(data.start_time).toLocaleDateString("zh-TW", { timeZone: "Asia/Taipei" })}{" "}
+                    {new Date(data.start_time).toLocaleTimeString("zh-TW", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hour12: false })}
+                    ～
+                    {new Date(data.end_time).toLocaleTimeString("zh-TW", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hour12: false })}
+                  </p>
+                )}
               </div>
               {error && <p className="mt-3 text-center text-sm text-red-600">{error}</p>}
               <button
                 type="button"
                 disabled={submitting}
                 onClick={confirm}
-                className="mt-5 w-full min-h-11 rounded-lg bg-emerald-600 py-3 text-base font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                className="mt-5 w-full min-h-11 rounded-lg bg-emerald-600 py-3 text-base font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 transition"
               >
                 {submitting ? t("confirmVisit.confirming") : t("confirmVisit.confirmCta")}
               </button>
               <Link
                 href={`/book/query?code=${encodeURIComponent(data.booking_code)}`}
-                className="mt-3 block w-full rounded-lg border border-gray-300 py-2.5 text-center text-sm font-medium text-gray-700"
+                className="mt-3 block w-full rounded-lg border border-gray-300 py-2.5 text-center text-sm font-medium text-gray-700 hover:bg-gray-50 transition"
               >
                 {t("confirmVisit.manageCta")}
               </Link>

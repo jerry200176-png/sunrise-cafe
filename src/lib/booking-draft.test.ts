@@ -48,7 +48,14 @@ describe("booking-draft", () => {
       createdAt: "2026-07-15T00:00:00.000Z",
       startTime: "2026-07-16T02:00:00.000Z",
       depositAmount: 500,
+      branchName: "大安店",
+      branchAddress: "台北市大安區信義路",
+      branchPhone: "02-1234-5678",
+      paymentInfo: "銀行代碼 004 帳號 123456",
     });
-    expect(loadBookingSuccessMeta()?.code).toBe("ABC123");
+    const successMeta = loadBookingSuccessMeta();
+    expect(successMeta?.code).toBe("ABC123");
+    expect(successMeta?.branchAddress).toBe("台北市大安區信義路");
+    expect(successMeta?.paymentInfo).toBe("銀行代碼 004 帳號 123456");
   });
 });
