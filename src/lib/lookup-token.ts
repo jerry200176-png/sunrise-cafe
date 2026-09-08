@@ -9,13 +9,37 @@ import crypto from "crypto";
 
 const DEFAULT_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
 
+/**
+ * Dedicated secret for signing and verifying guest lookup tokens.
+ * Key separation rules:
+ * 1. Dedicated `GUEST_LOOKUP_SECRET` if configured.
+ * 2. Fallback to `SESSION_SECRET` (application session signing secret).
+ * 3. Fallback to `ADMIN_PASSWORD` (legacy bootstrap).
+ * 4. In development/testing, fallback to local dev string.
+ *
+ * CRITICAL SECURITY INVARIANT:
+ * NEVER reuse or fallback to `SUPABASE_SERVICE_ROLE_KEY`. Database administrative
+ * keys must remain strictly isolated from public guest token HMAC signatures.
+ */
+export function getLookupSigningSecret(): string {
+  const dedicated = process.env.GUEST_LOOKUP_SECRET?.trim();
+  if (dedicated) return dedicated;
+
+  const sessionSecret = process.env.SESSION_SECRET?.trim();
+  if (sessionSecret) return sessionSecret;
+
+  const adminPassword = process.env.ADMIN_PASSWORD?.trim();
+  if (adminPassword) return adminPassword;
+
+  if (process.env.NODE_ENV === "production") {
+    console.warn("[lookup-token] GUEST_LOOKUP_SECRET and SESSION_SECRET unset in production");
+  }
+
+  return "sunrise-guest-lookup-dev-secret";
+}
+
 function secret(): string {
-  return (
-    process.env.SESSION_SECRET ||
-    process.env.ADMIN_PASSWORD ||
-    process.env.CRON_SECRET ||
-    "sunrise-lookup-dev"
-  );
+  return getLookupSigningSecret();
 }
 
 function b64url(buf: Buffer | string): string {

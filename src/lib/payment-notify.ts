@@ -4,10 +4,13 @@
  *  1. Guest Bot personal Flex ("訂金已確認") to `line_user_id` if present.
  *  2. Staff LINE group notification ("💰 客人已付訂金：...").
  *
- * Idempotency guarantees:
- *  1. In-process lock prevents concurrent sends within the same Node.js isolate.
- *  2. Persistent check against `ops_events` (action = "payment.approved_notified")
- *     ensures across serverless isolates and retries that duplicate sends never occur.
+ * Cross-instance idempotency guarantees across Vercel serverless functions:
+ *  1. DB-level atomic claim on `reservations.deposit_approved_notified_at`:
+ *     An atomic conditional UPDATE with row-level lock ensures exactly one serverless
+ *     instance acquires the dispatch right; concurrent instances update 0 rows and exit.
+ *  2. Partial unique index on `ops_events ((detail->>'reservation_id')) WHERE action = 'payment.approved_notified'`:
+ *     Database-level unique constraint prevents duplicate audit/dispatch records.
+ *  3. In-process Set guard avoids redundant local invocations within the same Node isolate.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { isAdminConfigured } from "@/lib/supabase-admin";
@@ -15,7 +18,6 @@ import { sendLineFlex, buildPaymentConfirmedFlex } from "@/lib/line-notify";
 import { sendLineFlexMessage } from "@/lib/line";
 import { buildGuestPaymentApprovedFlex } from "@/lib/line-cards";
 import { signLookupToken } from "@/lib/lookup-token";
-import { logOps } from "@/lib/ops-log";
 
 function defaultClient(): SupabaseClient {
   return createClient(
@@ -34,11 +36,24 @@ export type NotifyPaymentApprovedResult = {
   error?: string;
 };
 
+type ReservationNotifyTarget = {
+  id: string;
+  customer_name: string;
+  booking_code: string;
+  start_time: string;
+  end_time: string;
+  deposit_payment_note: string | null;
+  line_user_id: string | null;
+  is_deposit_paid: boolean;
+  deposit_approved_notified_at?: string | null;
+};
+
 export async function notifyPaymentApproved(
   reservationId: string,
   opts: {
     actor?: string;
     reviewNote?: string | null;
+    force?: boolean;
     client?: SupabaseClient;
   } = {}
 ): Promise<NotifyPaymentApprovedResult> {
@@ -46,8 +61,8 @@ export async function notifyPaymentApproved(
     return { ok: false, error: "invalid_reservation_id" };
   }
 
-  // 1. In-memory lock to prevent concurrent races in the same isolate
-  if (inFlightSends.has(reservationId)) {
+  // 1. In-memory lock to prevent concurrent races within the same Node isolate
+  if (!opts.force && inFlightSends.has(reservationId)) {
     return { ok: true, already_notified: true };
   }
   inFlightSends.add(reservationId);
@@ -58,39 +73,97 @@ export async function notifyPaymentApproved(
     }
 
     const client = opts.client ?? defaultClient();
+    const nowIso = new Date().toISOString();
+    let r: ReservationNotifyTarget | null = null;
 
-    // 2. Persistent idempotency check in ops_events
-    try {
-      const { data: existingEvent, error: checkErr } = await client
-        .from("ops_events")
-        .select("id")
-        .eq("domain", "payment")
-        .eq("action", "payment.approved_notified")
-        .contains("detail", { reservation_id: reservationId })
-        .limit(1)
+    // 2. DB-level atomic claim: conditional UPDATE with PostgreSQL row lock
+    if (!opts.force) {
+      try {
+        const claimRes = await client
+          .from("reservations")
+          .update({ deposit_approved_notified_at: nowIso })
+          .eq("id", reservationId)
+          .eq("is_deposit_paid", true)
+          .is("deposit_approved_notified_at", null)
+          .select(
+            "id, customer_name, booking_code, start_time, end_time, deposit_payment_note, line_user_id, is_deposit_paid, deposit_approved_notified_at"
+          )
+          .maybeSingle();
+
+        if (!claimRes.error) {
+          if (claimRes.data) {
+            // Atomic claim succeeded! Only this instance acquired the dispatch lock.
+            r = claimRes.data as ReservationNotifyTarget;
+          } else {
+            // Row not updated: verify whether already notified, unpaid, or missing
+            const { data: existing, error: fetchErr } = await client
+              .from("reservations")
+              .select("id, is_deposit_paid, deposit_approved_notified_at")
+              .eq("id", reservationId)
+              .maybeSingle();
+
+            if (fetchErr || !existing) {
+              return { ok: false, error: "reservation_not_found" };
+            }
+            if (!existing.is_deposit_paid) {
+              return { ok: false, error: "deposit_not_paid" };
+            }
+            if (existing.deposit_approved_notified_at) {
+              return { ok: true, already_notified: true };
+            }
+            return { ok: true, already_notified: true };
+          }
+        }
+      } catch {
+        // Fallback to ops_events check if column not yet applied
+      }
+    }
+
+    // 3. Fallback when deposit_approved_notified_at column is pending or force=true
+    if (!r) {
+      const { data: fetched, error: resErr } = await client
+        .from("reservations")
+        .select(
+          "id, customer_name, booking_code, start_time, end_time, deposit_payment_note, line_user_id, is_deposit_paid"
+        )
+        .eq("id", reservationId)
         .maybeSingle();
 
-      if (!checkErr && existingEvent) {
-        return { ok: true, already_notified: true };
+      if (resErr || !fetched) {
+        return { ok: false, error: "reservation_not_found" };
       }
-    } catch {
-      // If ops_events check encounters issue, fail-open to query reservation
-    }
+      if (!fetched.is_deposit_paid) {
+        return { ok: false, error: "deposit_not_paid" };
+      }
 
-    // 3. Load reservation
-    const { data: r, error: resErr } = await client
-      .from("reservations")
-      .select("id, customer_name, booking_code, start_time, end_time, deposit_payment_note, line_user_id, is_deposit_paid")
-      .eq("id", reservationId)
-      .maybeSingle();
+      if (!opts.force) {
+        try {
+          const { data: existingEvent, error: checkErr } = await client
+            .from("ops_events")
+            .select("id")
+            .eq("domain", "payment")
+            .eq("action", "payment.approved_notified")
+            .contains("detail", { reservation_id: reservationId })
+            .limit(1)
+            .maybeSingle();
 
-    if (resErr || !r) {
-      return { ok: false, error: "reservation_not_found" };
-    }
+          if (!checkErr && existingEvent) {
+            return { ok: true, already_notified: true };
+          }
+        } catch {
+          // ignore error and proceed
+        }
+      }
 
-    // Must be marked paid
-    if (!r.is_deposit_paid) {
-      return { ok: false, error: "deposit_not_paid" };
+      r = fetched as ReservationNotifyTarget;
+
+      if (opts.force) {
+        // Update stamp if force resend
+        await client
+          .from("reservations")
+          .update({ deposit_approved_notified_at: nowIso })
+          .eq("id", reservationId);
+      }
     }
 
     let groupNotified = false;
@@ -132,16 +205,25 @@ export async function notifyPaymentApproved(
       }
     }
 
-    // 6. Record in ops_events for audit & idempotency
-    logOps("payment", "payment.approved_notified", {
-      reservation_id: reservationId,
-      booking_code: r.booking_code,
-      guest_notified: guestNotified,
-      group_notified: groupNotified,
-      line_user_id: r.line_user_id ?? null,
-      actor: opts.actor ?? "system",
-      sent_at: new Date().toISOString(),
-    });
+    // 6. Record in ops_events for audit & unique constraint protection
+    try {
+      await client.from("ops_events").insert({
+        domain: "payment",
+        action: "payment.approved_notified",
+        detail: {
+          reservation_id: reservationId,
+          booking_code: r.booking_code,
+          guest_notified: guestNotified,
+          group_notified: groupNotified,
+          line_user_id: r.line_user_id ?? null,
+          actor: opts.actor ?? "system",
+          sent_at: nowIso,
+        },
+      });
+    } catch (eventErr) {
+      // If unique constraint error (23505), duplicate was prevented at DB level
+      console.warn("[payment-notify] ops_events insert notice:", eventErr);
+    }
 
     return { ok: true, guest_notified: guestNotified, group_notified: groupNotified };
   } finally {

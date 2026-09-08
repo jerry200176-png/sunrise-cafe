@@ -74,4 +74,13 @@ describe("/api/my-bookings", () => {
     const json = await res.json();
     expect(json.error).toContain("無效");
   });
+
+  it("returns 410 Sunset when GET query contains phone parameter", async () => {
+    const req = new NextRequest("https://test.local/api/my-bookings?phone=0912345678&booking_code=ABC123");
+    const res = await GET(req);
+    expect(res.status).toBe(410);
+    const json = await res.json();
+    expect(json.sunset).toBe(true);
+    expect(json.code).toBe("PHONE_URL_PARAM_RETIRED");
+  });
 });

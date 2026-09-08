@@ -15,7 +15,11 @@ const WRITE_FIELDS = new Set([
   "notes",
 ]);
 
-const DEPOSIT_FIELDS = new Set(["is_deposit_paid", "deposit_payment_note"]);
+const DEPOSIT_FIELDS = new Set([
+  "is_deposit_paid",
+  "deposit_payment_note",
+  "deposit_approved_notified_at",
+]);
 
 export type ReservationPatch = Record<string, unknown>;
 

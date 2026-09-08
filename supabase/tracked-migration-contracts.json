@@ -261,5 +261,15 @@
         "note": "Lifecycle event types and failed-claim retry behavior are applied atomically"
       }
     ]
+  },
+  {
+    "version": "20260908-deposit-approved-notified",
+    "file": "migration-deposit-approved-notified.sql",
+    "critical": true,
+    "evidence": [
+      { "type": "column", "table": "reservations", "name": "deposit_approved_notified_at", "introspect": "rest" },
+      { "type": "index", "name": "idx_reservations_deposit_approved_notified", "introspect": "unsupported", "note": "Partial index on deposit_approved_notified_at" },
+      { "type": "index", "name": "idx_ops_events_payment_approved_unique", "introspect": "unsupported", "note": "Partial unique index on ops_events ((detail->>'reservation_id'))" }
+    ]
   }
 ]

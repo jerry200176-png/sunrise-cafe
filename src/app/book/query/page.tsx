@@ -712,7 +712,7 @@ function BookQueryContent() {
                           href={
                             (item.lookup_token || lookupToken)
                               ? `/api/guest/calendar?token=${encodeURIComponent((item.lookup_token || lookupToken)!)}`
-                              : `/api/guest/calendar?code=${encodeURIComponent(item.booking_code)}&phone=${encodeURIComponent(phone.trim())}`
+                              : `/book/query?code=${encodeURIComponent(item.booking_code)}`
                           }
                           className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100 transition"
                         >

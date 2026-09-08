@@ -45,6 +45,7 @@ export interface Reservation {
   is_deposit_paid?: boolean;
   line_user_id?: string | null;
   deposit_payment_note?: string | null;
+  deposit_approved_notified_at?: string | null;
   review_invited_at?: string | null;
   /** Pending payment_events awaiting staff review */
   pending_payment_reviews?: number;
