@@ -19,6 +19,7 @@ import {
 } from "@/lib/guest-auth";
 import { createClient } from "@supabase/supabase-js";
 import { signAttendanceToken } from "@/lib/attendance-token";
+import { signLookupToken, verifyLookupToken } from "@/lib/lookup-token";
 import { LINE_SITE_URL } from "@/lib/line-flex";
 import { isLinePayConfigured } from "@/lib/line-pay";
 
@@ -71,6 +72,8 @@ export type GuestBookingItem = {
   confirm_attendance_url?: string | null;
   /** Latest payment_events status for guest visibility (null if none / unpaid path) */
   payment_review_status?: "pending_review" | "approved" | "rejected" | null;
+  /** Signed opaque token for safe deep-link lookup & actions without exposing phone */
+  lookup_token?: string | null;
 };
 
 type ReservationRow = {
@@ -125,6 +128,7 @@ async function toGuestBookingItem(r: ReservationRow): Promise<GuestBookingItem> 
       ? `${LINE_SITE_URL}/book/confirm-visit?token=${encodeURIComponent(signAttendanceToken(r.id))}`
       : null,
     payment_review_status: await fetchLatestPaymentReviewStatus(r.id),
+    lookup_token: signLookupToken(r.id),
   };
 }
 
@@ -230,6 +234,57 @@ export async function lookupGuestBookingsByDate(
 
     const items = await Promise.all(rows.map((r) => toGuestBookingItem(r)));
     return { ok: true, items };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "無法查詢";
+    return { ok: false, error: message, status: 500 };
+  }
+}
+
+/**
+ * 1-click lookup via safe signed opaque token.
+ * Authenticates the guest without exposing phone numbers in URL query strings.
+ */
+export async function lookupGuestBookingByToken(
+  token: string
+): Promise<
+  | { ok: true; items: GuestBookingItem[] }
+  | { ok: false; error: string; status: 400 | 404 | 503 | 500 }
+> {
+  if (!token?.trim()) {
+    return { ok: false, error: "請提供查詢 token", status: 400 };
+  }
+
+  const verified = verifyLookupToken(token);
+  if (!verified.ok) {
+    const errorMsg =
+      verified.error === "expired"
+        ? "查詢連結已過期，請使用電話與訂位代號查詢"
+        : "查詢連結無效，請確認連結完整性";
+    return { ok: false, error: errorMsg, status: 400 };
+  }
+
+  if (!isAdminConfigured()) {
+    return { ok: false, error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY", status: 503 };
+  }
+
+  try {
+    const { data: r, error } = await db()
+      .from("reservations")
+      .select("id, booking_code, room_id, start_time, end_time, status, total_price, guest_count, customer_name, is_deposit_paid, created_at, guest_confirmed_at")
+      .eq("id", verified.reservationId)
+      .maybeSingle();
+
+    if (error || !r) {
+      return { ok: false, error: "找不到符合的訂位", status: 404 };
+    }
+
+    const now = new Date().toISOString();
+    if (r.status === "completed" || r.status === "cancelled" || r.end_time < now) {
+      return { ok: true, items: [] };
+    }
+
+    const item = await toGuestBookingItem(r as ReservationRow);
+    return { ok: true, items: [item] };
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法查詢";
     return { ok: false, error: message, status: 500 };

@@ -483,8 +483,9 @@ export default function BookPage() {
         errorBannerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
         return;
       }
-      const code = (data as { booking_code?: string; id?: string })?.booking_code;
+      const code = (data as { booking_code?: string; id?: string; lookup_token?: string })?.booking_code;
       const reservationId = (data as { id?: string })?.id;
+      const lookupToken = (data as { lookup_token?: string })?.lookup_token;
 
       if (code) {
         sessionStorage.setItem("booking_success_phone", phone.trim());
@@ -497,6 +498,7 @@ export default function BookPage() {
         const currentBranch = branches.find((b) => b.id === branchId);
         saveBookingSuccessMeta({
           code,
+          lookupToken,
           createdAt: new Date().toISOString(),
           startTime: selectedStart,
           endTime: endIso,
@@ -531,7 +533,8 @@ export default function BookPage() {
         }
 
         const weekendFlag = isWeekendDate(date) ? "1" : "0";
-        window.location.href = `/book/success?code=${encodeURIComponent(code)}&weekend=${weekendFlag}${lineUserId ? "&line_bound=1" : ""}`;
+        const tokenParam = lookupToken ? `&token=${encodeURIComponent(lookupToken)}` : "";
+        window.location.href = `/book/success?code=${encodeURIComponent(code)}&weekend=${weekendFlag}${lineUserId ? "&line_bound=1" : ""}${tokenParam}`;
       } else {
         setError(t("book.error.noBookingCode"));
       }

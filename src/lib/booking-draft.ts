@@ -33,6 +33,7 @@ export type BookingSuccessMeta = {
   paymentInfo?: string | null;
   linePayUrl?: string | null;
   customerName?: string;
+  lookupToken?: string | null;
 };
 
 const DRAFT_TTL_MS = 6 * 60 * 60 * 1000; // 6h

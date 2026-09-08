@@ -52,10 +52,12 @@ describe("booking-draft", () => {
       branchAddress: "台北市大安區信義路",
       branchPhone: "02-1234-5678",
       paymentInfo: "銀行代碼 004 帳號 123456",
+      lookupToken: "token-abc-xyz",
     });
     const successMeta = loadBookingSuccessMeta();
     expect(successMeta?.code).toBe("ABC123");
     expect(successMeta?.branchAddress).toBe("台北市大安區信義路");
     expect(successMeta?.paymentInfo).toBe("銀行代碼 004 帳號 123456");
+    expect(successMeta?.lookupToken).toBe("token-abc-xyz");
   });
 });

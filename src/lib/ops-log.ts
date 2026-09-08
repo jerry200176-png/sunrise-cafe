@@ -36,6 +36,7 @@ export type OpsLogAction =
   | "admin.waitlist_staff_called"
   | "payment.intent_created"
   | "payment.deposit_confirmed"
+  | "payment.approved_notified"
   | "payment.refund_processed"
   | "stripe.signature_failed"
   | "stripe.payment_intent_succeeded"
