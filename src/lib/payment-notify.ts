@@ -34,7 +34,12 @@
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { isAdminConfigured } from "@/lib/supabase-admin";
-import { sendLineFlex, buildPaymentConfirmedFlex } from "@/lib/line-notify";
+import {
+  sendLineFlex,
+  buildPaymentConfirmedFlex,
+  isLineConfigured,
+  sendLineMessage,
+} from "@/lib/line-notify";
 import { sendLineFlexMessage } from "@/lib/line";
 import { buildGuestPaymentApprovedFlex } from "@/lib/line-cards";
 import { signLookupToken } from "@/lib/lookup-token";
@@ -62,6 +67,25 @@ export function isLineRetryKeyExpired(
   const createdAtMs = new Date(keyCreatedAt).getTime();
   if (isNaN(createdAtMs)) return true;
   return nowMs - createdAtMs >= LINE_RETRY_KEY_MAX_AGE_MS;
+}
+
+export function formatReconciliationRequiredAlert(params: {
+  reservationId: string;
+  bookingCode: string;
+  customerName: string;
+  groupRetryKey: string | null;
+  retryKeyCreatedAt: string | null;
+}): string {
+  return (
+    `⚠️【LINE 訂金通知需人工對帳】\n` +
+    `訂位編號：${params.bookingCode}\n` +
+    `顧客姓名：${params.customerName}\n` +
+    `原因：LINE 24小時重試窗口已過期，可能曾嘗試推播，已停止自動補送以防重複通知。\n` +
+    `請執行對帳確認 LINE OA / 群組推播記錄：\n` +
+    `• 已送出：scripts/reconcile-payment-notification.mjs ${params.reservationId} --mark-sent\n` +
+    `• 確認未送出：scripts/reconcile-payment-notification.mjs ${params.reservationId} --safe-retry\n` +
+    `時間：${new Date().toISOString()}`
+  );
 }
 
 export type NotifyPaymentApprovedResult = {
@@ -225,6 +249,23 @@ export async function notifyPaymentApproved(
           });
         } catch (opsErr) {
           console.warn("[payment-notify] ops_events reconciliation_required insert notice:", opsErr);
+        }
+
+        // Best-effort staff LINE alert through existing staff group push mechanism
+        if (isLineConfigured()) {
+          try {
+            await sendLineMessage(
+              formatReconciliationRequiredAlert({
+                reservationId,
+                bookingCode: existing.booking_code,
+                customerName: existing.customer_name,
+                groupRetryKey: existing.deposit_approved_retry_key ?? null,
+                retryKeyCreatedAt: existing.deposit_approved_retry_key_created_at ?? null,
+              })
+            );
+          } catch (alertErr) {
+            console.warn("[payment-notify] staff LINE alert notice:", alertErr);
+          }
         }
 
         console.warn(
@@ -457,4 +498,235 @@ export async function notifyPaymentApproved(
 /** Reset in-memory lock for testing */
 export function __resetPaymentNotifyInFlightForTests(): void {
   inFlightSends.clear();
+}
+
+export type ReconciliationVerificationResult = {
+  ok: boolean;
+  reservation?: ReservationNotifyTarget;
+  error?: string;
+  reason?: string;
+};
+
+export async function verifyReconciliationRequired(
+  reservationId: string,
+  client: SupabaseClient = defaultClient()
+): Promise<ReconciliationVerificationResult> {
+  if (!reservationId || typeof reservationId !== "string") {
+    return {
+      ok: false,
+      error: "invalid_reservation_id",
+      reason: "Reservation ID must be a non-empty string",
+    };
+  }
+
+  const { data, error: fetchErr } = await client
+    .from("reservations")
+    .select(
+      "id, customer_name, booking_code, start_time, end_time, deposit_payment_note, line_user_id, is_deposit_paid, deposit_approved_notified_at, deposit_approved_claim_at, deposit_approved_retry_key, deposit_approved_guest_retry_key, deposit_approved_retry_key_created_at"
+    )
+    .eq("id", reservationId)
+    .maybeSingle();
+
+  if (fetchErr || !data) {
+    return {
+      ok: false,
+      error: "reservation_not_found",
+      reason: `Reservation ${reservationId} not found in database`,
+    };
+  }
+
+  const reservation = data as ReservationNotifyTarget;
+
+  if (!reservation.is_deposit_paid) {
+    return {
+      ok: false,
+      error: "deposit_not_paid",
+      reason: `Reservation ${reservation.booking_code} deposit is not marked paid`,
+      reservation,
+    };
+  }
+
+  if (reservation.deposit_approved_notified_at) {
+    return {
+      ok: false,
+      error: "already_resolved",
+      reason: `Reservation ${reservation.booking_code} notification is already resolved (notified at ${reservation.deposit_approved_notified_at})`,
+      reservation,
+    };
+  }
+
+  if (!reservation.deposit_approved_retry_key) {
+    return {
+      ok: false,
+      error: "no_prior_retry_key",
+      reason: `Reservation ${reservation.booking_code} has no previous retry key; standard first-send notification path applies`,
+      reservation,
+    };
+  }
+
+  if (!isLineRetryKeyExpired(reservation.deposit_approved_retry_key_created_at)) {
+    return {
+      ok: false,
+      error: "retry_key_still_valid_within_24h",
+      reason: `Reservation ${reservation.booking_code} retry key is still within the 24h retention window; manual reconciliation is not required`,
+      reservation,
+    };
+  }
+
+  return {
+    ok: true,
+    reservation,
+  };
+}
+
+export type ReconcilePaymentNotificationResult = {
+  ok: boolean;
+  method?: "mark_sent" | "safe_retry";
+  reservation_id?: string;
+  booking_code?: string;
+  notified_at?: string | null;
+  notify_result?: NotifyPaymentApprovedResult;
+  error?: string;
+  reason?: string;
+};
+
+export async function reconcilePaymentNotificationMarkSent(
+  reservationId: string,
+  opts: { actor?: string; client?: SupabaseClient } = {}
+): Promise<ReconcilePaymentNotificationResult> {
+  const client = opts.client ?? defaultClient();
+  const verify = await verifyReconciliationRequired(reservationId, client);
+  if (!verify.ok || !verify.reservation) {
+    return {
+      ok: false,
+      method: "mark_sent",
+      error: verify.error || "verification_failed",
+      reason: verify.reason || "Failed verification",
+      reservation_id: reservationId,
+      booking_code: verify.reservation?.booking_code,
+    };
+  }
+
+  const nowIso = new Date().toISOString();
+  const reservation = verify.reservation;
+
+  // Mark canonical notification state resolved without sending LINE
+  const { error: updateErr } = await client
+    .from("reservations")
+    .update({
+      deposit_approved_notified_at: nowIso,
+      deposit_approved_claim_at: null,
+    })
+    .eq("id", reservationId)
+    .is("deposit_approved_notified_at", null);
+
+  if (updateErr) {
+    return {
+      ok: false,
+      method: "mark_sent",
+      error: "db_update_failed",
+      reason: updateErr.message,
+      reservation_id: reservationId,
+      booking_code: reservation.booking_code,
+    };
+  }
+
+  // Record audit event in ops_events
+  try {
+    await client.from("ops_events").insert({
+      domain: "payment",
+      action: "payment.approved_notification_reconciled",
+      detail: {
+        reservation_id: reservationId,
+        booking_code: reservation.booking_code,
+        method: "mark_sent",
+        actor: opts.actor ?? "operator_cli",
+        reconciled_at: nowIso,
+        prior_retry_key: reservation.deposit_approved_retry_key,
+        prior_retry_key_created_at: reservation.deposit_approved_retry_key_created_at,
+        note: "Operator verified prior LINE delivery; marked resolved without sending LINE",
+      },
+    });
+  } catch (eventErr) {
+    console.warn("[payment-notify-reconcile] ops_events insert notice:", eventErr);
+  }
+
+  return {
+    ok: true,
+    method: "mark_sent",
+    reservation_id: reservationId,
+    booking_code: reservation.booking_code,
+    notified_at: nowIso,
+  };
+}
+
+export async function reconcilePaymentNotificationSafeRetry(
+  reservationId: string,
+  opts: { actor?: string; client?: SupabaseClient } = {}
+): Promise<ReconcilePaymentNotificationResult> {
+  const client = opts.client ?? defaultClient();
+  const verify = await verifyReconciliationRequired(reservationId, client);
+  if (!verify.ok || !verify.reservation) {
+    return {
+      ok: false,
+      method: "safe_retry",
+      error: verify.error || "verification_failed",
+      reason: verify.reason || "Failed verification",
+      reservation_id: reservationId,
+      booking_code: verify.reservation?.booking_code,
+    };
+  }
+
+  const reservation = verify.reservation;
+
+  // Invoke existing application notification path with explicit evidenceNoProviderAttempt=true.
+  // Note: Does NOT manually null/reset retry-key fields in DB to bypass idempotency!
+  const notifyResult = await notifyPaymentApproved(reservationId, {
+    actor: opts.actor ?? "operator_cli",
+    evidenceNoProviderAttempt: true,
+    client,
+  });
+
+  const nowIso = new Date().toISOString();
+
+  // Record audit event in ops_events
+  try {
+    await client.from("ops_events").insert({
+      domain: "payment",
+      action: "payment.approved_notification_reconciled",
+      detail: {
+        reservation_id: reservationId,
+        booking_code: reservation.booking_code,
+        method: "safe_retry",
+        actor: opts.actor ?? "operator_cli",
+        reconciled_at: nowIso,
+        prior_retry_key: reservation.deposit_approved_retry_key,
+        prior_retry_key_created_at: reservation.deposit_approved_retry_key_created_at,
+        notify_result: notifyResult,
+        note: "Operator confirmed no prior provider delivery; dispatched with safe fresh retry key",
+      },
+    });
+  } catch (eventErr) {
+    console.warn("[payment-notify-reconcile] ops_events insert notice:", eventErr);
+  }
+
+  if (!notifyResult.ok) {
+    return {
+      ok: false,
+      method: "safe_retry",
+      error: notifyResult.error || "notify_dispatch_failed",
+      reason: notifyResult.reason || "Dispatch failed during safe retry",
+      reservation_id: reservationId,
+      booking_code: reservation.booking_code,
+      notify_result: notifyResult,
+    };
+  }
+
+  return {
+    ok: true,
+    method: "safe_retry",
+    reservation_id: reservationId,
+    booking_code: reservation.booking_code,
+    notify_result: notifyResult,
+  };
 }
