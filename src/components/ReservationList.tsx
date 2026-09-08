@@ -11,6 +11,7 @@ import { buildPaymentMessage, type BranchPaymentConfig } from "@/lib/payment-mes
 import type { Reservation, ReservationStatus, Room } from "@/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { PromptDialog } from "@/components/PromptDialog";
+import { DepositStatusControl } from "@/components/admin/DepositStatusControl";
 import { BatchDepositMessageWorkbench } from "@/components/BatchDepositMessageWorkbench";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 import {
@@ -523,14 +524,18 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     const prev = reservations;
     setReservations((list) =>
       list.map((r) =>
-        r.id === id ? { ...r, is_deposit_paid, deposit_payment_note: note ?? r.deposit_payment_note } : r
+        r.id === id ? { ...r, is_deposit_paid, deposit_payment_note: note !== undefined ? note : r.deposit_payment_note } : r
       )
     );
     try {
+      const payload: { is_deposit_paid: boolean; deposit_payment_note?: string | null } = { is_deposit_paid };
+      if (note !== undefined) {
+        payload.deposit_payment_note = note;
+      }
       const res = await fetch(`${RESERVATIONS_API}/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ is_deposit_paid, deposit_payment_note: note ?? null }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         setReservations(prev);
@@ -539,9 +544,35 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         return;
       }
       fetchReservations(false);
+      showToast(is_deposit_paid ? "已核准訂金並記錄" : "已改為未付訂金", "success");
     } catch {
       setReservations(prev);
       showToast("連線失敗，訂金狀態未更新", "error");
+    }
+  };
+
+  const updateDepositNote = async (id: string, note: string | null) => {
+    const prev = reservations;
+    setReservations((list) =>
+      list.map((r) => (r.id === id ? { ...r, deposit_payment_note: note } : r))
+    );
+    try {
+      const res = await fetch(`${RESERVATIONS_API}/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deposit_payment_note: note }),
+      });
+      if (!res.ok) {
+        setReservations(prev);
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        showToast(data.error ?? "備註更新失敗", "error");
+        return;
+      }
+      fetchReservations(false);
+      showToast("已更新付款備註", "success");
+    } catch {
+      setReservations(prev);
+      showToast("連線失敗，備註未更新", "error");
     }
   };
 
@@ -847,7 +878,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                   {r.total_price != null && (
                     <span className="font-medium text-gray-800">${Number(r.total_price)}</span>
                   )}
-                  {isDepositRequired(reservationDateKey(r.start_time)) && (
+                  {activeTab === "history" && isDepositRequired(reservationDateKey(r.start_time)) && (
                     r.is_deposit_paid ? (
                       <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-800 border border-green-200">
                         ✅ 已付訂金{r.deposit_payment_note ? `（${r.deposit_payment_note}）` : ""}
@@ -858,7 +889,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                       </span>
                     )
                   )}
-                  {(r.pending_payment_reviews ?? 0) > 0 && (
+                  {activeTab === "history" && (r.pending_payment_reviews ?? 0) > 0 && (
                     <a
                       href="/admin/payments"
                       className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-medium text-violet-800 border border-violet-200 hover:bg-violet-200"
@@ -893,6 +924,20 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                   <p className="text-sm text-gray-500 italic">備註：{r.notes}</p>
                 )}
 
+                {/* Structured Deposit Control */}
+                {activeTab !== "history" && isDepositRequired(reservationDateKey(r.start_time)) && (
+                  <div className="pt-1.5">
+                    <DepositStatusControl
+                      reservation={r}
+                      isDepositRequired={true}
+                      onUpdateDepositStatus={updateDepositStatus}
+                      onUpdateDepositNote={updateDepositNote}
+                      onOpenPrompt={openPrompt}
+                      onOpenConfirm={openConfirm}
+                    />
+                  </div>
+                )}
+
                 {/* Row 4: Actions */}
                 {activeTab === "pending" ? (
                   <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -921,24 +966,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     >
                       📝 訊息工作台
                     </button>
-                    {isDepositRequired(reservationDateKey(r.start_time)) && !r.is_deposit_paid && (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const note = await openPrompt(
-                            "標記已付訂金",
-                            "請輸入付款備註（選填）",
-                            "例如：末五碼 12345、LINE Pay 截圖已收"
-                          );
-                          if (note === null) return;
-                          updateDepositStatus(r.id, true, note || null);
-                        }}
-                        className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
-                      >
-                        ✅ 標記已付訂金
-                      </button>
-                    )}
-                    {isDepositRequired(reservationDateKey(r.start_time)) && r.total_price != null && (
+                    {isDepositRequired(reservationDateKey(r.start_time)) && r.total_price != null && !r.is_deposit_paid && (
                       <button
                         type="button"
                         onClick={async () => {
@@ -1026,23 +1054,6 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                         className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
                       >
                         💵 已結帳
-                      </button>
-                    )}
-                    {isDepositRequired(reservationDateKey(r.start_time)) && !r.is_deposit_paid && (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const note = await openPrompt(
-                            "標記已付訂金",
-                            "請輸入付款備註（選填）",
-                            "例如：末五碼 12345、LINE Pay 截圖已收"
-                          );
-                          if (note === null) return;
-                          updateDepositStatus(r.id, true, note || null);
-                        }}
-                        className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
-                      >
-                        ✅ 標記訂金
                       </button>
                     )}
                     {isDepositRequired(reservationDateKey(r.start_time)) && r.total_price != null && !r.is_deposit_paid && (

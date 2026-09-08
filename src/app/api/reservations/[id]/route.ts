@@ -71,6 +71,8 @@ export async function PATCH(
     if (body.is_deposit_paid !== undefined) patch.is_deposit_paid = Boolean(body.is_deposit_paid);
     if (body.deposit_payment_note !== undefined)
       patch.deposit_payment_note = body.deposit_payment_note == null || body.deposit_payment_note === "" ? null : String(body.deposit_payment_note);
+    if (body.deposit_approved_notified_at !== undefined)
+      patch.deposit_approved_notified_at = body.deposit_approved_notified_at == null || body.deposit_approved_notified_at === "" ? null : String(body.deposit_approved_notified_at);
 
     if (Object.keys(patch).length === 0) {
       return NextResponse.json({ error: "未提供可更新欄位" }, { status: 400 });

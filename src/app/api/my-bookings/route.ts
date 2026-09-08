@@ -58,13 +58,25 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/** @deprecated Use POST — kept for backward compatibility. */
+/**
+ * GET /api/my-bookings?token=<signed_token> (preferred, zero PII in URL)
+ * Legacy GET with ?phone= is permanently retired (HTTP 410 Sunset).
+ * Use POST /api/my-bookings for phone / booking_code / date lookup in body.
+ */
 export async function GET(request: NextRequest) {
-  const token = request.nextUrl.searchParams.get("token")?.trim() ?? "";
-  const phone = request.nextUrl.searchParams.get("phone")?.trim() ?? "";
-  const bookingCode = request.nextUrl.searchParams.get("booking_code")?.trim() ?? "";
-  const bookingDate = request.nextUrl.searchParams.get("booking_date")?.trim() ?? "";
+  // Explicit Sunset: Reject any phone number in URL query string
+  if (request.nextUrl.searchParams.has("phone")) {
+    return NextResponse.json(
+      {
+        error: "為保護個人隱私，GET 查詢已終止支援網址電話號碼參數。請改用 POST 請求（電話放置於 request body）或使用安全 token 查詢。",
+        sunset: true,
+        code: "PHONE_URL_PARAM_RETIRED",
+      },
+      { status: 410 }
+    );
+  }
 
+  const token = request.nextUrl.searchParams.get("token")?.trim() ?? "";
   if (token) {
     const limited = await enforceGuestLookupLimit(request, "");
     if (limited) return limited;
@@ -75,24 +87,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(result.items);
   }
 
-  if (bookingCode) {
-    const result = await lookupGuestBookings(phone, bookingCode);
-    if (!result.ok) {
-      return NextResponse.json({ error: result.error }, { status: result.status });
-    }
-    return NextResponse.json(result.items);
-  }
-
-  if (bookingDate) {
-    const result = await lookupGuestBookingsByDate(phone, bookingDate);
-    if (!result.ok) {
-      return NextResponse.json({ error: result.error }, { status: result.status });
-    }
-    return NextResponse.json(result.items);
-  }
-
   return NextResponse.json(
-    { error: "請提供訂位代號，或使用電話與訂位日期找回" },
+    { error: "請使用安全的訂位查詢 token，或改以 POST 傳送查詢資料" },
     { status: 400 }
   );
 }

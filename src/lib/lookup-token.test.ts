@@ -78,4 +78,31 @@ describe("lookup-token", () => {
     // Attendance token has 2 parts, lookup token has 3 parts
     expect(verifyLookupToken(attendanceToken).ok).toBe(false);
   });
+
+  describe("key separation", () => {
+    it("prioritizes dedicated GUEST_LOOKUP_SECRET over SESSION_SECRET", () => {
+      process.env.GUEST_LOOKUP_SECRET = "dedicated-lookup-secret-abc";
+      process.env.SESSION_SECRET = "general-session-secret-xyz";
+
+      const token = signLookupToken("res-dedicated-1");
+      expect(verifyLookupToken(token).ok).toBe(true);
+
+      // Verifying with only SESSION_SECRET fails (proves GUEST_LOOKUP_SECRET was used)
+      delete process.env.GUEST_LOOKUP_SECRET;
+      expect(verifyLookupToken(token).ok).toBe(false);
+    });
+
+    it("never reuses or falls back to SUPABASE_SERVICE_ROLE_KEY", () => {
+      delete process.env.GUEST_LOOKUP_SECRET;
+      delete process.env.SESSION_SECRET;
+      delete process.env.ADMIN_PASSWORD;
+      process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-admin-super-secret";
+
+      const token = signLookupToken("res-isolated-1");
+      // Changing SUPABASE_SERVICE_ROLE_KEY does not alter the signature
+      process.env.SUPABASE_SERVICE_ROLE_KEY = "different-service-role-key";
+      const result = verifyLookupToken(token);
+      expect(result.ok).toBe(true);
+    });
+  });
 });

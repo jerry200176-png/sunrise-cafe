@@ -55,8 +55,9 @@ function makeIcsResponse(data: ReservationWithRoom) {
 }
 
 /**
- * GET /api/guest/calendar.ics?token=<signed_token> (preferred, zero PII in URL)
- * GET /api/guest/calendar.ics?code=ABC123&phone=09xxxxxxxx (legacy, protected against enumeration)
+ * GET /api/guest/calendar?token=<signed_token> (zero PII in URL)
+ * Legacy GET with ?phone= is permanently retired (HTTP 410 Sunset).
+ * POST /api/guest/calendar supports body-based retrieval without URL PII.
  */
 export async function GET(request: NextRequest) {
   if (!isAdminConfigured()) {
@@ -64,6 +65,18 @@ export async function GET(request: NextRequest) {
   }
   const { success } = await rateLimit(getClientIp(request), "guestLookup");
   if (!success) return NextResponse.json({ error: "Too Many Requests" }, { status: 429 });
+
+  // Explicit Sunset: Reject any phone number in URL query string
+  if (request.nextUrl.searchParams.has("phone")) {
+    return NextResponse.json(
+      {
+        error: "為保護隱私，日曆下載已終止於網址中帶入電話號碼。請改用訂位專屬安全 token 連結或前往查詢頁面下載。",
+        sunset: true,
+        code: "PHONE_URL_PARAM_RETIRED",
+      },
+      { status: 410 }
+    );
+  }
 
   const token = request.nextUrl.searchParams.get("token")?.trim() ?? "";
   if (token) {
@@ -90,27 +103,79 @@ export async function GET(request: NextRequest) {
     return makeIcsResponse(data as ReservationWithRoom);
   }
 
-  const code = request.nextUrl.searchParams.get("code")?.trim().toUpperCase() ?? "";
-  const phone = request.nextUrl.searchParams.get("phone")?.trim() ?? "";
-  if (!code || code.length < 4 || !phone) {
-    return NextResponse.json({ error: "請提供訂位代號與電話，或使用查詢 token" }, { status: 400 });
-  }
+  return NextResponse.json(
+    { error: "請使用安全的訂位查詢 token 下載日曆，或透過查詢頁面取得檔案" },
+    { status: 400 }
+  );
+}
 
-  const { data, error } = await db()
-    .from("reservations")
-    .select(
-      "booking_code, phone, customer_name, start_time, end_time, status, room:rooms(name, branch:branches(name, display_name))"
-    )
-    .eq("booking_code", code)
-    .maybeSingle();
-
-  // Unified 404 response eliminates enumeration oracle (does not leak whether code exists or phone mismatched)
-  if (error || !data || !phonesMatch(String(data.phone), normalizePhone(phone))) {
-    return NextResponse.json({ error: "找不到符合的訂位，請確認電話與訂位代號" }, { status: 404 });
+/**
+ * POST /api/guest/calendar
+ * Accepts credentials in request body (zero URL PII).
+ */
+export async function POST(request: NextRequest) {
+  if (!isAdminConfigured()) {
+    return NextResponse.json({ error: "後端未設定" }, { status: 503 });
   }
-  if (data.status === "cancelled") {
-    return NextResponse.json({ error: "此訂位已取消" }, { status: 410 });
-  }
+  const { success } = await rateLimit(getClientIp(request), "guestLookup");
+  if (!success) return NextResponse.json({ error: "Too Many Requests" }, { status: 429 });
 
-  return makeIcsResponse(data as ReservationWithRoom);
+  try {
+    const body = (await request.json().catch(() => ({}))) as {
+      token?: string;
+      code?: string;
+      booking_code?: string;
+      phone?: string;
+    };
+
+    const token = body.token?.trim() ?? "";
+    if (token) {
+      const verified = verifyLookupToken(token);
+      if (!verified.ok) {
+        return NextResponse.json({ error: "連結無效或已過期" }, { status: 400 });
+      }
+
+      const { data, error } = await db()
+        .from("reservations")
+        .select(
+          "booking_code, phone, customer_name, start_time, end_time, status, room:rooms(name, branch:branches(name, display_name))"
+        )
+        .eq("id", verified.reservationId)
+        .maybeSingle();
+
+      if (error || !data) {
+        return NextResponse.json({ error: "找不到訂位" }, { status: 404 });
+      }
+      if (data.status === "cancelled") {
+        return NextResponse.json({ error: "此訂位已取消" }, { status: 410 });
+      }
+
+      return makeIcsResponse(data as ReservationWithRoom);
+    }
+
+    const code = (body.code ?? body.booking_code)?.trim().toUpperCase() ?? "";
+    const phone = body.phone?.trim() ?? "";
+    if (!code || code.length < 4 || !phone) {
+      return NextResponse.json({ error: "請提供訂位代號與電話，或使用查詢 token" }, { status: 400 });
+    }
+
+    const { data, error } = await db()
+      .from("reservations")
+      .select(
+        "booking_code, phone, customer_name, start_time, end_time, status, room:rooms(name, branch:branches(name, display_name))"
+      )
+      .eq("booking_code", code)
+      .maybeSingle();
+
+    if (error || !data || !phonesMatch(String(data.phone), normalizePhone(phone))) {
+      return NextResponse.json({ error: "找不到符合的訂位，請確認電話與訂位代號" }, { status: 404 });
+    }
+    if (data.status === "cancelled") {
+      return NextResponse.json({ error: "此訂位已取消" }, { status: 410 });
+    }
+
+    return makeIcsResponse(data as ReservationWithRoom);
+  } catch {
+    return NextResponse.json({ error: "無效的請求" }, { status: 400 });
+  }
 }

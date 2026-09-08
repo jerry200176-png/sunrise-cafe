@@ -345,13 +345,9 @@ function SuccessContent() {
                   {t("calendar.google")}
                 </a>
               )}
-              {(effectiveToken || bindPhone.trim()) && (
+              {effectiveToken && (
                 <a
-                  href={
-                    effectiveToken
-                      ? `/api/guest/calendar?token=${encodeURIComponent(effectiveToken)}`
-                      : `/api/guest/calendar?code=${encodeURIComponent(code)}&phone=${encodeURIComponent(bindPhone.trim())}`
-                  }
+                  href={`/api/guest/calendar?token=${encodeURIComponent(effectiveToken)}`}
                   className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2.5 text-sm font-semibold text-amber-950 hover:bg-amber-50 transition"
                 >
                   <Calendar className="h-4 w-4" />
