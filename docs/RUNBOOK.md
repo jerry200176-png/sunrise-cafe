@@ -235,8 +235,14 @@ curl -s https://sunrise-cafe-six.vercel.app/api/admin/payments/migration-status 
 
 | 查證結果 | 決策 | 執行指令 | 系統行為 |
 |---|---|---|---|
-| LINE OA 或群組**已有**送達紀錄 | 標記已送達，不再補送 | `node scripts/reconcile-payment-notification.mjs <reservation_id> --mark-sent` | 驗證待對帳狀態，原子更新 `deposit_approved_notified_at`，不呼叫 LINE API，寫入 `ops_events` 審計日誌。 |
-| LINE OA 與群組**皆無**任何送達紀錄 | 確認未送出，安全補送 | `node scripts/reconcile-payment-notification.mjs <reservation_id> --safe-retry` | 驗證待對帳狀態，以 `evidenceNoProviderAttempt=true` 調用既有通知路徑，產生安全全新 retry key 派送推播，寫入 `ops_events` 審計日誌。 |
+| LINE OA 或群組**已有**送達紀錄 | 標記已送達，不再補送 | `node scripts/reconcile-payment-notification.mjs <reservation_id> --mark-sent` | 驗證待對帳狀態，原子更新 `deposit_approved_notified_at`，不呼叫 LINE API，寫入 `ops_events` 審計日誌（記錄 operator、timestamp、reservation_id、evidence_checked、prior_retry_identity、outcome）。 |
+| LINE OA 與群組**皆無**任何送達紀錄 | 操作員授權安全補送 | `node scripts/reconcile-payment-notification.mjs <reservation_id> --safe-retry` | 驗證待對帳狀態，以明確操作員授權 `operatorConfirmedSafeRetry=true` 調用既有通知路徑，產生全新 retry key 派送推播，寫入 `ops_events` 完整審計日誌。 |
+
+### 查證語意與審計原則（Audit Contract）
+
+- **不代表「證明未曾呼叫 provider」**：LINE OA 與群組查無可見訊息，並不等同於證明 LINE Messaging API 從未接收過先前的 provider request（可能因推播中斷、或未成功渲染至手機端）。`--safe-retry` 代表的是操作員在查驗群組與 OA 紀錄後進行的**明確營運補送授權（operatorConfirmedSafeRetry）**，而非對 provider attempt 之絕對否定證明。
+- **全新 Retry Key 產生限制**：除首度發送外，>24h 過期且曾有推播可能之訂位，**僅能透過此一人工對帳授權路徑產生新 key**；系統自動排程嚴格維持 fail-closed 停止重試。
+- **完整的 ops_events 審計追蹤**：每次執行皆完整記錄 `actor`（操作員帳號/識別）、`timestamp`、`reservation_id`、`booking_code`、`reconciliation_reason`、`evidence_checked`（查證事證說明）、`prior_retry_identity`（先前金鑰識別與建立時間）、以及 `resolution_outcome`（最終執行結果與新金鑰）。
 
 *註：指令支援 `--dry-run` 供事前檢查狀態，亦會 fail-closed 拒絕處理非待對帳（如未付訂、已標記完成、或仍處於 24 小時窗口內）的訂位。*
 

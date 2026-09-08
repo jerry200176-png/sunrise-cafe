@@ -562,9 +562,9 @@ describe("payment-notify", () => {
     );
   });
 
-  it("regression: safe fresh-key creation after >24h when explicit evidence proves no provider attempt", async () => {
-    // Scenario: Key was allocated in DB >24h ago, but explicit audit evidence confirms
-    // no provider request was ever attempted for that key. Minting a fresh key is safe.
+  it("regression: safe fresh-key creation after >24h when operator explicitly authorizes safe retry", async () => {
+    // Scenario: Key was allocated in DB >24h ago. Operator has performed reconciliation inspection
+    // and explicitly authorized safe retry (operatorConfirmedSafeRetry). Minting a fresh key is permitted.
     const beyond24hIso = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
     const oldNeverAttemptedKey = "00000000-0000-4000-8000-000000000095";
 
@@ -582,7 +582,7 @@ describe("payment-notify", () => {
 
     const result = await notifyPaymentApproved("res-123", {
       client: mockClient,
-      evidenceNoProviderAttempt: true,
+      operatorConfirmedSafeRetry: true,
     });
 
     expect(result.ok).toBe(true);
@@ -779,10 +779,20 @@ describe("payment-notify", () => {
       const reconcileEvent = opsEvents.find((e) => e.action === "payment.approved_notification_reconciled");
       expect(reconcileEvent).toBeDefined();
       expect(reconcileEvent?.detail).toMatchObject({
+        actor: "test_operator",
+        timestamp: expect.any(String),
         reservation_id: "res-123",
         booking_code: "XYZ789",
         method: "mark_sent",
-        actor: "test_operator",
+        authorization: "operator_confirmed_mark_sent",
+        reconciliation_reason: expect.any(String),
+        evidence_checked: expect.any(String),
+        prior_retry_identity: {
+          group_retry_key: "key-123",
+        },
+        resolution_outcome: {
+          outcome: "marked_resolved_without_resending",
+        },
       });
 
       // Idempotency: calling again fails closed because already resolved
@@ -793,7 +803,7 @@ describe("payment-notify", () => {
       expect(repeatResult.error).toBe("already_resolved");
     });
 
-    it("reconcilePaymentNotificationSafeRetry invokes canonical notification path with evidenceNoProviderAttempt=true", async () => {
+    it("reconcilePaymentNotificationSafeRetry invokes canonical notification path with operatorConfirmedSafeRetry authorization", async () => {
       const beyond24hIso = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
       const mockClient = createFakeSupabase({
         ...defaultRow,
@@ -835,10 +845,21 @@ describe("payment-notify", () => {
       const reconcileEvent = opsEvents.find((e) => e.action === "payment.approved_notification_reconciled");
       expect(reconcileEvent).toBeDefined();
       expect(reconcileEvent?.detail).toMatchObject({
+        actor: "test_operator",
+        timestamp: expect.any(String),
         reservation_id: "res-123",
         booking_code: "XYZ789",
         method: "safe_retry",
-        actor: "test_operator",
+        authorization: "operator_confirmed_safe_retry",
+        reconciliation_reason: expect.any(String),
+        evidence_checked: expect.any(String),
+        prior_retry_identity: {
+          group_retry_key: "old-key-123",
+        },
+        resolution_outcome: {
+          outcome: "authorized_retry_accepted",
+          success: true,
+        },
       });
 
       // Subsequent attempt fails closed because already resolved

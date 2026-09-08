@@ -21,7 +21,12 @@
  *     after 24 hours, if any provider request with the previous key may have been attempted/accepted,
  *     that state is ambiguous. Automatic delivery is halted and the system enters an explicit
  *     `reconciliation_required` state to prevent duplicate delivery. Fresh keys are created ONLY when
- *     evidence proves no provider request was ever attempted for that logical notification.
+ *     either:
+ *     (a) no retry key ever existed (first logical notification), OR
+ *     (b) an operator explicitly authorizes a safe retry following reconciliation inspection
+ *         (via `operatorConfirmedSafeRetry` / `reconciliationApprovedRetry`). Note that human
+ *         inspection of LINE OA/staff group does NOT prove that no provider request occurred;
+ *         rather, it represents deliberate operator authorization to mint a fresh key and proceed.
  *  5. Accepted by LINE Platform contract:
  *     `deposit_approved_notified_at` is stamped ONLY when LINE push is confirmed accepted by LINE Platform
  *     (HTTP 200 or 409). Note that per LINE API documentation, HTTP 2xx and 409+x-line-accepted-request-id
@@ -117,15 +122,18 @@ type ReservationNotifyTarget = {
   deposit_approved_retry_key_created_at?: string | null;
 };
 
+export type NotifyPaymentApprovedOptions = {
+  actor?: string;
+  reviewNote?: string | null;
+  force?: boolean;
+  operatorConfirmedSafeRetry?: boolean;
+  reconciliationApprovedRetry?: boolean;
+  client?: SupabaseClient;
+};
+
 export async function notifyPaymentApproved(
   reservationId: string,
-  opts: {
-    actor?: string;
-    reviewNote?: string | null;
-    force?: boolean;
-    evidenceNoProviderAttempt?: boolean;
-    client?: SupabaseClient;
-  } = {}
+  opts: NotifyPaymentApprovedOptions = {}
 ): Promise<NotifyPaymentApprovedResult> {
   if (!reservationId || typeof reservationId !== "string") {
     return { ok: false, error: "invalid_reservation_id" };
@@ -139,6 +147,9 @@ export async function notifyPaymentApproved(
 
   const client = opts.client ?? defaultClient();
   const nowIso = new Date().toISOString();
+  const isAuthorizedReconciliationRetry = Boolean(
+    opts.operatorConfirmedSafeRetry || opts.reconciliationApprovedRetry
+  );
 
   try {
     if (!isAdminConfigured()) {
@@ -231,7 +242,7 @@ export async function notifyPaymentApproved(
       // Key exists but is expired (>24h).
       // If any provider request with the previous key may have been attempted/accepted:
       // that state is ambiguous. Automatic delivery must stop and enter reconciliation_required / manual-review.
-      if (!opts.evidenceNoProviderAttempt) {
+      if (!isAuthorizedReconciliationRetry) {
         // Log warning and record reconciliation_required event in ops_events
         try {
           await client.from("ops_events").insert({
@@ -283,8 +294,10 @@ export async function notifyPaymentApproved(
         };
       }
 
-      // Evidence proves no provider request was ever attempted for this logical notification.
-      // Safe to mint fresh stable UUIDs.
+      // Explicit operator reconciliation authorization provided (operatorConfirmedSafeRetry / reconciliationApprovedRetry).
+      // A new retry key may only be minted through this explicit reconciliation authorization path.
+      // Note: Human inspection of LINE OA / staff group does NOT prove that no provider attempt occurred;
+      // it represents deliberate operator authorization to mint a fresh key and proceed.
       groupRetryKey = crypto.randomUUID();
       guestRetryKey = crypto.randomUUID();
       retryKeyCreatedAt = nowIso;
@@ -359,6 +372,7 @@ export async function notifyPaymentApproved(
           group_retry_key: effectiveGroupKey,
           guest_retry_key: r.line_user_id ? effectiveGuestKey : null,
           line_user_id: r.line_user_id ?? null,
+          is_operator_authorized_retry: isAuthorizedReconciliationRetry ? true : undefined,
           actor: opts.actor ?? "system",
           attempted_at: nowIso,
         },
@@ -590,9 +604,16 @@ export type ReconcilePaymentNotificationResult = {
   reason?: string;
 };
 
+export type ReconcileMarkSentOptions = {
+  actor?: string;
+  evidenceChecked?: string;
+  reason?: string;
+  client?: SupabaseClient;
+};
+
 export async function reconcilePaymentNotificationMarkSent(
   reservationId: string,
-  opts: { actor?: string; client?: SupabaseClient } = {}
+  opts: ReconcileMarkSentOptions = {}
 ): Promise<ReconcilePaymentNotificationResult> {
   const client = opts.client ?? defaultClient();
   const verify = await verifyReconciliationRequired(reservationId, client);
@@ -632,19 +653,34 @@ export async function reconcilePaymentNotificationMarkSent(
   }
 
   // Record audit event in ops_events
+  // Audit contract: actor, timestamp, reservation ID, reconciliation reason/evidence checked,
+  // prior retry identity where available, and resolution outcome.
   try {
     await client.from("ops_events").insert({
       domain: "payment",
       action: "payment.approved_notification_reconciled",
       detail: {
+        actor: opts.actor ?? "operator_cli",
+        timestamp: nowIso,
         reservation_id: reservationId,
         booking_code: reservation.booking_code,
         method: "mark_sent",
-        actor: opts.actor ?? "operator_cli",
-        reconciled_at: nowIso,
+        authorization: "operator_confirmed_mark_sent",
+        reconciliation_reason: opts.reason ?? "retry_key_expired_with_possible_provider_attempt",
+        evidence_checked: opts.evidenceChecked ?? "line_oa_or_staff_group_delivery_confirmed",
+        prior_retry_identity: {
+          group_retry_key: reservation.deposit_approved_retry_key,
+          guest_retry_key: reservation.deposit_approved_guest_retry_key ?? null,
+          created_at: reservation.deposit_approved_retry_key_created_at ?? null,
+        },
+        resolution_outcome: {
+          outcome: "marked_resolved_without_resending",
+          notified_at: nowIso,
+        },
+        // Flat legacy fields for backward-compatible queries
         prior_retry_key: reservation.deposit_approved_retry_key,
         prior_retry_key_created_at: reservation.deposit_approved_retry_key_created_at,
-        note: "Operator verified prior LINE delivery; marked resolved without sending LINE",
+        note: "Operator verified prior LINE delivery in staff group or LINE OA; marked resolved without sending LINE",
       },
     });
   } catch (eventErr) {
@@ -660,9 +696,16 @@ export async function reconcilePaymentNotificationMarkSent(
   };
 }
 
+export type ReconcileSafeRetryOptions = {
+  actor?: string;
+  evidenceChecked?: string;
+  reason?: string;
+  client?: SupabaseClient;
+};
+
 export async function reconcilePaymentNotificationSafeRetry(
   reservationId: string,
-  opts: { actor?: string; client?: SupabaseClient } = {}
+  opts: ReconcileSafeRetryOptions = {}
 ): Promise<ReconcilePaymentNotificationResult> {
   const client = opts.client ?? defaultClient();
   const verify = await verifyReconciliationRequired(reservationId, client);
@@ -679,31 +722,56 @@ export async function reconcilePaymentNotificationSafeRetry(
 
   const reservation = verify.reservation;
 
-  // Invoke existing application notification path with explicit evidenceNoProviderAttempt=true.
+  // Invoke existing application notification path with explicit operatorConfirmedSafeRetry=true.
   // Note: Does NOT manually null/reset retry-key fields in DB to bypass idempotency!
+  // Note: Human inspection of LINE OA/staff group does NOT prove that no provider attempt occurred;
+  // it represents deliberate operator authorization to mint a fresh key and proceed.
   const notifyResult = await notifyPaymentApproved(reservationId, {
     actor: opts.actor ?? "operator_cli",
-    evidenceNoProviderAttempt: true,
+    operatorConfirmedSafeRetry: true,
     client,
   });
 
   const nowIso = new Date().toISOString();
 
   // Record audit event in ops_events
+  // Audit contract: actor, timestamp, reservation ID, reconciliation reason/evidence checked,
+  // prior retry identity where available, and resolution outcome.
   try {
     await client.from("ops_events").insert({
       domain: "payment",
       action: "payment.approved_notification_reconciled",
       detail: {
+        actor: opts.actor ?? "operator_cli",
+        timestamp: nowIso,
         reservation_id: reservationId,
         booking_code: reservation.booking_code,
         method: "safe_retry",
-        actor: opts.actor ?? "operator_cli",
-        reconciled_at: nowIso,
+        authorization: "operator_confirmed_safe_retry",
+        reconciliation_reason: opts.reason ?? "retry_key_expired_with_possible_provider_attempt",
+        evidence_checked: opts.evidenceChecked ?? "line_oa_and_staff_group_inspected_no_visible_message",
+        prior_retry_identity: {
+          group_retry_key: reservation.deposit_approved_retry_key,
+          guest_retry_key: reservation.deposit_approved_guest_retry_key ?? null,
+          created_at: reservation.deposit_approved_retry_key_created_at ?? null,
+        },
+        resolution_outcome: {
+          outcome: notifyResult.ok ? "authorized_retry_accepted" : "authorized_retry_failed",
+          success: notifyResult.ok,
+          group_notified: notifyResult.group_notified ?? false,
+          guest_notified: notifyResult.guest_notified ?? false,
+          accepted_by_platform: notifyResult.accepted_by_platform ?? false,
+          error: notifyResult.error,
+        },
+        new_retry_identity: {
+          group_retry_key: notifyResult.group_retry_key,
+          guest_retry_key: notifyResult.guest_retry_key,
+        },
+        // Flat legacy fields for backward-compatible queries
         prior_retry_key: reservation.deposit_approved_retry_key,
         prior_retry_key_created_at: reservation.deposit_approved_retry_key_created_at,
         notify_result: notifyResult,
-        note: "Operator confirmed no prior provider delivery; dispatched with safe fresh retry key",
+        note: "Operator authorized safe retry after checking LINE OA and staff group; dispatched with fresh retry key",
       },
     });
   } catch (eventErr) {

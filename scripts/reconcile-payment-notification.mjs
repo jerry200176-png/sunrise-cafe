@@ -10,11 +10,12 @@
  *   node scripts/reconcile-payment-notification.mjs <reservation_id> --dry-run
  *
  * Options:
- *   --mark-sent   Verify reservation is reconciliation-required, mark notified_at resolved without sending LINE
- *   --safe-retry  Verify reconciliation-required, invoke canonical notification path with evidenceNoProviderAttempt=true
- *   --actor       Operator name or identifier for ops_events audit (default: operator_cli)
- *   --dry-run     Inspect reservation state and check if reconciliation is required without modifying DB
- *   -h, --help    Show this help message
+ *   --mark-sent        Verify reservation is reconciliation-required, mark notified_at resolved without sending LINE
+ *   --safe-retry       Verify reconciliation-required, dispatch with fresh retry key under operator authorization (operatorConfirmedSafeRetry)
+ *   --actor <name>     Operator name or identifier for ops_events audit (default: operator_cli)
+ *   --evidence <text>  Specific evidence checked (e.g. "LINE OA 1:1 chat verified") for ops_events audit
+ *   --dry-run          Inspect reservation state and check if reconciliation is required without modifying DB
+ *   -h, --help         Show this help message
  */
 
 import { existsSync, readFileSync } from "fs";
@@ -56,13 +57,14 @@ Usage:
   node scripts/reconcile-payment-notification.mjs <reservation_id> [options]
 
 Actions (pick exactly one):
-  --mark-sent   Verify reservation is reconciliation-required, mark notified_at resolved without sending LINE
-  --safe-retry  Verify reconciliation-required, dispatch with fresh retry key (evidenceNoProviderAttempt=true)
-  --dry-run     Check reservation state and determine if reconciliation is required without modifying DB
+  --mark-sent        Verify reservation is reconciliation-required, mark notified_at resolved without sending LINE
+  --safe-retry       Verify reconciliation-required, dispatch with fresh retry key under operator authorization (operatorConfirmedSafeRetry)
+  --dry-run          Check reservation state and determine if reconciliation is required without modifying DB
 
 Options:
-  --actor <name> Operator identifier for ops_events audit (default: operator_cli)
-  -h, --help     Show this help message
+  --actor <name>     Operator identifier for ops_events audit (default: operator_cli)
+  --evidence <text>  Specific evidence checked for ops_events audit
+  -h, --help         Show this help message
 
 Examples:
   # Check status:
@@ -71,7 +73,7 @@ Examples:
   # When verified sent in LINE OA / staff group:
   node scripts/reconcile-payment-notification.mjs b0f1b2c3-4d5e-6f7a-8b9c-0d1e2f3a4b5c --mark-sent
 
-  # When verified NOT sent anywhere:
+  # When verified NOT sent anywhere (explicit operator authorization):
   node scripts/reconcile-payment-notification.mjs b0f1b2c3-4d5e-6f7a-8b9c-0d1e2f3a4b5c --safe-retry
 `);
 }
@@ -83,6 +85,7 @@ function parseArgs(argv) {
   let dryRun = false;
   let help = false;
   let actor = "operator_cli";
+  let evidence = null;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -96,12 +99,14 @@ function parseArgs(argv) {
       dryRun = true;
     } else if (arg === "--actor") {
       actor = argv[++i] || actor;
+    } else if (arg === "--evidence") {
+      evidence = argv[++i] || null;
     } else if (!arg.startsWith("-") && !reservationId) {
       reservationId = arg;
     }
   }
 
-  return { reservationId, markSent, safeRetry, dryRun, actor, help };
+  return { reservationId, markSent, safeRetry, dryRun, actor, evidence, help };
 }
 
 // Re-exec under tsx loader if running under raw Node without tsx
@@ -185,6 +190,7 @@ async function main() {
     console.log("\n[ACTION: MARK-SENT] Resolving canonical notification state without sending LINE...");
     const res = await reconcilePaymentNotificationMarkSent(args.reservationId, {
       actor: args.actor,
+      evidenceChecked: args.evidence || "line_oa_or_staff_group_delivery_confirmed",
       client,
     });
     if (!res.ok) {
@@ -199,9 +205,12 @@ async function main() {
   }
 
   if (args.safeRetry) {
-    console.log("\n[ACTION: SAFE-RETRY] Invoking canonical notification with explicit evidenceNoProviderAttempt=true...");
+    console.log("\n[ACTION: SAFE-RETRY] Invoking canonical notification with explicit operatorConfirmedSafeRetry authorization...");
+    console.log("  Notice: This reflects deliberate operator authorization after checking LINE OA/staff group evidence,");
+    console.log("          not a proof that no provider attempt occurred.");
     const res = await reconcilePaymentNotificationSafeRetry(args.reservationId, {
       actor: args.actor,
+      evidenceChecked: args.evidence || "line_oa_and_staff_group_inspected_no_visible_message",
       client,
     });
     if (!res.ok) {
