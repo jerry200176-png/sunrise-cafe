@@ -75,6 +75,12 @@ export async function PATCH(
       patch.deposit_approved_notified_at = body.deposit_approved_notified_at == null || body.deposit_approved_notified_at === "" ? null : String(body.deposit_approved_notified_at);
     if (body.deposit_approved_claim_at !== undefined)
       patch.deposit_approved_claim_at = body.deposit_approved_claim_at == null || body.deposit_approved_claim_at === "" ? null : String(body.deposit_approved_claim_at);
+    if (body.deposit_approved_retry_key !== undefined)
+      patch.deposit_approved_retry_key = body.deposit_approved_retry_key == null || body.deposit_approved_retry_key === "" ? null : String(body.deposit_approved_retry_key);
+    if (body.deposit_approved_guest_retry_key !== undefined)
+      patch.deposit_approved_guest_retry_key = body.deposit_approved_guest_retry_key == null || body.deposit_approved_guest_retry_key === "" ? null : String(body.deposit_approved_guest_retry_key);
+    if (body.deposit_approved_retry_key_created_at !== undefined)
+      patch.deposit_approved_retry_key_created_at = body.deposit_approved_retry_key_created_at == null || body.deposit_approved_retry_key_created_at === "" ? null : String(body.deposit_approved_retry_key_created_at);
 
     if (Object.keys(patch).length === 0) {
       return NextResponse.json({ error: "未提供可更新欄位" }, { status: 400 });

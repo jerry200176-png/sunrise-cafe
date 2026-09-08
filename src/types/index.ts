@@ -47,6 +47,9 @@ export interface Reservation {
   deposit_payment_note?: string | null;
   deposit_approved_notified_at?: string | null;
   deposit_approved_claim_at?: string | null;
+  deposit_approved_retry_key?: string | null;
+  deposit_approved_guest_retry_key?: string | null;
+  deposit_approved_retry_key_created_at?: string | null;
   review_invited_at?: string | null;
   /** Pending payment_events awaiting staff review */
   pending_payment_reviews?: number;
