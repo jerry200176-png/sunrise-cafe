@@ -24,6 +24,8 @@ describe("reconcile-payment-notification CLI", () => {
     expect(r.stdout).toContain("--mark-sent");
     expect(r.stdout).toContain("--safe-retry");
     expect(r.stdout).toContain("--dry-run");
+    expect(r.stdout).toContain("--actor");
+    expect(r.stdout).toContain("--evidence");
   });
 
   it("fails with error when reservation_id is missing", () => {
