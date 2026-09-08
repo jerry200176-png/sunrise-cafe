@@ -67,7 +67,7 @@ export async function sendLineMessageToGroup(
   if (res.status === 409 && options?.retryKey) {
     const acceptedReqId = res.headers.get("x-line-accepted-request-id");
     console.info(
-      `[line-notify] 409 Conflict: retryKey ${options.retryKey} already accepted (acceptedReqId: ${acceptedReqId})`
+      `[line-notify] 409 Conflict: retryKey ${options.retryKey} already accepted by LINE Platform (acceptedReqId: ${acceptedReqId})`
     );
     return;
   }
@@ -115,7 +115,7 @@ export async function sendLineFlexToGroup(
   if (res.status === 409 && options?.retryKey) {
     const acceptedReqId = res.headers.get("x-line-accepted-request-id");
     console.info(
-      `[line-notify] 409 Conflict: retryKey ${options.retryKey} already accepted (acceptedReqId: ${acceptedReqId})`
+      `[line-notify] 409 Conflict: retryKey ${options.retryKey} already accepted by LINE Platform (acceptedReqId: ${acceptedReqId})`
     );
     return;
   }

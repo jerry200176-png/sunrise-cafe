@@ -8,7 +8,7 @@
  *  1. Provider-level idempotent retry with X-Line-Retry-Key from the first request:
  *     Every push attaches an X-Line-Retry-Key hexadecimal UUID header.
  *     If LINE already accepted a request with that key, LINE returns HTTP 409 Conflict with
- *     `x-line-accepted-request-id`. We reconcile 409 as confirmed sent without duplicating messages.
+ *     `x-line-accepted-request-id`. We reconcile 409 as accepted by LINE Platform without duplicating messages.
  *  2. Stable UUID persistence:
  *     Stable UUIDs are generated on the first request and persisted to `reservations`
  *     (`deposit_approved_retry_key`, `deposit_approved_guest_retry_key`, `deposit_approved_retry_key_created_at`).
@@ -16,15 +16,21 @@
  *  3. DB lease expiration does NOT regenerate the retry key:
  *     When the 60s `deposit_approved_claim_at` lease expires, subsequent retries preserve the
  *     existing persisted retry keys.
- *  4. 24-hour LINE retention window constraint:
+ *  4. 24-hour LINE retention window constraint & reconciliation safeguard:
  *     Per official LINE documentation, retry keys are held by LINE for 24 hours. If retrying
- *     after 24 hours, fresh keys are minted to prevent treating an expired key as a new un-deduped request.
- *  5. Confirmed sent contract:
- *     `deposit_approved_notified_at` is stamped ONLY when LINE push is confirmed sent (200 or 409).
+ *     after 24 hours, if any provider request with the previous key may have been attempted/accepted,
+ *     that state is ambiguous. Automatic delivery is halted and the system enters an explicit
+ *     `reconciliation_required` state to prevent duplicate delivery. Fresh keys are created ONLY when
+ *     evidence proves no provider request was ever attempted for that logical notification.
+ *  5. Accepted by LINE Platform contract:
+ *     `deposit_approved_notified_at` is stamped ONLY when LINE push is confirmed accepted by LINE Platform
+ *     (HTTP 200 or 409). Note that per LINE API documentation, HTTP 2xx and 409+x-line-accepted-request-id
+ *     signify "accepted by LINE Platform" for processing/delivery, not guaranteed delivered to end-user device.
  *     On transient errors (5xx/timeout), the claim lease is released immediately and `deposit_approved_notified_at`
  *     remains NULL.
- *  6. Partial unique index on `ops_events`:
- *     Deduplication and audit record in `ops_events`.
+ *  6. Partial unique index & audit in `ops_events`:
+ *     Every provider attempt is recorded (`payment.approved_attempt`), confirmed acceptance is recorded as
+ *     `payment.approved_notified`, and ambiguous expired states record `payment.approved_notification_reconciliation_required`.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { isAdminConfigured } from "@/lib/supabase-admin";
@@ -63,9 +69,12 @@ export type NotifyPaymentApprovedResult = {
   already_notified?: boolean;
   guest_notified?: boolean;
   group_notified?: boolean;
+  accepted_by_platform?: boolean;
+  reconciliation_required?: boolean;
   group_retry_key?: string;
   guest_retry_key?: string;
   error?: string;
+  reason?: string;
 };
 
 type ReservationNotifyTarget = {
@@ -90,6 +99,7 @@ export async function notifyPaymentApproved(
     actor?: string;
     reviewNote?: string | null;
     force?: boolean;
+    evidenceNoProviderAttempt?: boolean;
     client?: SupabaseClient;
   } = {}
 ): Promise<NotifyPaymentApprovedResult> {
@@ -170,22 +180,70 @@ export async function notifyPaymentApproved(
       return { ok: true, already_notified: false };
     }
 
-    // 3. Resolve stable retry keys
-    const hasValidKey =
-      Boolean(existing.deposit_approved_retry_key) &&
-      !isLineRetryKeyExpired(existing.deposit_approved_retry_key_created_at);
+    // 3. Resolve stable retry keys and enforce >24h provider attempt safeguard
+    const hasExistingKey = Boolean(existing.deposit_approved_retry_key);
+    const isKeyExpired =
+      hasExistingKey &&
+      isLineRetryKeyExpired(existing.deposit_approved_retry_key_created_at);
 
     let groupRetryKey: string;
     let guestRetryKey: string;
     let retryKeyCreatedAt: string;
 
-    if (hasValidKey && !opts.force) {
+    if (!hasExistingKey) {
+      // Fresh key creation before any provider attempt:
+      // No key was ever allocated or dispatched, proving no provider request was ever attempted.
+      groupRetryKey = crypto.randomUUID();
+      guestRetryKey = crypto.randomUUID();
+      retryKeyCreatedAt = nowIso;
+    } else if (!isKeyExpired) {
+      // Within LINE's 24h retention window:
       // Reuse the exact same stable UUIDs across timeout, 5xx, or lease expiration!
+      // If LINE already accepted it, LINE returns 409 Conflict which is reconciled as accepted.
       groupRetryKey = existing.deposit_approved_retry_key!;
       guestRetryKey = existing.deposit_approved_guest_retry_key || crypto.randomUUID();
       retryKeyCreatedAt = existing.deposit_approved_retry_key_created_at || nowIso;
     } else {
-      // First request OR 24h retention window expired: mint fresh stable UUIDs
+      // Key exists but is expired (>24h).
+      // If any provider request with the previous key may have been attempted/accepted:
+      // that state is ambiguous. Automatic delivery must stop and enter reconciliation_required / manual-review.
+      if (!opts.evidenceNoProviderAttempt) {
+        // Log warning and record reconciliation_required event in ops_events
+        try {
+          await client.from("ops_events").insert({
+            domain: "payment",
+            action: "payment.approved_notification_reconciliation_required",
+            detail: {
+              reservation_id: reservationId,
+              booking_code: existing.booking_code,
+              group_retry_key: existing.deposit_approved_retry_key,
+              guest_retry_key: existing.deposit_approved_guest_retry_key ?? null,
+              retry_key_created_at: existing.deposit_approved_retry_key_created_at,
+              reason: "retry_key_expired_with_possible_provider_attempt",
+              actor: opts.actor ?? "system",
+            },
+          });
+        } catch (opsErr) {
+          console.warn("[payment-notify] ops_events reconciliation_required insert notice:", opsErr);
+        }
+
+        console.warn(
+          `[payment-notify] Stop automatic delivery: reservation ${reservationId} has expired LINE retryKey (${existing.deposit_approved_retry_key}) with potential prior provider attempt. Entering reconciliation_required.`
+        );
+
+        return {
+          ok: false,
+          error: "reconciliation_required",
+          reconciliation_required: true,
+          reason:
+            "LINE 24h retry window expired with potential prior provider attempt; manual reconciliation required",
+          group_retry_key: existing.deposit_approved_retry_key ?? undefined,
+          guest_retry_key: existing.deposit_approved_guest_retry_key ?? undefined,
+        };
+      }
+
+      // Evidence proves no provider request was ever attempted for this logical notification.
+      // Safe to mint fresh stable UUIDs.
       groupRetryKey = crypto.randomUUID();
       guestRetryKey = crypto.randomUUID();
       retryKeyCreatedAt = nowIso;
@@ -249,6 +307,25 @@ export async function notifyPaymentApproved(
     let guestNotified = false;
     let lastSendError: unknown = null;
 
+    // Record provider attempt in ops_events for auditability and attempt evidence
+    try {
+      await client.from("ops_events").insert({
+        domain: "payment",
+        action: "payment.approved_attempt",
+        detail: {
+          reservation_id: reservationId,
+          booking_code: r.booking_code,
+          group_retry_key: effectiveGroupKey,
+          guest_retry_key: r.line_user_id ? effectiveGuestKey : null,
+          line_user_id: r.line_user_id ?? null,
+          actor: opts.actor ?? "system",
+          attempted_at: nowIso,
+        },
+      });
+    } catch (attemptErr) {
+      console.warn("[payment-notify] ops_events attempt insert notice:", attemptErr);
+    }
+
     // 5. Staff group notification with X-Line-Retry-Key
     try {
       const flex = buildPaymentConfirmedFlex({
@@ -290,10 +367,12 @@ export async function notifyPaymentApproved(
       }
     }
 
-    const confirmedSent = groupNotified || guestNotified;
+    const confirmedAccepted = groupNotified || guestNotified;
 
-    if (confirmedSent) {
-      // 7a. Confirmed sent! Permanently record notified timestamp and release claim lease
+    if (confirmedAccepted) {
+      // 7a. Confirmed accepted by LINE Platform! Permanently record notified timestamp and release claim lease.
+      // Note: Per official LINE Messaging API documentation, HTTP 2xx and 409+x-line-accepted-request-id
+      // signify "accepted by LINE Platform" for processing/delivery, not guaranteed delivered to end-user device.
       try {
         await client
           .from("reservations")
@@ -318,6 +397,7 @@ export async function notifyPaymentApproved(
             guest_retry_key: r.line_user_id ? effectiveGuestKey : null,
             guest_notified: guestNotified,
             group_notified: groupNotified,
+            accepted_by_platform: true,
             line_user_id: r.line_user_id ?? null,
             actor: opts.actor ?? "system",
             sent_at: nowIso,
@@ -329,6 +409,7 @@ export async function notifyPaymentApproved(
 
       return {
         ok: true,
+        accepted_by_platform: true,
         guest_notified: guestNotified,
         group_notified: groupNotified,
         group_retry_key: effectiveGroupKey,
