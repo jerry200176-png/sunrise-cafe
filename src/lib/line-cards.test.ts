@@ -50,6 +50,14 @@ describe("line-cards LINE API shape", () => {
       bookingCode: "ABC123",
       ...times,
     }), "payment-approved");
+    const approvedWithToken = buildGuestPaymentApprovedFlex({
+      customerName: "測試",
+      bookingCode: "ABC123",
+      lookupToken: "token-abc-123",
+      ...times,
+    });
+    assertValidBubble(approvedWithToken, "payment-approved-token");
+    expect(JSON.stringify(approvedWithToken)).toContain("token=token-abc-123");
     assertValidBubble(buildGuestDepositReleasedFlex({
       branchName: "昇昇咖啡",
       bookingCode: "ABC123",

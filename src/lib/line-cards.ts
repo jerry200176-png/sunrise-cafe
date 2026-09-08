@@ -275,7 +275,12 @@ export function buildGuestPaymentApprovedFlex(params: {
   bookingCode: string;
   startTime: string;
   endTime: string;
+  lookupToken?: string | null;
 }): LineFlexContainer {
+  const queryUrl = params.lookupToken
+    ? `${LINE_QUERY_URL}?token=${encodeURIComponent(params.lookupToken)}`
+    : `${LINE_QUERY_URL}?code=${encodeURIComponent(params.bookingCode)}`;
+
   return flexBubble({
     icon: "✅",
     title: "訂金已確認",
@@ -288,7 +293,7 @@ export function buildGuestPaymentApprovedFlex(params: {
     ],
     primaryAction: {
       label: "查看訂位詳情",
-      uri: `${LINE_QUERY_URL}?code=${encodeURIComponent(params.bookingCode)}`,
+      uri: queryUrl,
     },
     showSiteLink: true,
   });

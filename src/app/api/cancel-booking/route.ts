@@ -4,7 +4,7 @@ import {
   isAdminConfigured,
 } from "@/lib/supabase-admin";
 import { notifyWaitlist } from "@/lib/waitlist";
-import { verifyGuestBookingById } from "@/lib/guest-auth";
+import { verifyGuestBookingByTokenOrCredentials } from "@/lib/guest-auth";
 import { enforceGuestLookupLimit } from "@/lib/guest-rate-limit";
 import { evaluateGuestCancel } from "@/lib/cancel-refund-policy";
 import { logOps } from "@/lib/ops-log";
@@ -34,23 +34,29 @@ export async function POST(request: NextRequest) {
   }
   try {
     const body = await request.json();
-    const { id, booking_code, phone } = body as {
+    const { id, token, booking_code, phone } = body as {
       id: string;
-      booking_code: string;
-      phone: string;
+      token?: string;
+      booking_code?: string;
+      phone?: string;
     };
 
-    if (!id || !booking_code?.trim() || !phone?.trim()) {
+    if (!id || (!token?.trim() && (!booking_code?.trim() || !phone?.trim()))) {
       return NextResponse.json(
-        { error: "請提供訂位 id、電話與訂位代號" },
+        { error: "請提供訂位驗證資訊（token 或電話與訂位代號）" },
         { status: 400 }
       );
     }
 
-    const limited = await enforceGuestLookupLimit(request, phone);
+    const limited = await enforceGuestLookupLimit(request, phone ?? "");
     if (limited) return limited;
 
-    const verified = await verifyGuestBookingById(phone, booking_code, id);
+    const verified = await verifyGuestBookingByTokenOrCredentials({
+      id,
+      token,
+      phone,
+      bookingCode: booking_code,
+    });
     if (!verified.ok) {
       return NextResponse.json({ error: verified.error }, { status: verified.status });
     }

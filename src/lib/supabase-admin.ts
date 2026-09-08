@@ -334,6 +334,26 @@ export async function fetchReservationByPhoneAndCode(
   return data;
 }
 
+/** Lookup reservation by ID (authenticated by signed token) */
+export async function fetchReservationById(id: string) {
+  const { data, error } = await supabaseAdmin()
+    .from("reservations")
+    .select(`
+      *,
+      room:rooms (
+        name,
+        branch:branches (
+          name
+        )
+      )
+    `)
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data ?? null;
+}
+
 // ✅ 補回遺失的函式：fetchReservationsByPhone
 export async function fetchReservationsByPhone(phone: string) {
   const { data, error } = await supabaseAdmin()

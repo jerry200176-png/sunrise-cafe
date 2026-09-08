@@ -14,6 +14,7 @@ import { computeReservationTotalPrice } from "@/lib/booking-utils";
 import { SlotConflictError } from "@/lib/slot-conflict";
 import { createClient } from "@supabase/supabase-js";
 import { logOps } from "@/lib/ops-log";
+import { signLookupToken } from "@/lib/lookup-token";
 
 function supabaseAdmin() {
   return createClient(
@@ -183,7 +184,7 @@ export async function POST(request: NextRequest) {
       deposit_required: totalPrice != null && totalPrice > 0,
     });
 
-    return NextResponse.json({ ok: true, id, booking_code });
+    return NextResponse.json({ ok: true, id, booking_code, lookup_token: signLookupToken(id) });
   } catch (err) {
     if (err instanceof SlotConflictError) {
       return NextResponse.json({ error: err.message }, { status: 409 });

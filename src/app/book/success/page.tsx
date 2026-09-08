@@ -34,6 +34,7 @@ function SuccessContent() {
   const { t } = useLocale();
   const searchParams = useSearchParams();
   const code = searchParams.get("code") ?? "";
+  const tokenFromUrl = searchParams.get("token") ?? "";
   const lineBound = searchParams.get("line_bound") === "1";
   const lineError = searchParams.get("line_error") === "1";
   const isPaid = searchParams.get("paid") === "1";
@@ -43,6 +44,8 @@ function SuccessContent() {
   const [receiptCopied, setReceiptCopied] = useState(false);
   const [paymentInfoCopied, setPaymentInfoCopied] = useState(false);
 
+  const effectiveToken = tokenFromUrl || meta?.lookupToken || "";
+
   const googleCalendarUrl = useMemo(() => {
     if (!code || !meta?.startTime) return null;
     const store = meta.branchName || "昇昇咖啡";
@@ -50,10 +53,13 @@ function SuccessContent() {
     const endIso =
       meta.endTime ||
       new Date(new Date(meta.startTime).getTime() + 2 * 3600_000).toISOString();
-    const effectivePhone = bindPhone.trim();
     const origin = typeof window !== "undefined" ? window.location.origin : "";
     const manageUrl = origin
-      ? `${origin}/book/query?code=${encodeURIComponent(code)}${effectivePhone ? `&phone=${encodeURIComponent(effectivePhone)}` : ""}`
+      ? effectiveToken
+        ? `${origin}/book/query?token=${encodeURIComponent(effectiveToken)}`
+        : `${origin}/book/query?code=${encodeURIComponent(code)}`
+      : effectiveToken
+      ? `/book/query?token=${encodeURIComponent(effectiveToken)}`
       : `/book/query?code=${encodeURIComponent(code)}`;
     return buildGoogleCalendarUrl({
       summary: `${store}${room}`,
@@ -62,7 +68,7 @@ function SuccessContent() {
       startTime: meta.startTime,
       endTime: endIso,
     });
-  }, [code, meta, bindPhone]);
+  }, [code, meta, effectiveToken]);
 
   async function copyPaymentInfo(text: string) {
     if (!text.trim()) return;
@@ -121,10 +127,13 @@ function SuccessContent() {
 
   async function copyReceipt() {
     if (!meta && !code) return;
-    const effectivePhone = bindPhone.trim();
     const origin = typeof window !== "undefined" ? window.location.origin : "";
     const manageUrl = origin
-      ? `${origin}/book/query?code=${encodeURIComponent(meta?.code ?? code)}${effectivePhone ? `&phone=${encodeURIComponent(effectivePhone)}` : ""}`
+      ? effectiveToken
+        ? `${origin}/book/query?token=${encodeURIComponent(effectiveToken)}`
+        : `${origin}/book/query?code=${encodeURIComponent(meta?.code ?? code)}`
+      : effectiveToken
+      ? `/book/query?token=${encodeURIComponent(effectiveToken)}`
       : `/book/query?code=${encodeURIComponent(meta?.code ?? code)}`;
 
     const lines = [
@@ -336,9 +345,13 @@ function SuccessContent() {
                   {t("calendar.google")}
                 </a>
               )}
-              {bindPhone.trim() && (
+              {(effectiveToken || bindPhone.trim()) && (
                 <a
-                  href={`/api/guest/calendar?code=${encodeURIComponent(code)}&phone=${encodeURIComponent(bindPhone.trim())}`}
+                  href={
+                    effectiveToken
+                      ? `/api/guest/calendar?token=${encodeURIComponent(effectiveToken)}`
+                      : `/api/guest/calendar?code=${encodeURIComponent(code)}&phone=${encodeURIComponent(bindPhone.trim())}`
+                  }
                   className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2.5 text-sm font-semibold text-amber-950 hover:bg-amber-50 transition"
                 >
                   <Calendar className="h-4 w-4" />
@@ -384,7 +397,13 @@ function SuccessContent() {
 
           <div className="mt-4 space-y-3">
             <Link
-              href={code ? `/book/query?code=${encodeURIComponent(code)}` : "/book/query"}
+              href={
+                effectiveToken
+                  ? `/book/query?token=${encodeURIComponent(effectiveToken)}`
+                  : code
+                  ? `/book/query?code=${encodeURIComponent(code)}`
+                  : "/book/query"
+              }
               className="block w-full rounded-lg bg-amber-600 py-3 text-center font-medium text-white hover:bg-amber-700"
             >
               {t("success.queryCta")}

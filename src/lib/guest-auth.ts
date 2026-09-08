@@ -2,8 +2,9 @@
  * Guest booking verification — phone + booking_code required for lookup and mutations.
  * Forgot-code recovery: phone + booking date (Taipei calendar day).
  */
-import { fetchReservationByPhoneAndCode } from "@/lib/supabase-admin";
+import { fetchReservationByPhoneAndCode, fetchReservationById } from "@/lib/supabase-admin";
 import { normalizePhone } from "@/lib/phone-utils";
+import { verifyLookupToken } from "@/lib/lookup-token";
 
 /** Generic error — do not reveal whether phone or code was wrong */
 export const GUEST_BOOKING_NOT_FOUND = "找不到符合的訂位，請確認電話與訂位代號";
@@ -101,4 +102,30 @@ export async function verifyGuestBookingById(
     return { ok: false, error: GUEST_BOOKING_NOT_FOUND, status: 404 };
   }
   return result;
+}
+
+/**
+ * Verify guest booking via either signed lookup token (preferred) or phone + booking_code.
+ * Prevents exposing phone numbers in URL query strings.
+ */
+export async function verifyGuestBookingByTokenOrCredentials(opts: {
+  id: string;
+  token?: string | null;
+  phone?: string | null;
+  bookingCode?: string | null;
+}): Promise<VerifyGuestBookingResult> {
+  const token = opts.token?.trim();
+  if (token) {
+    const tokenRes = verifyLookupToken(token);
+    if (!tokenRes.ok || tokenRes.reservationId !== opts.id) {
+      return { ok: false, error: "驗證失敗或連結已失效", status: 400 };
+    }
+    const res = await fetchReservationById(opts.id);
+    if (!res) {
+      return { ok: false, error: GUEST_BOOKING_NOT_FOUND, status: 404 };
+    }
+    return { ok: true, reservation: res };
+  }
+
+  return verifyGuestBookingById(opts.phone ?? "", opts.bookingCode ?? "", opts.id);
 }

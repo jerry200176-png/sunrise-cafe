@@ -11,7 +11,7 @@ import { deliverLineGuestNotification } from "@/lib/line-guest-delivery";
 import { notifyWaitlist } from "@/lib/waitlist";
 import { resetLineReminderDeliveries } from "@/lib/line-delivery";
 
-import { verifyGuestBookingById } from "@/lib/guest-auth";
+import { verifyGuestBookingByTokenOrCredentials } from "@/lib/guest-auth";
 import { enforceGuestLookupLimit } from "@/lib/guest-rate-limit";
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
@@ -27,6 +27,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       id,
+      token,
       phone,
       booking_code,
       start_time: newStart,
@@ -34,24 +35,30 @@ export async function POST(request: NextRequest) {
       guest_count: newGuestCount,
     } = body as {
       id: string;
-      phone: string;
-      booking_code: string;
+      token?: string;
+      phone?: string;
+      booking_code?: string;
       start_time: string;
       end_time: string;
       guest_count?: number | null;
     };
 
-    if (!phone?.trim() || !id || !booking_code?.trim() || !newStart || !newEnd) {
+    if (!id || !newStart || !newEnd || (!token?.trim() && (!phone?.trim() || !booking_code?.trim()))) {
       return NextResponse.json(
-        { error: "缺少必填欄位（id、電話、訂位代號、新時段）" },
+        { error: "缺少必填欄位（id、新時段，以及 token 或電話與訂位代號）" },
         { status: 400 }
       );
     }
 
-    const limited = await enforceGuestLookupLimit(request, phone);
+    const limited = await enforceGuestLookupLimit(request, phone ?? "");
     if (limited) return limited;
 
-    const verified = await verifyGuestBookingById(phone, booking_code, id);
+    const verified = await verifyGuestBookingByTokenOrCredentials({
+      id,
+      token,
+      phone,
+      bookingCode: booking_code,
+    });
     if (!verified.ok) {
       return NextResponse.json({ error: verified.error }, { status: verified.status });
     }

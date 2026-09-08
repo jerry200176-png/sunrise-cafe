@@ -17,6 +17,7 @@ import { logDepositStatusChange } from "@/lib/payment-log";
 import { createClient } from "@supabase/supabase-js";
 import { deliverLineGuestNotification } from "@/lib/line-guest-delivery";
 import { buildGuestBookingCancelledFlex } from "@/lib/line-cards";
+import { notifyPaymentApproved } from "@/lib/payment-notify";
 function supabaseAdmin() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -169,6 +170,14 @@ export async function PATCH(
             status: patch.status ?? beforeRow.status,
           },
         });
+        if (afterPaid) {
+          notifyPaymentApproved(id, {
+            actor: "admin_session",
+            reviewNote: afterNote,
+          }).catch((err) =>
+            console.error("[reservations/id] notifyPaymentApproved failed:", err)
+          );
+        }
       } else if (
         patch.deposit_payment_note !== undefined &&
         beforeRow.deposit_payment_note !== afterNote

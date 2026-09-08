@@ -44,6 +44,7 @@ interface BookingItem {
   guest_confirmed_at?: string | null;
   confirm_attendance_url?: string | null;
   payment_review_status?: "pending_review" | "approved" | "rejected" | null;
+  lookup_token?: string | null;
 }
 
 interface AvailabilitySlot {
@@ -85,6 +86,7 @@ function BookQueryContent() {
   };
   const [phone, setPhone] = useState("");
   const [bookingCode, setBookingCode] = useState("");
+  const [lookupToken, setLookupToken] = useState("");
   const [bookingDate, setBookingDate] = useState("");
   const [forgotMode, setForgotMode] = useState(false);
   const [list, setList] = useState<BookingItem[]>([]);
@@ -128,9 +130,13 @@ function BookQueryContent() {
 
   const copyBookingDetails = useCallback((item: BookingItem) => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
-    const effectivePhone = phone.trim();
+    const effectiveToken = item.lookup_token || lookupToken;
     const manageUrl = origin
-      ? `${origin}/book/query?code=${encodeURIComponent(item.booking_code)}${effectivePhone ? `&phone=${encodeURIComponent(effectivePhone)}` : ""}`
+      ? effectiveToken
+        ? `${origin}/book/query?token=${encodeURIComponent(effectiveToken)}`
+        : `${origin}/book/query?code=${encodeURIComponent(item.booking_code)}`
+      : effectiveToken
+      ? `/book/query?token=${encodeURIComponent(effectiveToken)}`
       : `/book/query?code=${encodeURIComponent(item.booking_code)}`;
     const store = item.branch_display_name || item.branch_name || "昇昇咖啡";
     const lines = [
@@ -156,7 +162,7 @@ function BookQueryContent() {
     }
     setCopiedBookingId(item.id);
     window.setTimeout(() => setCopiedBookingId(null), 2000);
-  }, [phone]);
+  }, [lookupToken]);
 
   const unpaidDepositItems = useMemo(
     () =>
@@ -268,20 +274,60 @@ function BookQueryContent() {
     [t]
   );
 
+  const runTokenSearch = useCallback(
+    async (tokenVal: string) => {
+      if (!tokenVal.trim()) return;
+      setLoading(true);
+      setError(null);
+      setList([]);
+      try {
+        const res = await fetchWithTimeout("/api/my-bookings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: tokenVal.trim() }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError((data as { error?: string })?.error ?? t("query.searchFailed"));
+          return;
+        }
+        const items = Array.isArray(data) ? (data as BookingItem[]) : [];
+        setList(items);
+        if (items[0]?.booking_code) {
+          setBookingCode(items[0].booking_code);
+        }
+        if (items[0]?.lookup_token) {
+          setLookupToken(items[0].lookup_token);
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : t("query.connectionFailed"));
+      } finally {
+        setLoading(false);
+        setHasSearched(true);
+      }
+    },
+    [t]
+  );
+
   useEffect(() => {
+    const tokenFromUrl = searchParams.get("token")?.trim() ?? "";
+    if (tokenFromUrl) {
+      setLookupToken(tokenFromUrl);
+      runTokenSearch(tokenFromUrl);
+      return;
+    }
+
     const codeFromUrl = searchParams.get("code");
     const codeVal = codeFromUrl ? codeFromUrl.trim().toUpperCase() : "";
     if (codeVal) setBookingCode(codeVal);
 
-    const phoneFromUrl = searchParams.get("phone")?.trim() ?? "";
     const savedPhone = sessionStorage.getItem("booking_success_phone") ?? "";
-    const effectivePhone = phoneFromUrl || savedPhone;
-    if (effectivePhone) setPhone(effectivePhone);
+    if (savedPhone) setPhone(savedPhone);
 
-    if (effectivePhone && codeVal) {
-      runSearch(effectivePhone, codeVal, "code");
+    if (savedPhone && codeVal) {
+      runSearch(savedPhone, codeVal, "code");
     }
-  }, [searchParams, runSearch]);
+  }, [searchParams, runSearch, runTokenSearch]);
 
   useEffect(() => {
     const result = searchParams.get("linepay");
@@ -304,14 +350,15 @@ function BookQueryContent() {
     setConfirmingCancelId(null);
     setError(null);
     try {
+      const activeItem = list.find((r) => r.id === id);
+      const effectiveToken = activeItem?.lookup_token || lookupToken;
+      const body = effectiveToken
+        ? { id, token: effectiveToken }
+        : { id, booking_code: code.trim(), phone: phone.trim() };
       const res = await fetchWithTimeout("/api/cancel-booking", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id,
-          booking_code: code.trim(),
-          phone: phone.trim(),
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -441,16 +488,18 @@ function BookQueryContent() {
     setRescheduleSubmitting(true);
     setRescheduleError(null);
     try {
+      const effectiveToken = reschedulingItem.lookup_token || lookupToken;
       const res = await fetchWithTimeout("/api/reschedule-booking", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: reschedulingItem.id,
-          booking_code: reschedulingItem.booking_code.trim(),
-          phone: phone.trim(),
           start_time: start,
           end_time: end,
           guest_count: rescheduleGuestCount === "" ? null : Number(rescheduleGuestCount),
+          ...(effectiveToken
+            ? { token: effectiveToken }
+            : { booking_code: reschedulingItem.booking_code.trim(), phone: phone.trim() }),
         }),
       });
       const data = await res.json();
@@ -638,12 +687,16 @@ function BookQueryContent() {
                     <p className="mt-0.5 text-sm text-gray-500">
                       {t("query.bookingCode")}<span className="font-mono">{item.booking_code}</span>
                     </p>
-                    {phone.trim() && item.status !== "cancelled" && (
+                    {((item.lookup_token || lookupToken) || phone.trim()) && item.status !== "cancelled" && (
                       <div className="mt-2.5 flex flex-wrap gap-2">
                         <a
                           href={buildGoogleCalendarUrl({
                             summary: `${item.branch_display_name || item.branch_name || "昇昇咖啡"} · ${item.room_name}`,
-                            description: `訂位碼：${item.booking_code}\n訂位人：${item.customer_name}\n查看訂位：${typeof window !== "undefined" ? window.location.origin : ""}/book/query?code=${encodeURIComponent(item.booking_code)}&phone=${encodeURIComponent(phone.trim())}`,
+                            description: `訂位碼：${item.booking_code}\n訂位人：${item.customer_name}\n查看訂位：${typeof window !== "undefined" ? window.location.origin : ""}/book/query?${
+                              (item.lookup_token || lookupToken)
+                                ? `token=${encodeURIComponent((item.lookup_token || lookupToken)!)}`
+                                : `code=${encodeURIComponent(item.booking_code)}`
+                            }`,
                             location: item.branch_address || item.branch_display_name || item.branch_name || "昇昇咖啡",
                             startTime: item.start_time,
                             endTime: item.end_time,
@@ -656,7 +709,11 @@ function BookQueryContent() {
                           {t("calendar.google")}
                         </a>
                         <a
-                          href={`/api/guest/calendar?code=${encodeURIComponent(item.booking_code)}&phone=${encodeURIComponent(phone.trim())}`}
+                          href={
+                            (item.lookup_token || lookupToken)
+                              ? `/api/guest/calendar?token=${encodeURIComponent((item.lookup_token || lookupToken)!)}`
+                              : `/api/guest/calendar?code=${encodeURIComponent(item.booking_code)}&phone=${encodeURIComponent(phone.trim())}`
+                          }
                           className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100 transition"
                         >
                           <Calendar className="h-4 w-4" />

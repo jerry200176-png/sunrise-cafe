@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { lookupGuestBookingsByDate } from "./guest-booking-lookup";
+import { lookupGuestBookingsByDate, lookupGuestBookingByToken } from "./guest-booking-lookup";
+import { signLookupToken } from "./lookup-token";
 
 vi.mock("@/lib/supabase-admin", () => ({
   isAdminConfigured: vi.fn(() => true),
@@ -95,5 +96,26 @@ describe("lookupGuestBookingsByDate", () => {
       expect(r.items[0].room_name).toBe("包廂 A");
     }
     expect(mockFetchByDate).toHaveBeenCalledWith("0912345678", date);
+  });
+});
+
+describe("lookupGuestBookingByToken", () => {
+  it("returns 400 when token missing", async () => {
+    const r = await lookupGuestBookingByToken("");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.status).toBe(400);
+  });
+
+  it("returns 400 for invalid or malformed token", async () => {
+    const r = await lookupGuestBookingByToken("invalid.token.here");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.status).toBe(400);
+  });
+
+  it("returns 400 for expired token", async () => {
+    const expiredToken = signLookupToken("res-1", -1000);
+    const r = await lookupGuestBookingByToken(expiredToken);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.status).toBe(400);
   });
 });
