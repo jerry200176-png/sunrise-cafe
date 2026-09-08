@@ -73,6 +73,8 @@ export async function PATCH(
       patch.deposit_payment_note = body.deposit_payment_note == null || body.deposit_payment_note === "" ? null : String(body.deposit_payment_note);
     if (body.deposit_approved_notified_at !== undefined)
       patch.deposit_approved_notified_at = body.deposit_approved_notified_at == null || body.deposit_approved_notified_at === "" ? null : String(body.deposit_approved_notified_at);
+    if (body.deposit_approved_claim_at !== undefined)
+      patch.deposit_approved_claim_at = body.deposit_approved_claim_at == null || body.deposit_approved_claim_at === "" ? null : String(body.deposit_approved_claim_at);
 
     if (Object.keys(patch).length === 0) {
       return NextResponse.json({ error: "未提供可更新欄位" }, { status: 400 });
@@ -93,6 +95,7 @@ export async function PATCH(
     let beforeRow: {
       is_deposit_paid: boolean;
       deposit_payment_note: string | null;
+      deposit_approved_notified_at?: string | null;
       status: string;
       booking_code: string;
     } | null = null;
@@ -100,7 +103,7 @@ export async function PATCH(
     if (touchesDeposit) {
       const { data } = await supabaseAdmin()
         .from("reservations")
-        .select("is_deposit_paid, deposit_payment_note, status, booking_code")
+        .select("is_deposit_paid, deposit_payment_note, deposit_approved_notified_at, status, booking_code")
         .eq("id", id)
         .single();
       if (data) beforeRow = data;
@@ -180,6 +183,18 @@ export async function PATCH(
             console.error("[reservations/id] notifyPaymentApproved failed:", err)
           );
         }
+      } else if (
+        afterPaid &&
+        patch.is_deposit_paid !== undefined &&
+        !beforeRow.deposit_approved_notified_at
+      ) {
+        // Retry path: already marked paid, but notification previously failed/timed out
+        notifyPaymentApproved(id, {
+          actor: "admin_session",
+          reviewNote: afterNote,
+        }).catch((err) =>
+          console.error("[reservations/id] notifyPaymentApproved retry failed:", err)
+        );
       } else if (
         patch.deposit_payment_note !== undefined &&
         beforeRow.deposit_payment_note !== afterNote

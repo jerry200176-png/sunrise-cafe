@@ -97,6 +97,11 @@ jobs:
                 export SUPABASE_DB_URL="${POSTGRES_URL_NON_POOLING:-${POSTGRES_URL:-${POSTGRES_PRISMA_URL:-${DATABASE_URL:-${DIRECT_URL:-}}}}}"
               fi
               echo "Postgres env keys present: $(grep -E '^(POSTGRES|DATABASE|SUPABASE_DB|DIRECT)' .env.vercel.prod | cut -d= -f1 | tr '\n' ' ' || true)"
+              if grep -q '^GUEST_LOOKUP_SECRET=' .env.vercel.prod 2>/dev/null; then
+                echo "GUEST_LOOKUP_SECRET: configured in Vercel"
+              else
+                echo "GUEST_LOOKUP_SECRET: unset in Vercel (safe fallback to SESSION_SECRET active)"
+              fi
             fi
           fi
           node scripts/apply-migration-ops-events.mjs || true
@@ -127,6 +132,9 @@ jobs:
           }
           node scripts/apply-migration-deposit-approved-notified.mjs || {
             echo "::warning::deposit_approved_notified_at migration pending — need real SUPABASE_DB_URL secret"
+          }
+          node scripts/apply-migration-deposit-approved-claim.mjs || {
+            echo "::warning::deposit_approved_claim_at migration pending — need real SUPABASE_DB_URL secret"
           }
 
       - name: Verify ops_events

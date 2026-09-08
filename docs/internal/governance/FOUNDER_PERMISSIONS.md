@@ -47,6 +47,7 @@
 |---|------|------|
 | 8 | `workflow_dispatch` 給 integration | 或手動跑 `gh workflow run github-hygiene.yml` |
 | 9 | Vercel Pro / 解除 build rate limit | 避免 PR check 被 Vercel 擋住 |
+| 10 | `GUEST_LOOKUP_SECRET` | Vercel 環境變數（Founder decision：專屬顧客查詢簽章金鑰；未設定時系統安全 fallback 至 `SESSION_SECRET`，嚴禁共用 `SUPABASE_SERVICE_ROLE_KEY`） |
 
 ---
 
