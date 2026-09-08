@@ -4,13 +4,20 @@
  *  1. Guest Bot personal Flex ("訂金已確認") to `line_user_id` if present.
  *  2. Staff LINE group notification ("💰 客人已付訂金：...").
  *
- * Cross-instance idempotency guarantees across Vercel serverless functions:
- *  1. DB-level atomic claim on `reservations.deposit_approved_notified_at`:
- *     An atomic conditional UPDATE with row-level lock ensures exactly one serverless
+ * Cross-instance idempotency and fault-tolerance guarantees across Vercel serverless functions:
+ *  1. DB-level atomic lease claim on `reservations.deposit_approved_claim_at`:
+ *     An atomic conditional UPDATE with lease duration ensures exactly one serverless
  *     instance acquires the dispatch right; concurrent instances update 0 rows and exit.
- *  2. Partial unique index on `ops_events ((detail->>'reservation_id')) WHERE action = 'payment.approved_notified'`:
+ *  2. Only confirmed sent stamps `deposit_approved_notified_at`:
+ *     `deposit_approved_notified_at` is NEVER set prior to actual send. If LINE dispatch fails
+ *     or times out, the claim lease is released immediately and `deposit_approved_notified_at`
+ *     remains NULL, allowing safe retries.
+ *  3. Crash recovery via lease expiration (60s):
+ *     If an instance terminates unexpectedly mid-dispatch, the lease expires after 60 seconds,
+ *     allowing future retries to re-acquire the claim without being permanently blocked.
+ *  4. Partial unique index on `ops_events ((detail->>'reservation_id')) WHERE action = 'payment.approved_notified'`:
  *     Database-level unique constraint prevents duplicate audit/dispatch records.
- *  3. In-process Set guard avoids redundant local invocations within the same Node isolate.
+ *  5. In-process Set guard avoids redundant local invocations within the same Node isolate.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { isAdminConfigured } from "@/lib/supabase-admin";
@@ -27,6 +34,9 @@ function defaultClient(): SupabaseClient {
 }
 
 const inFlightSends = new Set<string>();
+
+/** Maximum lease duration for in-flight dispatch claim before assuming process crash (60s) */
+export const DISPATCH_CLAIM_LEASE_MS = 60_000;
 
 export type NotifyPaymentApprovedResult = {
   ok: boolean;
@@ -46,6 +56,7 @@ type ReservationNotifyTarget = {
   line_user_id: string | null;
   is_deposit_paid: boolean;
   deposit_approved_notified_at?: string | null;
+  deposit_approved_claim_at?: string | null;
 };
 
 export async function notifyPaymentApproved(
@@ -67,38 +78,41 @@ export async function notifyPaymentApproved(
   }
   inFlightSends.add(reservationId);
 
+  const client = opts.client ?? defaultClient();
+  const nowIso = new Date().toISOString();
+
   try {
     if (!isAdminConfigured()) {
       return { ok: false, error: "admin_unconfigured" };
     }
 
-    const client = opts.client ?? defaultClient();
-    const nowIso = new Date().toISOString();
     let r: ReservationNotifyTarget | null = null;
+    const leaseCutoff = new Date(Date.now() - DISPATCH_CLAIM_LEASE_MS).toISOString();
 
-    // 2. DB-level atomic claim: conditional UPDATE with PostgreSQL row lock
+    // 2. DB-level atomic lease claim: conditional UPDATE with PostgreSQL row lock
     if (!opts.force) {
       try {
         const claimRes = await client
           .from("reservations")
-          .update({ deposit_approved_notified_at: nowIso })
+          .update({ deposit_approved_claim_at: nowIso })
           .eq("id", reservationId)
           .eq("is_deposit_paid", true)
           .is("deposit_approved_notified_at", null)
+          .or(`deposit_approved_claim_at.is.null,deposit_approved_claim_at.lt.${leaseCutoff}`)
           .select(
-            "id, customer_name, booking_code, start_time, end_time, deposit_payment_note, line_user_id, is_deposit_paid, deposit_approved_notified_at"
+            "id, customer_name, booking_code, start_time, end_time, deposit_payment_note, line_user_id, is_deposit_paid, deposit_approved_notified_at, deposit_approved_claim_at"
           )
           .maybeSingle();
 
         if (!claimRes.error) {
           if (claimRes.data) {
-            // Atomic claim succeeded! Only this instance acquired the dispatch lock.
+            // Atomic lease claim acquired!
             r = claimRes.data as ReservationNotifyTarget;
           } else {
-            // Row not updated: verify whether already notified, unpaid, or missing
+            // Row not updated: inspect current state to return exact reason
             const { data: existing, error: fetchErr } = await client
               .from("reservations")
-              .select("id, is_deposit_paid, deposit_approved_notified_at")
+              .select("id, is_deposit_paid, deposit_approved_notified_at, deposit_approved_claim_at")
               .eq("id", reservationId)
               .maybeSingle();
 
@@ -111,20 +125,27 @@ export async function notifyPaymentApproved(
             if (existing.deposit_approved_notified_at) {
               return { ok: true, already_notified: true };
             }
+            if (
+              existing.deposit_approved_claim_at &&
+              new Date(existing.deposit_approved_claim_at).getTime() >= Date.now() - DISPATCH_CLAIM_LEASE_MS
+            ) {
+              // Another instance is currently in-flight dispatching
+              return { ok: true, already_notified: false };
+            }
             return { ok: true, already_notified: true };
           }
         }
       } catch {
-        // Fallback to ops_events check if column not yet applied
+        // Fallback to ops_events check if deposit_approved_claim_at column not yet applied
       }
     }
 
-    // 3. Fallback when deposit_approved_notified_at column is pending or force=true
+    // 3. Fallback when claim column is pending or force=true
     if (!r) {
       const { data: fetched, error: resErr } = await client
         .from("reservations")
         .select(
-          "id, customer_name, booking_code, start_time, end_time, deposit_payment_note, line_user_id, is_deposit_paid"
+          "id, customer_name, booking_code, start_time, end_time, deposit_payment_note, line_user_id, is_deposit_paid, deposit_approved_notified_at"
         )
         .eq("id", reservationId)
         .maybeSingle();
@@ -137,6 +158,9 @@ export async function notifyPaymentApproved(
       }
 
       if (!opts.force) {
+        if (fetched.deposit_approved_notified_at) {
+          return { ok: true, already_notified: true };
+        }
         try {
           const { data: existingEvent, error: checkErr } = await client
             .from("ops_events")
@@ -156,18 +180,11 @@ export async function notifyPaymentApproved(
       }
 
       r = fetched as ReservationNotifyTarget;
-
-      if (opts.force) {
-        // Update stamp if force resend
-        await client
-          .from("reservations")
-          .update({ deposit_approved_notified_at: nowIso })
-          .eq("id", reservationId);
-      }
     }
 
     let groupNotified = false;
     let guestNotified = false;
+    let lastSendError: unknown = null;
 
     // 4. Group notification
     try {
@@ -181,6 +198,7 @@ export async function notifyPaymentApproved(
       await sendLineFlex(`💰 客人已付訂金：${r.customer_name}`, flex);
       groupNotified = true;
     } catch (notifyErr) {
+      lastSendError = notifyErr;
       console.error("[payment-notify] group notify failed:", notifyErr);
     }
 
@@ -201,31 +219,79 @@ export async function notifyPaymentApproved(
         );
         guestNotified = true;
       } catch (guestErr) {
+        if (!lastSendError) lastSendError = guestErr;
         console.error("[payment-notify] guest notify failed:", guestErr);
       }
     }
 
-    // 6. Record in ops_events for audit & unique constraint protection
-    try {
-      await client.from("ops_events").insert({
-        domain: "payment",
-        action: "payment.approved_notified",
-        detail: {
-          reservation_id: reservationId,
-          booking_code: r.booking_code,
-          guest_notified: guestNotified,
-          group_notified: groupNotified,
-          line_user_id: r.line_user_id ?? null,
-          actor: opts.actor ?? "system",
-          sent_at: nowIso,
-        },
-      });
-    } catch (eventErr) {
-      // If unique constraint error (23505), duplicate was prevented at DB level
-      console.warn("[payment-notify] ops_events insert notice:", eventErr);
-    }
+    const confirmedSent = groupNotified || guestNotified;
 
-    return { ok: true, guest_notified: guestNotified, group_notified: groupNotified };
+    if (confirmedSent) {
+      // 6a. Confirmed sent! Permanently record notified timestamp and release claim lease
+      try {
+        await client
+          .from("reservations")
+          .update({
+            deposit_approved_notified_at: nowIso,
+            deposit_approved_claim_at: null,
+          })
+          .eq("id", reservationId);
+      } catch (updateErr) {
+        console.warn("[payment-notify] failed to update deposit_approved_notified_at:", updateErr);
+      }
+
+      // 6b. Record in ops_events for audit & unique constraint protection
+      try {
+        await client.from("ops_events").insert({
+          domain: "payment",
+          action: "payment.approved_notified",
+          detail: {
+            reservation_id: reservationId,
+            booking_code: r.booking_code,
+            guest_notified: guestNotified,
+            group_notified: groupNotified,
+            line_user_id: r.line_user_id ?? null,
+            actor: opts.actor ?? "system",
+            sent_at: nowIso,
+          },
+        });
+      } catch (eventErr) {
+        // If unique constraint error (23505), duplicate was prevented at DB level
+        console.warn("[payment-notify] ops_events insert notice:", eventErr);
+      }
+
+      return { ok: true, guest_notified: guestNotified, group_notified: groupNotified };
+    } else {
+      // 6c. Send failed (transient error / network down / LINE API error)!
+      // Release claim lease immediately so subsequent retries can proceed without waiting for lease timeout.
+      // Do NOT stamp deposit_approved_notified_at!
+      try {
+        await client
+          .from("reservations")
+          .update({ deposit_approved_claim_at: null })
+          .eq("id", reservationId)
+          .is("deposit_approved_notified_at", null);
+      } catch (releaseErr) {
+        console.warn("[payment-notify] failed to release claim lease on error:", releaseErr);
+      }
+
+      return {
+        ok: false,
+        error: lastSendError instanceof Error ? lastSendError.message : "line_send_failed",
+        guest_notified: false,
+        group_notified: false,
+      };
+    }
+  } catch (err) {
+    // Release claim on unexpected process error
+    try {
+      await client
+        .from("reservations")
+        .update({ deposit_approved_claim_at: null })
+        .eq("id", reservationId)
+        .is("deposit_approved_notified_at", null);
+    } catch {}
+    throw err;
   } finally {
     inFlightSends.delete(reservationId);
   }

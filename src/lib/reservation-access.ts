@@ -19,6 +19,7 @@ const DEPOSIT_FIELDS = new Set([
   "is_deposit_paid",
   "deposit_payment_note",
   "deposit_approved_notified_at",
+  "deposit_approved_claim_at",
 ]);
 
 export type ReservationPatch = Record<string, unknown>;
