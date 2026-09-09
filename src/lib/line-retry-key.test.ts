@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { sendLineFlex, sendLineFlexBatch, sendLineMessage } from "./line-notify";
 import { sendLineFlexMessage } from "./line";
+import { stableLineRetryKey } from "./line-retry-key";
 import type { LineFlexContainer } from "./line-flex";
 
 describe("LINE Messaging API X-Line-Retry-Key & 409 reconciliation", () => {
@@ -22,6 +23,16 @@ describe("LINE Messaging API X-Line-Retry-Key & 409 reconciliation", () => {
     type: "bubble",
     body: { type: "box", layout: "vertical", contents: [] },
   };
+
+  it("derives the same valid retry key for the same logical event", () => {
+    const first = stableLineRetryKey("booking-rescheduled-group", "res-1", "2026-09-10T10:00:00Z");
+    const second = stableLineRetryKey("booking-rescheduled-group", "res-1", "2026-09-10T10:00:00Z");
+    const different = stableLineRetryKey("booking-rescheduled-group", "res-1", "2026-09-10T11:00:00Z");
+
+    expect(first).toBe(second);
+    expect(first).not.toBe(different);
+    expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
 
   it("attaches X-Line-Retry-Key header to staff group push request", async () => {
     const fetchSpy = vi.fn().mockResolvedValue({

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildPaymentConfirmedFlex, sendLineFlex } from "@/lib/line-notify";
 import { safeLinePayError } from "@/lib/linepay-lifecycle";
+import { stableLineRetryKey } from "@/lib/line-retry-key";
 
 type OutboxRow = {
   id: string;
@@ -62,7 +63,8 @@ export async function deliverLinePayNotification(
         startTime: payload.start_time,
         endTime: payload.end_time,
         rawText: `LINE Pay paid: NT$ ${Number(payload.amount ?? 0)}`,
-      })
+      }),
+      { retryKey: stableLineRetryKey("linepay-confirmed-group", outboxId) }
     );
     await db.from("line_pay_notification_outbox").update({
       status: "sent",

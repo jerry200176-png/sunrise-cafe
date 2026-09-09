@@ -10,6 +10,7 @@ import { buildGuestBookingRescheduledFlex } from "@/lib/line-cards";
 import { deliverLineGuestNotification } from "@/lib/line-guest-delivery";
 import { notifyWaitlist } from "@/lib/waitlist";
 import { resetLineReminderDeliveries } from "@/lib/line-delivery";
+import { stableLineRetryKey } from "@/lib/line-retry-key";
 
 import { verifyGuestBookingByTokenOrCredentials } from "@/lib/guest-auth";
 import { enforceGuestLookupLimit } from "@/lib/guest-rate-limit";
@@ -97,13 +98,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "該時段已被預訂，請重新選擇" }, { status: 409 });
     }
 
+    const requestedGuestCount = newGuestCount ?? match.guest_count;
+    const sameSchedule =
+      new Date(newStart).getTime() === new Date(match.start_time).getTime() &&
+      new Date(newEnd).getTime() === new Date(match.end_time).getTime() &&
+      requestedGuestCount === match.guest_count;
+    if (sameSchedule) {
+      return NextResponse.json({ ok: true, already: true });
+    }
+
     const oldStart = match.start_time;
     const oldEnd = match.end_time;
 
     await updateReservationAdmin(id, {
       start_time: newStart,
       end_time: newEnd,
-      guest_count: newGuestCount ?? match.guest_count,
+      guest_count: requestedGuestCount,
       is_notified: false,
       d1_guest_reminder_sent_at: null,
     });
@@ -151,7 +161,16 @@ export async function POST(request: NextRequest) {
           oldEnd,
           newStart,
           newEnd,
-        })
+        }),
+        {
+          retryKey: stableLineRetryKey(
+            "booking-rescheduled-group",
+            id,
+            newStart,
+            newEnd,
+            String(requestedGuestCount ?? "")
+          ),
+        }
       );
     } catch (err) {
       console.error("[reschedule-booking] 群組通知失敗:", err);

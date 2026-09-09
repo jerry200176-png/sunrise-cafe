@@ -15,6 +15,7 @@ import { SlotConflictError } from "@/lib/slot-conflict";
 import { createClient } from "@supabase/supabase-js";
 import { logOps } from "@/lib/ops-log";
 import { signLookupToken } from "@/lib/lookup-token";
+import { stableLineRetryKey } from "@/lib/line-retry-key";
 
 function supabaseAdmin() {
   return createClient(
@@ -173,7 +174,9 @@ export async function POST(request: NextRequest) {
         guestCount,
         notes,
       });
-      await sendLineFlex(`📩 新訂位申請：${customerName.trim()}`, flex);
+      await sendLineFlex(`📩 新訂位申請：${customerName.trim()}`, flex, {
+        retryKey: stableLineRetryKey("booking-created-group", String(id)),
+      });
     } catch (err) {
       console.error("[reservations] 群組通知失敗:", err);
     }

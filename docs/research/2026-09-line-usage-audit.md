@@ -41,11 +41,25 @@ Main modeled savings:
 | Deposit initial / urgent reminders | actionable | deadline flags + delivery ledger | unchanged |
 | Deposit release guest | critical | one guest push, delivery ledger | unchanged |
 | Deposit release group | critical | one push per released reservation | batch up to 5; provider retry key reused once |
-| New booking / payment review / payment approval | actionable/critical | immediate staff notification; approval has DB + provider idempotency | unchanged |
-| Cancel / reschedule / attendance / waitlist | actionable | lifecycle dedupe or one-shot state markers | unchanged |
+| New booking / payment review / payment approval | actionable/critical | immediate staff notification; approval has DB + provider idempotency | one-shot group pushes use deterministic provider retry keys |
+| Cancel / reschedule / attendance / waitlist | actionable | lifecycle dedupe or one-shot state markers | same reschedule is a no-op; attendance/waitlist pushes use lifecycle/state plus deterministic retry keys |
 | Empty / already-notified heartbeat | informational | scheduled group heartbeat | 36-hour same-key cooldown + optional budget/surge guard |
 | Webhook replies | actionable | reply API | not quota-counted by LINE |
 | Cron failure / deploy alerts | critical | immediate staff alert | never budget-suppressed |
+
+## Trigger and call-site inventory
+
+| Trigger | Frequency / entry point | LINE sources | Dedupe or retry evidence |
+|---|---|---|---|
+| D-1 reminder | Vercel `send-line`, daily `0 12 * * *` UTC; GitHub backup `13:10` UTC | branch group digest + guest digest + empty/already-notified heartbeat | `job_runs` same-day lock, delivery ledger, 36h heartbeat key cooldown |
+| D-7 reminder | Vercel `send-line-7d`, daily `0 12 * * *` UTC | per-guest digest carousel | delivery ledger + `is_reminded_7d` stamp |
+| Deposit deadline | Vercel `deposit-deadline`, `01/07/13/19` UTC | deposit initial/urgent, release guest, release group | delivery ledger; release group batches up to five and reclaims failed cancelled rows |
+| Booking / reschedule APIs | synchronous POST routes | new booking group, reschedule group/guest | deterministic provider retry key; same reschedule is a no-op |
+| Cancellation / attendance APIs | synchronous POST routes | cancellation guest, attendance group/guest | guest lifecycle ledger; attendance state is updated before fan-out |
+| Waitlist fan-out / confirm | cancellation, release, reschedule, or confirm endpoint | waitlist guest and needs-call staff group | waitlist state/stamps plus deterministic provider retry key |
+| LINE webhook | `POST /api/webhooks/line`, event-driven | payment-review staff group + reply message | pending payment-event check; reply uses LINE reply API |
+| Payment approval / LINE Pay retry | approval action plus Vercel retry `0 4 * * *` UTC | staff + guest approval, LINE Pay staff outbox | stored retry keys / outbox CAS and deterministic outbox retry key |
+| Cron/deploy health | Vercel `deploy-health` daily `0 14 * * *` UTC and job failures | critical staff alerts | failure-only path; never informational-throttled |
 
 ## Root causes
 
@@ -71,6 +85,10 @@ Main modeled savings:
   reservation was already cancelled; the reclaim uses a compare-and-swap on
   the ledger status and attempt count.
 - Critical/actionable notifications are exempt from quota throttling.
+- One-shot event keys are deterministic for booking, reschedule, attendance,
+  waitlist and LINE Pay outbox pushes, so concurrent/retried calls reuse the
+  provider retry key instead of creating a second push within LINE's retry
+  window.
 - If the delivery ledger is unavailable in production, automatic reminder
   sends fail closed as before.
 - Empty-message behavior remains available; only unchanged informational state

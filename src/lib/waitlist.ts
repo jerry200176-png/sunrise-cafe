@@ -13,6 +13,7 @@ import {
   WAITLIST_CONFIRM_WINDOW_MINUTES,
 } from "@/lib/line-cards";
 import { sendLineFlex, sendLineFlexToGroup } from "@/lib/line-notify";
+import { stableLineRetryKey } from "@/lib/line-retry-key";
 
 export { WAITLIST_CONFIRM_WINDOW_MINUTES };
 
@@ -65,9 +66,13 @@ async function alertStaffNeedsCall(entry: {
 
   try {
     if (groupId) {
-      await sendLineFlexToGroup(alt, flex, groupId);
+      await sendLineFlexToGroup(alt, flex, groupId, {
+        retryKey: stableLineRetryKey("waitlist-needs-call", entry.id),
+      });
     } else {
-      await sendLineFlex(alt, flex);
+      await sendLineFlex(alt, flex, {
+        retryKey: stableLineRetryKey("waitlist-needs-call", entry.id),
+      });
     }
   } catch (err) {
     console.error("[waitlist] staff needs-call alert failed:", err);
@@ -171,7 +176,9 @@ export async function notifyWaitlist(
       endTime: entry.end_time,
       confirmToken: entry.confirm_token,
     });
-    await sendLineFlexMessage(lineUserId, "您等位的時段空出來了！", flex);
+    await sendLineFlexMessage(lineUserId, "您等位的時段空出來了！", flex, {
+      retryKey: stableLineRetryKey("waitlist-available", entry.id),
+    });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     console.error("[waitlist] LINE 通知失敗，保持 waiting:", detail);
