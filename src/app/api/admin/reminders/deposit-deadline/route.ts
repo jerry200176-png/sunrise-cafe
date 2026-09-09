@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   fetchUnpaidDepositDueReservations,
+  fetchFailedDepositReleaseGroupDeliveries,
   updateReservationAdmin,
   isAdminConfigured,
 } from "@/lib/supabase-admin";
@@ -32,6 +33,7 @@ import { authorizeCronGet } from "@/lib/cron-request-auth";
 import { runBootstrapMigrations } from "@/lib/bootstrap-migrations";
 import {
   claimLineReminderDelivery,
+  claimFailedLineReminderDelivery,
   markLineReminderDelivery,
   safeLineDeliveryError,
 } from "@/lib/line-delivery";
@@ -78,6 +80,19 @@ async function sendDepositReminder(r: Row, urgency: "ok" | "soon") {
   );
 }
 
+function buildGroupReleaseNotice(r: Row) {
+  return {
+    altText: `訂金逾期釋放：${r.customer_name}`,
+    contents: buildDepositReleasedGroupFlex({
+      customerName: r.customer_name,
+      phone: r.phone,
+      bookingCode: r.booking_code,
+      startTime: r.start_time,
+      endTime: r.end_time,
+    }),
+  };
+}
+
 async function handleRun() {
   await runBootstrapMigrations();
   if (!isAdminConfigured()) {
@@ -97,6 +112,22 @@ async function handleRun() {
     altText: string;
     contents: Record<string, unknown>;
   }[] = [];
+
+  // Cancelled reservations are intentionally absent from the normal unpaid
+  // query. Recover only failed staff release alerts, with a CAS claim so two
+  // overlapping cron runs cannot resend the same delivery.
+  try {
+    const failedReleases = await fetchFailedDepositReleaseGroupDeliveries();
+    for (const failed of failedReleases) {
+      const claimed = await claimFailedLineReminderDelivery(failed.delivery_id);
+      if (!claimed) continue;
+      const notice = buildGroupReleaseNotice(failed.reservation as unknown as Row);
+      pendingGroupReleases.push({ deliveryId: failed.delivery_id, ...notice });
+    }
+  } catch (err) {
+    errors++;
+    console.error("[deposit-deadline] failed group release recovery unavailable:", safeLineDeliveryError(err));
+  }
 
   logPayment("deposit_deadline.cron_run", { candidate_count: rows.length });
 
@@ -160,17 +191,7 @@ async function handleRun() {
         }
 
         if (!groupClaim.available || groupClaim.id) {
-          pendingGroupReleases.push({
-            deliveryId: groupClaim.id,
-            altText: `訂金逾期釋放：${r.customer_name}`,
-            contents: buildDepositReleasedGroupFlex({
-              customerName: r.customer_name,
-              phone: r.phone,
-              bookingCode: r.booking_code,
-              startTime: r.start_time,
-              endTime: r.end_time,
-            }),
-          });
+          pendingGroupReleases.push({ deliveryId: groupClaim.id, ...buildGroupReleaseNotice(r) });
         }
 
         notifyWaitlist(r.room?.id ?? "", r.start_time, r.end_time).catch((err) =>

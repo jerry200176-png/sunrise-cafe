@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   claimLineReminderDelivery,
+  claimFailedLineReminderDelivery,
   markLineReminderDelivery,
   safeLineDeliveryError,
 } from "./line-delivery";
@@ -33,6 +34,32 @@ beforeEach(() => {
 });
 
 describe("line reminder delivery ledger", () => {
+  it("reclaims a failed delivery with a compare-and-swap", async () => {
+    const readMaybeSingle = vi.fn().mockResolvedValue({
+      data: { id: "delivery-1", attempt_count: 2 },
+      error: null,
+    });
+    const readEqStatus = vi.fn(() => ({ maybeSingle: readMaybeSingle }));
+    const readEqId = vi.fn(() => ({ eq: readEqStatus }));
+    const readSelect = vi.fn(() => ({ eq: readEqId }));
+    const updateMaybeSingle = vi.fn().mockResolvedValue({ data: { id: "delivery-1" }, error: null });
+    const updateSelect = vi.fn(() => ({ maybeSingle: updateMaybeSingle }));
+    const updateEqAttempt = vi.fn(() => ({ select: updateSelect }));
+    const updateEqStatus = vi.fn(() => ({ eq: updateEqAttempt }));
+    const updateEqId = vi.fn(() => ({ eq: updateEqStatus }));
+    const update = vi.fn(() => ({ eq: updateEqId }));
+    const from = vi.fn(() => ({ select: readSelect, update }));
+    vi.mocked(supabaseAdmin).mockReturnValue({ from } as never);
+
+    await expect(claimFailedLineReminderDelivery("delivery-1")).resolves.toBe(true);
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "sending", attempt_count: 3, last_error: null })
+    );
+    expect(updateEqId).toHaveBeenCalledWith("id", "delivery-1");
+    expect(updateEqStatus).toHaveBeenCalledWith("status", "failed");
+    expect(updateEqAttempt).toHaveBeenCalledWith("attempt_count", 2);
+  });
+
   it("returns the database claim id", async () => {
     const client = mockClient({ claim: { delivery_id: "delivery-1" } });
     vi.mocked(supabaseAdmin).mockReturnValue(client as never);

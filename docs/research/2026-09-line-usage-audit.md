@@ -66,6 +66,10 @@ Main modeled savings:
   claimed reservation. The batch is retried once with the same
   `X-Line-Retry-Key`; an ambiguous accepted request therefore reconciles as
   HTTP 409 rather than producing a duplicate.
+- If a release batch still fails after the provider-key retry, the failed group
+  delivery is retained and the next cron run can reclaim it even though the
+  reservation was already cancelled; the reclaim uses a compare-and-swap on
+  the ledger status and attempt count.
 - Critical/actionable notifications are exempt from quota throttling.
 - If the delivery ledger is unavailable in production, automatic reminder
   sends fail closed as before.
