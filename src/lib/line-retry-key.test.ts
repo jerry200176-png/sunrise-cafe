@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { sendLineFlex } from "./line-notify";
+import { sendLineFlex, sendLineFlexBatch, sendLineMessage } from "./line-notify";
 import { sendLineFlexMessage } from "./line";
 import type { LineFlexContainer } from "./line-flex";
 
@@ -40,6 +40,52 @@ describe("LINE Messaging API X-Line-Retry-Key & 409 reconciliation", () => {
     expect(url).toBe("https://api.line.me/v2/bot/message/push");
     expect(init.headers["X-Line-Retry-Key"]).toBe(testRetryUuid);
     expect(init.headers["Authorization"]).toBe("Bearer mock-channel-token");
+  });
+
+  it("packs up to five staff Flex notifications into one push request", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const messages = Array.from({ length: 5 }, (_, index) => ({
+      altText: `通知 ${index + 1}`,
+      contents: dummyFlex,
+    }));
+    await sendLineFlexBatch(messages, { retryKey: "00000000-0000-4000-8000-000000000003" });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [, init] = fetchSpy.mock.calls[0];
+    const body = JSON.parse(init.body as string) as { messages: unknown[] };
+    expect(body.messages).toHaveLength(5);
+    expect(init.headers["X-Line-Retry-Key"]).toBe("00000000-0000-4000-8000-000000000003");
+  });
+
+  it("rejects a batch larger than LINE's push limit", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const messages = Array.from({ length: 6 }, (_, index) => ({
+      altText: `通知 ${index + 1}`,
+      contents: dummyFlex,
+    }));
+
+    await expect(sendLineFlexBatch(messages)).rejects.toThrow(/最多 5/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("suppresses informational group pushes at the configured budget", async () => {
+    process.env.LINE_MONTHLY_MESSAGE_BUDGET = "1";
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ totalUsage: 1 }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ type: "limited", value: 100 }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ status: "ready", success: 0 }) });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(sendLineMessage("狀態未變", { priority: "informational" }))
+      .rejects.toMatchObject({ name: "LineInformationalSuppressedError", reason: "monthly_budget" });
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
   });
 
   it("reconciles LINE HTTP 409 Conflict as accepted success for staff group push", async () => {

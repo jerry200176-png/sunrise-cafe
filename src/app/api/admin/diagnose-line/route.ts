@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { fetchLineQuotaSnapshot } from "@/lib/line-usage";
 
 function supabaseAdmin() {
   return createClient(
@@ -49,7 +50,18 @@ export async function GET(request: NextRequest) {
   const groupToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
   const groupId = process.env.LINE_GROUP_ID;
   let groupTest: { ok: boolean; status: number; body: string } | null = null;
-  let groupBotInfo: { name?: string; basicId?: string; error?: string } = {};
+  let groupBotInfo: {
+    name?: string;
+    basicId?: string;
+    error?: string;
+    usage?: {
+      monthUsed: number | null;
+      monthLimit: number | null;
+      planType: "none" | "limited" | null;
+      todayPush: number | null;
+      fetchedAt: string;
+    };
+  } = {};
 
   if (groupToken) {
     // 查這個 token 屬於哪個帳號
@@ -63,19 +75,18 @@ export async function GET(request: NextRequest) {
       groupBotInfo = { error: `token 無效 (${infoRes.status})` };
     }
 
-    // 查本月用量
-    const quotaRes = await fetch("https://api.line.me/v2/bot/message/quota/consumption", {
-      headers: { Authorization: `Bearer ${groupToken}` },
-    });
-    const quotaBody = quotaRes.ok ? await quotaRes.json() as { totalUsage?: number } : null;
-    const limitRes = await fetch("https://api.line.me/v2/bot/message/quota", {
-      headers: { Authorization: `Bearer ${groupToken}` },
-    });
-    const limitBody = limitRes.ok ? await limitRes.json() as { value?: number; type?: string } : null;
-    if (quotaBody || limitBody) {
+    // Read-only monthly quota plus today's Messaging API push count.
+    const quota = await fetchLineQuotaSnapshot(groupToken);
+    if (quota.used != null || quota.limit != null || quota.dailyPush != null) {
       groupBotInfo = {
         ...groupBotInfo,
-        ...({ used: quotaBody?.totalUsage, limit: limitBody?.value, planType: limitBody?.type } as object),
+        usage: {
+          monthUsed: quota.used,
+          monthLimit: quota.limit,
+          planType: quota.limitType,
+          todayPush: quota.dailyPush,
+          fetchedAt: quota.fetchedAt,
+        },
       };
     }
   }

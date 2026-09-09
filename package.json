@@ -47,7 +47,8 @@
     "design:audit": "bash scripts/design-slop-audit.sh",
     "gov:overlay-pin": "bash scripts/governance/check-constitution-pin.sh",
     "agent-preflight": "bash scripts/agent-preflight.sh",
-    "production-identity": "bash scripts/production-identity.sh"
+    "production-identity": "bash scripts/production-identity.sh",
+    "line:usage-audit": "npx tsx scripts/line-usage-audit.ts"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.70.0",

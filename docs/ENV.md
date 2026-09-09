@@ -30,6 +30,16 @@
 | `LINE_CHANNEL_SECRET` | 群組 Bot 的 Channel Secret，同時用於 Webhook 簽章驗證 | LINE Developers → Basic settings |
 | `LINE_GROUP_ID` | 目標 LINE 群組 ID（格式：`C` 開頭 32 碼） | 透過 `/api/admin/diagnose-line` 或 Webhook log 取得 |
 
+### LINE quota budget / surge protection
+
+| 變數 | 說明 |
+|------|------|
+| `LINE_MONTHLY_MESSAGE_BUDGET` | 可選；群組 Bot 的月度使用預算。達到預算後只抑制 informational heartbeat，不抑制 critical/actionable 通知。 |
+| `LINE_EXPECTED_DAILY_MESSAGES` | 可選；預期每日群組訊息量，用來偵測本月累積量是否超過 `LINE_USAGE_SURGE_MULTIPLIER` 倍的正常 pace。 |
+| `LINE_USAGE_SURGE_MULTIPLIER` | 可選；預設 `3`。只有設定 expected daily 時生效。 |
+
+`GET /api/admin/diagnose-line?code=...` 會以唯讀方式查詢當月 quota/consumption、今日 Messaging API push consumption；不帶 `send=1` 不會推播測試訊息。`job_runs.metadata` 另記錄 reminder digest、heartbeat、skip 與 error，供月度估算。LINE 的 quota consumption 是 channel 總量，不能單靠官方 API 歸因到各業務事件，因此 source breakdown 必須與本機 audit fixture / job evidence 一起看。
+
 > 換群組 Bot 時，需同步在新 channel 設定 Webhook URL：`https://sunrise-cafe-six.vercel.app/api/webhooks/line`
 
 ## LINE — 客人 Bot

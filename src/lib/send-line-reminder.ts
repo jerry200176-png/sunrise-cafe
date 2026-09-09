@@ -16,6 +16,7 @@ import {
   sendLineFlex,
   buildReminderDigestFlexChunks,
   isLineConfigured,
+  LineInformationalSuppressedError,
 } from "@/lib/line-notify";
 import { sendLineFlexMessage } from "@/lib/line";
 import {
@@ -29,6 +30,7 @@ import { LINE_SITE_URL } from "@/lib/line-flex";
 import { taipeiDateString } from "@/lib/datetime";
 import {
   findSuccessfulSendLineRunToday,
+  findRecentSendLineHeartbeat,
   type ReminderTriggerSource,
 } from "@/lib/job-runs";
 import {
@@ -72,6 +74,7 @@ export type ReminderRunObservability = {
     | "partial";
   error: string | null;
   heartbeat: ReminderHeartbeat;
+  heartbeat_keys: string[];
   taipei_date: string;
   duplicate: boolean;
   /** Phase 1: LINE acceptance ≠ end-user delivery */
@@ -196,22 +199,67 @@ async function pushDigestToGroup(
   return { sent: messageCount, errors: errorCount, rows: sentRows, handled: handledRows };
 }
 
+async function sendInformationalMessage(
+  text: string,
+  heartbeatKey: string,
+  now: Date
+): Promise<boolean> {
+  if (await findRecentSendLineHeartbeat(heartbeatKey, now)) return false;
+  try {
+    await sendLineMessage(text, { priority: "informational" });
+    return true;
+  } catch (error) {
+    if (error instanceof LineInformationalSuppressedError) {
+      console.info(`[send-line] informational heartbeat suppressed: ${error.reason}`);
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function sendInformationalMessageToGroup(
+  text: string,
+  groupId: string,
+  branchName: string,
+  heartbeatKey: string,
+  now: Date
+) {
+  if (await findRecentSendLineHeartbeat(heartbeatKey, now)) return false;
+  try {
+    await sendLineMessageToGroup(text, groupId, { priority: "informational" });
+    return true;
+  } catch (error) {
+    if (error instanceof LineInformationalSuppressedError) {
+      console.info(`[send-line] informational heartbeat suppressed for ${branchName}: ${error.reason}`);
+    } else {
+      console.error(`[send-line] status msg failed for branch ${branchName}:`, error);
+    }
+    return false;
+  }
+}
+
 async function pushTextToGroups(
   text: string,
   activeBranches: BranchRow[],
-  useLegacyMode: boolean
-) {
+  useLegacyMode: boolean,
+  heartbeatKey: string,
+  now: Date
+): Promise<number> {
   if (useLegacyMode) {
-    await sendLineMessage(text);
-    return;
+    return (await sendInformationalMessage(text, heartbeatKey, now)) ? 1 : 0;
   }
-  await Promise.all(
+  const results = await Promise.all(
     activeBranches.map((branch) =>
-      sendLineMessageToGroup(text, branch.line_group_id!).catch((e) =>
-        console.error(`[send-line] status msg failed for branch ${branch.name}:`, e)
+      sendInformationalMessageToGroup(
+        text,
+        branch.line_group_id!,
+        branch.name,
+        `${branch.line_group_id}:${heartbeatKey}`,
+        now
       )
     )
   );
+  return results.filter(Boolean).length;
 }
 
 export type SendLineReminderOptions = {
@@ -243,6 +291,7 @@ function finalizeObs(
       guest_sent_count: number;
       result: ReminderRunObservability["result"];
       heartbeat: ReminderHeartbeat;
+      heartbeat_keys?: string[];
       duplicate: boolean;
       error?: string | null;
       accepted_count?: number;
@@ -271,6 +320,7 @@ function finalizeObs(
     result: partial.result,
     error: partial.error ?? null,
     heartbeat: partial.heartbeat,
+    heartbeat_keys: partial.heartbeat_keys ?? [],
     taipei_date: partial.taipei_date,
     duplicate: partial.duplicate,
     accepted_count,
@@ -396,6 +446,7 @@ export async function runSendLineReminder(
     let totalSent = 0;
     let line_rejected = 0;
     let heartbeat: ReminderHeartbeat = "none";
+    const heartbeat_keys: string[] = [];
     let skipped_count = 0;
 
     if (useLegacyMode) {
@@ -424,15 +475,22 @@ export async function runSendLineReminder(
           const tomorrowCount = tomorrowRows.length;
           skipped_count = tomorrowCount;
           if (tomorrowRows.length === 0) {
-            await sendLineMessage(emptyCatMessage());
-            heartbeat = "cat";
+            if (await sendInformationalMessage(emptyCatMessage(), "legacy-group:empty_cat", started)) {
+              heartbeat = "cat";
+              heartbeat_keys.push("legacy-group:empty_cat");
+            }
           } else {
-            await pushTextToGroups(
+            const heartbeatCount = await pushTextToGroups(
               alreadyNotifiedCronMessage(tomorrowCount, started),
               activeBranches,
-              true
+              true,
+              "legacy-group:already_notified",
+              started
             );
-            heartbeat = "already_notified";
+            if (heartbeatCount > 0) {
+              heartbeat = "already_notified";
+              heartbeat_keys.push("legacy-group:already_notified");
+            }
           }
         }
         const result =
@@ -451,6 +509,7 @@ export async function runSendLineReminder(
             guest_sent_count: 0,
             result,
             heartbeat: heartbeat === "none" ? "already_notified" : heartbeat,
+            heartbeat_keys,
             duplicate: false,
           },
           started
@@ -484,19 +543,30 @@ export async function runSendLineReminder(
               reservationMatchesBranch(r as ReminderReservationShape, branch)
             );
             if (branchTomorrow.length === 0) {
-              await sendLineMessageToGroup(emptyCatMessage(), groupId).catch((e) =>
-                console.error(`[send-line] cat msg failed for branch ${branch.name}:`, e)
+              const sent = await sendInformationalMessageToGroup(
+                emptyCatMessage(),
+                groupId,
+                branch.name,
+                `${groupId}:empty_cat`,
+                started
               );
-              heartbeat = heartbeat === "digest" ? "digest" : "cat";
+              if (sent) {
+                heartbeat = heartbeat === "digest" ? "digest" : "cat";
+                heartbeat_keys.push(`${groupId}:empty_cat`);
+              }
             } else {
               skipped_count += branchTomorrow.length;
-              await sendLineMessageToGroup(
+              const sent = await sendInformationalMessageToGroup(
                 alreadyNotifiedCronMessage(branchTomorrow.length, started),
-                groupId
-              ).catch((e) =>
-                console.error(`[send-line] status msg failed for branch ${branch.name}:`, e)
+                groupId,
+                branch.name,
+                `${groupId}:already_notified`,
+                started
               );
-              if (heartbeat !== "digest") heartbeat = "already_notified";
+              if (sent) {
+                if (heartbeat !== "digest") heartbeat = "already_notified";
+                heartbeat_keys.push(`${groupId}:already_notified`);
+              }
             }
           }
           continue;
@@ -614,6 +684,7 @@ export async function runSendLineReminder(
         guest_sent_count,
         result,
         heartbeat,
+        heartbeat_keys,
         duplicate: false,
         accepted_count:
           totalMessages,

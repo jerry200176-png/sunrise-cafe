@@ -100,12 +100,21 @@ CRON_SECRET=xxx bash scripts/verify-send-line-cron.sh
 ## 診斷工具
 
 ```bash
-# 查詢兩個 token 狀態、群組 ID、本月用量
+# 查詢兩個 token 狀態、群組 ID、本月用量與今日 push 用量（唯讀）
 GET /api/admin/diagnose-line
 
 # 測試推播到群組（發一則測試訊息）
 GET /api/admin/test-line-group
 ```
+
+### 訊息額度保護
+
+明日提醒的空狀態／皆已通知 heartbeat 屬 informational：相同群組狀態 36
+小時內只保留第一次提醒，並可由 `LINE_MONTHLY_MESSAGE_BUDGET`、
+`LINE_EXPECTED_DAILY_MESSAGES` 啟用異常暴增保護。訂位、付款、逾期釋放、等位與
+到店確認等 critical/actionable 通知不會因 budget 被抑制。逾期釋放 cron 同一批最多
+將 5 張群組 Flex 卡放進一次 push request；每筆仍有獨立 delivery claim，失敗仍寫回
+各筆 ledger。
 
 ---
 

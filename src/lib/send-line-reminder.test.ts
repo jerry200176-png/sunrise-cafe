@@ -37,6 +37,7 @@ vi.mock("@/lib/job-runs", async () => {
   return {
     ...actual,
     findSuccessfulSendLineRunToday: vi.fn(async () => null),
+    findRecentSendLineHeartbeat: vi.fn(async () => false),
   };
 });
 
@@ -57,7 +58,7 @@ import {
   sendLineFlexToGroup,
 } from "@/lib/line-notify";
 import { sendLineFlexMessage } from "@/lib/line";
-import { findSuccessfulSendLineRunToday } from "@/lib/job-runs";
+import { findRecentSendLineHeartbeat, findSuccessfulSendLineRunToday } from "@/lib/job-runs";
 
 describe("alreadyNotifiedCronMessage / emptyCatMessage", () => {
   it("includes count and is stable shape", () => {
@@ -78,6 +79,7 @@ describe("runSendLineReminder — sent=0 regression", () => {
     vi.setSystemTime(new Date("2026-09-04T12:30:00.000Z"));
     vi.clearAllMocks();
     vi.mocked(findSuccessfulSendLineRunToday).mockResolvedValue(null);
+    vi.mocked(findRecentSendLineHeartbeat).mockResolvedValue(false);
     vi.mocked(fetchBranches).mockResolvedValue([]);
   });
 
@@ -119,6 +121,23 @@ describe("runSendLineReminder — sent=0 regression", () => {
     expect(json.result).toBe("empty_cat");
     expect(json.heartbeat).toBe("cat");
     expect(sendLineMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("cooldowns an unchanged empty state without removing the heartbeat path", async () => {
+    vi.mocked(findRecentSendLineHeartbeat).mockResolvedValue(true);
+    vi.mocked(fetchReservationsForReminder).mockResolvedValue([]);
+    vi.mocked(fetchTomorrowsReservations).mockResolvedValue([]);
+
+    const res = await runSendLineReminder({
+      sendHeartbeatOnEmpty: true,
+      trigger_source: "cron",
+    });
+    const json = await res.json();
+
+    expect(json.ok).toBe(true);
+    expect(json.sent).toBe(0);
+    expect(json.heartbeat).toBe("already_notified");
+    expect(sendLineMessage).not.toHaveBeenCalled();
   });
 
   it("does not turn a reservation query failure into a cat message", async () => {
