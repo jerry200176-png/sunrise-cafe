@@ -1,4 +1,5 @@
 import { fetchLineQuotaSnapshot } from "../src/lib/line-usage";
+import { createClient } from "@supabase/supabase-js";
 
 type UsageRow = {
   source: string;
@@ -36,12 +37,136 @@ function sum(items: UsageRow[], key: "baseline" | "optimized") {
   return items.reduce((total, row) => total + row[key], 0);
 }
 
+type ProductionSourceAudit = {
+  available: boolean;
+  window_start: string;
+  window_end: string;
+  job_runs?: {
+    total: number;
+    completed: number;
+    failed: number;
+    by_job: Record<string, {
+      runs: number;
+      completed: number;
+      failed: number;
+      items_processed: number;
+      accepted_count: number;
+      rejected_count: number;
+      message_count: number;
+      guest_sent_count: number;
+      heartbeat_count: number;
+    }>;
+  };
+  ops_events?: { total: number; by_action: Record<string, number> };
+  reason?: string;
+};
+
+type JobRunBuckets = NonNullable<ProductionSourceAudit["job_runs"]>["by_job"];
+
+function addNumber(target: Record<string, number>, key: string, value: unknown): void {
+  const amount = Number(value);
+  if (Number.isFinite(amount)) target[key] = (target[key] ?? 0) + amount;
+}
+
+/** Read-only source attribution from the durable application evidence tables. */
+async function fetchProductionSourceAudit(days = 30): Promise<ProductionSourceAudit> {
+  const windowEnd = new Date();
+  const windowStart = new Date(windowEnd.getTime() - days * 24 * 60 * 60 * 1000);
+  const base = {
+    window_start: windowStart.toISOString(),
+    window_end: windowEnd.toISOString(),
+  };
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key || key.startsWith("<")) {
+    return { available: false, ...base, reason: "Supabase read-only credentials unavailable" };
+  }
+
+  const db = createClient(url, key);
+  const [jobRuns, opsEvents] = await Promise.all([
+    db
+      .from("job_runs")
+      .select("job_name,status,items_processed,metadata")
+      .gte("started_at", base.window_start)
+      .lte("started_at", base.window_end)
+      .limit(5000),
+    db
+      .from("ops_events")
+      .select("action")
+      .gte("created_at", base.window_start)
+      .lte("created_at", base.window_end)
+      .limit(5000),
+  ]);
+  if (jobRuns.error || opsEvents.error) {
+    return {
+      available: false,
+      ...base,
+      reason: "Production source tables unavailable or unreadable",
+    };
+  }
+
+  const byJob: JobRunBuckets = {};
+  let completed = 0;
+  let failed = 0;
+  for (const row of jobRuns.data ?? []) {
+    const job = String(row.job_name ?? "unknown");
+    const bucket = (byJob[job] ??= {
+      runs: 0,
+      completed: 0,
+      failed: 0,
+      items_processed: 0,
+      accepted_count: 0,
+      rejected_count: 0,
+      message_count: 0,
+      guest_sent_count: 0,
+      heartbeat_count: 0,
+    });
+    bucket.runs++;
+    bucket.items_processed += Number(row.items_processed ?? 0) || 0;
+    if (row.status === "completed") {
+      completed++;
+      bucket.completed++;
+    }
+    if (row.status === "failed") {
+      failed++;
+      bucket.failed++;
+    }
+    const metadata = (row.metadata ?? {}) as Record<string, unknown>;
+    addNumber(bucket, "accepted_count", metadata.accepted_count);
+    addNumber(bucket, "rejected_count", metadata.rejected_count ?? metadata.errors);
+    addNumber(bucket, "message_count", metadata.message_count ?? metadata.sent);
+    addNumber(bucket, "guest_sent_count", metadata.guest_sent_count);
+    if (metadata.heartbeat && metadata.heartbeat !== "none") bucket.heartbeat_count++;
+  }
+
+  const byAction: Record<string, number> = {};
+  for (const row of opsEvents.data ?? []) {
+    const action = String(row.action ?? "unknown");
+    byAction[action] = (byAction[action] ?? 0) + 1;
+  }
+
+  return {
+    available: true,
+    ...base,
+    job_runs: {
+      total: jobRuns.data?.length ?? 0,
+      completed,
+      failed,
+      by_job: byJob,
+    },
+    ops_events: { total: opsEvents.data?.length ?? 0, by_action: byAction },
+  };
+}
+
 async function main() {
   const quotaRows = rows.filter((row) => row.channel !== "reply");
   const baseline = sum(quotaRows, "baseline");
   const optimized = sum(quotaRows, "optimized");
   const quota = process.argv.includes("--quota")
     ? await fetchLineQuotaSnapshot()
+    : null;
+  const sourceAudit = process.argv.includes("--source")
+    ? await fetchProductionSourceAudit()
     : null;
   console.log(
     JSON.stringify(
@@ -56,8 +181,9 @@ async function main() {
         group_only_baseline_units: sum(rows.filter((row) => row.channel === "group"), "baseline"),
         group_only_optimized_units: sum(rows.filter((row) => row.channel === "group"), "optimized"),
         quota,
+        source_audit: sourceAudit,
         caveat:
-          "LINE quota is channel-wide; group usage is multiplied by actual group recipients and includes OA Manager sends. Source attribution is an estimate until production job_runs/ops_events and readonly quota are supplied.",
+          "LINE quota is channel-wide; group usage is multiplied by actual group recipients and includes OA Manager sends. The optional --source report is read-only and aggregates production job_runs/ops_events without printing raw payloads.",
       },
       null,
       2

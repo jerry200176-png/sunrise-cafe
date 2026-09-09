@@ -9,6 +9,10 @@ The read-only production check is wired through
 `GET /api/admin/diagnose-line?code=...`; it queries LINE monthly consumption,
 monthly quota and today’s Messaging API push count without sending a test
 message unless `send=1` is explicitly supplied.
+For a repeatable 30-day source attribution report, run
+`npm run line:usage-audit -- --quota --source` in an operator environment with
+read-only LINE and Supabase credentials; `--source` aggregates `job_runs` and
+`ops_events` without printing raw payloads.
 
 LINE’s official count is channel-wide and recipient-based. Multiple message
 objects in one push request do not increase the count; a group push is counted
@@ -97,6 +101,7 @@ Main modeled savings:
 ## Production activation gate
 
 Before activation, run the read-only quota endpoint and compare the result with
-`job_runs` for at least one complete 30-day window. Do not enable the optional
+`job_runs` for at least one complete 30-day window, or run the combined
+`line:usage-audit -- --quota --source` report. Do not enable the optional
 budget variables or promote the code until the operator confirms the actual
 group membership, current monthly limit, source mix, and failure-retry evidence.
