@@ -6,7 +6,7 @@ import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@supabase/supabase-js";
 import { isAdminConfigured } from "@/lib/supabase-admin";
 
-export type OpsLogDomain = "cron" | "webhook" | "guest" | "admin" | "payment";
+export type OpsLogDomain = "cron" | "webhook" | "guest" | "admin" | "payment" | "line";
 
 export type OpsLogAction =
   | "cron.completed"
@@ -37,6 +37,7 @@ export type OpsLogAction =
   | "payment.intent_created"
   | "payment.deposit_confirmed"
   | "payment.approved_notified"
+  | "line.provider_rejected"
   | "payment.refund_processed"
   | "stripe.signature_failed"
   | "stripe.payment_intent_succeeded"

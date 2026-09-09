@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   fetchUnpaidDepositDueReservations,
+  fetchFailedDepositReleaseGroupDeliveries,
   updateReservationAdmin,
   isAdminConfigured,
 } from "@/lib/supabase-admin";
@@ -9,7 +10,10 @@ import {
   buildGuestDepositReminderFlex,
   buildGuestDepositReleasedFlex,
 } from "@/lib/line-cards";
-import { sendLineFlex, buildDepositReleasedGroupFlex } from "@/lib/line-notify";
+import {
+  sendLineFlexBatch,
+  buildDepositReleasedGroupFlex,
+} from "@/lib/line-notify";
 import {
   computeDepositDeadline,
   formatDepositDeadlineLabel,
@@ -29,6 +33,7 @@ import { authorizeCronGet } from "@/lib/cron-request-auth";
 import { runBootstrapMigrations } from "@/lib/bootstrap-migrations";
 import {
   claimLineReminderDelivery,
+  claimFailedLineReminderDelivery,
   markLineReminderDelivery,
   safeLineDeliveryError,
 } from "@/lib/line-delivery";
@@ -75,6 +80,19 @@ async function sendDepositReminder(r: Row, urgency: "ok" | "soon") {
   );
 }
 
+function buildGroupReleaseNotice(r: Row) {
+  return {
+    altText: `訂金逾期釋放：${r.customer_name}`,
+    contents: buildDepositReleasedGroupFlex({
+      customerName: r.customer_name,
+      phone: r.phone,
+      bookingCode: r.booking_code,
+      startTime: r.start_time,
+      endTime: r.end_time,
+    }),
+  };
+}
+
 async function handleRun() {
   await runBootstrapMigrations();
   if (!isAdminConfigured()) {
@@ -89,6 +107,27 @@ async function handleRun() {
   let urgentReminded = 0;
   let errors = 0;
   let messageCount = 0;
+  const pendingGroupReleases: {
+    deliveryId: string | null;
+    altText: string;
+    contents: Record<string, unknown>;
+  }[] = [];
+
+  // Cancelled reservations are intentionally absent from the normal unpaid
+  // query. Recover only failed staff release alerts, with a CAS claim so two
+  // overlapping cron runs cannot resend the same delivery.
+  try {
+    const failedReleases = await fetchFailedDepositReleaseGroupDeliveries();
+    for (const failed of failedReleases) {
+      const claimed = await claimFailedLineReminderDelivery(failed.delivery_id);
+      if (!claimed) continue;
+      const notice = buildGroupReleaseNotice(failed.reservation as unknown as Row);
+      pendingGroupReleases.push({ deliveryId: failed.delivery_id, ...notice });
+    }
+  } catch (err) {
+    errors++;
+    console.error("[deposit-deadline] failed group release recovery unavailable:", safeLineDeliveryError(err));
+  }
 
   logPayment("deposit_deadline.cron_run", { candidate_count: rows.length });
 
@@ -152,29 +191,7 @@ async function handleRun() {
         }
 
         if (!groupClaim.available || groupClaim.id) {
-          try {
-            await sendLineFlex(
-              `訂金逾期釋放：${r.customer_name}`,
-              buildDepositReleasedGroupFlex({
-                customerName: r.customer_name,
-                phone: r.phone,
-                bookingCode: r.booking_code,
-                startTime: r.start_time,
-                endTime: r.end_time,
-              })
-            );
-            messageCount++;
-            if (groupClaim.id) await markLineReminderDelivery(groupClaim.id, { status: "sent" });
-          } catch (err) {
-            errors++;
-            if (groupClaim.id) {
-              await markLineReminderDelivery(groupClaim.id, {
-                status: "failed",
-                error: safeLineDeliveryError(err),
-              });
-            }
-            console.error("[deposit-deadline] 群組通知失敗:", safeLineDeliveryError(err));
-          }
+          pendingGroupReleases.push({ deliveryId: groupClaim.id, ...buildGroupReleaseNotice(r) });
         }
 
         notifyWaitlist(r.room?.id ?? "", r.start_time, r.end_time).catch((err) =>
@@ -295,6 +312,56 @@ async function handleRun() {
           }
           console.error(`[deposit-deadline] 迫近提醒失敗 id=${r.id}:`, safeLineDeliveryError(err));
         }
+      }
+    }
+  }
+
+  // A release cron can process several reservations at once. Keep each
+  // reservation as its own actionable Flex card, but send up to five cards in
+  // one push request so LINE counts the group recipient once per batch rather
+  // than once per reservation. Delivery ledger claims remain per reservation.
+  for (let offset = 0; offset < pendingGroupReleases.length; offset += 5) {
+    const batch = pendingGroupReleases.slice(offset, offset + 5);
+    const retryKey = crypto.randomUUID();
+    try {
+      await sendLineFlexBatch(
+        batch.map(({ altText, contents }) => ({ altText, contents })),
+        { retryKey },
+      );
+      await Promise.all(
+        batch
+          .filter(({ deliveryId }) => deliveryId)
+          .map(({ deliveryId }) => markLineReminderDelivery(deliveryId!, { status: "sent" }))
+      );
+      messageCount++;
+    } catch {
+      // Reuse the same provider retry key once. A timeout/5xx may have been
+      // accepted by LINE; a second request with the same key becomes a 409
+      // reconciliation instead of a duplicate push.
+      try {
+        await sendLineFlexBatch(
+          batch.map(({ altText, contents }) => ({ altText, contents })),
+          { retryKey },
+        );
+        await Promise.all(
+          batch
+            .filter(({ deliveryId }) => deliveryId)
+            .map(({ deliveryId }) => markLineReminderDelivery(deliveryId!, { status: "sent" }))
+        );
+        messageCount++;
+      } catch (retryError) {
+        errors++;
+        await Promise.all(
+          batch
+            .filter(({ deliveryId }) => deliveryId)
+            .map(({ deliveryId }) =>
+              markLineReminderDelivery(deliveryId!, {
+                status: "failed",
+                error: safeLineDeliveryError(retryError),
+              })
+            )
+        );
+        console.error("[deposit-deadline] 群組通知批次失敗:", safeLineDeliveryError(retryError));
       }
     }
   }

@@ -1,0 +1,119 @@
+# Sunrise LINE usage audit — 2026-09-09 dry run
+
+## Scope and evidence
+
+This is a simulation from `npm run line:usage-audit`, using the current
+notification call sites and a 30-day test fixture. The default
+`--group-members 1` is a neutral placeholder, not a claim about real LINE
+group membership. No production credential was available in this task
+worktree, so the numbers below are not production truth.
+The read-only production check is wired through
+`GET /api/admin/diagnose-line?code=...`; it queries LINE monthly consumption,
+monthly quota and today’s Messaging API push count without sending a test
+message unless `send=1` is explicitly supplied.
+For a repeatable 30-day source attribution report, run
+`npm run line:usage-audit -- --quota --source` in an operator environment with
+read-only LINE and Supabase credentials; `--source` aggregates `job_runs` and
+`ops_events` without printing raw payloads.
+
+LINE’s official count is channel-wide and recipient-based. Multiple message
+objects in one push request do not increase the count; a group push is counted
+by the number of recipients in the group. Therefore this audit reports
+request × recipient simulation units, and group rows must be multiplied by the
+real group membership for a quota estimate. For example,
+`--group-members 5` produces a different simulation; it is still not
+production evidence. LINE Official Account Manager sends are also
+included in monthly consumption, while reply messages are not.
+
+## Simulation result (`--group-members 1`)
+
+| Scope | Before | After | Estimated saving |
+|---|---:|---:|---:|
+| Push requests | 481 | 450 | 31 / 6.4% fewer requests |
+| Simulated LINE recipient units | 481 | 450 | 31 / 6.4% at group multiplier 1 |
+| Group push requests | 217 | 186 | 31 fewer requests |
+
+Main modeled savings:
+
+- `deposit release group`: 20 individual pushes → 4 requests (up to five Flex
+  message objects per request), while each reservation retains its own claim.
+- unchanged `empty` / `already_notified` heartbeat: 30 daily informational
+  pushes → 15 under the 36-hour same-state cooldown. The heartbeat is retained;
+  it is not removed.
+
+## Source inventory and classification
+
+| Source | Class | Current behavior | Change in this task |
+|---|---|---|---|
+| D-1 group reminder | actionable | per branch digest, delivery ledger | unchanged |
+| D-1 / D-7 guest reminders | actionable/informational | per-recipient carousel digest and ledger | unchanged |
+| Deposit initial / urgent reminders | actionable | deadline flags + delivery ledger | unchanged |
+| Deposit release guest | critical | one guest push, delivery ledger | unchanged |
+| Deposit release group | critical | one push per released reservation | batch up to 5; provider retry key reused once |
+| New booking / payment review / payment approval | actionable/critical | immediate staff notification; approval has DB + provider idempotency | one-shot group pushes use deterministic provider retry keys |
+| Cancel / reschedule / attendance / waitlist | actionable | lifecycle dedupe or one-shot state markers | same reschedule is a no-op; attendance/waitlist pushes use lifecycle/state plus deterministic retry keys |
+| Empty / already-notified heartbeat | informational | scheduled group heartbeat | 36-hour same-key cooldown + optional budget/surge guard |
+| Webhook replies | actionable | reply API | not quota-counted by LINE |
+| Cron failure / deploy alerts | critical | immediate staff alert | never locally budget-suppressed |
+
+## Trigger and call-site inventory
+
+| Trigger | Frequency / entry point | LINE sources | Dedupe or retry evidence |
+|---|---|---|---|
+| D-1 reminder | Vercel `send-line`, daily `0 12 * * *` UTC; GitHub backup `13:10` UTC | branch group digest + guest digest + empty/already-notified heartbeat | `job_runs` same-day lock, delivery ledger, 36h heartbeat key cooldown |
+| D-7 reminder | Vercel `send-line-7d`, daily `0 12 * * *` UTC | per-guest digest carousel | delivery ledger + `is_reminded_7d` stamp |
+| Deposit deadline | Vercel `deposit-deadline`, `01/07/13/19` UTC | deposit initial/urgent, release guest, release group | delivery ledger; release group batches up to five and reclaims failed cancelled rows |
+| Booking / reschedule APIs | synchronous POST routes | new booking group, reschedule group/guest | deterministic provider retry key; same reschedule is a no-op |
+| Cancellation / attendance APIs | synchronous POST routes | cancellation guest, attendance group/guest | guest lifecycle ledger; attendance state is updated before fan-out |
+| Waitlist fan-out / confirm | cancellation, release, reschedule, or confirm endpoint | waitlist guest and needs-call staff group | waitlist state/stamps plus deterministic provider retry key |
+| LINE webhook | `POST /api/webhooks/line`, event-driven | payment-review staff group + reply message | pending payment-event check; reply uses LINE reply API |
+| Payment approval / LINE Pay retry | approval action plus Vercel retry `0 4 * * *` UTC | staff + guest approval, LINE Pay staff outbox | stored retry keys / outbox CAS and deterministic outbox retry key |
+| Cron/deploy health | Vercel `deploy-health` daily `0 14 * * *` UTC and job failures | critical staff alerts | failure-only path; never informational-throttled |
+
+## Root causes
+
+1. The deposit deadline cron claimed each group release independently and then
+   issued one push request per reservation. This is the direct reducible source
+   addressed by the batch sender.
+2. Empty-state heartbeats repeated while the state was unchanged. This is
+   informational noise, so it now has a durable job-run cooldown.
+3. LINE’s quota endpoint cannot attribute channel usage to application source;
+   source attribution requires the existing `job_runs` metadata and event
+   records plus a scenario audit such as this one.
+
+## Reliability guardrails
+
+- Existing D-1, D-7, deposit deadline, guest lifecycle and payment approval
+  dedupe behavior remains in place.
+- Group batch requests contain independent Flex cards and never silently drop a
+  claimed reservation. The batch is retried once with the same
+  `X-Line-Retry-Key`; an ambiguous accepted request therefore reconciles as
+  HTTP 409 rather than producing a duplicate.
+- If a release batch still fails after the provider-key retry, the failed group
+  delivery is retained and the next cron run can reclaim it even though the
+  reservation was already cancelled; the reclaim uses a compare-and-swap on
+  the ledger status and attempt count.
+- Critical/actionable notifications bypass only the local quota guard; this is
+  not a guarantee against LINE provider rejection or end-user delivery failure.
+- Non-2xx provider rejections are observable through structured operational
+  logs/`ops_events`; cron callers escalate through the existing failure path.
+- One-shot event keys are deterministic for booking, reschedule, attendance,
+  waitlist and LINE Pay outbox pushes, so concurrent/retried calls reuse the
+  provider retry key instead of creating a second push within LINE's retry
+  window.
+- If the delivery ledger is unavailable in production, automatic reminder
+  sends fail closed as before.
+- Empty-message behavior remains available; only unchanged informational state
+  is cooled down.
+
+## Production activation gate
+
+Before activation, run the official LINE quota audit and the Supabase source
+audit independently for at least one complete 30-day window, or run the
+combined `line:usage-audit -- --quota --source` report. Do not enable the
+`LINE_USAGE_GUARD_ENABLED` flag or optional budget variables until the quota
+and thresholds are verified. The deterministic batching, dedupe, retry-key,
+reclaim, and heartbeat changes may be deployed with the guard disabled; do not
+claim production savings or activate quota suppression until the operator
+confirms the actual group membership, current monthly limit, source mix, and
+failure-retry evidence.

@@ -174,6 +174,40 @@ export async function findSuccessfulSendLineRunToday(
   return null;
 }
 
+/**
+ * Informational heartbeat cooldown. A repeated empty/already-notified state
+ * does not need another push within the same 36-hour window. If job_runs is
+ * unavailable, return false so the existing heartbeat behavior is preserved.
+ */
+export async function findRecentSendLineHeartbeat(
+  heartbeatKey: string,
+  now = new Date(),
+  cooldownHours = 36
+): Promise<boolean> {
+  if (!isAdminConfigured()) return false;
+  const since = new Date(now.getTime() - cooldownHours * 60 * 60 * 1000).toISOString();
+  const { data, error } = await db()
+    .from("job_runs")
+    .select("metadata")
+    .eq("job_name", "send-line")
+    .eq("status", "completed")
+    .gte("started_at", since)
+    .order("started_at", { ascending: false })
+    .limit(20);
+
+  if (error) {
+    if (/job_runs/i.test(error.message)) return false;
+    throw error;
+  }
+  return (data ?? []).some((row) => {
+    const metadata = (row.metadata ?? {}) as Record<string, unknown>;
+    const keys = Array.isArray(metadata.heartbeat_keys)
+      ? metadata.heartbeat_keys.filter((key): key is string => typeof key === "string")
+      : [];
+    return keys.includes(heartbeatKey);
+  });
+}
+
 /** Wrap a cron handler with job_runs persistence + failure recording. */
 export async function runCronJob(
   jobName: string,

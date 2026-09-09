@@ -7,6 +7,7 @@ import {
   WAITLIST_CONFIRM_WINDOW_MINUTES,
 } from "@/lib/line-cards";
 import type { LineFlexContainer } from "@/lib/line-flex";
+import { observeLineProviderRejection } from "@/lib/line-provider-observability";
 
 export {
   buildPaymentFlex,
@@ -58,6 +59,12 @@ async function lineCustomerFetch(
 
   if (!res.ok) {
     const text = await res.text();
+    observeLineProviderRejection({
+      channel: "customer",
+      operation: "push",
+      status: res.status,
+      retryKey: options?.retryKey,
+    });
     throw new Error(`LINE push 失敗：${res.status} ${text}`);
   }
 }
@@ -114,6 +121,7 @@ export async function replyLineFlexMessage(
 
   if (!res.ok) {
     const text = await res.text();
+    observeLineProviderRejection({ channel: "customer", operation: "reply", status: res.status });
     throw new Error(`LINE reply flex 失敗：${res.status} ${text}`);
   }
 }
@@ -137,6 +145,7 @@ export async function replyLineTextMessage(replyToken: string, text: string): Pr
 
   if (!res.ok) {
     const textBody = await res.text();
+    observeLineProviderRejection({ channel: "customer", operation: "reply", status: res.status });
     throw new Error(`LINE reply 失敗：${res.status} ${textBody}`);
   }
 }

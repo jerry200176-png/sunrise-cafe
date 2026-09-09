@@ -632,5 +632,40 @@ export async function fetchUnpaidDepositDueReservations() {
   return data;
 }
 
+/**
+ * Return failed group release deliveries for retry after the reservation was
+ * already cancelled. The normal unpaid query intentionally excludes cancelled
+ * rows, so without this recovery read a failed staff alert could be stranded.
+ */
+export async function fetchFailedDepositReleaseGroupDeliveries() {
+  const { data: deliveries, error: deliveryError } = await supabaseAdmin()
+    .from("line_reminder_deliveries")
+    .select("id, reservation_id, reminder_date")
+    .eq("reminder_type", "deposit_release_group")
+    .eq("recipient_type", "group")
+    .eq("status", "failed")
+    .order("created_at", { ascending: true })
+    .limit(100);
+  if (deliveryError) throw deliveryError;
+  if (!deliveries?.length) return [];
+
+  const reservationIds = deliveries.map((delivery) => String(delivery.reservation_id));
+  const { data: reservations, error: reservationError } = await supabaseAdmin()
+    .from("reservations")
+    .select(
+      "id, booking_code, customer_name, phone, start_time, end_time, created_at, status, line_user_id, deposit_reminder_sent_at, deposit_urgent_reminder_sent_at, room:rooms(id, name, branch:branches(name))"
+    )
+    .in("id", reservationIds);
+  if (reservationError) throw reservationError;
+
+  const byId = new Map((reservations ?? []).map((reservation) => [String(reservation.id), reservation]));
+  return deliveries.flatMap((delivery) => {
+    const reservation = byId.get(String(delivery.reservation_id));
+    return reservation
+      ? [{ delivery_id: String(delivery.id), reminder_date: String(delivery.reminder_date), reservation }]
+      : [];
+  });
+}
+
 /** @deprecated 使用 fetchUnpaidDepositDueReservations */
 export const fetchUnpaidPendingReservations = fetchUnpaidDepositDueReservations;

@@ -11,6 +11,7 @@ import {
 import { sendLineFlexMessage } from "@/lib/line";
 import { buildGuestAttendanceConfirmedFlex } from "@/lib/line-cards";
 import { deliverLineGuestNotification } from "@/lib/line-guest-delivery";
+import { stableLineRetryKey } from "@/lib/line-retry-key";
 
 function db() {
   return createClient(
@@ -75,9 +76,13 @@ async function notifyStaffAttendance(r: Record<string, unknown>) {
   const alt = `客人已確認出席：${r.customer_name}`;
   try {
     if (lineGroupId) {
-      await sendLineFlexToGroup(alt, flex, lineGroupId);
+      await sendLineFlexToGroup(alt, flex, lineGroupId, {
+        retryKey: stableLineRetryKey("attendance-confirmed-group", String(r.id)),
+      });
     } else {
-      await sendLineFlex(alt, flex);
+      await sendLineFlex(alt, flex, {
+        retryKey: stableLineRetryKey("attendance-confirmed-group", String(r.id)),
+      });
     }
   } catch (err) {
     console.error("[confirm-attendance] staff LINE notify failed:", err);
@@ -102,7 +107,14 @@ async function notifyGuestAttendance(r: Record<string, unknown>) {
             bookingCode: r.booking_code == null ? null : String(r.booking_code),
             startTime: String(r.start_time),
             endTime: String(r.end_time),
-          })
+          }),
+          {
+            retryKey: stableLineRetryKey(
+              "attendance-confirmed-guest",
+              String(r.id),
+              String(r.line_user_id)
+            ),
+          }
         ),
     });
   } catch (err) {

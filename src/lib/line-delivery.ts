@@ -74,6 +74,36 @@ export async function markLineReminderDelivery(
   }
 }
 
+/** Atomically reclaim one failed delivery for a later retry. */
+export async function claimFailedLineReminderDelivery(id: string): Promise<boolean> {
+  const client = supabaseAdmin();
+  const { data: current, error: readError } = await client
+    .from("line_reminder_deliveries")
+    .select("id, attempt_count")
+    .eq("id", id)
+    .eq("status", "failed")
+    .maybeSingle();
+  if (readError) throw readError;
+  if (!current) return false;
+
+  const { data, error } = await client
+    .from("line_reminder_deliveries")
+    .update({
+      status: "sending",
+      attempt_count: Number(current.attempt_count ?? 0) + 1,
+      last_error: null,
+      sent_at: null,
+      created_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .eq("status", "failed")
+    .eq("attempt_count", Number(current.attempt_count ?? 0))
+    .select("id")
+    .maybeSingle();
+  if (error) throw error;
+  return Boolean(data);
+}
+
 /** A reschedule creates a new reminder version, even when its calendar day is unchanged. */
 export async function resetLineReminderDeliveries(reservationId: string): Promise<void> {
   const { error } = await supabaseAdmin()
