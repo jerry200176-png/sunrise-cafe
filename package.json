@@ -51,22 +51,22 @@
     "line:usage-audit": "npx tsx scripts/line-usage-audit.ts"
   },
   "dependencies": {
-    "@sentry/nextjs": "^10.70.0",
+    "@sentry/nextjs": "^10.73.0",
     "@stripe/react-stripe-js": "^3.1.0",
     "@stripe/stripe-js": "^5.5.0",
-    "@supabase/supabase-js": "^2.112.3",
+    "@supabase/supabase-js": "^2.115.0",
     "@types/qrcode": "^1.5.6",
     "@upstash/ratelimit": "^2.0.8",
-    "@upstash/redis": "^1.38.2",
+    "@upstash/redis": "^1.38.4",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.577.0",
-    "next": "^15.5.23",
+    "next": "^15.5.25",
     "qrcode": "^1.5.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "recharts": "^3.10.1",
-    "resend": "^6.20.0",
-    "stripe": "^22.3.2",
+    "resend": "^6.26.0",
+    "stripe": "^22.6.1",
     "ws": "^8.21.3"
   },
   "devDependencies": {
