@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   decideLineUsage,
   estimateMonthlyMessageConsumption,
+  fetchLineQuotaAudit,
   fetchLineQuotaSnapshot,
   readLineUsageBudget,
 } from "./line-usage";
@@ -13,7 +14,7 @@ describe("LINE usage budget", () => {
 
   it("never suppresses critical or actionable notifications", () => {
     const snapshot = { used: 999, limit: 1000 };
-    const budget = { monthlyBudget: 100, expectedDaily: 1, surgeMultiplier: 1 };
+    const budget = { enabled: true, monthlyBudget: 100, expectedDaily: 1, surgeMultiplier: 1 };
 
     expect(decideLineUsage("critical", snapshot, budget).allowed).toBe(true);
     expect(decideLineUsage("actionable", snapshot, budget).allowed).toBe(true);
@@ -23,7 +24,7 @@ describe("LINE usage budget", () => {
     const decision = decideLineUsage(
       "informational",
       { used: 100, limit: 500 },
-      { monthlyBudget: 100, expectedDaily: null, surgeMultiplier: 3 }
+      { enabled: true, monthlyBudget: 100, expectedDaily: null, surgeMultiplier: 3 }
     );
 
     expect(decision).toMatchObject({ allowed: false, reason: "monthly_budget", projectedUsage: 101 });
@@ -33,7 +34,7 @@ describe("LINE usage budget", () => {
     const decision = decideLineUsage(
       "informational",
       { used: 61, limit: null },
-      { monthlyBudget: null, expectedDaily: 10, surgeMultiplier: 3 },
+      { enabled: true, monthlyBudget: null, expectedDaily: 10, surgeMultiplier: 3 },
       1,
       new Date("2026-09-02T01:00:00Z")
     );
@@ -60,6 +61,33 @@ describe("LINE usage budget", () => {
     });
   });
 
+  it("reports official quota endpoints independently when one is unavailable", async () => {
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 503 })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ type: "limited", value: 100 }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ status: "ready", success: 4 }) });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const audit = await fetchLineQuotaAudit("secret-token", new Date("2026-09-09T00:00:00Z"));
+
+    expect(audit.status).toBe("partial");
+    expect(audit.endpoints.consumption.available).toBe(false);
+    expect(audit.endpoints.quota.available).toBe(true);
+    expect(audit.endpoints.dailyPush.available).toBe(true);
+    expect(audit.snapshot).toMatchObject({ used: null, limit: 100, dailyPush: 4 });
+  });
+
+  it("keeps the local quota guard disabled until explicitly enabled", () => {
+    const budget = readLineUsageBudget({
+      LINE_MONTHLY_MESSAGE_BUDGET: "100",
+      LINE_EXPECTED_DAILY_MESSAGES: "1",
+    } as unknown as NodeJS.ProcessEnv);
+    expect(budget.enabled).toBe(false);
+    expect(
+      decideLineUsage("informational", { used: 1000, limit: 1000 }, budget).reason
+    ).toBe("local_guard_disabled");
+  });
+
   it("estimates baseline and aggregated monthly consumption", () => {
     const baseline = estimateMonthlyMessageConsumption({
       days: 30,
@@ -82,10 +110,11 @@ describe("LINE usage budget", () => {
   it("parses optional budget settings", () => {
     expect(
       readLineUsageBudget({
+        LINE_USAGE_GUARD_ENABLED: "true",
         LINE_MONTHLY_MESSAGE_BUDGET: "900",
         LINE_EXPECTED_DAILY_MESSAGES: "30",
         LINE_USAGE_SURGE_MULTIPLIER: "2",
       } as unknown as NodeJS.ProcessEnv)
-    ).toEqual({ monthlyBudget: 900, expectedDaily: 30, surgeMultiplier: 2 });
+    ).toEqual({ enabled: true, monthlyBudget: 900, expectedDaily: 30, surgeMultiplier: 2 });
   });
 });

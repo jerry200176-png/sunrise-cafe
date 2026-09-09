@@ -8,13 +8,39 @@ export type LineQuotaSnapshot = {
   fetchedAt: string;
 };
 
+export type LineQuotaEndpoint<T> = {
+  available: boolean;
+  value: T | null;
+  error?: string;
+};
+
+export type LineQuotaAudit = {
+  source: "line_official_api";
+  status: "complete" | "partial" | "unavailable";
+  endpoints: {
+    consumption: LineQuotaEndpoint<number>;
+    quota: LineQuotaEndpoint<{ value: number | null; type: "none" | "limited" | null }>;
+    dailyPush: LineQuotaEndpoint<number>;
+  };
+  snapshot: LineQuotaSnapshot;
+  fetchedAt: string;
+};
+
 export type LineUsageDecision = {
   allowed: boolean;
-  reason: "priority_exempt" | "no_budget" | "within_budget" | "monthly_budget" | "monthly_limit" | "surge";
+  reason:
+    | "local_guard_exempt"
+    | "local_guard_disabled"
+    | "no_budget"
+    | "within_budget"
+    | "monthly_budget"
+    | "monthly_limit"
+    | "surge";
   projectedUsage: number | null;
 };
 
 export type LineUsageBudget = {
+  enabled: boolean;
   monthlyBudget: number | null;
   expectedDaily: number | null;
   surgeMultiplier: number;
@@ -31,9 +57,10 @@ function positiveNumber(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-/** Optional configuration: leaving the budget unset keeps existing delivery behavior. */
+/** Disabled by default until production quota and thresholds are verified. */
 export function readLineUsageBudget(env: NodeJS.ProcessEnv = process.env): LineUsageBudget {
   return {
+    enabled: /^(1|true|yes)$/i.test(env.LINE_USAGE_GUARD_ENABLED?.trim() ?? ""),
     monthlyBudget: positiveInteger(env.LINE_MONTHLY_MESSAGE_BUDGET),
     expectedDaily: positiveInteger(env.LINE_EXPECTED_DAILY_MESSAGES),
     surgeMultiplier: positiveNumber(env.LINE_USAGE_SURGE_MULTIPLIER, 3),
@@ -45,8 +72,8 @@ function elapsedMonthDays(now: Date): number {
 }
 
 /**
- * Informational messages may be throttled; critical/actionable notifications
- * always remain eligible so quota protection cannot hide a human-required event.
+ * Critical/actionable notifications bypass this local guard. That is not a
+ * provider-delivery guarantee: LINE may still reject or fail to deliver them.
  */
 export function decideLineUsage(
   priority: LineNotificationPriority,
@@ -56,7 +83,10 @@ export function decideLineUsage(
   now = new Date()
 ): LineUsageDecision {
   if (priority !== "informational") {
-    return { allowed: true, reason: "priority_exempt", projectedUsage: null };
+    return { allowed: true, reason: "local_guard_exempt", projectedUsage: null };
+  }
+  if (!budget.enabled) {
+    return { allowed: true, reason: "local_guard_disabled", projectedUsage: null };
   }
   if (!snapshot || snapshot.used == null) {
     return { allowed: true, reason: "no_budget", projectedUsage: null };
@@ -90,26 +120,37 @@ function tokyoDate(now: Date): string {
   return `${values.year}${values.month}${values.day}`;
 }
 
-async function getJson<T>(url: string, token: string): Promise<T | null> {
+async function getJson<T>(url: string, token: string): Promise<{ data: T | null; error?: string }> {
   try {
     const response = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
     });
-    if (!response.ok) return null;
-    return (await response.json()) as T;
-  } catch {
-    return null;
+    if (!response.ok) return { data: null, error: `HTTP ${response.status}` };
+    return { data: (await response.json()) as T };
+  } catch (error) {
+    return { data: null, error: error instanceof Error ? error.message : "request failed" };
   }
 }
 
 /** Read-only LINE quota and today's Messaging API push consumption. */
-export async function fetchLineQuotaSnapshot(
+export async function fetchLineQuotaAudit(
   token = process.env.LINE_CHANNEL_ACCESS_TOKEN,
   now = new Date()
-): Promise<LineQuotaSnapshot> {
+): Promise<LineQuotaAudit> {
   if (!token) {
-    return { used: null, limit: null, limitType: null, dailyPush: null, fetchedAt: now.toISOString() };
+    const error = "LINE_CHANNEL_ACCESS_TOKEN unavailable";
+    return {
+      source: "line_official_api",
+      status: "unavailable",
+      endpoints: {
+        consumption: { available: false, value: null, error },
+        quota: { available: false, value: null, error },
+        dailyPush: { available: false, value: null, error },
+      },
+      snapshot: { used: null, limit: null, limitType: null, dailyPush: null, fetchedAt: now.toISOString() },
+      fetchedAt: now.toISOString(),
+    };
   }
 
   const [consumption, quota, delivery] = await Promise.all([
@@ -127,13 +168,48 @@ export async function fetchLineQuotaSnapshot(
     ),
   ]);
 
-  return {
-    used: typeof consumption?.totalUsage === "number" ? consumption.totalUsage : null,
-    limit: typeof quota?.value === "number" ? quota.value : null,
-    limitType: quota?.type ?? null,
-    dailyPush: delivery?.status === "ready" && typeof delivery.success === "number" ? delivery.success : null,
-    fetchedAt: now.toISOString(),
+  const consumptionEndpoint: LineQuotaEndpoint<number> = {
+    available: typeof consumption.data?.totalUsage === "number",
+    value: typeof consumption.data?.totalUsage === "number" ? consumption.data.totalUsage : null,
+    ...(consumption.error ? { error: consumption.error } : {}),
   };
+  const quotaEndpoint: LineQuotaEndpoint<{ value: number | null; type: "none" | "limited" | null }> = {
+    available: typeof quota.data?.value === "number" || quota.data?.type === "none",
+    value: quota.data
+      ? { value: typeof quota.data.value === "number" ? quota.data.value : null, type: quota.data.type ?? null }
+      : null,
+    ...(quota.error ? { error: quota.error } : {}),
+  };
+  const dailyReady = delivery.data?.status === "ready" && typeof delivery.data.success === "number";
+  const dailyEndpoint: LineQuotaEndpoint<number> = {
+    available: dailyReady,
+    value: dailyReady ? delivery.data!.success! : null,
+    ...(delivery.error ? { error: delivery.error } : dailyReady ? {} : { error: "LINE delivery report not ready" }),
+  };
+  const availableCount = [consumptionEndpoint, quotaEndpoint, dailyEndpoint].filter((endpoint) => endpoint.available).length;
+  const status = availableCount === 3 ? "complete" : availableCount === 0 ? "unavailable" : "partial";
+  const fetchedAt = now.toISOString();
+
+  return {
+    source: "line_official_api",
+    status,
+    endpoints: { consumption: consumptionEndpoint, quota: quotaEndpoint, dailyPush: dailyEndpoint },
+    snapshot: {
+      used: consumptionEndpoint.value,
+      limit: quotaEndpoint.value?.value ?? null,
+      limitType: quotaEndpoint.value?.type ?? null,
+      dailyPush: dailyEndpoint.value,
+      fetchedAt,
+    },
+    fetchedAt,
+  };
+}
+
+export async function fetchLineQuotaSnapshot(
+  token = process.env.LINE_CHANNEL_ACCESS_TOKEN,
+  now = new Date()
+): Promise<LineQuotaSnapshot> {
+  return (await fetchLineQuotaAudit(token, now)).snapshot;
 }
 
 export function estimateMonthlyMessageConsumption(input: {

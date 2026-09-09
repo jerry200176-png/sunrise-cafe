@@ -19,6 +19,7 @@ import {
   readLineUsageBudget,
   type LineNotificationPriority,
 } from "@/lib/line-usage";
+import { observeLineProviderRejection } from "@/lib/line-provider-observability";
 
 export {
   buildNewBookingFlex,
@@ -87,7 +88,11 @@ async function sendGroupPayload(
   if (!token) throw new Error("缺少 LINE_CHANNEL_ACCESS_TOKEN");
 
   const budget = readLineUsageBudget();
-  if (options?.priority === "informational" && (budget.monthlyBudget || budget.expectedDaily)) {
+  if (
+    budget.enabled &&
+    options?.priority === "informational" &&
+    (budget.monthlyBudget || budget.expectedDaily)
+  ) {
     const snapshot = await fetchLineQuotaSnapshot(token);
     const decision = decideLineUsage(
       options.priority,
@@ -112,6 +117,12 @@ async function sendGroupPayload(
   }
   if (!res.ok) {
     const body = await res.text();
+    observeLineProviderRejection({
+      channel: "group",
+      operation: "push",
+      status: res.status,
+      retryKey: options?.retryKey,
+    });
     throw new Error(`LINE API 錯誤 (${res.status}): ${body}`);
   }
 }

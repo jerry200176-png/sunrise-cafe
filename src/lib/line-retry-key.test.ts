@@ -87,6 +87,7 @@ describe("LINE Messaging API X-Line-Retry-Key & 409 reconciliation", () => {
   });
 
   it("suppresses informational group pushes at the configured budget", async () => {
+    process.env.LINE_USAGE_GUARD_ENABLED = "true";
     process.env.LINE_MONTHLY_MESSAGE_BUDGET = "1";
     const fetchSpy = vi.fn()
       .mockResolvedValueOnce({ ok: true, json: async () => ({ totalUsage: 1 }) })

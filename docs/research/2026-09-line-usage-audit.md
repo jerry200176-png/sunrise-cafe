@@ -2,9 +2,11 @@
 
 ## Scope and evidence
 
-This is a dry-run estimate from `npm run line:usage-audit`, using the current
-notification call sites and a 30-day test fixture. No production credential was
-available in this task worktree, so the numbers below are not production truth.
+This is a simulation from `npm run line:usage-audit`, using the current
+notification call sites and a 30-day test fixture. The default
+`--group-members 1` is a neutral placeholder, not a claim about real LINE
+group membership. No production credential was available in this task
+worktree, so the numbers below are not production truth.
 The read-only production check is wired through
 `GET /api/admin/diagnose-line?code=...`; it queries LINE monthly consumption,
 monthly quota and today’s Messaging API push count without sending a test
@@ -17,16 +19,19 @@ read-only LINE and Supabase credentials; `--source` aggregates `job_runs` and
 LINE’s official count is channel-wide and recipient-based. Multiple message
 objects in one push request do not increase the count; a group push is counted
 by the number of recipients in the group. Therefore this audit reports
-delivery units, and the group rows must be multiplied by the real group
-membership for a quota estimate. LINE Official Account Manager sends are also
+request × recipient simulation units, and group rows must be multiplied by the
+real group membership for a quota estimate. For example,
+`--group-members 5` produces a different simulation; it is still not
+production evidence. LINE Official Account Manager sends are also
 included in monthly consumption, while reply messages are not.
 
-## Dry-run result
+## Simulation result (`--group-members 1`)
 
 | Scope | Before | After | Estimated saving |
 |---|---:|---:|---:|
-| All quota-counted push units | 481 | 450 | 31 / 6.4% |
-| Group push units | 217 | 186 | 31 / 14.3% |
+| Push requests | 481 | 450 | 31 / 6.4% fewer requests |
+| Simulated LINE recipient units | 481 | 450 | 31 / 6.4% at group multiplier 1 |
+| Group push requests | 217 | 186 | 31 fewer requests |
 
 Main modeled savings:
 
@@ -49,7 +54,7 @@ Main modeled savings:
 | Cancel / reschedule / attendance / waitlist | actionable | lifecycle dedupe or one-shot state markers | same reschedule is a no-op; attendance/waitlist pushes use lifecycle/state plus deterministic retry keys |
 | Empty / already-notified heartbeat | informational | scheduled group heartbeat | 36-hour same-key cooldown + optional budget/surge guard |
 | Webhook replies | actionable | reply API | not quota-counted by LINE |
-| Cron failure / deploy alerts | critical | immediate staff alert | never budget-suppressed |
+| Cron failure / deploy alerts | critical | immediate staff alert | never locally budget-suppressed |
 
 ## Trigger and call-site inventory
 
@@ -88,7 +93,10 @@ Main modeled savings:
   delivery is retained and the next cron run can reclaim it even though the
   reservation was already cancelled; the reclaim uses a compare-and-swap on
   the ledger status and attempt count.
-- Critical/actionable notifications are exempt from quota throttling.
+- Critical/actionable notifications bypass only the local quota guard; this is
+  not a guarantee against LINE provider rejection or end-user delivery failure.
+- Non-2xx provider rejections are observable through structured operational
+  logs/`ops_events`; cron callers escalate through the existing failure path.
 - One-shot event keys are deterministic for booking, reschedule, attendance,
   waitlist and LINE Pay outbox pushes, so concurrent/retried calls reuse the
   provider retry key instead of creating a second push within LINE's retry
@@ -100,8 +108,12 @@ Main modeled savings:
 
 ## Production activation gate
 
-Before activation, run the read-only quota endpoint and compare the result with
-`job_runs` for at least one complete 30-day window, or run the combined
-`line:usage-audit -- --quota --source` report. Do not enable the optional
-budget variables or promote the code until the operator confirms the actual
-group membership, current monthly limit, source mix, and failure-retry evidence.
+Before activation, run the official LINE quota audit and the Supabase source
+audit independently for at least one complete 30-day window, or run the
+combined `line:usage-audit -- --quota --source` report. Do not enable the
+`LINE_USAGE_GUARD_ENABLED` flag or optional budget variables until the quota
+and thresholds are verified. The deterministic batching, dedupe, retry-key,
+reclaim, and heartbeat changes may be deployed with the guard disabled; do not
+claim production savings or activate quota suppression until the operator
+confirms the actual group membership, current monthly limit, source mix, and
+failure-retry evidence.

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { fetchLineQuotaSnapshot } from "@/lib/line-usage";
+import { fetchLineQuotaAudit } from "@/lib/line-usage";
+import { observeLineProviderRejection } from "@/lib/line-provider-observability";
 
 function supabaseAdmin() {
   return createClient(
@@ -44,6 +45,9 @@ export async function GET(request: NextRequest) {
       }),
     });
     lineTest = { ok: res.ok, status: res.status, body: await res.text() };
+    if (!res.ok) {
+      observeLineProviderRejection({ channel: "customer", operation: "push", status: res.status });
+    }
   }
 
   // 測試群組通知 token（LINE_CHANNEL_ACCESS_TOKEN）
@@ -55,11 +59,17 @@ export async function GET(request: NextRequest) {
     basicId?: string;
     error?: string;
     usage?: {
+      status: "complete" | "partial" | "unavailable";
       monthUsed: number | null;
       monthLimit: number | null;
       planType: "none" | "limited" | null;
       todayPush: number | null;
       fetchedAt: string;
+      endpoints: {
+        consumption: "available" | "unavailable";
+        quota: "available" | "unavailable";
+        dailyPush: "available" | "unavailable";
+      };
     };
   } = {};
 
@@ -76,19 +86,23 @@ export async function GET(request: NextRequest) {
     }
 
     // Read-only monthly quota plus today's Messaging API push count.
-    const quota = await fetchLineQuotaSnapshot(groupToken);
-    if (quota.used != null || quota.limit != null || quota.dailyPush != null) {
-      groupBotInfo = {
-        ...groupBotInfo,
-        usage: {
-          monthUsed: quota.used,
-          monthLimit: quota.limit,
-          planType: quota.limitType,
-          todayPush: quota.dailyPush,
-          fetchedAt: quota.fetchedAt,
+    const quotaAudit = await fetchLineQuotaAudit(groupToken);
+    groupBotInfo = {
+      ...groupBotInfo,
+      usage: {
+        status: quotaAudit.status,
+        monthUsed: quotaAudit.snapshot.used,
+        monthLimit: quotaAudit.snapshot.limit,
+        planType: quotaAudit.snapshot.limitType,
+        todayPush: quotaAudit.snapshot.dailyPush,
+        fetchedAt: quotaAudit.fetchedAt,
+        endpoints: {
+          consumption: quotaAudit.endpoints.consumption.available ? "available" : "unavailable",
+          quota: quotaAudit.endpoints.quota.available ? "available" : "unavailable",
+          dailyPush: quotaAudit.endpoints.dailyPush.available ? "available" : "unavailable",
         },
-      };
-    }
+      },
+    };
   }
 
   if (allowSend && groupToken && groupId) {
@@ -104,6 +118,9 @@ export async function GET(request: NextRequest) {
       }),
     });
     groupTest = { ok: res.ok, status: res.status, body: await res.text() };
+    if (!res.ok) {
+      observeLineProviderRejection({ channel: "group", operation: "push", status: res.status });
+    }
   } else if (!groupToken || !groupId) {
     groupTest = { ok: false, status: 0, body: "缺少 LINE_CHANNEL_ACCESS_TOKEN 或 LINE_GROUP_ID" };
   } else {
