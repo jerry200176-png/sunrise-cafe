@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "session_id": "349e5145319343b09b303af688382bdc",
   "project": "sunrise",
-  "task_id": "deposit-line-notification-20260911",
+  "task_id": "deposit-request-retry-key-20260911",
   "repo_remote": "https://github.com/jerry200176-png/sunrise-cafe.git",
   "base_sha": "d31ac473ba1dda26a98e4fe54396e35e4a27f505",
   "branch": "fix/deposit-request-retry-key-20260911",
