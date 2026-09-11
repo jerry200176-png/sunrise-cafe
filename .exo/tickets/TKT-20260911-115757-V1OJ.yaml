@@ -1,0 +1,45 @@
+id: TKT-20260911-115757-V1OJ
+title: Clarify customer payment-state copy under notification race
+intent: Clarify customer payment-state copy under notification race
+kind: task
+parent_id: INT-20260903-020239-HCJ8
+boundary: Only clarify guest payment-report, approved-payment, and stale-request safety
+  copy. Do not change payment determination, deposit policy, delivery routing, or
+  staff resend authority.
+success_condition: Payment reports explicitly state waiting for store confirmation;
+  only approved payment uses the confirmed wording; a delayed request tells a confirmed
+  guest not to pay again; tests assert the exact state boundaries.
+priority: 95
+labels:
+- notification
+- copy
+scope:
+  allow:
+  - src/lib/payment-events.ts
+  - src/lib/payment-events.test.ts
+  - src/lib/line-cards.ts
+  - src/lib/line-cards.test.ts
+  - src/lib/payment-message.ts
+  - src/lib/payment-message.test.ts
+  - .exo/cache/**
+  - .exo/memory/**
+  - .exo/locks/**
+  - .exo/tickets/**
+  - .exo/logs/**
+  deny: []
+budgets:
+  max_files_changed: 8
+  max_loc_changed: 180
+checks:
+- npm test
+- npm run lint
+type: feature
+status: review
+spec_ref: null
+notes: []
+blockers: []
+created_at: '2026-09-11T11:57:57+08:00'
+brain_dump: ''
+risk: medium
+children: []
+resource_profile: default

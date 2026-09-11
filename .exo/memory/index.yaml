@@ -1,4 +1,17 @@
 version: '0.1'
 last_updated: '2026-08-15'
 rules_of_thumb: []
-failure_modes: []
+failure_modes:
+- id: FM-20260911-113939-G0DK
+  name: Shared database claim functions that expand notification types can silently
+    lose type-specific eligibility predicates.
+  detection:
+    signal: Shared database claim functions that expand notification types can silently
+      lose type-specific eligibility predicates.
+    source: reflection:REF-20260911-113939-NCMP
+  mitigation:
+    practice: When a delivery ledger is generalized for lifecycle events, preserve
+      deposit_requests authoritative unpaid-state condition inside the atomic SQL
+      claim; application-side prechecks cannot close approval-vs-send races.
+  severity: medium
+  frequency: recurring

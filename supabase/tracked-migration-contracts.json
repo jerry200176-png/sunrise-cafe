@@ -263,6 +263,19 @@
     ]
   },
   {
+    "version": "20260911-line-guest-deposit-request-unpaid-guard",
+    "file": "migration-line-guest-notification-deposit-request-guard.sql",
+    "critical": true,
+    "evidence": [
+      {
+        "type": "function",
+        "name": "claim_line_guest_notification_delivery",
+        "introspect": "unsupported",
+        "note": "Deposit-request claims are atomically limited to unpaid reservations; lifecycle notifications remain eligible after payment"
+      }
+    ]
+  },
+  {
     "version": "20260908-deposit-approved-notified",
     "file": "migration-deposit-approved-notified.sql",
     "critical": true,

@@ -1,0 +1,90 @@
+{
+  "actor": "agent:codex",
+  "bootstrap_path": ".exo/cache/sessions/agent-codex.bootstrap.md",
+  "concurrent": false,
+  "context_window_tokens": null,
+  "git_branch": "chore/task-deposit-line-notification-20260911",
+  "git_head_sha": "d31ac473ba1dda26a98e4fe54396e35e4a27f505",
+  "handoff_from": null,
+  "lock": {
+    "created_at": "2026-09-11T11:31:00+08:00",
+    "expires_at": "2026-09-11T13:31:00+08:00",
+    "fencing_token": 6,
+    "heartbeat_at": "2026-09-11T11:31:00+08:00",
+    "lease_expires_at": "2026-09-11T13:31:00+08:00",
+    "owner": "agent:codex",
+    "role": "developer",
+    "ticket_id": "INT-20260903-020239-HCJ8",
+    "updated_at": "2026-09-11T11:31:00+08:00",
+    "workspace": {
+      "base": "main",
+      "branch": "codex/INT-20260903-020239-HCJ8"
+    }
+  },
+  "machine_snapshot": {
+    "cpu_count": 12,
+    "load_avg_1m": 0.3,
+    "ram_available_gb": 5.6,
+    "ram_total_gb": 7.8
+  },
+  "mode": "work",
+  "model": "gpt-5",
+  "pid": 421510,
+  "pr_check": null,
+  "previous_ticket_status": "todo",
+  "released_lock": true,
+  "role": null,
+  "session_id": "SES-20260911113100-55D7B7EB",
+  "start_advisories": [
+    {
+      "detail": {
+        "actor": "agent:codex",
+        "branch": "chore/task-TKT-20260903-110554-J9HK",
+        "overlapping_patterns": [
+          "src/**",
+          ".exo/cache/**",
+          ".exo/**",
+          ".exo/memory/**",
+          ".exo/locks/**",
+          ".exo/tickets/**",
+          ".exo/logs/**"
+        ],
+        "session_id": "SES-20260903110646-09DCF343",
+        "ticket_id": "TKT-20260903-110554-J9HK"
+      },
+      "kind": "unmerged_work",
+      "message": "Unmerged work on branch chore/task-TKT-20260903-110554-J9HK (ticket=TKT-20260903-110554-J9HK, actor=agent:codex) \u2014 Added branch-aware management links to today-page upcoming and unpaid reservatio",
+      "severity": "info"
+    },
+    {
+      "detail": {
+        "actor": "agent:codex",
+        "branch": "chore/dashboard-reservation-focus-20260903",
+        "overlapping_patterns": [
+          "src/**",
+          ".exo/cache/**",
+          ".exo/**",
+          ".exo/memory/**",
+          ".exo/locks/**",
+          ".exo/tickets/**",
+          ".exo/logs/**"
+        ],
+        "session_id": "SES-20260903103459-1A067014",
+        "ticket_id": "TKT-20260903-103430-SFLJ"
+      },
+      "kind": "unmerged_work",
+      "message": "Unmerged work on branch chore/dashboard-reservation-focus-20260903 (ticket=TKT-20260903-103430-SFLJ, actor=agent:codex) \u2014 Added dashboard mobile and desktop reservation deep links into the existing bran",
+      "severity": "info"
+    }
+  ],
+  "started_at": "2026-09-11T11:31:00+08:00",
+  "stash_ref": null,
+  "status": "suspended",
+  "suspend_reason": "Child ticket created because production migration correction requires narrower explicit scope.",
+  "suspended_at": "2026-09-11T11:33:48+08:00",
+  "task": "Investigate and minimally fix duplicate or contradictory guest LINE deposit notifications, with authoritative payment-state copy and regression coverage.",
+  "ticket_id": "INT-20260903-020239-HCJ8",
+  "topic_id": "repo:default",
+  "vendor": "openai",
+  "writing_session": null
+}
