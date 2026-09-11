@@ -72,6 +72,28 @@ describe("line-cards LINE API shape", () => {
     }), "review");
   });
 
+  it("keeps payment-report, approved, and delayed-request copy unambiguous", () => {
+    const request = JSON.stringify(
+      buildPaymentFlex({
+        customerName: "測試",
+        ...times,
+        total: 1200,
+        branch: { name: "昇昇咖啡", payment_info: "銀行 123" },
+        bookingCode: "ABC123",
+      })
+    );
+    const pending = JSON.stringify(buildGuestPaymentPendingFlex({ bookingCode: "ABC123" }));
+    const approved = JSON.stringify(
+      buildGuestPaymentApprovedFlex({ customerName: "測試", bookingCode: "ABC123", ...times })
+    );
+
+    expect(request).toContain("若已收到「訂金已確認」，本則通知可忽略");
+    expect(pending).toContain("已收到您的付款回報，等待店家確認");
+    expect(pending).not.toContain("訂金已確認");
+    expect(approved).toContain("訂金已確認");
+    expect(approved).not.toContain("等待店家確認");
+  });
+
   it("all group notification builders produce valid bubbles", () => {
     assertValidBubble(buildPaymentPendingReviewGroupFlex({
       customerName: "測試",

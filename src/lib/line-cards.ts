@@ -100,6 +100,8 @@ export function buildPaymentFlex(params: {
       note = `繳款期限：${deadlineLabel}\n\n${note}`;
     }
   }
+  note +=
+    "\n\n若您已回報付款，請等待店家確認，請勿重複付款；若已收到「訂金已確認」，本則通知可忽略。";
   note += "\n\n帶外食沒關係，離場請自行帶走垃圾；未帶走酌收清潔費 $300。";
 
   const queryUrl = code
@@ -260,7 +262,7 @@ export function buildGuestPaymentPendingFlex(params?: { bookingCode?: string | n
 
   return flexBubble({
     icon: "📋",
-    title: "付款已收到",
+    title: "付款回報已收到",
     subtitle: "等待店家確認",
     accentColor: LINE_BRAND.caramel,
     paragraphs: [GUEST_REPLY_PAYMENT_PENDING_REVIEW],

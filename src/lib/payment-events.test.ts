@@ -20,7 +20,9 @@ describe("PAYMENT_IMAGE_PAYLOAD", () => {
     expect(PAYMENT_IMAGE_PAYLOAD).toBe("【付款截圖】");
   });
 
-  it("文字與圖片回覆一致", () => {
-    expect(GUEST_REPLY_PAYMENT_PENDING_REVIEW).toContain("店家確認");
+  it("文字與圖片回覆明確表示等待店家確認，不要求重複付款", () => {
+    expect(GUEST_REPLY_PAYMENT_PENDING_REVIEW).toContain("已收到您的付款回報，等待店家確認");
+    expect(GUEST_REPLY_PAYMENT_PENDING_REVIEW).toContain("請勿重複付款");
+    expect(GUEST_REPLY_PAYMENT_PENDING_REVIEW).not.toContain("訂金已確認");
   });
 });

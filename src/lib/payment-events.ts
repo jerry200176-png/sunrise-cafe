@@ -29,7 +29,7 @@ export function getPaymentSubmissionOutcome(
 export const PAYMENT_IMAGE_PAYLOAD = "【付款截圖】";
 
 export const GUEST_REPLY_PAYMENT_PENDING_REVIEW =
-  "已收到您的付款通知，店家確認後會另行通知，謝謝！";
+  "已收到您的付款回報，等待店家確認。店家確認後會另行通知，請勿重複付款。";
 
 export const GUEST_REPLY_PAYMENT_AUTO_RECORDED =
   "已收到您的付款通知，系統已自動記錄，感謝您！";
