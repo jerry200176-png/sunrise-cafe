@@ -17,6 +17,7 @@ import {
   durationHoursBetween,
 } from "@/lib/slot-grid";
 import { buildGoogleCalendarUrl } from "@/lib/booking-ics";
+import { getPaymentDisplayState } from "@/lib/payment-display";
 
 interface BookingItem {
   id: string;
@@ -171,7 +172,7 @@ function BookQueryContent() {
         return (
           item.deposit_required &&
           isConfirmed &&
-          !item.is_deposit_paid &&
+          getPaymentDisplayState(item) === "unpaid" &&
           item.status !== "cancelled"
         );
       }),
@@ -530,7 +531,7 @@ function BookQueryContent() {
   return (
     <CustomerShell title={t("query.headerTitle")}>
       {linePayResult === "success" && (
-        <div role="status" className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900">
+        <div role="status" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
           <p className="font-bold">{t("query.linePaySuccessTitle")}</p>
           <p className="mt-1 text-sm">{t("query.linePaySuccessDesc")}</p>
         </div>
@@ -664,6 +665,7 @@ function BookQueryContent() {
         <ul className="space-y-4">
           {list.map((item) => {
             const isConfirmed = item.status === "confirmed" || item.status === "checked_in";
+            const paymentState = getPaymentDisplayState(item);
             return (
               <li
                 key={item.id}
@@ -790,18 +792,22 @@ function BookQueryContent() {
                 )}
 
                 {/* 付款審核狀態（截圖已送／被退回）*/}
-                {!item.is_deposit_paid && item.payment_review_status === "pending_review" && (
+                {paymentState === "pending_review" && (
                   <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900 flex items-start gap-2">
                     <Clock className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
                     <div>
                       <p className="font-semibold">{t("query.paymentReviewPending")}</p>
-                      <p className="mt-0.5 text-xs text-blue-700">店家審核通常於 1 小時內完成，核對後系統將自動發送 LINE 確認。</p>
                     </div>
                   </div>
                 )}
-                {!item.is_deposit_paid && item.payment_review_status === "rejected" && (
+                {paymentState === "rejected" && (
                   <div role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
                     {t("query.paymentReviewRejected")}
+                  </div>
+                )}
+                {item.deposit_required && paymentState === "unknown" && (
+                  <div role="status" className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+                    {t("query.paymentStatusUnknown")}
                   </div>
                 )}
 
@@ -837,9 +843,9 @@ function BookQueryContent() {
                 )}
 
                 {/* 訂金繳費資訊 — 管理員確認後才顯示 */}
-                {item.deposit_required && isConfirmed && item.status !== "cancelled" && (
+                {item.deposit_required && isConfirmed && ["paid", "unpaid", "approved_unpaid"].includes(paymentState) && (
                   <div className="mt-4 rounded-xl border-2 border-amber-300 bg-amber-50 p-4 sm:p-5 text-base shadow-sm">
-                    {item.is_deposit_paid ? (
+                    {paymentState === "paid" ? (
                       <div className="flex items-center gap-3 text-emerald-800">
                         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 shrink-0">
                           <span className="text-xl">✅</span>
@@ -847,6 +853,14 @@ function BookQueryContent() {
                         <div>
                           <p className="font-bold text-lg">{t("query.depositPaidTitle")}</p>
                           <p className="text-sm mt-0.5 opacity-90">{t("query.depositPaidDesc")}</p>
+                        </div>
+                      </div>
+                    ) : paymentState === "approved_unpaid" ? (
+                      <div role="status" className="flex items-center gap-3 text-amber-900">
+                        <Clock className="h-5 w-5 shrink-0" />
+                        <div>
+                          <p className="font-bold text-lg">{t("query.paymentReviewApprovedUnpaid")}</p>
+                          <p className="text-sm mt-0.5">{t("query.paymentReviewApprovedUnpaidDesc")}</p>
                         </div>
                       </div>
                     ) : (

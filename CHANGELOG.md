@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+### Guest — 付款查詢下一步一致性 (2026-09-11)
+- 已回報付款、待店家確認時，不再顯示重複付款／回報操作；補件或狀態不明時提示先確認。
+- 查詢卡片與手機底部付款操作使用同一後端狀態判斷；只有已確認收款才顯示訂金已收取。
+- 付款頁返回網址不再顯示付款成功；LINE 通知失敗不改變付款狀態，沿用既有通知流程。
+- [範圍、驗收與回復方式](docs/releases/2026-09-11-payment-next-step.md)
+
 ### Security — npm override pins for high-severity transitive deps (2026-09-05)
 - Pin `fast-uri`, `browserslist`, `undici`, `postcss`, `sharp`, and `brace-expansion` (v1/v5 lines) via `package.json` overrides
 - `npm audit` reports 0 vulnerabilities on the updated lockfile; no product behavior change
