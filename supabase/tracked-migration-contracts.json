@@ -276,6 +276,19 @@
     ]
   },
   {
+    "version": "20260911-line-guest-deposit-request-retry-key",
+    "file": "migration-line-guest-notification-deposit-request-retry-key.sql",
+    "critical": true,
+    "evidence": [
+      {
+        "type": "function",
+        "name": "claim_line_guest_notification_delivery",
+        "introspect": "unsupported",
+        "note": "deposit_request retries retain the delivery UUID retry key only within LINE's 24-hour window"
+      }
+    ]
+  },
+  {
     "version": "20260908-deposit-approved-notified",
     "file": "migration-deposit-approved-notified.sql",
     "critical": true,

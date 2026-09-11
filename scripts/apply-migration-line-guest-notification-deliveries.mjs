@@ -19,6 +19,11 @@ const DEPOSIT_REQUEST_GUARD_SQL = readFileSync(
   join(scriptDir, "../supabase/migration-line-guest-notification-deposit-request-guard.sql"),
   "utf8"
 );
+const DEPOSIT_REQUEST_RETRY_KEY_VERSION = "20260911-line-guest-deposit-request-retry-key";
+const DEPOSIT_REQUEST_RETRY_KEY_SQL = readFileSync(
+  join(scriptDir, "../supabase/migration-line-guest-notification-deposit-request-retry-key.sql"),
+  "utf8"
+);
 
 function restBase() {
   return (process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? "").replace(
@@ -137,19 +142,35 @@ async function main() {
 
   if (await migrationApplied(DEPOSIT_REQUEST_GUARD_VERSION)) {
     console.log(`OK: ${DEPOSIT_REQUEST_GUARD_VERSION} already applied`);
+  } else {
+    if (!hasUsablePostgresUrl(connectionString)) {
+      throw new Error(
+        `${DEPOSIT_REQUEST_GUARD_VERSION} is missing and no usable SUPABASE_DB_URL/Postgres URL is configured`
+      );
+    }
+    console.log("Applying migration-line-guest-notification-deposit-request-guard.sql …");
+    await applyMigration(connectionString, DEPOSIT_REQUEST_GUARD_SQL);
+    if (!(await migrationApplied(DEPOSIT_REQUEST_GUARD_VERSION))) {
+      throw new Error(`${DEPOSIT_REQUEST_GUARD_VERSION} ran but ledger verification failed`);
+    }
+    console.log(`OK: ${DEPOSIT_REQUEST_GUARD_VERSION} ready`);
+  }
+
+  if (await migrationApplied(DEPOSIT_REQUEST_RETRY_KEY_VERSION)) {
+    console.log(`OK: ${DEPOSIT_REQUEST_RETRY_KEY_VERSION} already applied`);
     return;
   }
   if (!hasUsablePostgresUrl(connectionString)) {
     throw new Error(
-      `${DEPOSIT_REQUEST_GUARD_VERSION} is missing and no usable SUPABASE_DB_URL/Postgres URL is configured`
+      `${DEPOSIT_REQUEST_RETRY_KEY_VERSION} is missing and no usable SUPABASE_DB_URL/Postgres URL is configured`
     );
   }
-  console.log("Applying migration-line-guest-notification-deposit-request-guard.sql …");
-  await applyMigration(connectionString, DEPOSIT_REQUEST_GUARD_SQL);
-  if (!(await migrationApplied(DEPOSIT_REQUEST_GUARD_VERSION))) {
-    throw new Error(`${DEPOSIT_REQUEST_GUARD_VERSION} ran but ledger verification failed`);
+  console.log("Applying migration-line-guest-notification-deposit-request-retry-key.sql …");
+  await applyMigration(connectionString, DEPOSIT_REQUEST_RETRY_KEY_SQL);
+  if (!(await migrationApplied(DEPOSIT_REQUEST_RETRY_KEY_VERSION))) {
+    throw new Error(`${DEPOSIT_REQUEST_RETRY_KEY_VERSION} ran but ledger verification failed`);
   }
-  console.log(`OK: ${DEPOSIT_REQUEST_GUARD_VERSION} ready`);
+  console.log(`OK: ${DEPOSIT_REQUEST_RETRY_KEY_VERSION} ready`);
 }
 
 main().catch((error) => {
