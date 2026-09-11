@@ -146,6 +146,49 @@ describe("sendDepositPaymentRequest", () => {
     expect(mockSend).not.toHaveBeenCalled();
   });
 
+  it("does not send a stale request when payment is approved while claiming", async () => {
+    // The row was unpaid when read, but the database claim returns no id after
+    // the payment transition. This is the atomic guard that prevents an old
+    // payment request from racing the approved-payment notification.
+    mockClaim.mockResolvedValue({ available: true, id: null });
+    const client = mockClient({
+      id: "r1",
+      line_user_id: "U1",
+      customer_name: "王",
+      booking_code: "ABC123",
+      start_time: "2026-08-01T10:00:00+08:00",
+      end_time: "2026-08-01T12:00:00+08:00",
+      total_price: 2000,
+      status: "confirmed",
+      is_deposit_paid: false,
+      payment_request_sent_at: null,
+      room: null,
+    });
+
+    const r = await sendDepositPaymentRequest("r1", { client: client as never });
+    expect(r.result).toBe("skipped_already_sent");
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("sends only once when concurrent automatic triggers claim the same reservation", async () => {
+    mockClaim
+      .mockResolvedValueOnce({ available: true, id: "delivery-1" })
+      .mockResolvedValueOnce({ available: true, id: null });
+    const reservation = {
+      id: "r1", line_user_id: "U1", customer_name: "王", booking_code: "ABC123",
+      start_time: "2026-08-01T10:00:00+08:00", end_time: "2026-08-01T12:00:00+08:00",
+      total_price: 2000, status: "confirmed", is_deposit_paid: false,
+      payment_request_sent_at: null, room: null,
+    };
+
+    const results = await Promise.all([
+      sendDepositPaymentRequest("r1", { client: mockClient(reservation) as never }),
+      sendDepositPaymentRequest("r1", { client: mockClient(reservation) as never }),
+    ]);
+    expect(results.map((result) => result.result).sort()).toEqual(["sent", "skipped_already_sent"]);
+    expect(mockSend).toHaveBeenCalledOnce();
+  });
+
   it("marks the claimed delivery after LINE succeeds", async () => {
     mockClaim.mockResolvedValue({ available: true, id: "delivery-1" });
     const client = mockClient({
@@ -190,6 +233,29 @@ describe("sendDepositPaymentRequest", () => {
       "delivery-1",
       { status: "failed", error: "LINE unavailable" },
       client
+    );
+  });
+
+  it("allows a failed automatic attempt to retry once without affecting another reservation", async () => {
+    mockClaim
+      .mockResolvedValueOnce({ available: true, id: "delivery-r1-first" })
+      .mockResolvedValueOnce({ available: true, id: "delivery-r1-retry" })
+      .mockResolvedValueOnce({ available: true, id: "delivery-r2" });
+    mockSend.mockRejectedValueOnce(new Error("timeout")).mockResolvedValue(undefined);
+    const r1 = {
+      id: "r1", line_user_id: "U1", customer_name: "王", booking_code: "ABC123",
+      start_time: "2026-08-01T10:00:00+08:00", end_time: "2026-08-01T12:00:00+08:00",
+      total_price: 2000, status: "confirmed", is_deposit_paid: false,
+      payment_request_sent_at: null, room: null,
+    };
+    const r2 = { ...r1, id: "r2", line_user_id: "U2", booking_code: "XYZ789" };
+
+    expect((await sendDepositPaymentRequest("r1", { client: mockClient(r1) as never })).result).toBe("error");
+    expect((await sendDepositPaymentRequest("r1", { client: mockClient(r1) as never })).result).toBe("sent");
+    expect((await sendDepositPaymentRequest("r2", { client: mockClient(r2) as never })).result).toBe("sent");
+    expect(mockSend).toHaveBeenCalledTimes(3);
+    expect(mockClaim).toHaveBeenLastCalledWith(
+      expect.objectContaining({ reservationId: "r2", recipientId: "U2" })
     );
   });
 

@@ -1,0 +1,45 @@
+id: TKT-20260911-113324-PIHV
+title: Guard automatic LINE deposit request claim against paid transitions
+intent: Guard automatic LINE deposit request claim against paid transitions
+kind: task
+parent_id: INT-20260903-020239-HCJ8
+boundary: Only restore an atomic unpaid-state guard for automatic deposit-request
+  claims and prove duplicate/concurrent/retry/payment-transition isolation. Do not
+  alter payment policy, customer data, lifecycle notices, or production data.
+success_condition: An automatic deposit request is atomically claimable only while
+  its reservation is unpaid; failed sends remain retryable; forced staff resend retains
+  existing behavior; regression tests cover duplicate, concurrent, timeout-retry,
+  paid transition, and reservation isolation.
+priority: 95
+labels:
+- notification
+- payment
+scope:
+  allow:
+  - src/lib/payment-request-line.ts
+  - src/lib/payment-request-line.test.ts
+  - scripts/apply-migration-line-guest-notification-deliveries.mjs
+  - supabase/migration-line-guest-notification-deposit-request-guard.sql
+  - supabase/tracked-migration-contracts.json
+  - .exo/cache/**
+  - .exo/memory/**
+  - .exo/locks/**
+  - .exo/tickets/**
+  - .exo/logs/**
+  deny: []
+budgets:
+  max_files_changed: 6
+  max_loc_changed: 320
+checks:
+- npm test
+- npm run lint
+type: feature
+status: review
+spec_ref: null
+notes: []
+blockers: []
+created_at: '2026-09-11T11:33:24+08:00'
+brain_dump: ''
+risk: medium
+children: []
+resource_profile: default
