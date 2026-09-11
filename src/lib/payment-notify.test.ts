@@ -29,7 +29,7 @@ interface FakeReservationRow {
   deposit_approved_retry_key_created_at: string | null;
 }
 
-type MockChainResult = { data: FakeReservationRow | null; error: null };
+type MockChainResult = { data: FakeReservationRow | null; error: { message: string } | null };
 
 type MockUpdateChain = {
   eq: (col: string, val: unknown) => MockUpdateChain;
@@ -43,7 +43,10 @@ type MockUpdateChain = {
   ) => Promise<TResult1 | TResult2>;
 };
 
-function createFakeSupabase(initialRow: FakeReservationRow) {
+function createFakeSupabase(
+  initialRow: FakeReservationRow,
+  options: { claimError?: { message: string } } = {}
+) {
   let row = { ...initialRow };
   const updateCalls: Array<Record<string, unknown>> = [];
   const insertedOpsEvents: Array<Record<string, unknown>> = [];
@@ -102,7 +105,11 @@ function createFakeSupabase(initialRow: FakeReservationRow) {
               }),
               or: vi.fn(() => chain),
               select: vi.fn(() => chain),
-              maybeSingle: vi.fn(async () => applyUpdate()),
+              maybeSingle: vi.fn(async () =>
+                options.claimError
+                  ? { data: null, error: options.claimError }
+                  : applyUpdate()
+              ),
               then: (resolve, reject) =>
                 Promise.resolve(applyUpdate()).then(resolve, reject),
             };
@@ -213,6 +220,57 @@ describe("payment-notify", () => {
     expect(opsEvents[1].action).toBe("payment.approved_notified");
     expect((opsEvents[1].detail as Record<string, unknown>).accepted_by_platform).toBe(true);
     expect(result.accepted_by_platform).toBe(true);
+  });
+
+  it("does not resolve the event until both required recipients are accepted", async () => {
+    const mockClient = createFakeSupabase(defaultRow);
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex").mockResolvedValue(undefined);
+    const sendLineFlexMessageSpy = vi
+      .spyOn(line, "sendLineFlexMessage")
+      .mockRejectedValueOnce(new Error("guest timeout"))
+      .mockResolvedValueOnce(undefined);
+
+    const firstAttempt = await notifyPaymentApproved("res-123", { client: mockClient });
+
+    expect(firstAttempt).toMatchObject({
+      ok: false,
+      accepted_by_platform: true,
+      group_notified: true,
+      guest_notified: false,
+    });
+    const firstGroupCallOptions = sendLineFlexSpy.mock.calls[0]?.[2];
+    const firstGuestCallOptions = sendLineFlexMessageSpy.mock.calls[0]?.[3];
+    expect(mockClient.getRow().deposit_approved_notified_at).toBeNull();
+
+    __resetPaymentNotifyInFlightForTests();
+    const secondAttempt = await notifyPaymentApproved("res-123", { client: mockClient });
+
+    expect(secondAttempt).toMatchObject({
+      ok: true,
+      accepted_by_platform: true,
+      group_notified: true,
+      guest_notified: true,
+    });
+    expect(sendLineFlexSpy).toHaveBeenCalledTimes(2);
+    expect(sendLineFlexMessageSpy).toHaveBeenCalledTimes(2);
+    expect(sendLineFlexSpy.mock.calls[1]?.[2]).toEqual(firstGroupCallOptions);
+    expect(sendLineFlexMessageSpy.mock.calls[1]?.[3]).toEqual(firstGuestCallOptions);
+    expect(mockClient.getRow().deposit_approved_notified_at).toBeTruthy();
+  });
+
+  it("fails closed when the atomic claim returns a database error", async () => {
+    const mockClient = createFakeSupabase(defaultRow, {
+      claimError: { message: "database unavailable" },
+    });
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex");
+    const sendLineFlexMessageSpy = vi.spyOn(line, "sendLineFlexMessage");
+
+    const result = await notifyPaymentApproved("res-123", { client: mockClient });
+
+    expect(result).toEqual({ ok: false, error: "notification_claim_failed" });
+    expect(sendLineFlexSpy).not.toHaveBeenCalled();
+    expect(sendLineFlexMessageSpy).not.toHaveBeenCalled();
+    expect(mockClient.getRow().deposit_approved_notified_at).toBeNull();
   });
 
   it("safely retries after LINE transient failure without permanent lockout", async () => {

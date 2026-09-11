@@ -334,14 +334,27 @@ export async function notifyPaymentApproved(
           )
           .maybeSingle();
 
-        if (!claimRes.error && claimRes.data) {
+        if (claimRes.error) {
+          // A claim error leaves ownership unknown. Sending anyway would let
+          // two serverless instances dispatch the same logical notification.
+          console.error("[payment-notify] atomic claim failed:", claimRes.error.message);
+          return { ok: false, error: "notification_claim_failed" };
+        }
+
+        if (claimRes.data) {
           r = claimRes.data as ReservationNotifyTarget;
-        } else if (!claimRes.error && !claimRes.data) {
+        } else {
           // Concurrent race: another instance acquired the claim before us
           return { ok: true, already_notified: false };
         }
-      } catch {
-        // Fallback if atomic claim encounters error
+      } catch (claimErr) {
+        // A claim error leaves ownership unknown. Fail closed so a transient
+        // database failure cannot turn into a duplicate provider request.
+        console.error(
+          "[payment-notify] atomic claim failed:",
+          claimErr instanceof Error ? claimErr.message : String(claimErr)
+        );
+        return { ok: false, error: "notification_claim_failed" };
       }
     }
 
@@ -422,7 +435,12 @@ export async function notifyPaymentApproved(
       }
     }
 
-    const confirmedAccepted = groupNotified || guestNotified;
+    // The group and guest pushes are separate recipients of the same logical
+    // approval event. Resolve the event only after every required recipient is
+    // accepted. Retries reuse each recipient's stable retry key, so a push
+    // that already succeeded is reconciled by LINE while the failed recipient
+    // gets another delivery attempt.
+    const confirmedAccepted = groupNotified && (!r.line_user_id || guestNotified);
 
     if (confirmedAccepted) {
       // 7a. Confirmed accepted by LINE Platform! Permanently record notified timestamp and release claim lease.
@@ -488,8 +506,9 @@ export async function notifyPaymentApproved(
       return {
         ok: false,
         error: lastSendError instanceof Error ? lastSendError.message : "line_send_failed",
-        guest_notified: false,
-        group_notified: false,
+        accepted_by_platform: groupNotified || guestNotified,
+        guest_notified: guestNotified,
+        group_notified: groupNotified,
         group_retry_key: effectiveGroupKey,
         guest_retry_key: r.line_user_id ? effectiveGuestKey : undefined,
       };
