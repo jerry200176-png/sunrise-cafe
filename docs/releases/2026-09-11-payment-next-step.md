@@ -1,6 +1,15 @@
 # 付款查詢下一步一致性 — 交付證據
 
-狀態：本機整合驗收通過，待 required CI 與 production 驗證。Astra 為交付／整合 owner，唯一 Luna 為有界實作者；一次退修後剩餘缺口由 Astra 接手。
+狀態：2026-09-11 10:28 UTC 已部署並完成隔離情境驗證。Astra 為交付／整合 owner，唯一 Luna 為有界實作者；一次退修後剩餘缺口由 Astra 接手。
+
+## 正式站驗證
+
+- [產品 PR #342](https://github.com/jerry200176-png/sunrise-cafe/pull/342)，test revision `e9249a108e7046e120103f490b5f1a5e6f917623`；三項 required checks 同 head passed，Astra 獨立 source/browser review。Bugbot 因 usage limit 未執行，不冒稱已審。
+- production SHA `5327d36a10068d396f7e2a6223d82841dc46f6af`，deployment `6391119867`；main/runtime 一致、health HTTP 200、production-identity GREEN、drift []。
+- [部署](https://github.com/jerry200176-png/sunrise-cafe/actions/runs/34588673566)及[正式站驗證](https://github.com/jerry200176-png/sunrise-cafe/actions/runs/34588673478)均 passed；獨立 SHA poll、auth 負例、health、唯讀 migration drift 實際 steps success。
+- deployed URL 跑 `payment-next-step.spec.ts`：10/10 passed，15.8s。390/1440px 待確認、已收款、補件、未知、回傳網址負例，載入／空／失敗重試、雙擊、首頁返回均操作實際頁面；必要畫面保留於實作 worktree 的 `test-results/production-5327d36/`。
+- 所有測試 API 攔截為隔離 fixture，不做 production 訂位／付款／LINE 寫入。本機 production-mode 全套 browser 49 passed / 2 既有缺 secrets skip；真人理解率、真實付款端到端及 LINE 收訊均未驗證。
+- [案件主責交付回寫](https://github.com/jerry200176-png/sunrise-cafe/pull/342#issuecomment-5633106654)。無原 in-app 回報：本產品增量由既有 CHANGELOG / release index 公告，不製造假回報、不代回報者結案。
 
 ## 授權與所有權
 
