@@ -209,7 +209,11 @@ export async function sendDepositPaymentRequest(
   };
 
   try {
-    await sendLineFlexMessage(String(r.line_user_id), "訂金繳費通知", flex);
+    // The delivery id is a durable UUID: reuse it for LINE's 24-hour retry
+    // window instead of minting a key after a timeout. Manual force resend
+    // deliberately stays outside this automatic retry path.
+    await sendLineFlexMessage(String(r.line_user_id), "訂金繳費通知", flex,
+      deliveryId ? { retryKey: deliveryId } : undefined);
     await recordPushAction("pushed");
     if (deliveryId) {
       try {

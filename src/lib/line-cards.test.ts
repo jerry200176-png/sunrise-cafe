@@ -94,6 +94,33 @@ describe("line-cards LINE API shape", () => {
     expect(approved).not.toContain("等待店家確認");
   });
 
+  it("keeps complete deposit payloads and CTAs ordered by payment state", () => {
+    const request = JSON.stringify(buildPaymentFlex({
+      customerName: "測試", ...times, total: 1200,
+      branch: { name: "昇昇咖啡", payment_info: "銀行 123", line_pay_url: "https://pay.example/deposit" },
+      bookingCode: "ABC123",
+    }));
+    const pending = JSON.stringify(buildGuestPaymentPendingFlex({ bookingCode: "ABC123" }));
+    const approved = JSON.stringify(buildGuestPaymentApprovedFlex({
+      customerName: "測試", bookingCode: "ABC123", ...times,
+    }));
+
+    // Unpaid: payment CTA is present; the delayed-card warning is after payment instructions.
+    expect(request).toContain("LINE Pay 付款");
+    expect(request).toContain("https://pay.example/deposit");
+    expect(request.indexOf("匯款後請回傳")).toBeLessThan(request.indexOf("若您已回報付款"));
+    // Pending review: no payment CTA or approval claim, only review/status guidance.
+    expect(pending).toContain("付款回報已收到");
+    expect(pending).toContain("查看訂位狀態");
+    expect(pending).not.toContain("LINE Pay 付款");
+    expect(pending).not.toContain("訂金已確認");
+    // Approved after a delayed claim: no payment CTA; approval is the terminal guest message.
+    expect(approved).toContain("訂金已確認");
+    expect(approved).toContain("查看訂位詳情");
+    expect(approved).not.toContain("LINE Pay 付款");
+    expect(approved).not.toContain("請勿重複付款");
+  });
+
   it("all group notification builders produce valid bubbles", () => {
     assertValidBubble(buildPaymentPendingReviewGroupFlex({
       customerName: "測試",

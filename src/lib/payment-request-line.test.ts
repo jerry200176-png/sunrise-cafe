@@ -97,6 +97,7 @@ describe("sendDepositPaymentRequest", () => {
   });
 
   it("sends and stamps when not yet sent", async () => {
+    mockClaim.mockResolvedValue({ available: true, id: "00000000-0000-4000-8000-000000000001" });
     const client = mockClient({
       id: "r1",
       line_user_id: "U1",
@@ -122,6 +123,12 @@ describe("sendDepositPaymentRequest", () => {
     });
     expect(r.result).toBe("sent");
     expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSend).toHaveBeenCalledWith(
+      "U1",
+      "訂金繳費通知",
+      expect.any(Object),
+      { retryKey: "00000000-0000-4000-8000-000000000001" }
+    );
     expect(client._update).toHaveBeenCalled();
   });
 
@@ -236,10 +243,10 @@ describe("sendDepositPaymentRequest", () => {
     );
   });
 
-  it("allows a failed automatic attempt to retry once without affecting another reservation", async () => {
+  it("reuses the same delivery retry key and payload after a timeout without affecting another reservation", async () => {
     mockClaim
       .mockResolvedValueOnce({ available: true, id: "delivery-r1-first" })
-      .mockResolvedValueOnce({ available: true, id: "delivery-r1-retry" })
+      .mockResolvedValueOnce({ available: true, id: "delivery-r1-first" })
       .mockResolvedValueOnce({ available: true, id: "delivery-r2" });
     mockSend.mockRejectedValueOnce(new Error("timeout")).mockResolvedValue(undefined);
     const r1 = {
@@ -254,6 +261,8 @@ describe("sendDepositPaymentRequest", () => {
     expect((await sendDepositPaymentRequest("r1", { client: mockClient(r1) as never })).result).toBe("sent");
     expect((await sendDepositPaymentRequest("r2", { client: mockClient(r2) as never })).result).toBe("sent");
     expect(mockSend).toHaveBeenCalledTimes(3);
+    expect(mockSend.mock.calls[0]).toEqual(mockSend.mock.calls[1]);
+    expect(mockSend.mock.calls[0]?.[3]).toEqual({ retryKey: "delivery-r1-first" });
     expect(mockClaim).toHaveBeenLastCalledWith(
       expect.objectContaining({ reservationId: "r2", recipientId: "U2" })
     );
