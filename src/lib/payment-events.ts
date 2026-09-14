@@ -66,4 +66,4 @@ export const GUEST_REPLY_PAYMENT_AUTO_RECORDED =
   "已收到您的付款通知，系統已自動記錄，感謝您！";
 
 export const GUEST_REPLY_BANK_TRANSFER_REPORTED =
-  "已收到您的匯款回報，待店家核對後會自動通知您，不需要另外傳 LINE。";
+  "已收到您的匯款回報，待店家核對後可回本頁查看付款狀態；若已綁定 LINE，系統也會自動通知您。不需要另外傳 LINE。";

@@ -32,14 +32,14 @@ test.describe("付款資訊（查詢頁 mock）", () => {
           duplicate: false,
           payment_event_id: "e2e-payment-event-1",
           status: "pending_review",
-          message: "已收到您的匯款回報，待店家核對後會自動通知您，不需要另外傳 LINE。",
+          message: "已收到您的匯款回報，待店家核對後可回本頁查看付款狀態；若已綁定 LINE，系統也會自動通知您。不需要另外傳 LINE。",
         }),
       });
     });
     await page.getByLabel("匯款帳號後五碼").fill("12345");
     await page.getByLabel("實際匯款金額").fill("1000");
     await page.getByRole("button", { name: "我已完成轉帳" }).first().click();
-    await expect(page.getByText("已收到您的匯款回報，待店家核對後會自動通知您，不需要另外傳 LINE。")).toBeVisible();
+    await expect(page.getByText("已收到您的匯款回報，待店家核對後可回本頁查看付款狀態；若已綁定 LINE，系統也會自動通知您。不需要另外傳 LINE。")).toBeVisible();
   });
 
   test("有 LINE Pay 時 sticky bar 顯示 LINE Pay 按鈕", async ({ page }) => {

@@ -64,7 +64,7 @@ describe("POST /api/payment/report", () => {
       duplicate: false,
       payment_event_id: "event-1",
       status: "pending_review",
-      message: "已收到您的匯款回報，待店家核對後會自動通知您，不需要另外傳 LINE。",
+      message: "已收到您的匯款回報，待店家核對後可回本頁查看付款狀態；若已綁定 LINE，系統也會自動通知您。不需要另外傳 LINE。",
     });
     expect(mocks.rpc).toHaveBeenCalledWith("record_bank_transfer_report", {
       p_reservation_id: "reservation-1",
