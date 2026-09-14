@@ -1,16 +1,16 @@
 {
   "schema_version": "1.0",
-  "session_id": "215d151b688744d694130a2a435f527a",
+  "session_id": "bd7ef5d9a93b4748b4698b6d5a5afb97",
   "project": "sunrise",
-  "task_id": "deposit-report-reconciliation-20260914",
+  "task_id": "migration-delivery-bank-transfer-20260914",
   "repo_remote": "https://github.com/jerry200176-png/sunrise-cafe.git",
-  "base_sha": "ccb23f20081a5a8e0a5e30d04ac4ded4175eafc9",
-  "branch": "chore/task-deposit-report-reconciliation-20260914",
-  "worktree_path": "/home/jerry/workspace/tasks/sunrise/deposit-report-reconciliation-20260914",
-  "started_at": "2026-09-14T10:33:32Z",
+  "base_sha": "c6dfa23ae09333497e9500c226de21021285339f",
+  "branch": "chore/task-migration-delivery-bank-transfer-20260914",
+  "worktree_path": "/home/jerry/workspace/tasks/sunrise/migration-delivery-bank-transfer-20260914",
+  "started_at": "2026-09-14T12:56:57Z",
   "production_mutation": false,
   "preflight_result": "pass",
   "provenance_type": "agent-session",
-  "agent_cli": null,
+  "agent_cli": "codex",
   "gateway_version": "0.5.0"
 }

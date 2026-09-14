@@ -139,6 +139,7 @@ jobs:
           node scripts/apply-migration-deposit-approved-retry-key.mjs || {
             echo "::warning::deposit_approved_retry_key migration pending — need real SUPABASE_DB_URL secret"
           }
+          node scripts/apply-migration-bank-transfer-reports.mjs
 
       - name: Verify ops_events
         env:
