@@ -69,7 +69,7 @@ BEGIN
     RETURN;
   END IF;
 
-  IF COALESCE(v_reservation.deposit_required, false) IS NOT TRUE
+  IF COALESCE(v_reservation.total_price, 0) <= 0
      OR v_reservation.status NOT IN ('pending', 'confirmed')
      OR v_reservation.end_time <= now() THEN
     RETURN QUERY SELECT NULL::UUID, 'not_reportable', v_reservation.status;

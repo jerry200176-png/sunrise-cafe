@@ -6,6 +6,7 @@ import {
   validateTransferReport,
 } from "@/lib/payment-events";
 import { isAdminConfigured } from "@/lib/supabase-admin";
+import { enforceGuestLookupLimit } from "@/lib/guest-rate-limit";
 
 function db() {
   return createClient(
@@ -19,6 +20,9 @@ export async function POST(request: NextRequest) {
   if (!isAdminConfigured()) {
     return NextResponse.json({ error: "付款回報暫時無法使用" }, { status: 503 });
   }
+
+  const limited = await enforceGuestLookupLimit(request, "");
+  if (limited) return limited;
 
   let body: { token?: unknown; accountLastFive?: unknown; amount?: unknown };
   try {
@@ -47,7 +51,8 @@ export async function POST(request: NextRequest) {
     p_reported_amount: report.amount,
   });
   if (error) {
-    console.error("[payment/report] report RPC failed:", error.message);
+    // Keep customer/payment evidence out of public responses and server logs.
+    console.error("[payment/report] report RPC failed");
     return NextResponse.json({ error: "付款回報暫時無法送出，請稍後再試" }, { status: 503 });
   }
 

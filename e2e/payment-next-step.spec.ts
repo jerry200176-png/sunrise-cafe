@@ -45,12 +45,12 @@ for (const width of [390, 1440]) {
       });
       await page.goto("/book/query");
       await query(page);
-      await expect(page.getByText("已收到付款回報，店家確認前請勿重複付款或再次回報。")).toBeVisible();
+      await expect(page.getByText("已收到您的匯款回報，待店家核對後會自動通知您，不需要另外傳 LINE。")).toBeVisible();
       await expect(page.getByText(/1 小時內完成|將自動發送 LINE 確認/)).toHaveCount(0);
       await expect(page.getByText(/需繳納訂金以完成保留/)).toHaveCount(0);
       await expect(page.getByRole("button", { name: /LINE Pay 付款/ })).toHaveCount(0);
       await expect(page.getByRole("link", { name: /加官方 LINE 回傳/ })).toHaveCount(0);
-      await expect(page.getByText(/不[需用必].*重複|請勿重複/).first()).toBeVisible();
+      await expect(page.getByText("已收到您的匯款回報，待店家核對後會自動通知您，不需要另外傳 LINE。")).toHaveCount(1);
       await expect(page.getByText(/訂金已確認|已確認收款/)).toHaveCount(0);
       await expect(page.locator("html")).toHaveJSProperty("scrollWidth", width);
       await page.screenshot({ path: testInfo.outputPath("pending.png"), fullPage: true });
@@ -86,7 +86,7 @@ for (const width of [390, 1440]) {
       await expect(page).toHaveURL(/\/book\/query$/);
       response = { ...booking };
       await query(page);
-      await expect(page.getByText("已收到付款回報，店家確認前請勿重複付款或再次回報。")).toBeVisible();
+      await expect(page.getByText("已收到您的匯款回報，待店家核對後會自動通知您，不需要另外傳 LINE。")).toBeVisible();
       await expect(page.getByText(/需繳納訂金以完成保留/)).toHaveCount(0);
       mode = "empty";
       await page.getByRole("button", { name: "查詢", exact: true }).click();

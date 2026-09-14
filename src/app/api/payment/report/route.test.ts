@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
   verifyLookupToken: vi.fn(),
   isAdminConfigured: vi.fn(),
+  enforceGuestLookupLimit: vi.fn(),
 }));
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -16,6 +17,10 @@ vi.mock("@/lib/lookup-token", () => ({
 
 vi.mock("@/lib/supabase-admin", () => ({
   isAdminConfigured: mocks.isAdminConfigured,
+}));
+
+vi.mock("@/lib/guest-rate-limit", () => ({
+  enforceGuestLookupLimit: mocks.enforceGuestLookupLimit,
 }));
 
 vi.mock("next/server", () => ({
@@ -42,6 +47,7 @@ describe("POST /api/payment/report", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.isAdminConfigured.mockReturnValue(true);
+    mocks.enforceGuestLookupLimit.mockResolvedValue(null);
     mocks.verifyLookupToken.mockReturnValue({ ok: true, reservationId: "reservation-1" });
   });
 
@@ -101,5 +107,51 @@ describe("POST /api/payment/report", () => {
 
     const response = await POST(request({ token: "signed-token", accountLastFive: "12345", amount: 1500 }));
     expect(response.status).toBe(status);
+  });
+
+  it("rejects an invalid or guessed token before touching the RPC", async () => {
+    mocks.verifyLookupToken.mockReturnValue({ ok: false, error: "signature_mismatch" });
+
+    const response = await POST(
+      request({ token: "guessed-reservation-id", reservationId: "reservation-2", accountLastFive: "12345", amount: 1500 })
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "訂位查詢連結無效，請重新查詢" });
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("uses the reservation bound to the credential, never a client-supplied id", async () => {
+    mocks.rpc.mockResolvedValue({
+      data: [{ payment_event_id: "event-1", outcome: "submitted", reservation_status: "confirmed" }],
+      error: null,
+    });
+
+    const response = await POST(
+      request({ token: "signed-token", reservationId: "reservation-2", accountLastFive: "12345", amount: 1500 })
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith("record_bank_transfer_report", expect.objectContaining({
+      p_reservation_id: "reservation-1",
+    }));
+    expect(mocks.rpc).not.toHaveBeenCalledWith("record_bank_transfer_report", expect.objectContaining({
+      p_reservation_id: "reservation-2",
+    }));
+  });
+
+  it("does not leak payment or customer details when the RPC fails", async () => {
+    mocks.rpc.mockResolvedValue({
+      data: null,
+      error: { message: "customer@example.com accountLastFive=12345 reservation-1" },
+    });
+
+    const response = await POST(request({ token: "signed-token", accountLastFive: "12345", amount: 1500 }));
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(JSON.stringify(body)).not.toContain("customer@example.com");
+    expect(JSON.stringify(body)).not.toContain("12345");
+    expect(JSON.stringify(body)).not.toContain("reservation-1");
   });
 });

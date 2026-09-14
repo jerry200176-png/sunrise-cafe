@@ -172,7 +172,7 @@ function BookQueryContent() {
         return (
           item.deposit_required &&
           isConfirmed &&
-          ["unpaid", "rejected"].includes(getPaymentDisplayState(item)) &&
+          getPaymentDisplayState(item) === "unpaid" &&
           item.status !== "cancelled"
         );
       }),
@@ -873,7 +873,7 @@ function BookQueryContent() {
                 )}
 
                 {/* 訂金繳費資訊 — 管理員確認後才顯示 */}
-                {item.deposit_required && isConfirmed && ["paid", "unpaid", "approved_unpaid", "rejected"].includes(paymentState) && (
+                {item.deposit_required && isConfirmed && ["paid", "unpaid", "approved_unpaid"].includes(paymentState) && (
                   <div className="mt-4 rounded-xl border-2 border-amber-300 bg-amber-50 p-4 sm:p-5 text-base shadow-sm">
                     {paymentState === "paid" ? (
                       <div className="flex items-center gap-3 text-emerald-800">
