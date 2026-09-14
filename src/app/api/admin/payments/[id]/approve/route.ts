@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { approvePaymentEvent } from "@/lib/payment-events-admin";
 import { isAdminConfigured } from "@/lib/supabase-admin";
-import { requirePermission } from "@/lib/admin-api-auth";
+import { getAdminContext, requirePermission } from "@/lib/admin-api-auth";
 import { notifyPaymentApproved } from "@/lib/payment-notify";
 import { logOps, type AdminPaymentInteraction } from "@/lib/ops-log";
 
@@ -35,7 +35,9 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   try {
-    const result = await approvePaymentEvent(id, reviewNote);
+    const adminContext = await getAdminContext(request);
+    const actor = adminContext.user_id || adminContext.email || "admin_session";
+    const result = await approvePaymentEvent(id, reviewNote, actor);
 
     if (!result.already_processed) {
       const { data: event } = await db()
@@ -45,10 +47,15 @@ export async function POST(request: NextRequest, { params }: Params) {
         .single();
 
       if (event?.reservation_id) {
-        await notifyPaymentApproved(event.reservation_id, {
-          actor: "admin_payment_event",
-          reviewNote,
-        });
+        try {
+          await notifyPaymentApproved(event.reservation_id, {
+            actor,
+            reviewNote,
+          });
+        } catch (notificationError) {
+          // Payment is already committed; LINE delivery retries use the existing path.
+          console.error("[admin/payment-approve] notification dispatch failed:", notificationError);
+        }
       }
     }
 

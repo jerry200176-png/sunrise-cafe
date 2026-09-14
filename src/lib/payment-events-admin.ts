@@ -20,7 +20,15 @@ export type PendingPaymentEvent = {
   end_time: string;
   total_price: number | null;
   is_deposit_paid: boolean;
+  reservation_status?: string;
   deposit_amount: number | null;
+  reported_account_last_five?: string | null;
+  reported_amount?: number | null;
+  reported_at?: string | null;
+  created_by?: string | null;
+  updated_at?: string | null;
+  updated_by?: string | null;
+  reviewed_by?: string | null;
 };
 
 function admin(): SupabaseClient {
@@ -79,7 +87,7 @@ export async function fetchPendingPaymentCountsByReservation(
 export async function fetchPendingPaymentEvents(): Promise<PendingPaymentEvent[]> {
   const { data: events, error } = await admin()
     .from("payment_events")
-    .select("id, reservation_id, source, status, raw_payload, created_at")
+    .select("id, reservation_id, source, status, raw_payload, created_at, reported_account_last_five, reported_amount, reported_at, created_by, updated_at, updated_by, reviewed_by")
     .eq("status", "pending_review")
     .order("created_at", { ascending: true });
   if (error) throw error;
@@ -88,14 +96,14 @@ export async function fetchPendingPaymentEvents(): Promise<PendingPaymentEvent[]
   const resIds = [...new Set(events.map((e) => e.reservation_id))];
   const { data: reservations, error: resErr } = await admin()
     .from("reservations")
-    .select("id, booking_code, customer_name, phone, start_time, end_time, total_price, is_deposit_paid")
+    .select("id, booking_code, customer_name, phone, start_time, end_time, total_price, is_deposit_paid, status")
     .in("id", resIds);
   if (resErr) throw resErr;
 
   const byId = new Map((reservations ?? []).map((r) => [r.id, r]));
 
   return events
-    .map((e) => {
+    .map((e): PendingPaymentEvent | null => {
       const r = byId.get(e.reservation_id);
       if (!r) return null;
       const total = r.total_price != null ? Number(r.total_price) : null;
@@ -115,7 +123,15 @@ export async function fetchPendingPaymentEvents(): Promise<PendingPaymentEvent[]
         end_time: r.end_time,
         total_price: total,
         is_deposit_paid: r.is_deposit_paid,
+        reservation_status: r.status,
         deposit_amount,
+        reported_account_last_five: e.reported_account_last_five ?? null,
+        reported_amount: e.reported_amount != null ? Number(e.reported_amount) : null,
+        reported_at: e.reported_at ?? null,
+        created_by: e.created_by ?? null,
+        updated_at: e.updated_at ?? null,
+        updated_by: e.updated_by ?? null,
+        reviewed_by: e.reviewed_by ?? null,
       };
     })
     .filter((x): x is PendingPaymentEvent => x != null);
@@ -126,16 +142,36 @@ export type RejectPaymentResult = { already_processed: boolean };
 
 export async function approvePaymentEvent(
   eventId: string,
-  reviewNote?: string | null
+  reviewNote?: string | null,
+  actor = "admin_payment_review"
 ): Promise<ApprovePaymentResult> {
   const { data: event, error: fetchErr } = await admin()
     .from("payment_events")
-    .select("id, reservation_id, status, raw_payload")
+    .select("id, reservation_id, source, status, raw_payload")
     .eq("id", eventId)
     .single();
   if (fetchErr || !event) throw new Error("找不到付款事件");
   if (event.status === "approved") return { already_processed: true };
   if (event.status !== "pending_review") throw new Error("此事件已駁回，無法核准");
+
+  if (event.source === "bank_transfer") {
+    const { data, error } = await admin().rpc("confirm_bank_transfer_payment", {
+      p_event_id: eventId,
+      p_actor: actor,
+      p_review_note: reviewNote?.trim() || null,
+    });
+    if (error) throw new Error(error.message);
+    const result = Array.isArray(data) ? data[0] : data;
+    if (!result) throw new Error("找不到付款事件");
+    if (result.outcome === "already_processed") return { already_processed: true };
+    logPayment("payment_event.approved", {
+      event_id: eventId,
+      reservation_id: result.reservation_id,
+      source: "bank_transfer",
+      actor,
+    });
+    return { already_processed: false };
+  }
 
   const { data: beforeRes, error: beforeErr } = await admin()
     .from("reservations")

@@ -17,9 +17,14 @@ type PendingItem = {
   phone: string;
   start_time: string;
   deposit_amount: number | null;
+  reservation_status?: string;
   created_at: string;
   raw_payload: string | null;
   source: string;
+  is_deposit_paid: boolean;
+  reported_account_last_five: string | null;
+  reported_amount: number | null;
+  reported_at: string | null;
 };
 
 type RiskItem = {
@@ -250,7 +255,7 @@ export default function AdminPaymentsPage() {
               <AlertTriangle className="w-4 h-4" strokeWidth={1.5} /> 資料庫 migration 尚未完成
             </p>
             <p className="text-sm mt-2">
-              請至 Supabase SQL Editor 執行 <code className="bg-white px-1 rounded">supabase/migration-payment-events.sql</code>
+              請至 Supabase SQL Editor 依序執行 <code className="bg-white px-1 rounded">supabase/migration-payment-events.sql</code> 與 <code className="bg-white px-1 rounded">supabase/migration-bank-transfer-reports.sql</code>
             </p>
           </div>
         )}
@@ -284,8 +289,8 @@ export default function AdminPaymentsPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2 mb-1">
                         <p className="font-semibold text-stone-900">{item.customer_name}</p>
-                        <span className="rounded-full bg-stone-100 px-2 py-0.5 text-xs text-stone-600">
-                          {item.source === "line_image" ? "LINE 截圖" : item.source === "line_text" ? "LINE 文字" : item.source}
+                        <span className={`rounded-full px-2 py-0.5 text-xs ${item.source === "bank_transfer" ? "bg-amber-100 text-amber-900" : "bg-stone-100 text-stone-600"}`}>
+                          {item.source === "bank_transfer" ? "銀行轉帳回報" : item.source === "line_image" ? "LINE 截圖" : item.source === "line_text" ? "LINE 文字" : item.source}
                         </span>
                       </div>
                       <p className="text-sm text-stone-600">
@@ -295,9 +300,19 @@ export default function AdminPaymentsPage() {
                         {format(parseISO(item.start_time), "yyyy/MM/dd HH:mm", { locale: zhTW })}
                         {item.deposit_amount != null && ` · 訂金 NT$${item.deposit_amount}`}
                       </p>
+                      <p className="text-xs text-stone-500 mt-1">
+                        訂位狀態：{item.reservation_status ?? "—"} · 訂金狀態：{item.is_deposit_paid ? "已確認" : "待核對"}
+                      </p>
                       <p className="text-xs text-stone-400 mt-1">
                         提交於 {format(parseISO(item.created_at), "MM/dd HH:mm", { locale: zhTW })}
                       </p>
+                      {item.source === "bank_transfer" && (
+                        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                          <p>應收訂金：<strong>NT${item.deposit_amount ?? "—"}</strong> · 客人回報：<strong>NT${item.reported_amount ?? "—"}</strong></p>
+                          <p className="mt-1">帳號後五碼：<strong>{item.reported_account_last_five ?? "—"}</strong>{item.reported_at ? ` · 回報於 ${format(parseISO(item.reported_at), "MM/dd HH:mm", { locale: zhTW })}` : ""}</p>
+                          <p className="mt-1 text-xs text-amber-800">請以銀行入帳紀錄核對後，再確認已收到款項。</p>
+                        </div>
+                      )}
                       {item.source === "line_image" ? (
                         parseLineImageMessageId(item.raw_payload) ? (
                           <div className="mt-2">
@@ -325,7 +340,7 @@ export default function AdminPaymentsPage() {
                         onClick={() => approve(item.id)}
                         className="inline-flex items-center gap-1 rounded-xl bg-emerald-600 text-white px-3 py-1.5 text-sm font-medium transition-[background-color] duration-200 hover:bg-emerald-700"
                       >
-                        <Check className="w-4 h-4" strokeWidth={1.5} /> 核准
+                        <Check className="w-4 h-4" strokeWidth={1.5} /> {item.source === "bank_transfer" ? "確認已收到款項" : "核准"}
                       </button>
                       <button
                         type="button"

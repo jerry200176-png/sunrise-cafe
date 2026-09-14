@@ -54,9 +54,6 @@ interface AvailabilitySlot {
   available: boolean;
 }
 
-const OFFICIAL_LINE_URL =
-  process.env.NEXT_PUBLIC_OFFICIAL_LINE_URL?.trim() || "https://lin.ee/cxcV0lo";
-
 function QueryLoadingFallback() {
   const { t } = useLocale();
   return (
@@ -109,6 +106,9 @@ function BookQueryContent() {
   const [rescheduleError, setRescheduleError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [paymentInfoCopiedId, setPaymentInfoCopiedId] = useState<string | null>(null);
+  const [transferReports, setTransferReports] = useState<Record<string, { lastFive: string; amount: string }>>({});
+  const [reportingDepositId, setReportingDepositId] = useState<string | null>(null);
+  const [paymentReportErrors, setPaymentReportErrors] = useState<Record<string, string>>({});
   const [copiedBookingId, setCopiedBookingId] = useState<string | null>(null);
   const depositViewedRef = useRef<Set<string>>(new Set());
   const stickyViewedRef = useRef(false);
@@ -236,6 +236,36 @@ function BookQueryContent() {
     },
     [phone, trackGuestEvent]
   );
+
+  const reportBankTransfer = useCallback(async (item: BookingItem) => {
+    const values = transferReports[item.id] ?? { lastFive: "", amount: "" };
+    setReportingDepositId(item.id);
+    setPaymentReportErrors((prev) => ({ ...prev, [item.id]: "" }));
+    try {
+      const res = await fetchWithTimeout("/api/payment/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: item.lookup_token || lookupToken,
+          accountLastFive: values.lastFive,
+          amount: values.amount,
+        }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        setPaymentReportErrors((prev) => ({ ...prev, [item.id]: data.error ?? t("query.paymentReportFailed") }));
+        return;
+      }
+      setList((prev) => prev.map((current) =>
+        current.id === item.id ? { ...current, payment_review_status: "pending_review" } : current
+      ));
+      setTransferReports((prev) => ({ ...prev, [item.id]: { lastFive: "", amount: "" } }));
+    } catch {
+      setPaymentReportErrors((prev) => ({ ...prev, [item.id]: t("query.connectionFailed") }));
+    } finally {
+      setReportingDepositId(null);
+    }
+  }, [lookupToken, t, transferReports]);
 
   const runSearch = useCallback(
     async (phoneVal: string, codeOrDate: string, mode: "code" | "date") => {
@@ -902,7 +932,7 @@ function BookQueryContent() {
                           )}
                         </div>
 
-                        {/* 匯款帳戶 + LINE Pay + 官方 LINE */}
+                        {/* 匯款帳戶 + LINE Pay + Sunrise 內建回報 */}
                         <div className="mt-5 rounded-lg border-2 border-gray-200 bg-white p-4 text-base text-gray-800 shadow-sm">
                           <p className="font-bold text-xl text-gray-900 mb-3 border-b-2 border-gray-100 pb-2">
                             {t("query.paymentStepsTitle")}
@@ -970,31 +1000,72 @@ function BookQueryContent() {
                             )}
                           </div>
 
-                          <div className="pl-3 border-l-4 border-[#06C755] bg-green-50/50 p-3 rounded-r-lg">
-                            <p className="font-bold text-lg text-[#06C755] mb-2">
+                          <div className="pl-3 border-l-4 border-amber-500 bg-amber-50/70 p-3 rounded-r-lg">
+                            <p className="font-bold text-lg text-amber-900 mb-2">
                               {t("query.step2Title")}
                             </p>
-                            {item.line_pay_dynamic_enabled ? (
-                              <p className="mb-2 text-gray-700 leading-relaxed text-base">
-                                {t("query.linePayAutoRecorded")}
+                            <p className="mb-3 text-gray-700 leading-relaxed text-base">
+                              {t("query.paymentReportHint")}
+                            </p>
+                            {paymentState === "rejected" && (
+                              <p role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+                                {t("query.paymentReviewRejected")}
                               </p>
-                            ) : (
-                              <>
-                                <p className="mb-4 text-gray-700 leading-relaxed text-base">
-                                  {t("query.step2DescPart1")}<strong>{t("query.step2DescBold1")}</strong>{t("query.step2DescPart2")}<strong>{t("query.step2DescBold2")}</strong>{t("query.step2DescPart3")}
-                                </p>
-                                <a
-                                  href={OFFICIAL_LINE_URL}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={() => trackGuestEvent("payment_line_official_click")}
-                                  className="inline-flex w-full sm:w-auto justify-center items-center gap-2 rounded-lg border-2 border-[#06C755] bg-white px-6 py-3 text-base font-bold text-[#06C755] shadow-sm hover:bg-green-50 transition"
-                                >
-                                  <span className="text-xl">💬</span>
-                                  {t("query.officialLineButton")}
-                                </a>
-                              </>
                             )}
+                            <div id={`transfer-report-${item.id}`} className="space-y-3 rounded-lg border border-amber-200 bg-white p-3">
+                              <div>
+                                <label htmlFor={`transfer-last-five-${item.id}`} className="mb-1 block text-sm font-semibold text-gray-800">
+                                  {t("query.paymentReportLastFive")}
+                                </label>
+                                <input
+                                  id={`transfer-last-five-${item.id}`}
+                                  type="text"
+                                  inputMode="numeric"
+                                  autoComplete="off"
+                                  maxLength={5}
+                                  pattern="[0-9]{5}"
+                                  value={transferReports[item.id]?.lastFive ?? ""}
+                                  onChange={(e) => setTransferReports((prev) => ({
+                                    ...prev,
+                                    [item.id]: { ...(prev[item.id] ?? { amount: "" }), lastFive: e.target.value.replace(/\D/g, "").slice(0, 5) },
+                                  }))}
+                                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 font-mono tracking-widest focus:border-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                                  placeholder="12345"
+                                  aria-describedby={`transfer-last-five-hint-${item.id}`}
+                                />
+                                <p id={`transfer-last-five-hint-${item.id}`} className="mt-1 text-xs text-gray-500">{t("query.paymentReportLastFiveHint")}</p>
+                              </div>
+                              <div>
+                                <label htmlFor={`transfer-amount-${item.id}`} className="mb-1 block text-sm font-semibold text-gray-800">
+                                  {t("query.paymentReportAmount")}
+                                </label>
+                                <input
+                                  id={`transfer-amount-${item.id}`}
+                                  type="number"
+                                  inputMode="numeric"
+                                  min={1}
+                                  step={1}
+                                  value={transferReports[item.id]?.amount ?? ""}
+                                  onChange={(e) => setTransferReports((prev) => ({
+                                    ...prev,
+                                    [item.id]: { ...(prev[item.id] ?? { lastFive: "" }), amount: e.target.value },
+                                  }))}
+                                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 font-mono focus:border-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                                  placeholder={item.deposit_amount != null ? String(item.deposit_amount) : undefined}
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => void reportBankTransfer(item)}
+                                disabled={reportingDepositId === item.id}
+                                className="inline-flex min-h-[44px] w-full items-center justify-center rounded-lg bg-amber-700 px-4 py-2.5 text-base font-bold text-white shadow-sm transition-colors hover:bg-amber-800 disabled:cursor-wait disabled:opacity-60"
+                              >
+                                {reportingDepositId === item.id ? t("query.paymentReportSubmitting") : t("query.paymentReportCta")}
+                              </button>
+                              {paymentReportErrors[item.id] && (
+                                <p role="alert" className="text-sm text-red-700">{paymentReportErrors[item.id]}</p>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </>
@@ -1217,7 +1288,7 @@ function BookQueryContent() {
             })}
           </p>
           <div className="flex gap-2">
-            {unpaidDepositItem.line_pay_dynamic_enabled || unpaidDepositItem.line_pay_url?.trim() ? (
+            {(unpaidDepositItem.line_pay_dynamic_enabled || unpaidDepositItem.line_pay_url?.trim()) && (
               unpaidDepositItem.line_pay_dynamic_enabled ? (
                 <button
                   type="button"
@@ -1242,28 +1313,14 @@ function BookQueryContent() {
                   {t("query.paymentStickyLinePay")}
                 </a>
               )
-            ) : (
-              <a
-                href={OFFICIAL_LINE_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => trackGuestEvent("payment_sticky_line_official_click")}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border-2 border-[#06C755] bg-white px-3 py-3 text-sm font-bold text-[#06C755] hover:bg-green-50"
-              >
-                💬 {t("query.paymentStickyOfficialLine")}
-              </a>
             )}
-            <a
-              href={OFFICIAL_LINE_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => trackGuestEvent("payment_sticky_line_official_click")}
-              className={`flex items-center justify-center rounded-lg border-2 border-[#06C755] bg-white px-3 py-3 text-sm font-bold text-[#06C755] hover:bg-green-50 ${
-                unpaidDepositItem.line_pay_dynamic_enabled || unpaidDepositItem.line_pay_url?.trim() ? "min-w-[7rem]" : "hidden"
-              }`}
+            <button
+              type="button"
+              onClick={() => document.getElementById(`transfer-report-${unpaidDepositItem.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" })}
+              className="flex flex-1 items-center justify-center rounded-lg border-2 border-amber-700 bg-amber-50 px-3 py-3 text-sm font-bold text-amber-900 hover:bg-amber-100"
             >
-              💬 {t("query.paymentStickyOfficialLine")}
-            </a>
+              {t("query.paymentReportCta")}
+            </button>
           </div>
         </div>
       )}

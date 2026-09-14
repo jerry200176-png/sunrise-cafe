@@ -15,3 +15,14 @@ failure_modes:
       claim; application-side prechecks cannot close approval-vs-send races.
   severity: medium
   frequency: recurring
+- id: FM-20260914-190020-V50W
+  name: Repository-wide typecheck contains pre-existing unrelated test and e2e errors
+  detection:
+    signal: Repository-wide typecheck contains pre-existing unrelated test and e2e
+      errors
+    source: reflection:REF-20260914-190020-VT7E
+  mitigation:
+    practice: Verify the changed files independently and report the baseline failures
+      without weakening the typecheck gate.
+  severity: low
+  frequency: recurring
