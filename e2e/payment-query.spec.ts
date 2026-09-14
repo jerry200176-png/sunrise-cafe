@@ -20,7 +20,26 @@ test.describe("付款資訊（查詢頁 mock）", () => {
     await expect(page.getByText("E2E001")).toBeVisible();
     const sticky = page.getByRole("region", { name: /需繳納訂金/ });
     await expect(sticky).toBeVisible();
-    await expect(sticky.getByRole("link", { name: /加官方 LINE/ })).toBeVisible();
+    await expect(sticky.getByRole("button", { name: "我已完成轉帳" })).toBeVisible();
+    await expect(page.getByText("完成轉帳後請在此回報，不需要另外通知官方 LINE。")).toBeVisible();
+
+    await page.route("**/api/payment/report", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          duplicate: false,
+          payment_event_id: "e2e-payment-event-1",
+          status: "pending_review",
+          message: "已收到您的匯款回報，待店家核對後會自動通知您，不需要另外傳 LINE。",
+        }),
+      });
+    });
+    await page.getByLabel("匯款帳號後五碼").fill("12345");
+    await page.getByLabel("實際匯款金額").fill("1000");
+    await page.getByRole("button", { name: "我已完成轉帳" }).first().click();
+    await expect(page.getByText("已收到您的匯款回報，待店家核對後會自動通知您，不需要另外傳 LINE。")).toBeVisible();
   });
 
   test("有 LINE Pay 時 sticky bar 顯示 LINE Pay 按鈕", async ({ page }) => {

@@ -1,0 +1,13 @@
+id: REF-20260914-190020-VT7E
+pattern: Repository-wide typecheck contains pre-existing unrelated test and e2e errors
+insight: Verify the changed files independently and report the baseline failures without
+  weakening the typecheck gate.
+severity: low
+scope: TKT-20260914-183815-5ZOV
+actor: agent:codex
+session_id: SES-20260914183823-EE3DB226
+created_at: '2026-09-14T19:00:20+08:00'
+status: active
+tags:
+- verification
+hit_count: 0

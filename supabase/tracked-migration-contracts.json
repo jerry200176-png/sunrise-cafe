@@ -317,5 +317,23 @@
       { "type": "column", "table": "reservations", "name": "deposit_approved_retry_key_created_at", "introspect": "rest" },
       { "type": "index", "name": "idx_reservations_deposit_approved_retry_key", "introspect": "unsupported", "note": "Index on deposit_approved_retry_key" }
     ]
+  },
+  {
+    "version": "20260914-bank-transfer-reports",
+    "file": "migration-bank-transfer-reports.sql",
+    "critical": true,
+    "evidence": [
+      { "type": "column", "table": "payment_events", "name": "reported_account_last_five", "introspect": "rest" },
+      { "type": "column", "table": "payment_events", "name": "reported_amount", "introspect": "rest" },
+      { "type": "column", "table": "payment_events", "name": "reported_at", "introspect": "rest" },
+      { "type": "column", "table": "payment_events", "name": "created_by", "introspect": "rest" },
+      { "type": "column", "table": "payment_events", "name": "updated_at", "introspect": "rest" },
+      { "type": "column", "table": "payment_events", "name": "updated_by", "introspect": "rest" },
+      { "type": "column", "table": "payment_events", "name": "reviewed_by", "introspect": "rest" },
+      { "type": "index", "name": "idx_payment_events_one_pending_bank_transfer", "introspect": "unsupported", "note": "Partial unique index prevents duplicate pending customer reports" },
+      { "type": "function", "name": "record_bank_transfer_report", "introspect": "unsupported", "note": "Reservation row lock plus pending unique index makes customer retries idempotent" },
+      { "type": "function", "name": "confirm_bank_transfer_payment", "introspect": "unsupported", "note": "Service-role-only atomic operator confirmation updates payment truth and reservation together" },
+      { "type": "rls", "table": "payment_events", "introspect": "unsupported", "note": "Existing service-role-only payment_events policy remains authoritative" }
+    ]
   }
 ]

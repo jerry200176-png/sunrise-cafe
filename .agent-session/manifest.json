@@ -1,16 +1,16 @@
 {
   "schema_version": "1.0",
-  "session_id": "eed162f9e6b7443b8c67681a95db3906",
+  "session_id": "215d151b688744d694130a2a435f527a",
   "project": "sunrise",
-  "task_id": "duplicate-notification-fix-20260911",
+  "task_id": "deposit-report-reconciliation-20260914",
   "repo_remote": "https://github.com/jerry200176-png/sunrise-cafe.git",
-  "base_sha": "8976c6a680b57a1b8b23b748da27986e4d2623a6",
-  "branch": "chore/task-duplicate-notification-fix-20260911",
-  "worktree_path": "/home/jerry/workspace/tasks/sunrise/duplicate-notification-fix-20260911",
-  "started_at": "2026-09-11T11:48:53Z",
+  "base_sha": "ccb23f20081a5a8e0a5e30d04ac4ded4175eafc9",
+  "branch": "chore/task-deposit-report-reconciliation-20260914",
+  "worktree_path": "/home/jerry/workspace/tasks/sunrise/deposit-report-reconciliation-20260914",
+  "started_at": "2026-09-14T10:33:32Z",
   "production_mutation": false,
   "preflight_result": "pass",
   "provenance_type": "agent-session",
-  "agent_cli": "codex",
+  "agent_cli": null,
   "gateway_version": "0.5.0"
 }
