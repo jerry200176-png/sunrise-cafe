@@ -27,6 +27,23 @@ const EXPECTED_FUNCTIONS = [
   "confirm_bank_transfer_payment(uuid,text,text)",
 ];
 
+async function repairRoleSpecificRpcPrivileges(sql) {
+  await sql.begin(async (transaction) => {
+    await transaction.unsafe(
+      "REVOKE ALL ON FUNCTION record_bank_transfer_report(UUID, TEXT, NUMERIC) FROM anon, authenticated;"
+    );
+    await transaction.unsafe(
+      "REVOKE ALL ON FUNCTION confirm_bank_transfer_payment(UUID, TEXT, TEXT) FROM anon, authenticated;"
+    );
+    await transaction.unsafe(
+      "GRANT EXECUTE ON FUNCTION record_bank_transfer_report(UUID, TEXT, NUMERIC) TO service_role;"
+    );
+    await transaction.unsafe(
+      "GRANT EXECUTE ON FUNCTION confirm_bank_transfer_payment(UUID, TEXT, TEXT) TO service_role;"
+    );
+  });
+}
+
 function postgresUrl() {
   return (
     process.env.SUPABASE_DB_URL ??
@@ -125,6 +142,8 @@ async function verify(sql) {
       has_function_privilege('public', 'public.confirm_bank_transfer_payment(uuid,text,text)', 'EXECUTE') AS public_confirm,
       has_function_privilege('anon', 'public.record_bank_transfer_report(uuid,text,numeric)', 'EXECUTE') AS anon_report,
       has_function_privilege('anon', 'public.confirm_bank_transfer_payment(uuid,text,text)', 'EXECUTE') AS anon_confirm,
+      has_function_privilege('authenticated', 'public.record_bank_transfer_report(uuid,text,numeric)', 'EXECUTE') AS authenticated_report,
+      has_function_privilege('authenticated', 'public.confirm_bank_transfer_payment(uuid,text,text)', 'EXECUTE') AS authenticated_confirm,
       has_function_privilege('service_role', 'public.record_bank_transfer_report(uuid,text,numeric)', 'EXECUTE') AS service_report,
       has_function_privilege('service_role', 'public.confirm_bank_transfer_payment(uuid,text,text)', 'EXECUTE') AS service_confirm
   `;
@@ -153,6 +172,8 @@ async function verify(sql) {
     privilege.public_confirm ||
     privilege.anon_report ||
     privilege.anon_confirm ||
+    privilege.authenticated_report ||
+    privilege.authenticated_confirm ||
     !privilege.service_report ||
     !privilege.service_confirm
   ) {
@@ -168,6 +189,8 @@ async function main() {
     const applied = await migrationApplied(sql);
     if (applied) {
       console.log(JSON.stringify({ migration: VERSION, status: "already_applied" }));
+      await repairRoleSpecificRpcPrivileges(sql);
+      console.log(JSON.stringify({ migration: VERSION, status: "role_privileges_repaired" }));
     } else {
       console.log(JSON.stringify({ migration: VERSION, status: "applying", plan: "explicit" }));
       await sql.begin(async (transaction) => {

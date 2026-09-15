@@ -151,6 +151,7 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION record_bank_transfer_report(UUID, TEXT, NUMERIC) FROM PUBLIC;
+REVOKE ALL ON FUNCTION record_bank_transfer_report(UUID, TEXT, NUMERIC) FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION record_bank_transfer_report(UUID, TEXT, NUMERIC) TO service_role;
 
 -- Only this operator action may turn a bank-transfer report into paid.
@@ -264,6 +265,7 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION confirm_bank_transfer_payment(UUID, TEXT, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION confirm_bank_transfer_payment(UUID, TEXT, TEXT) FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION confirm_bank_transfer_payment(UUID, TEXT, TEXT) TO service_role;
 
 INSERT INTO schema_migrations (version, name)

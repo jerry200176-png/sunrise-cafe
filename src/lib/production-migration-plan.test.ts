@@ -28,6 +28,14 @@ const workflow = readFileSync(
   join(root, ".github/workflows/production-deploy-migrate.yml"),
   "utf8"
 );
+const bankTransferMigration = readFileSync(
+  join(root, "supabase/migration-bank-transfer-reports.sql"),
+  "utf8"
+);
+const bankTransferRunner = readFileSync(
+  join(root, "scripts/apply-migration-bank-transfer-reports.mjs"),
+  "utf8"
+);
 
 describe("explicit production migration plan", () => {
   it("requires an explicit phase for every executable entry", () => {
@@ -141,6 +149,18 @@ describe("explicit production migration plan", () => {
     expect(jobs.get("deploy")).not.toMatch(/if:\s*always\(\)/);
     expect(jobs.get("predeploy_migrate")).toContain("node scripts/run-production-migration-phase.mjs predeploy");
     expect(jobs.get("postdeploy_migrate")).toContain("node scripts/run-production-migration-phase.mjs postdeploy");
+  });
+
+  it("keeps bank-transfer RPCs service-role-only for Supabase roles", () => {
+    expect(bankTransferMigration).toMatch(
+      /REVOKE ALL ON FUNCTION record_bank_transfer_report\(UUID, TEXT, NUMERIC\) FROM anon, authenticated;/
+    );
+    expect(bankTransferMigration).toMatch(
+      /REVOKE ALL ON FUNCTION confirm_bank_transfer_payment\(UUID, TEXT, TEXT\) FROM anon, authenticated;/
+    );
+    expect(bankTransferRunner).toContain("authenticated_report");
+    expect(bankTransferRunner).toContain("authenticated_confirm");
+    expect(bankTransferRunner).toContain("role_privileges_repaired");
   });
 });
 
