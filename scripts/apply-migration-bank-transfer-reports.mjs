@@ -129,6 +129,25 @@ async function verify(sql) {
       has_function_privilege('service_role', 'public.confirm_bank_transfer_payment(uuid,text,text)', 'EXECUTE') AS service_confirm
   `;
   const privilege = privileges[0];
+  const functionAcl = await sql`
+    SELECT
+      p.oid::regprocedure::text AS signature,
+      owner.rolname AS owner,
+      COALESCE(array_to_string(p.proacl, ','), '') AS acl
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    JOIN pg_roles owner ON owner.oid = p.proowner
+    WHERE n.nspname = 'public'
+      AND p.oid::regprocedure::text = ANY(${sql.array(EXPECTED_FUNCTIONS)})
+    ORDER BY signature
+  `;
+  console.log(
+    JSON.stringify({
+      migration: VERSION,
+      privilege_probe: privilege,
+      function_acl: functionAcl,
+    })
+  );
   if (
     privilege.public_report ||
     privilege.public_confirm ||
