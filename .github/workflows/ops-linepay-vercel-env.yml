@@ -25,6 +25,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
   operate:
@@ -70,6 +71,16 @@ jobs:
             echo "::error::refusing to publish channel secret or id values"
             exit 1
           fi
+      - name: Route production activation through canonical workflow
+        if: steps.scope.outputs.mode != 'inspect'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh workflow run production-deploy-migrate.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main
+          echo "Canonical production workflow dispatched after env operation."
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4

@@ -12,6 +12,8 @@ const deployScript = await read("scripts/orchestrator/deploy.sh");
 const autonomousWorkflow = await read(".github/workflows/autonomous-loop.yml");
 const migrationWorkflow = await read(".github/workflows/apply-migration-ops-events.yml");
 const autonomousLoop = await read("scripts/orchestrator/loop.sh");
+const linePayWorkflow = await read(".github/workflows/ops-linepay-vercel-env.yml");
+const linePayScript = await read("scripts/ops-linepay-vercel-env.sh");
 const ignoredBuild = await read("scripts/vercel-ignored-build.sh");
 
 assert.match(verifyWorkflow, /group:\s*verify-production-main/);
@@ -37,10 +39,17 @@ assert.match(deployScript, /exit 0/);
 // but must route activation through this migration-first workflow.
 const directProductionDeploy =
   /(?:npx\s+)?vercel\s+deploy\s+--prod|(?:bash\s+)?(?:scripts\/orchestrator\/deploy\.sh|\$SCRIPT_DIR\/deploy\.sh)/;
+const equivalentProductionDeploy =
+  /vercel\s+(?:redeploy|alias|promote)|api\.vercel\.com\/v\d+\/deployments/;
 assert.match(deployWorkflow, directProductionDeploy);
 assert.doesNotMatch(autonomousWorkflow, directProductionDeploy);
 assert.doesNotMatch(autonomousLoop, directProductionDeploy);
 assert.doesNotMatch(migrationWorkflow, directProductionDeploy);
+assert.doesNotMatch(linePayWorkflow, directProductionDeploy);
+assert.doesNotMatch(linePayScript, directProductionDeploy);
+assert.doesNotMatch(linePayWorkflow, equivalentProductionDeploy);
+assert.doesNotMatch(linePayScript, equivalentProductionDeploy);
+assert.match(linePayWorkflow, /gh workflow run production-deploy-migrate\.yml/);
 assert.doesNotMatch(migrationWorkflow, /deploy-if-needed/);
 assert.doesNotMatch(migrationWorkflow, /if:\s*always\(\)/);
 assert.match(autonomousLoop, /deploy-gate\.sh/);
@@ -54,6 +63,11 @@ for (const filename of await readdir(workflowDir)) {
     source,
     directProductionDeploy,
     `${filename} must not own a direct application production deploy`
+  );
+  assert.doesNotMatch(
+    source,
+    equivalentProductionDeploy,
+    `${filename} must not own an equivalent production redeploy`
   );
 }
 

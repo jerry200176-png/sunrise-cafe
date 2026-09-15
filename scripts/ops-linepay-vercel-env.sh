@@ -4,6 +4,8 @@
 # - set-sandbox-url: LINE_PAY_API_BASE_URL=https://sandbox-api-pay.line.me
 # - restore-fixed-link: remove LINE_PAY_CHANNEL_ID / LINE_PAY_CHANNEL_SECRET /
 #   LINE_PAY_API_BASE_URL so guests fall back to the branch's fixed LINE Pay URL
+# Environment mutations do not activate production. The canonical
+# migration-first production workflow must perform any resulting deployment.
 set -euo pipefail
 
 MODE="${MODE:-inspect}"
@@ -133,33 +135,7 @@ else:
 report.write_text(report.read_text(encoding="utf-8") + "\n".join(lines) + "\n", encoding="utf-8")
 print("\n".join(lines))
 PY
-  before_sha="$(curl -sf "$PROD_URL/api/version" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("commit",""))' || true)"
-  echo "PROD_SHA_BEFORE=${before_sha:-unknown}" | tee -a "$REPORT"
-  redeploy_ok=0
-  if npx vercel redeploy "$PROD_URL" --token "$VERCEL_TOKEN"; then
-    redeploy_ok=1
-  else
-    project_id="$(python3 -c 'import json; print(json.load(open(".vercel/project.json"))["projectId"])')"
-    org_id="$(python3 -c 'import json; print(json.load(open(".vercel/project.json"))["orgId"])')"
-    deployment_id="$(curl -sf -H "Authorization: Bearer $VERCEL_TOKEN" \
-      "https://api.vercel.com/v6/deployments?projectId=${project_id}&teamId=${org_id}&target=production&limit=1" \
-      | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("deployments") or [{}])[0].get("uid",""))')"
-    if [[ -n "$deployment_id" ]] && curl -sf -X POST -H "Authorization: Bearer $VERCEL_TOKEN" \
-        -H "Content-Type: application/json" \
-        "https://api.vercel.com/v13/deployments?teamId=${org_id}&forceNew=1" \
-        -d "{\"name\":\"sunrise-cafe\",\"deploymentId\":\"${deployment_id}\",\"target\":\"production\"}" >/tmp/vercel-redeploy.json; then
-      redeploy_ok=1
-      echo "REDEPLOY_API_DEPLOYMENT=$deployment_id" | tee -a "$REPORT"
-    fi
-  fi
-  if [[ "$redeploy_ok" -eq 1 ]]; then
-    echo "REDEPLOY_REQUESTED" | tee -a "$REPORT"
-    sleep 8
-    after_sha="$(curl -sf "$PROD_URL/api/version" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("commit",""))' || true)"
-    echo "PROD_SHA_AFTER=${after_sha:-unknown}" | tee -a "$REPORT"
-  else
-    echo "REDEPLOY_SKIPPED_OR_FAILED: env is set; next production deploy will pick it up." | tee -a "$REPORT"
-  fi
+  echo "ENV_MUTATION_APPLIED: canonical production activation remains required." | tee -a "$REPORT"
   echo "NO_PAYMENT_TEST: do not run live LINE Pay charges." | tee -a "$REPORT"
   exit 0
 fi
@@ -175,34 +151,5 @@ else
   echo "SET_LINE_PAY_API_BASE_URL=$SANDBOX_URL" | tee -a "$REPORT"
 fi
 
-before_sha="$(curl -sf "$PROD_URL/api/version" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("commit",""))' || true)"
-echo "PROD_SHA_BEFORE=${before_sha:-unknown}" | tee -a "$REPORT"
-redeploy_ok=0
-if npx vercel redeploy "$PROD_URL" --token "$VERCEL_TOKEN"; then
-  redeploy_ok=1
-else
-  project_id="$(python3 -c 'import json; print(json.load(open(".vercel/project.json"))["projectId"])')"
-  org_id="$(python3 -c 'import json; print(json.load(open(".vercel/project.json"))["orgId"])')"
-  deployment_id="$(curl -sf -H "Authorization: Bearer $VERCEL_TOKEN" \
-    "https://api.vercel.com/v6/deployments?projectId=${project_id}&teamId=${org_id}&target=production&limit=1" \
-    | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("deployments") or [{}])[0].get("uid",""))')"
-  if [[ -n "$deployment_id" ]] && curl -sf -X POST -H "Authorization: Bearer $VERCEL_TOKEN" \
-      -H "Content-Type: application/json" \
-      "https://api.vercel.com/v13/deployments?teamId=${org_id}&forceNew=1" \
-      -d "{\"name\":\"sunrise-cafe\",\"deploymentId\":\"${deployment_id}\",\"target\":\"production\"}" >/tmp/vercel-redeploy.json; then
-    redeploy_ok=1
-    echo "REDEPLOY_API_DEPLOYMENT=$deployment_id" | tee -a "$REPORT"
-  fi
-fi
-if [[ "$redeploy_ok" -eq 1 ]]; then
-  echo "REDEPLOY_REQUESTED" | tee -a "$REPORT"
-  sleep 8
-  after_sha="$(curl -sf "$PROD_URL/api/version" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("commit",""))' || true)"
-  echo "PROD_SHA_AFTER=${after_sha:-unknown}" | tee -a "$REPORT"
-  if [[ -n "$before_sha" && -n "$after_sha" && "$before_sha" != "$after_sha" ]]; then
-    echo "REDEPLOY_SHA_CHANGED before=$before_sha after=$after_sha" | tee -a "$REPORT"
-  fi
-else
-  echo "REDEPLOY_SKIPPED_OR_FAILED: env is set; next production deploy will pick it up." | tee -a "$REPORT"
-fi
+echo "ENV_MUTATION_APPLIED: canonical production activation remains required." | tee -a "$REPORT"
 echo "NO_PAYMENT_TEST: do not run live LINE Pay charges." | tee -a "$REPORT"
