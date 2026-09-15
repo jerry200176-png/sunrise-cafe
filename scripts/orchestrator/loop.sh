@@ -73,9 +73,7 @@ finalize_iteration() {
   local task="$1"
   local pr="$2"
 
-  # Attempt deploy via supported path (non-blocking)
-  bash "$SCRIPT_DIR/deploy.sh" --wait "$DEPLOY_WAIT_SEC" 2>/dev/null || true
-
+  # Production deployment is owned by the canonical migration-first workflow.
   if bash "$SCRIPT_DIR/deploy-gate.sh" --wait "$DEPLOY_WAIT_SEC" 2>/dev/null; then
     bash "$EVIDENCE" production_verified "{\"pr\":$pr}"
   else
@@ -115,9 +113,6 @@ log "Deploy gate: $DEPLOY_MODE (implementation workstream independent)"
 
 bash "$SCRIPT_DIR/gmail-signals.sh" 2>/dev/null || true
 bash "$SCRIPT_DIR/update-inbox-gmail.sh" 2>/dev/null || true
-
-# Non-blocking deploy resolution attempt
-bash "$SCRIPT_DIR/deploy.sh" 2>/dev/null || true
 
 # ── 3. Lease ────────────────────────────────────────────────
 if ! bash "$SCRIPT_DIR/lease.sh" acquire "$RUN_ID"; then

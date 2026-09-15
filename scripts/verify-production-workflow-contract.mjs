@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,6 +9,9 @@ const read = (relativePath) => readFile(resolve(root, relativePath), "utf8");
 const verifyWorkflow = await read(".github/workflows/verify-production.yml");
 const deployWorkflow = await read(".github/workflows/production-deploy-migrate.yml");
 const deployScript = await read("scripts/orchestrator/deploy.sh");
+const autonomousWorkflow = await read(".github/workflows/autonomous-loop.yml");
+const migrationWorkflow = await read(".github/workflows/apply-migration-ops-events.yml");
+const autonomousLoop = await read("scripts/orchestrator/loop.sh");
 const ignoredBuild = await read("scripts/vercel-ignored-build.sh");
 
 assert.match(verifyWorkflow, /group:\s*verify-production-main/);
@@ -28,6 +31,42 @@ assert.match(deployWorkflow, /deploy\.sh --wait 420/);
 assert.match(deployScript, /deploy_rate_limited/);
 assert.match(deployScript, /Vercel deploy rate limited/);
 assert.match(deployScript, /exit 0/);
+
+// The canonical workflow is the only repository-controlled application
+// production deploy caller. Auxiliary automation may prepare or verify work,
+// but must route activation through this migration-first workflow.
+const directProductionDeploy =
+  /(?:npx\s+)?vercel\s+deploy\s+--prod|(?:bash\s+)?(?:scripts\/orchestrator\/deploy\.sh|\$SCRIPT_DIR\/deploy\.sh)/;
+assert.match(deployWorkflow, directProductionDeploy);
+assert.doesNotMatch(autonomousWorkflow, directProductionDeploy);
+assert.doesNotMatch(autonomousLoop, directProductionDeploy);
+assert.doesNotMatch(migrationWorkflow, directProductionDeploy);
+assert.doesNotMatch(migrationWorkflow, /deploy-if-needed/);
+assert.doesNotMatch(migrationWorkflow, /if:\s*always\(\)/);
+assert.match(autonomousLoop, /deploy-gate\.sh/);
+
+const workflowDir = resolve(root, ".github/workflows");
+for (const filename of await readdir(workflowDir)) {
+  if (!filename.endsWith(".yml")) continue;
+  const source = await read(`.github/workflows/${filename}`);
+  if (filename === "production-deploy-migrate.yml") continue;
+  assert.doesNotMatch(
+    source,
+    directProductionDeploy,
+    `${filename} must not own a direct application production deploy`
+  );
+}
+
+const orchestratorDir = resolve(root, "scripts/orchestrator");
+for (const filename of await readdir(orchestratorDir)) {
+  if (!filename.endsWith(".sh") || filename === "deploy.sh") continue;
+  const source = await read(`scripts/orchestrator/${filename}`);
+  assert.doesNotMatch(
+    source,
+    directProductionDeploy,
+    `scripts/orchestrator/${filename} must not bypass the canonical deploy owner`
+  );
+}
 
 assert.match(ignoredBuild, /VERCEL_ENV/);
 assert.match(ignoredBuild, /VERCEL_GIT_PREVIOUS_SHA/);
