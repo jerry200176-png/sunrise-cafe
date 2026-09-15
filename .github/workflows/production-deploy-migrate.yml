@@ -2,6 +2,8 @@
 # Complements verify-production (SHA poll) with one immediate deploy attempt.
 # deploy.sh records Vercel quota/rate-limit failures and ends without retrying;
 # this keeps the sole deploy writer from burning quota in a retry loop.
+# Phase order is enforced by job dependencies:
+# predeploy_migrate -> predeploy_verify -> deploy -> postdeploy_migrate -> postdeploy_verify.
 
 name: Production deploy and migrate
 
@@ -20,9 +22,79 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  predeploy_migrate:
+    name: Apply predeploy migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Apply canonical predeploy phase
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          trap 'rm -f .env.vercel.prod' EXIT
+          if [ -z "${SUPABASE_DB_URL:-}" ] || echo "${SUPABASE_DB_URL:-}" | grep -q '\[region\]'; then
+            if [ -n "${VERCEL_TOKEN:-}" ]; then
+              bash scripts/vercel-production-env.sh .env.vercel.prod
+              for key in POSTGRES_URL POSTGRES_URL_NON_POOLING POSTGRES_PRISMA_URL SUPABASE_DB_URL DATABASE_URL DIRECT_URL; do
+                val=$(grep -E "^${key}=" .env.vercel.prod 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
+                if [ -n "$val" ] && ! echo "$val" | grep -q '\[region\]'; then export "$key=$val"; fi
+              done
+              if [ -z "${SUPABASE_DB_URL:-}" ] || echo "${SUPABASE_DB_URL:-}" | grep -q '\[region\]'; then
+                export SUPABASE_DB_URL="${POSTGRES_URL_NON_POOLING:-${POSTGRES_URL:-${POSTGRES_PRISMA_URL:-${DATABASE_URL:-${DIRECT_URL:-}}}}}"
+              fi
+            fi
+          fi
+          node scripts/run-production-migration-phase.mjs predeploy
+
+  predeploy_verify:
+    name: Verify predeploy migrations
+    runs-on: ubuntu-latest
+    needs: predeploy_migrate
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Re-run canonical predeploy verification
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          trap 'rm -f .env.vercel.prod' EXIT
+          if [ -z "${SUPABASE_DB_URL:-}" ] || echo "${SUPABASE_DB_URL:-}" | grep -q '\[region\]'; then
+            if [ -n "${VERCEL_TOKEN:-}" ]; then
+              bash scripts/vercel-production-env.sh .env.vercel.prod
+              for key in POSTGRES_URL POSTGRES_URL_NON_POOLING POSTGRES_PRISMA_URL SUPABASE_DB_URL DATABASE_URL DIRECT_URL; do
+                val=$(grep -E "^${key}=" .env.vercel.prod 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
+                if [ -n "$val" ] && ! echo "$val" | grep -q '\[region\]'; then export "$key=$val"; fi
+              done
+              if [ -z "${SUPABASE_DB_URL:-}" ] || echo "${SUPABASE_DB_URL:-}" | grep -q '\[region\]'; then
+                export SUPABASE_DB_URL="${POSTGRES_URL_NON_POOLING:-${POSTGRES_URL:-${POSTGRES_PRISMA_URL:-${DATABASE_URL:-${DIRECT_URL:-}}}}}"
+              fi
+            fi
+          fi
+          node scripts/run-production-migration-phase.mjs predeploy
+
   deploy:
     name: Vercel production deploy
     runs-on: ubuntu-latest
+    needs: predeploy_verify
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -59,14 +131,13 @@ jobs:
           fi
           echo "Deploying: prod=$ACTUAL expected=$EXPECTED"
           bash scripts/orchestrator/deploy.sh --wait 420 || {
-            echo "::warning::Deploy step did not complete — migrations will still run"
+            echo "::warning::Deploy step did not complete — postdeploy migrations will still run"
           }
 
-  migrate:
-    name: Apply pending migrations
+  postdeploy_migrate:
+    name: Apply postdeploy migrations
     runs-on: ubuntu-latest
     needs: deploy
-    if: always()
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -75,7 +146,7 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
-      - name: Apply migrations
+      - name: Apply canonical postdeploy phase
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -104,41 +175,7 @@ jobs:
               fi
             fi
           fi
-          node scripts/apply-migration-ops-events.mjs || true
-          if [ -n "${CRON_SECRET:-}" ]; then
-            curl -sf -X POST -H "Authorization: Bearer ${CRON_SECRET}" \
-              "https://sunrise-cafe-six.vercel.app/api/admin/migrations/apply-ops-events" || true
-          fi
-          node scripts/apply-migration-payment-request-sent.mjs || {
-            echo "::warning::payment_request_sent_at migration pending — run SQL manually if needed"
-          }
-          node scripts/apply-migration-reservation-message-actions.mjs || {
-            echo "::warning::reservation_message_actions migration pending — run SQL manually if needed"
-          }
-          node scripts/apply-migration-reservation-message-batch.mjs || {
-            echo "::warning::reservation_message_actions.batch_id migration pending — run SQL manually if needed"
-          }
-          node scripts/apply-migration-line-pay-safety.mjs || {
-            echo "::warning::LINE Pay safety migration pending — payment activation remains blocked"
-          }
-          node scripts/apply-migration-market-parity.mjs || {
-            echo "::warning::market-parity columns pending — need real SUPABASE_DB_URL secret"
-          }
-          node scripts/apply-migration-line-guest-notification-deliveries.mjs || {
-            echo "::warning::LINE guest notification ledger pending — need real SUPABASE_DB_URL secret"
-          }
-          node scripts/apply-migration-line-reminder-deliveries.mjs || {
-            echo "::warning::LINE reminder delivery ledger pending — need real SUPABASE_DB_URL secret"
-          }
-          node scripts/apply-migration-deposit-approved-notified.mjs || {
-            echo "::warning::deposit_approved_notified_at migration pending — need real SUPABASE_DB_URL secret"
-          }
-          node scripts/apply-migration-deposit-approved-claim.mjs || {
-            echo "::warning::deposit_approved_claim_at migration pending — need real SUPABASE_DB_URL secret"
-          }
-          node scripts/apply-migration-deposit-approved-retry-key.mjs || {
-            echo "::warning::deposit_approved_retry_key migration pending — need real SUPABASE_DB_URL secret"
-          }
+          node scripts/run-production-migration-phase.mjs postdeploy
 
       - name: Verify ops_events
         env:
@@ -230,3 +267,38 @@ jobs:
             exit 1
           fi
           [ "$RPC_CODE" -lt 500 ]
+
+  postdeploy_verify:
+    name: Verify postdeploy migrations
+    runs-on: ubuntu-latest
+    needs: postdeploy_migrate
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Re-run canonical postdeploy verification
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          trap 'rm -f .env.vercel.prod' EXIT
+          if [ -z "${SUPABASE_DB_URL:-}" ] || echo "${SUPABASE_DB_URL:-}" | grep -q '\[region\]'; then
+            if [ -n "${VERCEL_TOKEN:-}" ]; then
+              bash scripts/vercel-production-env.sh .env.vercel.prod
+              for key in POSTGRES_URL POSTGRES_URL_NON_POOLING POSTGRES_PRISMA_URL SUPABASE_DB_URL DATABASE_URL DIRECT_URL; do
+                val=$(grep -E "^${key}=" .env.vercel.prod 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
+                if [ -n "$val" ] && ! echo "$val" | grep -q '\[region\]'; then export "$key=$val"; fi
+              done
+              if [ -z "${SUPABASE_DB_URL:-}" ] || echo "${SUPABASE_DB_URL:-}" | grep -q '\[region\]'; then
+                export SUPABASE_DB_URL="${POSTGRES_URL_NON_POOLING:-${POSTGRES_URL:-${POSTGRES_PRISMA_URL:-${DATABASE_URL:-${DIRECT_URL:-}}}}}"
+              fi
+            fi
+          fi
+          node scripts/run-production-migration-phase.mjs postdeploy

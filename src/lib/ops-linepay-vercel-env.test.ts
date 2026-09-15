@@ -24,5 +24,9 @@ describe("LINE Pay Vercel sandbox env ops", () => {
     expect(workflow).toContain("chore/task-linepay-sandbox-land-20260815");
     expect(workflow).toContain("LINE_PAY_CHANNEL_(ID|SECRET)=[^[:space:]]{8,}");
     expect(workflow).not.toContain("LINE_PAY_CHANNEL_SECRET: ${{");
+    expect(script).not.toContain("vercel redeploy");
+    expect(script).not.toContain("/v13/deployments");
+    expect(workflow).toContain("actions: write");
+    expect(workflow).toContain("gh workflow run production-deploy-migrate.yml");
   });
 });
