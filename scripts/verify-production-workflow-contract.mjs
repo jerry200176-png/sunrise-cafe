@@ -15,6 +15,7 @@ const autonomousLoop = await read("scripts/orchestrator/loop.sh");
 const linePayWorkflow = await read(".github/workflows/ops-linepay-vercel-env.yml");
 const linePayScript = await read("scripts/ops-linepay-vercel-env.sh");
 const ignoredBuild = await read("scripts/vercel-ignored-build.sh");
+const vercelConfig = JSON.parse(await read("vercel.json"));
 
 assert.match(verifyWorkflow, /group:\s*verify-production-main/);
 assert.match(verifyWorkflow, /cancel-in-progress:\s*true/);
@@ -33,6 +34,14 @@ assert.match(deployWorkflow, /deploy\.sh --wait 420/);
 assert.match(deployScript, /deploy_rate_limited/);
 assert.match(deployScript, /Vercel deploy rate limited/);
 assert.match(deployScript, /exit 0/);
+
+// Disable only Vercel Git deployments from main. Unspecified branches retain
+// the existing Preview behavior; explicit CLI production deploys remain the
+// canonical workflow's responsibility.
+assert.deepEqual(vercelConfig.git?.deploymentEnabled?.main, false);
+assert.notDeepEqual(vercelConfig.git?.deploymentEnabled, false);
+assert.deepEqual(Object.keys(vercelConfig.git?.deploymentEnabled ?? {}), ["main"]);
+assert.equal(vercelConfig.ignoreCommand, "bash scripts/vercel-ignored-build.sh");
 
 // The canonical workflow is the only repository-controlled application
 // production deploy caller. Auxiliary automation may prepare or verify work,
