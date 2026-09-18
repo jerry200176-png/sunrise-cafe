@@ -16,7 +16,15 @@ type Payload = {
   branch_name: string;
   guest_confirmed_at?: string | null;
   is_deposit_paid?: boolean;
+  lookup_token?: string | null;
 };
+
+function guestQueryHref(data: Payload): string {
+  const token = data.lookup_token?.trim();
+  if (token) return `/book/query?token=${encodeURIComponent(token)}`;
+  // Defensive legacy navigation only — code alone is not authenticated lookup.
+  return `/book/query?code=${encodeURIComponent(data.booking_code)}`;
+}
 
 function ConfirmVisitContent() {
   const { t } = useLocale();
@@ -122,7 +130,7 @@ function ConfirmVisitContent() {
                 </p>
               )}
               <Link
-                href={`/book/query?code=${encodeURIComponent(data.booking_code)}`}
+                href={guestQueryHref(data)}
                 className="mt-6 inline-block w-full rounded-lg bg-amber-600 py-3 text-center font-medium text-white hover:bg-amber-700 transition"
               >
                 {t("confirmVisit.queryCta")}
@@ -164,7 +172,7 @@ function ConfirmVisitContent() {
                 {submitting ? t("confirmVisit.confirming") : t("confirmVisit.confirmCta")}
               </button>
               <Link
-                href={`/book/query?code=${encodeURIComponent(data.booking_code)}`}
+                href={guestQueryHref(data)}
                 className="mt-3 block w-full rounded-lg border border-gray-300 py-2.5 text-center text-sm font-medium text-gray-700 hover:bg-gray-50 transition"
               >
                 {t("confirmVisit.manageCta")}

@@ -133,15 +133,20 @@ export function buildReminderFlex(params: {
   /** D-1 attendance confirm deep link (signed token URL) */
   confirmAttendanceUrl?: string | null;
   bookingCode?: string | null;
+  /** Signed guest lookup token — preferred for one-tap /book/query (LINE has no session phone) */
+  lookupToken?: string | null;
 }): LineFlexContainer {
   const rows = dateTimeRows(params.startTime, params.endTime);
   if (params.roomName) rows.push({ label: "包廂", value: params.roomName });
   if (params.bookingCode) rows.push({ label: "訂位碼", value: params.bookingCode });
 
   const confirmUrl = params.confirmAttendanceUrl?.trim();
-  const queryUrl = params.bookingCode
-    ? `${LINE_QUERY_URL}?code=${encodeURIComponent(params.bookingCode)}`
-    : LINE_QUERY_URL;
+  const lookupToken = params.lookupToken?.trim();
+  const queryUrl = lookupToken
+    ? `${LINE_QUERY_URL}?token=${encodeURIComponent(lookupToken)}`
+    : params.bookingCode
+      ? `${LINE_QUERY_URL}?code=${encodeURIComponent(params.bookingCode)}`
+      : LINE_QUERY_URL;
 
   return flexBubble({
     icon: "📅",
@@ -423,7 +428,16 @@ export function buildGuestAttendanceConfirmedFlex(params: {
   bookingCode?: string | null;
   startTime: string;
   endTime: string;
+  /** Signed guest lookup token — preferred for one-tap /book/query after confirm */
+  lookupToken?: string | null;
 }): LineFlexContainer {
+  const lookupToken = params.lookupToken?.trim();
+  const queryUrl = lookupToken
+    ? `${LINE_QUERY_URL}?token=${encodeURIComponent(lookupToken)}`
+    : params.bookingCode
+      ? `${LINE_QUERY_URL}?code=${encodeURIComponent(params.bookingCode)}`
+      : LINE_QUERY_URL;
+
   return flexBubble({
     icon: "✅",
     title: "已確認到店",
@@ -436,9 +450,7 @@ export function buildGuestAttendanceConfirmedFlex(params: {
     ],
     primaryAction: {
       label: "查看訂位詳情",
-      uri: params.bookingCode
-        ? `${LINE_QUERY_URL}?code=${encodeURIComponent(params.bookingCode)}`
-        : LINE_QUERY_URL,
+      uri: queryUrl,
     },
     showSiteLink: true,
   });

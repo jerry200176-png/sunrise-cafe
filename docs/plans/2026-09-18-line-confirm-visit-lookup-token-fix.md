@@ -1,6 +1,6 @@
 # Fix plan — LINE「確認準時到店」後查詢不到訂位
 
-**Status:** `PLAN_READY`  
+**Status:** `IMPLEMENTING` → ship via PR referencing #351  
 **Date:** 2026-09-18  
 **GitHub issue:** [#351](https://github.com/jerry200176-png/sunrise-cafe/issues/351)  
 **Worktree:** `/home/jerry/workspace/tasks/sunrise/confirm-ontime-lookup-bug`  

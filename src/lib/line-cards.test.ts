@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildDepositReleasedGroupFlex,
+  buildGuestAttendanceConfirmedFlex,
   buildGuestAttendanceConfirmedGroupFlex,
   buildGuestBindErrorFlex,
   buildGuestDepositReleasedFlex,
@@ -163,6 +164,52 @@ describe("line-cards LINE API shape", () => {
     expect(json).toContain("確認準時到店");
     expect(json).toContain("confirm-visit?token=tok");
     expect(json).toContain("code=ABC123");
+  });
+
+  it("reminder Flex prefers lookup token over code for query deep link", () => {
+    const withToken = buildReminderFlex({
+      leadLabel: "明日",
+      branchName: "昇昇咖啡",
+      bookingCode: "ABC123",
+      lookupToken: "lookup-tok-1",
+      confirmAttendanceUrl: "https://example.com/book/confirm-visit?token=att",
+      ...times,
+    });
+    const withTokenJson = JSON.stringify(withToken);
+    expect(withTokenJson).toContain("token=lookup-tok-1");
+    expect(withTokenJson).not.toContain("code=ABC123");
+
+    const legacy = buildReminderFlex({
+      leadLabel: "明日",
+      branchName: "昇昇咖啡",
+      bookingCode: "ABC123",
+      ...times,
+    });
+    const legacyJson = JSON.stringify(legacy);
+    expect(legacyJson).toContain("code=ABC123");
+    expect(legacyJson).not.toContain("token=");
+  });
+
+  it("attendance confirmed Flex prefers lookup token for 查看訂位詳情", () => {
+    const withToken = buildGuestAttendanceConfirmedFlex({
+      customerName: "測試",
+      branchName: "昇昇咖啡",
+      bookingCode: "ABC123",
+      lookupToken: "att-lookup-1",
+      ...times,
+    });
+    const json = JSON.stringify(withToken);
+    expect(json).toContain("token=att-lookup-1");
+    expect(json).not.toContain("code=ABC123");
+    expect(json).toContain("ABC123"); // still shown as row label value
+
+    const legacy = buildGuestAttendanceConfirmedFlex({
+      customerName: "測試",
+      branchName: "昇昇咖啡",
+      bookingCode: "ABC123",
+      ...times,
+    });
+    expect(JSON.stringify(legacy)).toContain("code=ABC123");
   });
 
   it("deposit reminder Flex deep-links query with code and urgent copy", () => {

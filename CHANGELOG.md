@@ -6,6 +6,11 @@
 
 ## [Unreleased]
 
+### Guest — LINE 確認準時到店後一鍵查詢 (#351) (2026-09-18)
+- 出席確認 API 回傳既有 `lookup_token`；確認頁與 D-1 提醒／確認成功 Flex 優先連到 `/book/query?token=`
+- 修復官方帳號 WebView 無 session 電話時，`?code=` 無法自動查到訂位的問題；不開放 code-only 公開查詢
+- 計畫：`docs/plans/2026-09-18-line-confirm-visit-lookup-token-fix.md`
+
 ### Guest — 付款查詢下一步一致性 (2026-09-11)
 - 已回報付款、待店家確認時，不再顯示重複付款／回報操作；補件或狀態不明時提示先確認。
 - 查詢卡片與手機底部付款操作使用同一後端狀態判斷；只有已確認收款才顯示訂金已收取。
