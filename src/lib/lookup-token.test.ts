@@ -38,6 +38,16 @@ describe("lookup-token", () => {
     }
   });
 
+  it("token for booking A never verifies as booking B", () => {
+    const tokenA = signLookupToken("booking-A");
+    const result = verifyLookupToken(tokenA);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.reservationId).toBe("booking-A");
+      expect(result.reservationId).not.toBe("booking-B");
+    }
+  });
+
   it("rejects tampered reservationId payload", () => {
     const token = signLookupToken("res-original-1");
     const [, exp, mac] = token.split(".");

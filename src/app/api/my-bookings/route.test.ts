@@ -83,4 +83,15 @@ describe("/api/my-bookings", () => {
     expect(json.sunset).toBe(true);
     expect(json.code).toBe("PHONE_URL_PARAM_RETIRED");
   });
+
+  it("rejects code-only lookup without phone (privacy gate)", async () => {
+    const req = new NextRequest("https://test.local/api/my-bookings", {
+      method: "POST",
+      body: JSON.stringify({ booking_code: "ABC123" }),
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(String(json.error)).toMatch(/電話/);
+  });
 });

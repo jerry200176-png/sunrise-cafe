@@ -1,16 +1,16 @@
 {
   "schema_version": "1.0",
-  "session_id": "f24bbc13dd6848199bd89189614605f0",
+  "session_id": "3df615392bf24164afee6d99092e8b70",
   "project": "sunrise",
-  "task_id": "bank-transfer-rpc-permission-forward-fix-20260915",
+  "task_id": "confirm-ontime-lookup-bug",
   "repo_remote": "https://github.com/jerry200176-png/sunrise-cafe.git",
-  "base_sha": "65e2a67cd24c917bf46e4bd72a29a9b254fbb45e",
-  "branch": "chore/task-bank-transfer-rpc-permission-forward-fix-20260915",
-  "worktree_path": "/home/jerry/workspace/tasks/sunrise/bank-transfer-rpc-permission-forward-fix-20260915",
-  "started_at": "2026-09-15T03:24:13Z",
+  "base_sha": "df2fe7f63822fe57922825d3f7280d6bde6d861d",
+  "branch": "chore/task-confirm-ontime-lookup-bug",
+  "worktree_path": "/home/jerry/workspace/tasks/sunrise/confirm-ontime-lookup-bug",
+  "started_at": "2026-09-18T02:40:12Z",
   "production_mutation": false,
   "preflight_result": "pass",
   "provenance_type": "agent-session",
-  "agent_cli": "codex",
-  "gateway_version": "0.5.0"
+  "agent_cli": null,
+  "gateway_version": "0.5.1"
 }

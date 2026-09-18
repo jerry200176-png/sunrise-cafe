@@ -9,17 +9,22 @@ Machine- and human-readable booking system flows.
 
 ```
 /book → branch → date → room → slot → form → POST /api/bookings
-  → /book/success?code=XXXXXX
-  → /book/query?code=XXXXXX (auto-search if phone in sessionStorage)
+  → /book/success?code=XXXXXX[&token=…]
+  → /book/query?token=… (preferred one-tap; signed lookup token)
+  → /book/query?code=XXXXXX (auto-search only if phone in sessionStorage)
 ```
+
+LINE D-1 attendance confirm /「查看訂位詳情」use `/book/query?token=` (same signer as payment-approved Flex).  
+Legacy `?code=` alone does **not** authenticate lookup without phone or token.
 
 | Step | API | Auth |
 |------|-----|------|
 | Availability | `GET /api/availability` | Public |
 | Create | `POST /api/bookings` | Public |
-| Query | `POST /api/my-bookings` | phone + booking_code **or** phone + booking_date (forgot-code) |
-| Cancel | `POST /api/cancel-booking` | phone + booking_code |
-| Reschedule | `POST /api/reschedule-booking` | phone + booking_code |
+| Query | `POST /api/my-bookings` | **token** **or** phone + booking_code **or** phone + booking_date (forgot-code) |
+| Cancel | `POST /api/cancel-booking` | token **or** phone + booking_code |
+| Reschedule | `POST /api/reschedule-booking` | token **or** phone + booking_code |
+| Confirm attendance | `GET/POST /api/guest/confirm-attendance` | attendance token; response includes `lookup_token` |
 
 Forgot booking code: `/book/query` →「忘記訂位代號？」→ phone + reservation date (Taipei today…+90d) returns active bookings including `booking_code`.
 

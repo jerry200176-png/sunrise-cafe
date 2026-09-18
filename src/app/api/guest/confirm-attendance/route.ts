@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { isAdminConfigured } from "@/lib/supabase-admin";
 import { verifyAttendanceToken } from "@/lib/attendance-token";
+import { signLookupToken } from "@/lib/lookup-token";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import {
   sendLineFlex,
@@ -49,6 +50,7 @@ function roomBranch(r: Record<string, unknown>): { roomName: string; branchName:
 
 function formatPayload(r: Record<string, unknown>) {
   const { roomName, branchName } = roomBranch(r);
+  const reservationId = String(r.id);
   return {
     id: r.id,
     booking_code: r.booking_code,
@@ -60,6 +62,7 @@ function formatPayload(r: Record<string, unknown>) {
     is_deposit_paid: !!r.is_deposit_paid,
     room_name: roomName,
     branch_name: branchName,
+    lookup_token: signLookupToken(reservationId),
   };
 }
 
@@ -89,7 +92,7 @@ async function notifyStaffAttendance(r: Record<string, unknown>) {
   }
 }
 
-async function notifyGuestAttendance(r: Record<string, unknown>) {
+async function notifyGuestAttendance(r: Record<string, unknown>, lookupToken: string) {
   if (!r.line_user_id) return;
   const { branchName } = roomBranch(r);
   try {
@@ -107,6 +110,7 @@ async function notifyGuestAttendance(r: Record<string, unknown>) {
             bookingCode: r.booking_code == null ? null : String(r.booking_code),
             startTime: String(r.start_time),
             endTime: String(r.end_time),
+            lookupToken,
           }),
           {
             retryKey: stableLineRetryKey(
@@ -190,13 +194,14 @@ export async function POST(request: NextRequest) {
   }
 
   const updated = { ...r, guest_confirmed_at: now };
+  const payload = formatPayload(updated);
   // Fire-and-forget staff notify — don't block guest response
   void notifyStaffAttendance(updated);
-  void notifyGuestAttendance(updated);
+  void notifyGuestAttendance(updated, String(payload.lookup_token));
 
   return NextResponse.json({
     ok: true,
     already: false,
-    ...formatPayload(updated),
+    ...payload,
   });
 }

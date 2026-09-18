@@ -32,6 +32,10 @@ vi.mock("@/lib/attendance-token", () => ({
   signAttendanceToken: vi.fn(() => "tok"),
 }));
 
+vi.mock("@/lib/lookup-token", () => ({
+  signLookupToken: vi.fn(() => "lookup-tok"),
+}));
+
 vi.mock("@/lib/job-runs", async () => {
   const actual = await vi.importActual<typeof import("@/lib/job-runs")>("@/lib/job-runs");
   return {

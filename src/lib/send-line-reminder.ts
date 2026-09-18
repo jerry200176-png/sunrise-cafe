@@ -26,6 +26,7 @@ import {
 import { errorToDetail } from "@/lib/cron-alert";
 import { reservationMatchesBranch, type ReminderReservationShape } from "@/lib/reminder-branch-match";
 import { signAttendanceToken } from "@/lib/attendance-token";
+import { signLookupToken } from "@/lib/lookup-token";
 import { LINE_SITE_URL } from "@/lib/line-flex";
 import { taipeiDateString } from "@/lib/datetime";
 import {
@@ -636,6 +637,7 @@ export async function runSendLineReminder(
               endTime: String(row.end_time),
               bookingCode: (row.booking_code as string | null) ?? null,
               confirmAttendanceUrl: `${LINE_SITE_URL}/book/confirm-visit?token=${encodeURIComponent(signAttendanceToken(reservationId))}`,
+              lookupToken: signLookupToken(reservationId),
             };
           });
           const [flex] = buildGuestReminderDigestFlexChunks(flexRows);
