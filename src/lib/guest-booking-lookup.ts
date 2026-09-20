@@ -274,7 +274,15 @@ export async function lookupGuestBookingByToken(
       .eq("id", verified.reservationId)
       .maybeSingle();
 
-    if (error || !r) {
+    if (error) {
+      const diagnostic = error as { code?: unknown; status?: unknown };
+      console.error("[guest-booking-lookup] token lookup failed", {
+        code: typeof diagnostic.code === "string" ? diagnostic.code : "unknown",
+        status: typeof diagnostic.status === "number" ? diagnostic.status : "unknown",
+      });
+      return { ok: false, error: "目前無法查詢訂位，請稍後再試", status: 503 };
+    }
+    if (!r) {
       return { ok: false, error: "找不到符合的訂位", status: 404 };
     }
 

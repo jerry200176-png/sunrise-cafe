@@ -10,6 +10,9 @@ import { fetchSettings } from "@/lib/supabase-fetch";
 import { isDateClosed, resolveClosedDates } from "@/lib/branch-closed-dates";
 import { buildHalfHourSlots } from "@/lib/slot-grid";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 // Vercel Build Fix: Updated types
 const TAIWAN_OFFSET_HOURS = 8;
 const DEFAULT_OPEN = { h: 8, m: 0 };
@@ -129,7 +132,7 @@ export async function GET(request: NextRequest) {
         closeTime: branch.close_time,
         // ✅ 修正：現在 fetchRoom 已經有正確型別，不需要 as any
         image_url: room.image_url,
-      });
+      }, { headers: { "Cache-Control": "no-store" } });
     }
     const [branch, roomsRaw, blockedRaw] = await Promise.all([
       fetchBranch(branchId),
@@ -163,7 +166,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       rooms: roomList,
       branchName: branch.name,
-    });
+    }, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法取得時段";
     return NextResponse.json({ error: message }, { status: 500 });

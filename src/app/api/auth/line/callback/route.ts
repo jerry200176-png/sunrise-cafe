@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
   const origin = request.nextUrl.origin;
   const redirectUri = `${origin}/api/auth/line/callback`;
 
-  const errorDest = bookingCode
+  const errorDest = bookingCode && bookingCode !== "prebooking"
     ? `${origin}/book/success?code=${bookingCode}&line_error=1`
     : `${origin}/book?line_error=1`;
 
