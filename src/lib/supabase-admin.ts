@@ -142,7 +142,7 @@ export async function getBlockedSlots(branchId: string, date: string) {
   });
   if (error) {
     console.error("getBlockedSlots error:", error);
-    return [];
+    throw error;
   }
   return data as { room_id: string; start_time: string; end_time: string }[];
 }

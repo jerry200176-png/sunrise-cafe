@@ -92,7 +92,7 @@ function BookQueryContent() {
   const [error, setError] = useState<string | null>(null);
   const [linePayError, setLinePayError] = useState<string | null>(null);
   const [linePayLoadingId, setLinePayLoadingId] = useState<string | null>(null);
-  const [linePayResult, setLinePayResult] = useState<"success" | "failed" | "cancelled" | null>(null);
+  const [linePayResult, setLinePayResult] = useState<"success" | "pending" | "failed" | "cancelled" | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [confirmingCancelId, setConfirmingCancelId] = useState<string | null>(null);
   const [pendingReschedule, setPendingReschedule] = useState<{ start: string; end: string } | null>(null);
@@ -362,7 +362,7 @@ function BookQueryContent() {
 
   useEffect(() => {
     const result = searchParams.get("linepay");
-    if (result === "success" || result === "failed" || result === "cancelled") {
+    if (result === "success" || result === "pending" || result === "failed" || result === "cancelled") {
       setLinePayResult(result);
     }
   }, [searchParams]);
@@ -493,7 +493,8 @@ function BookQueryContent() {
     setRescheduleSlots([]);
     try {
       const res = await fetchWithTimeout(
-        `/api/availability?branchId=${encodeURIComponent(reschedulingItem.branch_id)}&roomId=${encodeURIComponent(reschedulingItem.room_id)}&date=${encodeURIComponent(date)}`
+        `/api/availability?branchId=${encodeURIComponent(reschedulingItem.branch_id)}&roomId=${encodeURIComponent(reschedulingItem.room_id)}&date=${encodeURIComponent(date)}`,
+        { cache: "no-store" }
       );
       const data = await res.json();
       if (!res.ok || data?.closed) {
@@ -564,6 +565,12 @@ function BookQueryContent() {
         <div role="status" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
           <p className="font-bold">{t("query.linePaySuccessTitle")}</p>
           <p className="mt-1 text-sm">{t("query.linePaySuccessDesc")}</p>
+        </div>
+      )}
+      {linePayResult === "pending" && (
+        <div role="status" className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-900">
+          <p className="font-bold">{t("query.linePayPendingTitle")}</p>
+          <p className="mt-1 text-sm">{t("query.linePayPendingDesc")}</p>
         </div>
       )}
       {linePayResult === "failed" && (
@@ -996,10 +1003,16 @@ function BookQueryContent() {
                                     </a>
                                   )}
                                 </div>
+                                <p className="mt-2 text-sm text-emerald-800">
+                                  {item.line_pay_dynamic_enabled
+                                    ? t("query.linePayAutoRecorded")
+                                    : t("query.linePayStaticHint")}
+                                </p>
                               </>
                             )}
                           </div>
 
+                          {linePayResult !== "success" && linePayResult !== "pending" && (
                           <div className="pl-3 border-l-4 border-amber-500 bg-amber-50/70 p-3 rounded-r-lg">
                             <p className="font-bold text-lg text-amber-900 mb-2">
                               {t("query.step2Title")}
@@ -1067,6 +1080,7 @@ function BookQueryContent() {
                               )}
                             </div>
                           </div>
+                          )}
                         </div>
                       </>
                     )}
@@ -1254,7 +1268,7 @@ function BookQueryContent() {
         </ul>
       </div>
 
-      {unpaidDepositItem && (
+      {unpaidDepositItem && linePayResult !== "success" && linePayResult !== "pending" && (
         <div
           className="fixed inset-x-0 bottom-0 z-20 border-t border-amber-200 bg-white/95 px-4 pt-3 sticky-bottom-safe shadow-[0_-4px_12px_rgba(0,0,0,0.08)] backdrop-blur-sm"
           role="region"

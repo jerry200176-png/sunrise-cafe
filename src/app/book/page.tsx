@@ -71,6 +71,7 @@ export default function BookPage() {
   const [rentalNotes, setRentalNotes] = useState<RentalNoteSection[]>([]);
   const [depositInfo, setDepositInfo] = useState<string | null>(null);
   const [lineUserId, setLineUserId] = useState<string | null>(null);
+  const [draftHydrated, setDraftHydrated] = useState(false);
   const [availabilityRetry, setAvailabilityRetry] = useState(0);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const errorBannerRef = useRef<HTMLDivElement>(null);
@@ -116,25 +117,27 @@ export default function BookPage() {
   // 手機重整／返回後恢復未完成訂位草稿（6 小時內）
   useEffect(() => {
     const draft = loadBookingDraft();
-    if (!draft) return;
-    if (draft.branchId) setBranchId(draft.branchId);
-    if (draft.branchName) setBranchName(draft.branchName);
-    if (draft.roomId) setRoomId(draft.roomId);
-    if (draft.roomName) setRoomName(draft.roomName);
-    if (draft.date) setDate(draft.date);
-    if (draft.selectedStart) setSelectedStart(draft.selectedStart);
-    if (draft.duration) setDuration(draft.duration);
-    if (draft.name) setName(draft.name);
-    if (draft.phone) setPhone(draft.phone);
-    if (draft.email) setEmail(draft.email);
-    if (draft.guestCount !== undefined) setGuestCount(draft.guestCount);
-    if (draft.step && BOOKING_STEP_ORDER.includes(draft.step as Step)) {
-      setStep(draft.step as Step);
+    if (draft) {
+      if (draft.branchId) setBranchId(draft.branchId);
+      if (draft.branchName) setBranchName(draft.branchName);
+      if (draft.roomId) setRoomId(draft.roomId);
+      if (draft.roomName) setRoomName(draft.roomName);
+      if (draft.date) setDate(draft.date);
+      if (draft.selectedStart) setSelectedStart(draft.selectedStart);
+      if (draft.duration) setDuration(draft.duration);
+      if (draft.name) setName(draft.name);
+      if (draft.phone) setPhone(draft.phone);
+      if (draft.email) setEmail(draft.email);
+      if (draft.guestCount !== undefined) setGuestCount(draft.guestCount);
+      if (draft.step && BOOKING_STEP_ORDER.includes(draft.step as Step)) {
+        setStep(draft.step as Step);
+      }
     }
+    setDraftHydrated(true);
   }, []);
 
   useEffect(() => {
-    if (!branchId && step === "branch") return;
+    if (!draftHydrated || (!branchId && step === "branch")) return;
     saveBookingDraft({
       step,
       branchId,
@@ -150,6 +153,7 @@ export default function BookPage() {
       guestCount,
     });
   }, [
+    draftHydrated,
     step,
     branchId,
     branchName,
@@ -243,7 +247,8 @@ export default function BookPage() {
     setError(null);
     setBranchRoomsAvailability(null);
     fetchWithTimeout(
-      `/api/availability?branchId=${encodeURIComponent(branchId)}&date=${encodeURIComponent(date)}`
+      `/api/availability?branchId=${encodeURIComponent(branchId)}&date=${encodeURIComponent(date)}`,
+      { cache: "no-store" }
     )
       .then((r) => r.json())
       .then((d) => {
@@ -298,7 +303,8 @@ export default function BookPage() {
     setSelectedStart("");
     setSlotsFetchState("loading");
     fetchWithTimeout(
-      `/api/availability?branchId=${encodeURIComponent(branchId)}&roomId=${encodeURIComponent(roomId)}&date=${encodeURIComponent(date)}`
+      `/api/availability?branchId=${encodeURIComponent(branchId)}&roomId=${encodeURIComponent(roomId)}&date=${encodeURIComponent(date)}`,
+      { cache: "no-store" }
     )
       .then((r) => r.json())
       .then((d) => {
@@ -318,33 +324,24 @@ export default function BookPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, branchId, roomId, date, slotsRetry]);
 
-  // LINE OAuth 回調：從 URL param 取得 user_id，並從 localStorage 還原表單
+  // LINE OAuth 回調：從 URL param 取得 user_id，並從短期草稿還原表單
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const uid = params.get("line_user_id");
     if (!uid) return;
     setLineUserId(uid);
-    const saved = localStorage.getItem("booking_form_state");
+    const saved = loadBookingDraft();
     if (saved) {
-      try {
-        const s = JSON.parse(saved) as {
-          branchId?: string; roomId?: string; date?: string;
-          selectedStart?: string; duration?: number;
-          name?: string; phone?: string; email?: string;
-          guestCount?: number | ""; step?: Step;
-        };
-        if (s.branchId) setBranchId(s.branchId);
-        if (s.roomId) setRoomId(s.roomId);
-        if (s.date) setDate(s.date);
-        if (s.selectedStart) setSelectedStart(s.selectedStart);
-        if (s.duration) setDuration(s.duration);
-        if (s.name) setName(s.name);
-        if (s.phone) setPhone(s.phone);
-        if (s.email !== undefined) setEmail(s.email);
-        if (s.guestCount !== undefined) setGuestCount(s.guestCount);
-        if (s.step) setStep(s.step);
-        localStorage.removeItem("booking_form_state");
-      } catch { /* 略過 */ }
+      if (saved.branchId) setBranchId(saved.branchId);
+      if (saved.roomId) setRoomId(saved.roomId);
+      if (saved.date) setDate(saved.date);
+      if (saved.selectedStart) setSelectedStart(saved.selectedStart);
+      if (saved.duration) setDuration(saved.duration);
+      if (saved.name) setName(saved.name);
+      if (saved.phone) setPhone(saved.phone);
+      if (saved.email !== undefined) setEmail(saved.email);
+      if (saved.guestCount !== undefined) setGuestCount(saved.guestCount);
+      if (saved.step && BOOKING_STEP_ORDER.includes(saved.step as Step)) setStep(saved.step as Step);
     }
     window.history.replaceState({}, "", "/book");
   }, []);
@@ -547,10 +544,7 @@ export default function BookPage() {
   };
 
   const handleLineLogin = () => {
-    localStorage.setItem(
-      "booking_form_state",
-      JSON.stringify({ branchId, roomId, date, selectedStart, duration, name, phone, email, guestCount, step })
-    );
+    saveBookingDraft({ step, branchId, branchName, roomId, roomName, date, selectedStart, duration, name, phone, email, guestCount });
     const qs = new URLSearchParams({
       response_type: "code",
       client_id: "2009884734",
