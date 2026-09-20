@@ -24,7 +24,27 @@ function db() {
 type BranchInfo = { name?: string; line_group_id?: string | null };
 type RoomInfo = { name?: string; branch?: BranchInfo | BranchInfo[] | null };
 
-async function loadReservation(id: string) {
+type ReservationLoad = {
+  reservation: Record<string, unknown> | null;
+  error: unknown | null;
+};
+
+function logDatabaseError(operation: string, error: unknown) {
+  const value = error as { code?: unknown; status?: unknown } | null;
+  console.error(`[confirm-attendance] ${operation} failed`, {
+    code: typeof value?.code === "string" ? value.code : "unknown",
+    status: typeof value?.status === "number" ? value.status : "unknown",
+  });
+}
+
+function databaseUnavailable() {
+  return NextResponse.json(
+    { error: "目前無法確認出席，請稍後再試" },
+    { status: 503 }
+  );
+}
+
+async function loadReservation(id: string): Promise<ReservationLoad> {
   const { data, error } = await db()
     .from("reservations")
     .select(
@@ -32,8 +52,11 @@ async function loadReservation(id: string) {
     )
     .eq("id", id)
     .maybeSingle();
-  if (error || !data) return null;
-  return data as Record<string, unknown>;
+  if (error) {
+    logDatabaseError("reservation lookup", error);
+    return { reservation: null, error };
+  }
+  return { reservation: data as Record<string, unknown> | null, error: null };
 }
 
 function roomBranch(r: Record<string, unknown>): { roomName: string; branchName: string; lineGroupId: string | null } {
@@ -138,7 +161,9 @@ export async function GET(request: NextRequest) {
   const id = verifyAttendanceToken(token);
   if (!id) return NextResponse.json({ error: "連結無效或已失效" }, { status: 400 });
 
-  const r = await loadReservation(id);
+  const loaded = await loadReservation(id);
+  if (loaded.error) return databaseUnavailable();
+  const r = loaded.reservation;
   if (!r) return NextResponse.json({ error: "找不到訂位" }, { status: 404 });
   if (r.status === "cancelled") {
     return NextResponse.json({ error: "此訂位已取消", status: "cancelled" }, { status: 410 });
@@ -165,7 +190,9 @@ export async function POST(request: NextRequest) {
   const id = verifyAttendanceToken(token);
   if (!id) return NextResponse.json({ error: "連結無效或已失效" }, { status: 400 });
 
-  const r = await loadReservation(id);
+  const loaded = await loadReservation(id);
+  if (loaded.error) return databaseUnavailable();
+  const r = loaded.reservation;
   if (!r) return NextResponse.json({ error: "找不到訂位" }, { status: 404 });
   if (r.status === "cancelled") {
     return NextResponse.json({ error: "此訂位已取消" }, { status: 410 });
@@ -181,16 +208,8 @@ export async function POST(request: NextRequest) {
     .eq("id", id);
 
   if (error) {
-    if (/guest_confirmed_at/i.test(error.message)) {
-      return NextResponse.json(
-        {
-          error:
-            "資料庫尚未啟用出席確認欄位，請執行 migration-guest-confirmed-at.sql",
-        },
-        { status: 503 }
-      );
-    }
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    logDatabaseError("reservation update", error);
+    return databaseUnavailable();
   }
 
   const updated = { ...r, guest_confirmed_at: now };

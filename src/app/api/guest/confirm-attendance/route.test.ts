@@ -37,7 +37,7 @@ vi.mock("@/lib/line-guest-delivery", () => ({
 }));
 
 const mockMaybeSingle = vi.fn();
-const mockUpdateEq = vi.fn(async () => ({ error: null }));
+const mockUpdateEq = vi.fn(async (): Promise<{ error: unknown }> => ({ error: null }));
 const mockUpdate = vi.fn(() => ({ eq: mockUpdateEq }));
 const mockSelectEq = vi.fn(() => ({ maybeSingle: mockMaybeSingle }));
 const mockSelect = vi.fn(() => ({ eq: mockSelectEq }));
@@ -150,5 +150,58 @@ describe("/api/guest/confirm-attendance lookup_token", () => {
       expect(verified.reservationId).toBe(RES_A);
       expect(verified.reservationId).not.toBe(RES_B);
     }
+  });
+
+  it("GET does not turn a reservation query error into not-found", async () => {
+    mockMaybeSingle.mockResolvedValue({
+      data: null,
+      error: { code: "42703", status: 400, message: "private database detail" },
+    });
+    const attendanceToken = signAttendanceToken(RES_A);
+    const req = new NextRequest(
+      `https://test.local/api/guest/confirm-attendance?token=${encodeURIComponent(attendanceToken)}`
+    );
+
+    const res = await GET(req);
+
+    expect(res.status).toBe(503);
+    const json = await res.json();
+    expect(json.error).not.toContain("private database detail");
+  });
+
+  it("POST does not turn a reservation query error into not-found", async () => {
+    mockMaybeSingle.mockResolvedValue({
+      data: null,
+      error: { code: "42703", status: 400, message: "private database detail" },
+    });
+    const attendanceToken = signAttendanceToken(RES_A);
+    const req = new NextRequest("https://test.local/api/guest/confirm-attendance", {
+      method: "POST",
+      body: JSON.stringify({ token: attendanceToken }),
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(503);
+    const json = await res.json();
+    expect(json.error).not.toContain("private database detail");
+  });
+
+  it("POST does not expose a reservation update error", async () => {
+    mockMaybeSingle.mockResolvedValue({ data: reservationRow(RES_A), error: null });
+    mockUpdateEq.mockResolvedValue({
+      error: { code: "42501", status: 403, message: "private update detail" },
+    });
+    const attendanceToken = signAttendanceToken(RES_A);
+    const req = new NextRequest("https://test.local/api/guest/confirm-attendance", {
+      method: "POST",
+      body: JSON.stringify({ token: attendanceToken }),
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(503);
+    const json = await res.json();
+    expect(json.error).not.toContain("private update detail");
   });
 });
