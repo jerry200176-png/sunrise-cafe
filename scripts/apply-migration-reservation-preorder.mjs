@@ -219,14 +219,22 @@ async function verify(sql) {
   if (indexSet.size !== 4) throw new Error("Reservation preorder indexes are incomplete");
 
   const functionRows = await sql`
-    SELECT p.oid::regprocedure::text AS signature
+    SELECT
+      p.oid::regprocedure::text AS signature,
+      pg_get_function_identity_arguments(p.oid) AS identity_arguments
     FROM pg_proc AS p
     JOIN pg_namespace AS n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public'
       AND p.proname = 'submit_reservation_preorder'
-      AND pg_get_function_identity_arguments(p.oid) = 'uuid, text, jsonb, text'
   `;
-  if (functionRows.length !== 1) throw new Error("Submit RPC is missing");
+  const normalizedIdentity = (value) => String(value ?? "").replace(/\s+/g, "");
+  const submitRpcRows = functionRows.filter(
+    (row) => normalizedIdentity(row.identity_arguments) === "uuid,text,jsonb,text"
+  );
+  if (submitRpcRows.length !== 1) {
+    const found = functionRows.map((row) => `${row.signature} [${row.identity_arguments}]`).join("; ");
+    throw new Error(`Submit RPC is missing or ambiguous; found: ${found || "none"}`);
+  }
 
   const triggerRows = await sql`
     SELECT 1
