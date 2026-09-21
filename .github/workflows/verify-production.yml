@@ -117,3 +117,13 @@ jobs:
           echo "::notice::Running reconcile dry-run diagnostic (read-only; not a pass criterion)"
           node scripts/reconcile-migration-ledger.mjs || true
           bash scripts/check-migration-drift.sh
+      - name: PostgreSQL catalog schema probe (SELECT only)
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "::error::SUPABASE_DB_URL is required for live schema verification"
+            exit 1
+          fi
+          node scripts/verify-live-schema-readonly.mjs
