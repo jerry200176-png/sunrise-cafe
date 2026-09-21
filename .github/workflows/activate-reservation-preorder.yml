@@ -70,6 +70,10 @@ jobs:
         run: |
           set -euo pipefail
           [ -n "${VERCEL_TOKEN:-}" ]
+          # The checkout is intentionally not linked to a Vercel project. Link
+          # non-interactively before using `vercel env`, matching the existing
+          # production-env tooling and avoiding an ambiguous project target.
+          npx vercel link --yes --token "$VERCEL_TOKEN"
           for name in RESERVATION_PREORDER_ENABLED NEXT_PUBLIC_RESERVATION_PREORDER_ENABLED; do
             if npx vercel env ls production --token "$VERCEL_TOKEN" | awk 'NR>1 {print $1}' | grep -qx "$name"; then
               npx vercel env rm "$name" production --yes --token "$VERCEL_TOKEN"
@@ -86,6 +90,7 @@ jobs:
           MODE: ${{ inputs.mode }}
         run: |
           set -euo pipefail
+          npx vercel link --yes --token "$VERCEL_TOKEN"
           for name in RESERVATION_PREORDER_ENABLED NEXT_PUBLIC_RESERVATION_PREORDER_ENABLED; do
             present=false
             if npx vercel env ls production --token "$VERCEL_TOKEN" | awk 'NR>1 {print $1}' | grep -qx "$name"; then present=true; fi
