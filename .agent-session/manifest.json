@@ -5,7 +5,7 @@
   "task_id": "reservation-preorder",
   "repo_remote": "https://github.com/jerry200176-png/sunrise-cafe.git",
   "base_sha": "d6ad803089a65d78978a41cfb9fdc61b157a2b3b",
-  "branch": "chore/task-reservation-preorder",
+  "branch": "chore/reservation-preorder-schema-probe",
   "worktree_path": "/home/jerry/workspace/tasks/sunrise/reservation-preorder",
   "started_at": "2026-09-21T05:17:49Z",
   "production_mutation": false,
