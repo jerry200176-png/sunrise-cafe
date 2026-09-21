@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "session_id": "bea14899403240cbb0e6e178f7afaf81",
   "project": "sunrise",
-  "task_id": "reservation-preorder-release",
+  "task_id": "reservation-preorder-pooler-fix",
   "repo_remote": "https://github.com/jerry200176-png/sunrise-cafe.git",
   "base_sha": "d7043df82d64edd8f46571b9c407b5a9c8c3ee0b",
   "branch": "chore/task-reservation-preorder-pooler-fix",
