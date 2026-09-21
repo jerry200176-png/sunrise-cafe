@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { approvePaymentEvent } from "@/lib/payment-events-admin";
 import { isAdminConfigured } from "@/lib/supabase-admin";
 import { getAdminContext, requirePermission } from "@/lib/admin-api-auth";
-import { notifyPaymentApproved } from "@/lib/payment-notify";
+import { notifyPaymentApproved, paymentNotificationStatus, type NotifyPaymentApprovedResult } from "@/lib/payment-notify";
 import { logOps, type AdminPaymentInteraction } from "@/lib/ops-log";
 
 function db() {
@@ -39,6 +39,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const actor = adminContext.user_id || adminContext.email || "admin_session";
     const result = await approvePaymentEvent(id, reviewNote, actor);
 
+    let notification: NotifyPaymentApprovedResult | null = null;
     if (!result.already_processed) {
       const { data: event } = await db()
         .from("payment_events")
@@ -48,13 +49,14 @@ export async function POST(request: NextRequest, { params }: Params) {
 
       if (event?.reservation_id) {
         try {
-          await notifyPaymentApproved(event.reservation_id, {
+          notification = await notifyPaymentApproved(event.reservation_id, {
             actor,
             reviewNote,
           });
         } catch (notificationError) {
           // Payment is already committed; LINE delivery retries use the existing path.
           console.error("[admin/payment-approve] notification dispatch failed:", notificationError);
+          notification = { ok: false, error: "notification_dispatch_failed" };
         }
       }
     }
@@ -62,7 +64,17 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (!result.already_processed) {
       logOps("admin", "admin.payment_approved", { payment_event_id: id, interaction });
     }
-    return NextResponse.json({ ok: true, already_processed: result.already_processed });
+    return NextResponse.json({
+      ok: true,
+      already_processed: result.already_processed,
+      notification: notification
+        ? {
+            ok: notification.ok,
+            status: paymentNotificationStatus(notification),
+            error: notification.ok ? undefined : notification.error,
+          }
+        : null,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "核准失敗";
     return NextResponse.json({ error: message }, { status: 400 });

@@ -131,7 +131,17 @@ export default function AdminPaymentsPage() {
       showToast(d.error ?? "核准失敗", "error");
       return;
     }
-    showToast("已核准付款", "success");
+    const data = (await res.json().catch(() => ({}))) as {
+      notification?: { status?: string; error?: string } | null;
+    };
+    if (data.notification && data.notification.status !== "accepted_by_platform") {
+      showToast(
+        `付款已核准，但 LINE 通知未完成：${data.notification.error ?? data.notification.status}`,
+        "error"
+      );
+    } else {
+      showToast("已核准付款", "success");
+    }
     setItems((prev) => prev.filter((i) => i.id !== id));
   }, [showToast]);
 

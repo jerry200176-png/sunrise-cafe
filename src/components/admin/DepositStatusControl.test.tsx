@@ -126,7 +126,7 @@ describe("DepositStatusControl", () => {
 
     expect(screen.getByText("已付訂金")).toBeDefined();
     expect(screen.getByText("📝 LINE Pay 轉帳")).toBeDefined();
-    expect(screen.getByText(/LINE 通知已送達/)).toBeDefined();
+    expect(screen.getByText(/LINE 平台已接受/)).toBeDefined();
     expect(screen.getByRole("button", { name: /改為未付/ })).toBeDefined();
   });
 

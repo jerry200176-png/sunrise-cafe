@@ -164,10 +164,10 @@ export function DepositStatusControl({
             notifiedAt ? (
               <span
                 className="inline-flex items-center gap-1 text-emerald-700"
-                title={`通知已於 ${format(notifiedAt, "yyyy/MM/dd HH:mm", { locale: zhTW })} 推播`}
+                title={`LINE 平台已於 ${format(notifiedAt, "yyyy/MM/dd HH:mm", { locale: zhTW })} 接受通知`}
               >
                 <MessageSquare className="h-3 w-3" />
-                LINE 通知已送達（不重複）
+                LINE 平台已接受（不重複）
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 text-stone-500">

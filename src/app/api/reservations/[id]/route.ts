@@ -17,7 +17,7 @@ import { logDepositStatusChange } from "@/lib/payment-log";
 import { createClient } from "@supabase/supabase-js";
 import { deliverLineGuestNotification } from "@/lib/line-guest-delivery";
 import { buildGuestBookingCancelledFlex } from "@/lib/line-cards";
-import { notifyPaymentApproved } from "@/lib/payment-notify";
+import { notifyPaymentApproved, paymentNotificationStatus, type NotifyPaymentApprovedResult } from "@/lib/payment-notify";
 import { cancelReservationPreorder, lockReservationPreorder, requirePreorderReconfirmation } from "@/lib/reservation-preorder";
 function supabaseAdmin() {
   return createClient(
@@ -135,6 +135,8 @@ export async function PATCH(
 
     await updateReservationAdmin(id, patch);
 
+    let paymentNotification: NotifyPaymentApprovedResult | null = null;
+
     if (patch.status === "cancelled") {
       await cancelReservationPreorder(id, "admin_cancel_or_reject");
     } else if (
@@ -200,12 +202,15 @@ export async function PATCH(
           },
         });
         if (afterPaid) {
-          notifyPaymentApproved(id, {
-            actor: "admin_session",
-            reviewNote: afterNote,
-          }).catch((err) =>
-            console.error("[reservations/id] notifyPaymentApproved failed:", err)
-          );
+          try {
+            paymentNotification = await notifyPaymentApproved(id, {
+              actor: "admin_session",
+              reviewNote: afterNote,
+            });
+          } catch (err) {
+            console.error("[reservations/id] notifyPaymentApproved failed:", err);
+            paymentNotification = { ok: false, error: "notification_dispatch_failed" };
+          }
         }
       } else if (
         afterPaid &&
@@ -213,12 +218,15 @@ export async function PATCH(
         !beforeRow.deposit_approved_notified_at
       ) {
         // Retry path: already marked paid, but notification previously failed/timed out
-        notifyPaymentApproved(id, {
-          actor: "admin_session",
-          reviewNote: afterNote,
-        }).catch((err) =>
-          console.error("[reservations/id] notifyPaymentApproved retry failed:", err)
-        );
+        try {
+          paymentNotification = await notifyPaymentApproved(id, {
+            actor: "admin_session",
+            reviewNote: afterNote,
+          });
+        } catch (err) {
+          console.error("[reservations/id] notifyPaymentApproved retry failed:", err);
+          paymentNotification = { ok: false, error: "notification_dispatch_failed" };
+        }
       } else if (
         patch.deposit_payment_note !== undefined &&
         beforeRow.deposit_payment_note !== afterNote
@@ -301,7 +309,17 @@ export async function PATCH(
       }
     }
 
-    return NextResponse.json({ ok: true, lineResult });
+    return NextResponse.json({
+      ok: true,
+      lineResult,
+      paymentNotification: paymentNotification
+        ? {
+            ok: paymentNotification.ok,
+            status: paymentNotificationStatus(paymentNotification),
+            error: paymentNotification.ok ? undefined : paymentNotification.error,
+          }
+        : null,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法更新訂位";
     return NextResponse.json({ error: message }, { status: 500 });

@@ -505,7 +505,20 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         showToast(data.error ?? "狀態更新失敗，請重新整理後再試", "error");
         return;
       }
+      const data = (await res.json().catch(() => ({}))) as {
+        lineResult?: string | null;
+      };
       fetchReservations(false);
+      const lineResult = data.lineResult;
+      if (
+        status === "confirmed" &&
+        lineResult &&
+        !["sent", "skipped_already_sent", "skipped_paid"].some((value) =>
+          lineResult === value || lineResult.startsWith(`${value}:`)
+        )
+      ) {
+        showToast(`訂位已更新，但 LINE 繳費通知未發送：${lineResult}`, "error");
+      }
     } catch {
       setReservations(prev);
       showToast("連線失敗，狀態未更新", "error");
@@ -543,8 +556,22 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         showToast(data.error ?? "訂金狀態更新失敗，請重新整理後再試", "error");
         return;
       }
+      const data = (await res.json().catch(() => ({}))) as {
+        paymentNotification?: { status?: string; error?: string } | null;
+      };
       fetchReservations(false);
-      showToast(is_deposit_paid ? "已核准訂金並記錄" : "已改為未付訂金", "success");
+      if (
+        is_deposit_paid &&
+        data.paymentNotification &&
+        !["accepted_by_platform", "already_notified"].includes(data.paymentNotification.status ?? "")
+      ) {
+        showToast(
+          `訂金已記錄，但 LINE 通知未完成：${data.paymentNotification.error ?? data.paymentNotification.status}`,
+          "error"
+        );
+      } else {
+        showToast(is_deposit_paid ? "已核准訂金並記錄" : "已改為未付訂金", "success");
+      }
     } catch {
       setReservations(prev);
       showToast("連線失敗，訂金狀態未更新", "error");
@@ -1023,7 +1050,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                             });
                             const data = await res.json();
                             if (!res.ok) showToast(`傳送失敗：${(data as { error?: string }).error}`, "error");
-                            else showToast("已成功傳送繳費通知給客人 LINE！", "success");
+                            else showToast("LINE 平台已接受繳費通知（不代表客人手機已收到）", "success");
                           } catch {
                             showToast("傳送失敗，請確認網路連線", "error");
                           } finally {
@@ -1077,7 +1104,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                             });
                             const data = await res.json();
                             if (!res.ok) showToast(`傳送失敗：${(data as { error?: string }).error}`, "error");
-                            else showToast("已成功傳送繳費通知給客人 LINE！", "success");
+                            else showToast("LINE 平台已接受繳費通知（不代表客人手機已收到）", "success");
                           } catch {
                             showToast("傳送失敗，請確認網路連線", "error");
                           } finally {
