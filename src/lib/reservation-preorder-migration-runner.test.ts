@@ -23,6 +23,7 @@ describe("reservation preorder production migration runner", () => {
     expect(runner).toContain("service_role_only");
     expect(runner).toContain("c.confdeltype");
     expect(runner).toContain("reservation_preorder_items");
+    expect(runner).toContain('split(".").pop()');
     expect(runner).not.toContain('pg_get_constraintdef(c.oid)');
     expect(runner).not.toContain("DROP TABLE");
     expect(runner).not.toContain("DELETE FROM");
