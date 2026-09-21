@@ -14,7 +14,7 @@ export async function PATCH(
 ) {
   const { id } = await params;
   const body = await request.json();
-  const { name, description, price, image_url, is_available, category_id, display_order } = body;
+  const { name, description, price, image_url, is_available, preorder_eligible, category_id, display_order } = body;
 
   const updates: Record<string, unknown> = {};
   if (name !== undefined) updates.name = name;
@@ -22,6 +22,7 @@ export async function PATCH(
   if (price !== undefined) updates.price = Number(price);
   if (image_url !== undefined) updates.image_url = image_url;
   if (is_available !== undefined) updates.is_available = is_available;
+  if (preorder_eligible !== undefined) updates.preorder_eligible = Boolean(preorder_eligible);
   if (category_id !== undefined) updates.category_id = category_id;
   if (display_order !== undefined) updates.display_order = display_order;
 

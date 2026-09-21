@@ -227,6 +227,7 @@ export async function fetchReservationsAdmin(branchId: string): Promise<unknown[
 export async function updateReservationAdmin(
   id: string,
   updates: {
+    room_id?: string;
     status?: string;
     is_notified?: boolean;
     d1_guest_reminder_sent_at?: string | null;

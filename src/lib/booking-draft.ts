@@ -20,6 +20,7 @@ export type BookingDraft = {
 };
 
 export type BookingSuccessMeta = {
+  reservationId?: string;
   code: string;
   createdAt: string;
   startTime: string;

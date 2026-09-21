@@ -16,6 +16,7 @@ import { createClient } from "@supabase/supabase-js";
 import { logOps } from "@/lib/ops-log";
 import { signLookupToken } from "@/lib/lookup-token";
 import { stableLineRetryKey } from "@/lib/line-retry-key";
+import { fetchPreorderSummaries } from "@/lib/reservation-preorder";
 
 function supabaseAdmin() {
   return createClient(
@@ -47,9 +48,11 @@ export async function GET(request: NextRequest) {
     const data = (await fetchReservationsAdmin(branchId)) as { id: string }[];
     const ids = data.map((r) => r.id);
     const pendingCounts = await fetchPendingPaymentCountsByReservation(ids).catch(() => new Map());
+    const preorders = await fetchPreorderSummaries(ids).catch(() => new Map());
     const enriched = data.map((r) => ({
       ...r,
       pending_payment_reviews: pendingCounts.get(r.id) ?? 0,
+      preorder: preorders.get(r.id) ?? null,
     }));
     return NextResponse.json(enriched);
   } catch (err) {

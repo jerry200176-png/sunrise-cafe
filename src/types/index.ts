@@ -53,6 +53,12 @@ export interface Reservation {
   review_invited_at?: string | null;
   /** Pending payment_events awaiting staff review */
   pending_payment_reviews?: number;
+  preorder?: {
+    status: "draft" | "submitted" | "locked" | "cancelled";
+    requires_reconfirmation: boolean;
+    item_summary: string;
+    guest_notes: string | null;
+  } | null;
   /** Guest tapped D-1 Confirm attendance CTA */
   guest_confirmed_at?: string | null;
   room_with_branch?: {
@@ -116,6 +122,7 @@ export interface MenuItem {
   price: number;
   image_url: string | null;
   is_available: boolean;
+  preorder_eligible: boolean;
   display_order: number;
   created_at: string;
   options?: MenuItemOption[];

@@ -13,6 +13,7 @@ const WRITE_FIELDS = new Set([
   "total_price",
   "guest_count",
   "notes",
+  "room_id",
 ]);
 
 const DEPOSIT_FIELDS = new Set([

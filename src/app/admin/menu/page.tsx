@@ -29,6 +29,7 @@ export default function AdminMenuPage() {
   const [fCategoryId, setFCategoryId] = useState("");
   const [fImageUrl, setFImageUrl] = useState("");
   const [fOrder, setFOrder] = useState("0");
+  const [fPreorderEligible, setFPreorderEligible] = useState(false);
 
   // 分類表單
   const [catFormOpen, setCatFormOpen] = useState(false);
@@ -86,6 +87,7 @@ export default function AdminMenuPage() {
     setFName(""); setFDesc(""); setFPrice("0");
     setFCategoryId(categories[0]?.id ?? "");
     setFImageUrl(""); setFOrder("0");
+    setFPreorderEligible(false);
     setFormOpen(true);
   };
 
@@ -97,6 +99,7 @@ export default function AdminMenuPage() {
     setFCategoryId(item.category_id ?? "");
     setFImageUrl(item.image_url ?? "");
     setFOrder(String(item.display_order));
+    setFPreorderEligible(Boolean(item.preorder_eligible));
     setFormOpen(true);
   };
 
@@ -115,6 +118,7 @@ export default function AdminMenuPage() {
             category_id: fCategoryId || null,
             image_url: fImageUrl.trim() || null,
             display_order: Number(fOrder),
+            preorder_eligible: fPreorderEligible,
           }),
         });
         if (!res.ok) throw new Error((await res.json()).error);
@@ -130,6 +134,7 @@ export default function AdminMenuPage() {
             category_id: fCategoryId || null,
             image_url: fImageUrl.trim() || null,
             display_order: Number(fOrder),
+            preorder_eligible: fPreorderEligible,
           }),
         });
         if (!res.ok) throw new Error((await res.json()).error);
@@ -292,6 +297,9 @@ export default function AdminMenuPage() {
                           已下架
                         </span>
                       )}
+                      {item.preorder_eligible && (
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">可提前預製</span>
+                      )}
                     </div>
                     <p className="text-sm text-amber-700 font-medium">${item.price}</p>
                     {item.description && (
@@ -341,6 +349,12 @@ export default function AdminMenuPage() {
               {editing ? "編輯餐點" : "新增餐點"}
             </h3>
             <form onSubmit={submitItem} className="space-y-3">
+              <div>
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input type="checkbox" checked={fPreorderEligible} onChange={(e) => setFPreorderEligible(e.target.checked)} />
+                  開放訂位提前預製
+                </label>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">名稱 *</label>
                 <input
