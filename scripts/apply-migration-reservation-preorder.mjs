@@ -221,18 +221,20 @@ async function verify(sql) {
   const functionRows = await sql`
     SELECT
       p.oid::regprocedure::text AS signature,
-      pg_get_function_identity_arguments(p.oid) AS identity_arguments
+      ARRAY(
+        SELECT format_type(argument_type, NULL)
+        FROM unnest(p.proargtypes) AS argument_type
+      ) AS argument_types
     FROM pg_proc AS p
     JOIN pg_namespace AS n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public'
       AND p.proname = 'submit_reservation_preorder'
   `;
-  const normalizedIdentity = (value) => String(value ?? "").replace(/\s+/g, "");
   const submitRpcRows = functionRows.filter(
-    (row) => normalizedIdentity(row.identity_arguments) === "uuid,text,jsonb,text"
+    (row) => Array.isArray(row.argument_types) && row.argument_types.join(",") === "uuid,text,jsonb,text"
   );
   if (submitRpcRows.length !== 1) {
-    const found = functionRows.map((row) => `${row.signature} [${row.identity_arguments}]`).join("; ");
+    const found = functionRows.map((row) => `${row.signature} [${(row.argument_types ?? []).join(",")} ]`).join("; ");
     throw new Error(`Submit RPC is missing or ambiguous; found: ${found || "none"}`);
   }
 
