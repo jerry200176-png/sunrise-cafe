@@ -25,6 +25,7 @@ describe("reservation preorder production migration runner", () => {
     expect(runner).toContain("reservation_preorder_items");
     expect(runner).toContain('split(".").pop()');
     expect(runner).toContain("pg_get_function_identity_arguments");
+    expect(runner).toContain('replace(/\\s+/g, "")');
     expect(runner).not.toContain('pg_get_constraintdef(c.oid)');
     expect(runner).not.toContain("DROP TABLE");
     expect(runner).not.toContain("DELETE FROM");
