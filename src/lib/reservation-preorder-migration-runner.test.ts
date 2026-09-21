@@ -74,6 +74,7 @@ describe("reservation preorder production migration runner", () => {
     expect(activationWorkflow).toContain("Verify deployed SHA before environment mutation");
     expect(activationWorkflow).toContain("RESERVATION_PREORDER_ENABLED");
     expect(activationWorkflow).toContain("NEXT_PUBLIC_RESERVATION_PREORDER_ENABLED");
+    expect(activationWorkflow).toContain("vercel link --yes --token");
     expect(activationWorkflow).toContain("production-deploy-migrate.yml");
     expect(activationWorkflow).not.toContain("SUPABASE_DB_URL");
     expect(activationWorkflow).not.toContain("DROP TABLE");
