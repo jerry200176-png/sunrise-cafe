@@ -25,11 +25,11 @@ jobs:
         run: |
           set -euo pipefail
           trap 'rm -f .env.vercel.prod' EXIT
-          if [ -z "${SUPABASE_DB_URL:-}" ] && [ -n "${VERCEL_TOKEN:-}" ]; then
+          if [ -n "${VERCEL_TOKEN:-}" ]; then
             bash scripts/vercel-production-env.sh .env.vercel.prod >/dev/null
             for key in POSTGRES_URL_NON_POOLING POSTGRES_URL SUPABASE_DB_URL DATABASE_URL; do
               val=$(grep -E "^${key}=" .env.vercel.prod 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
-              if [ -n "$val" ] && ! echo "$val" | grep -q '\[region\]'; then export "$key=$val"; fi
+              if [ -z "${SUPABASE_DB_URL:-}" ] && [ -n "$val" ] && ! echo "$val" | grep -q '\[region\]'; then export "$key=$val"; fi
             done
             export SUPABASE_DB_URL="${SUPABASE_DB_URL:-${POSTGRES_URL_NON_POOLING:-${POSTGRES_URL:-${DATABASE_URL:-}}}}"
             for key in LINE_CUSTOMER_ACCESS_TOKEN LINE_CHANNEL_ACCESS_TOKEN LINE_GROUP_ID NEXT_PUBLIC_SUPABASE_URL; do
