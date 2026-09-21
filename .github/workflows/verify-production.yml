@@ -12,6 +12,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      schema_only:
+        description: "Run only the bounded SELECT-only PostgreSQL catalog probe"
+        required: false
+        type: boolean
+        default: false
 
 # Latest main SHA wins; older in-flight verifies may cancel (superseded revision).
 concurrency:
@@ -20,6 +26,7 @@ concurrency:
 
 jobs:
   verify-sha:
+    if: ${{ !inputs.schema_only }}
     name: Production /api/version matches main
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -94,7 +101,7 @@ jobs:
     name: Production migration drift
     runs-on: ubuntu-latest
     needs: verify-sha
-    if: success()
+    if: ${{ !inputs.schema_only && success() }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -117,6 +124,29 @@ jobs:
           echo "::notice::Running reconcile dry-run diagnostic (read-only; not a pass criterion)"
           node scripts/reconcile-migration-ledger.mjs || true
           bash scripts/check-migration-drift.sh
+      - name: PostgreSQL catalog schema probe (SELECT only)
+        env:
+          POSTGRES_URL_NON_POOLING: ${{ secrets[format('{0}_{1}', 'SUPABASE', 'DB_URL')] }}
+        run: |
+          set -euo pipefail
+          if [ -z "${POSTGRES_URL_NON_POOLING:-}" ]; then
+            echo "::error::a read-only Postgres connection secret is required for live schema verification"
+            exit 1
+          fi
+          node scripts/verify-live-schema-readonly.mjs
+
+  schema-only:
+    name: Read-only live PostgreSQL schema
+    if: ${{ inputs.schema_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
       - name: PostgreSQL catalog schema probe (SELECT only)
         env:
           POSTGRES_URL_NON_POOLING: ${{ secrets[format('{0}_{1}', 'SUPABASE', 'DB_URL')] }}
