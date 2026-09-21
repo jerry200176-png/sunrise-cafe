@@ -34,6 +34,9 @@ describe("reservation preorder production migration runner", () => {
       projectRefFromDbUrl("postgresql://postgres.abc-123:pw@aws-0-region.pooler.supabase.com:5432/postgres")
     ).toBe("abc-123");
     expect(
+      projectRefFromDbUrl("postgresql://postgres%2Eabc-123:pw@aws-0-region.pooler.supabase.com:5432/postgres")
+    ).toBe("abc-123");
+    expect(
       projectRefFromDbUrl("postgresql://default:pw@provider.example.com:5432/postgres")
     ).toBeNull();
   });
