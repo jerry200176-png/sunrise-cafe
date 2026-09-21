@@ -50,7 +50,6 @@ try {
      LIMIT 50`;
 
   const reservationIds = reservations.map((row) => row.id);
-  const reservationIdList = sql.join(reservationIds.map((id) => sql`${id}`), sql`, `);
   const events = reservationIds.length === 0 ? [] : await sql`
     SELECT id, ts, domain, action,
            detail->>'reservation_id' AS reservation_id,
@@ -61,18 +60,17 @@ try {
            detail->>'error' AS error,
            detail->>'outcome' AS outcome
       FROM public.ops_events
-     WHERE detail->>'reservation_id' IN (${reservationIdList})
+     WHERE detail->>'reservation_id' = ANY(${sql.array(reservationIds, "text")})
        AND (action LIKE 'payment.%' OR action LIKE 'line.%')
      ORDER BY ts DESC
      LIMIT 500`;
 
-  const paymentIdList = sql.join(reservationIds.map((id) => sql`${id}::uuid`), sql`, `);
   const paymentEvents = await relationExists("payment_events")
     ? await sql`
         SELECT id, reservation_id, source, status, created_at, reviewed_at,
                review_note IS NOT NULL AS has_review_note
           FROM public.payment_events
-         WHERE reservation_id IN (${paymentIdList})
+         WHERE reservation_id = ANY(${sql.array(reservationIds, "uuid")})
          ORDER BY created_at DESC
          LIMIT 200`
     : [];
