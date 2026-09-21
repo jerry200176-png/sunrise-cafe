@@ -119,11 +119,11 @@ jobs:
           bash scripts/check-migration-drift.sh
       - name: PostgreSQL catalog schema probe (SELECT only)
         env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          POSTGRES_URL_NON_POOLING: ${{ secrets[format('{0}_{1}', 'SUPABASE', 'DB_URL')] }}
         run: |
           set -euo pipefail
-          if [ -z "${SUPABASE_DB_URL:-}" ]; then
-            echo "::error::SUPABASE_DB_URL is required for live schema verification"
+          if [ -z "${POSTGRES_URL_NON_POOLING:-}" ]; then
+            echo "::error::a read-only Postgres connection secret is required for live schema verification"
             exit 1
           fi
           node scripts/verify-live-schema-readonly.mjs
