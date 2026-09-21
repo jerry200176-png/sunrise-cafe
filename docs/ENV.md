@@ -88,6 +88,17 @@
 > 未設定時會退回每個 serverless isolate 各自計算的 in-memory sliding window（`memory` / degraded），不是停用。正式環境應設定 Upstash，才能提供跨 instance 的 distributed protection；`RATE_LIMIT_DISABLED=1` 僅允許 local/test，production 會拒絕。
 > 設定步驟：[console.upstash.com](https://console.upstash.com) 免費建立 Redis → 複製 REST URL 和 Token → 加入 Vercel 環境變數。
 
+## Reservation Preorder（選填，預設關閉）
+
+Reservation Preorder 是訂位成立後的預製餐點選擇，不使用 QR 點餐，也不改變現有付款流程。啟用前必須先完成對應的 reservation-preorder migration。
+
+| 變數 | 說明 | 設定位置 |
+|------|------|----------|
+| `RESERVATION_PREORDER_ENABLED` | 後端 API 與 reservation lifecycle gate；設為 `1` 或 `true` 才啟用 | Vercel Production Environment Variables |
+| `NEXT_PUBLIC_RESERVATION_PREORDER_ENABLED` | 客人入口的公開 UI gate；設為 `1` 才顯示提前選餐入口 | Vercel Production Environment Variables |
+
+兩個變數都未設定時功能保持關閉；Vercel 環境變數變更後需要重新部署才會生效。關閉後不會刪除既有 preorder 資料，rollback 可先關閉兩個 flags，再回退應用程式版本。
+
 ## Sentry（Error Monitoring）
 
 | 變數 | 說明 | 取得位置 |
