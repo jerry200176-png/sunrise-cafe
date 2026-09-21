@@ -19,6 +19,8 @@ import {
 import { buildGoogleCalendarUrl } from "@/lib/booking-ics";
 import { getPaymentDisplayState } from "@/lib/payment-display";
 
+const PREORDER_ENABLED = process.env.NEXT_PUBLIC_RESERVATION_PREORDER_ENABLED === "1";
+
 interface BookingItem {
   id: string;
   booking_code: string;
@@ -759,6 +761,14 @@ function BookQueryContent() {
                           {t("calendar.apple")}
                         </a>
                       </div>
+                    )}
+                    {PREORDER_ENABLED && (item.lookup_token || lookupToken) && item.status !== "cancelled" && (
+                      <Link
+                        href={`/book/preorder?id=${encodeURIComponent(item.id)}&token=${encodeURIComponent(item.lookup_token || lookupToken)}`}
+                        className="mt-2 inline-flex min-h-10 items-center rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
+                      >
+                        提前選擇／查看預製餐點
+                      </Link>
                     )}
                     <p className="mt-1 flex items-center gap-1 text-sm text-gray-600">
                       <Calendar className="h-4 w-4" />

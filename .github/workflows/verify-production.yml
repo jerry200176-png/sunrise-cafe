@@ -117,3 +117,13 @@ jobs:
           echo "::notice::Running reconcile dry-run diagnostic (read-only; not a pass criterion)"
           node scripts/reconcile-migration-ledger.mjs || true
           bash scripts/check-migration-drift.sh
+      - name: PostgreSQL catalog schema probe (SELECT only)
+        env:
+          POSTGRES_URL_NON_POOLING: ${{ secrets[format('{0}_{1}', 'SUPABASE', 'DB_URL')] }}
+        run: |
+          set -euo pipefail
+          if [ -z "${POSTGRES_URL_NON_POOLING:-}" ]; then
+            echo "::error::a read-only Postgres connection secret is required for live schema verification"
+            exit 1
+          fi
+          node scripts/verify-live-schema-readonly.mjs

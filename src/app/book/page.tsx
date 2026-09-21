@@ -495,6 +495,7 @@ export default function BookPage() {
         const currentBranch = branches.find((b) => b.id === branchId);
         saveBookingSuccessMeta({
           code,
+          reservationId,
           lookupToken,
           createdAt: new Date().toISOString(),
           startTime: selectedStart,

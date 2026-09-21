@@ -336,4 +336,18 @@
       { "type": "rls", "table": "payment_events", "introspect": "unsupported", "note": "Existing service-role-only payment_events policy remains authoritative" }
     ]
   }
+  ,{
+    "version": "20260921-reservation-preorder",
+    "file": "migration-reservation-preorder.sql",
+    "critical": true,
+    "evidence": [
+      { "type": "column", "table": "menu_items", "name": "preorder_eligible", "introspect": "catalog" },
+      { "type": "table", "name": "reservation_preorders", "introspect": "catalog" },
+      { "type": "table", "name": "reservation_preorder_items", "introspect": "catalog" },
+      { "type": "function", "name": "submit_reservation_preorder", "introspect": "catalog", "note": "Service-role-only transaction locks the reservation aggregate and makes submit retries idempotent" },
+      { "type": "trigger", "name": "trg_reservation_preorder_lifecycle", "introspect": "catalog", "note": "Reservation cancellation/completion and major schedule changes cannot bypass preorder state transitions" },
+      { "type": "rls", "table": "reservation_preorders", "introspect": "catalog", "note": "No anon/authenticated policies; guest authorization remains in the application API" },
+      { "type": "rls", "table": "reservation_preorder_items", "introspect": "catalog", "note": "No anon/authenticated policies; guest authorization remains in the application API" }
+    ]
+  }
 ]

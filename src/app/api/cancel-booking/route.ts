@@ -11,6 +11,7 @@ import { logOps } from "@/lib/ops-log";
 import { sendLineFlexMessage } from "@/lib/line";
 import { buildGuestBookingCancelledFlex } from "@/lib/line-cards";
 import { deliverLineGuestNotification } from "@/lib/line-guest-delivery";
+import { cancelReservationPreorder } from "@/lib/reservation-preorder";
 
 type GuestCancellationRow = {
   line_user_id?: string | null;
@@ -87,6 +88,7 @@ export async function POST(request: NextRequest) {
     }
 
     await updateReservationAdmin(match.id, { status: "cancelled" });
+    await cancelReservationPreorder(match.id, "guest_cancel");
 
     const guest = match as GuestCancellationRow;
     if (guest.line_user_id) {

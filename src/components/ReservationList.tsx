@@ -861,6 +861,13 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                       代號：<span className="font-mono">{r.booking_code}</span>
                     </span>
                   )}
+                  {r.preorder && (
+                    <div className={`mt-2 rounded-lg px-2.5 py-2 text-xs ${r.preorder.requires_reconfirmation ? "bg-red-50 text-red-800" : "bg-emerald-50 text-emerald-800"}`}>
+                      <span className="font-semibold">預製餐點：{r.preorder.requires_reconfirmation ? "需重新確認" : r.preorder.status.toUpperCase()}</span>
+                      {r.preorder.item_summary && <span className="ml-2">{r.preorder.item_summary}</span>}
+                      {r.preorder.guest_notes && <span className="block mt-0.5">備註：{r.preorder.guest_notes}</span>}
+                    </div>
+                  )}
                   {r.guest_count != null && (
                     <span className="flex items-center gap-1">
                       <Users className="h-3.5 w-3.5 text-gray-400" />

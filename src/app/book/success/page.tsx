@@ -20,6 +20,7 @@ import { buildGoogleCalendarUrl } from "@/lib/booking-ics";
 
 const LINE_LOGIN_CLIENT_ID =
   process.env.NEXT_PUBLIC_LINE_LOGIN_CHANNEL_ID ?? "2009884734";
+const PREORDER_ENABLED = process.env.NEXT_PUBLIC_RESERVATION_PREORDER_ENABLED === "1";
 
 function formatRemain(ms: number): string {
   const totalSec = Math.floor(ms / 1000);
@@ -392,6 +393,14 @@ function SuccessContent() {
           )}
 
           <div className="mt-4 space-y-3">
+            {PREORDER_ENABLED && effectiveToken && meta?.reservationId && (
+              <Link
+                href={`/book/preorder?id=${encodeURIComponent(meta.reservationId)}&token=${encodeURIComponent(effectiveToken)}`}
+                className="block w-full rounded-lg border border-emerald-300 bg-emerald-50 py-3 text-center font-medium text-emerald-900 hover:bg-emerald-100"
+              >
+                提前選擇預製餐點
+              </Link>
+            )}
             <Link
               href={
                 effectiveToken

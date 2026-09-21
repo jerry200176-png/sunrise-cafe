@@ -11,6 +11,7 @@ import { deliverLineGuestNotification } from "@/lib/line-guest-delivery";
 import { notifyWaitlist } from "@/lib/waitlist";
 import { resetLineReminderDeliveries } from "@/lib/line-delivery";
 import { stableLineRetryKey } from "@/lib/line-retry-key";
+import { requirePreorderReconfirmation } from "@/lib/reservation-preorder";
 
 import { verifyGuestBookingByTokenOrCredentials } from "@/lib/guest-auth";
 import { enforceGuestLookupLimit } from "@/lib/guest-rate-limit";
@@ -117,6 +118,7 @@ export async function POST(request: NextRequest) {
       is_notified: false,
       d1_guest_reminder_sent_at: null,
     });
+    await requirePreorderReconfirmation(id, "guest_reschedule", "guest");
     await resetLineReminderDeliveries(id);
 
     if (match.line_user_id) {

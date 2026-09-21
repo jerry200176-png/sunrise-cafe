@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { branch_id, category_id, name, description, price, image_url, display_order, options } =
+  const { branch_id, category_id, name, description, price, image_url, display_order, preorder_eligible, options } =
     body;
 
   if (!branch_id || !name || price === undefined) {
@@ -44,6 +44,7 @@ export async function POST(request: NextRequest) {
       price: Number(price),
       image_url: image_url || null,
       display_order: display_order ?? 0,
+      preorder_eligible: Boolean(preorder_eligible),
     })
     .select("id")
     .single();

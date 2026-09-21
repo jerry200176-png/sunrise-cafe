@@ -37,6 +37,7 @@ import {
   markLineReminderDelivery,
   safeLineDeliveryError,
 } from "@/lib/line-delivery";
+import { cancelReservationPreorder } from "@/lib/reservation-preorder";
 
 type Row = {
   id: string;
@@ -163,6 +164,7 @@ async function handleRun() {
           continue;
         }
         await updateReservationAdmin(r.id, { status: "cancelled" });
+        await cancelReservationPreorder(r.id, "deposit_deadline_auto_cancel");
 
         if (r.line_user_id && (!guestClaim?.available || guestClaim.id)) {
           try {

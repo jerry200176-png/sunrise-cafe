@@ -12,12 +12,13 @@ import {
   assertReservationPatchAllowed,
   assertReservationCancelAllowed,
 } from "@/lib/reservation-access";
-import { fetchReservationBranchId } from "@/lib/supabase-admin";
+import { fetchReservationBranchId, fetchRoom } from "@/lib/supabase-admin";
 import { logDepositStatusChange } from "@/lib/payment-log";
 import { createClient } from "@supabase/supabase-js";
 import { deliverLineGuestNotification } from "@/lib/line-guest-delivery";
 import { buildGuestBookingCancelledFlex } from "@/lib/line-cards";
 import { notifyPaymentApproved } from "@/lib/payment-notify";
+import { cancelReservationPreorder, lockReservationPreorder, requirePreorderReconfirmation } from "@/lib/reservation-preorder";
 function supabaseAdmin() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -64,6 +65,7 @@ export async function PATCH(
     if (body.email !== undefined) patch.email = body.email == null || body.email === "" ? null : String(body.email).trim();
     if (body.start_time !== undefined) patch.start_time = body.start_time;
     if (body.end_time !== undefined) patch.end_time = body.end_time;
+    if (body.room_id !== undefined) patch.room_id = String(body.room_id);
     if (body.status !== undefined) patch.status = body.status;
     if (body.total_price !== undefined) patch.total_price = body.total_price == null ? null : Number(body.total_price);
     if (body.guest_count !== undefined) patch.guest_count = body.guest_count == null ? null : Number(body.guest_count);
@@ -89,6 +91,12 @@ export async function PATCH(
     const branchId = await fetchReservationBranchId(id);
     if (!branchId) {
       return NextResponse.json({ error: "找不到訂位或分店" }, { status: 404 });
+    }
+    if (patch.room_id !== undefined) {
+      const targetRoom = await fetchRoom(patch.room_id);
+      if (!targetRoom || targetRoom.branch_id !== branchId) {
+        return NextResponse.json({ error: "包廂不存在或不屬於目前分店" }, { status: 400 });
+      }
     }
     const ctx = await getAdminContext(request);
     const rbacDenied = assertReservationPatchAllowed(ctx, patch, branchId);
@@ -126,6 +134,16 @@ export async function PATCH(
     }
 
     await updateReservationAdmin(id, patch);
+
+    if (patch.status === "cancelled") {
+      await cancelReservationPreorder(id, "admin_cancel_or_reject");
+    } else if (
+      patch.start_time !== undefined || patch.end_time !== undefined ||
+      patch.guest_count !== undefined || patch.room_id !== undefined
+    ) {
+      await requirePreorderReconfirmation(id, "admin_reservation_change", ctx.user_id ?? ctx.role);
+    }
+    if (patch.status === "completed") await lockReservationPreorder(id);
 
     if (cancellationNotice?.line_user_id) {
       const room = firstRelation(cancellationNotice.room);
