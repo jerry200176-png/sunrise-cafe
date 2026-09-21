@@ -171,18 +171,26 @@ async function verify(sql) {
   `;
   const hasConstraint = ({ contype, relation, referenced_relation, confdeltype, columns, referenced_columns }) => {
     const names = (value) => Array.isArray(value) ? value : [];
-    return { contype, relation, referenced_relation, confdeltype, columns: names(columns), referenced_columns: names(referenced_columns) };
+    const relationName = (value) => String(value ?? "").split(".").pop();
+    return {
+      contype,
+      relation: relationName(relation),
+      referenced_relation: relationName(referenced_relation),
+      confdeltype,
+      columns: names(columns),
+      referenced_columns: names(referenced_columns),
+    };
   };
   const normalizedConstraints = constraints.map(hasConstraint);
   const hasUniqueReservation = normalizedConstraints.some(
-    (row) => row.contype === "u" && row.relation === "public.reservation_preorders" && row.columns.join(",") === "reservation_id"
+    (row) => row.contype === "u" && row.relation === "reservation_preorders" && row.columns.join(",") === "reservation_id"
   );
   if (!hasUniqueReservation) throw new Error("Missing unique constraint: reservation_preorders(reservation_id)");
 
   const requiredForeignKeys = [
-    ["public.reservation_preorders", "reservation_id", "public.reservations", "id", "c"],
-    ["public.reservation_preorder_items", "preorder_id", "public.reservation_preorders", "id", "c"],
-    ["public.reservation_preorder_items", "source_menu_item_id", "public.menu_items", "id", "n"],
+    ["reservation_preorders", "reservation_id", "reservations", "id", "c"],
+    ["reservation_preorder_items", "preorder_id", "reservation_preorders", "id", "c"],
+    ["reservation_preorder_items", "source_menu_item_id", "menu_items", "id", "n"],
   ];
   for (const [relation, column, referencedRelation, referencedColumn, deleteAction] of requiredForeignKeys) {
     const found = normalizedConstraints.some(
@@ -215,7 +223,8 @@ async function verify(sql) {
     FROM pg_proc AS p
     JOIN pg_namespace AS n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public'
-      AND p.oid::regprocedure::text = 'public.submit_reservation_preorder(uuid,text,jsonb,text)'
+      AND p.proname = 'submit_reservation_preorder'
+      AND pg_get_function_identity_arguments(p.oid) = 'uuid, text, jsonb, text'
   `;
   if (functionRows.length !== 1) throw new Error("Submit RPC is missing");
 
