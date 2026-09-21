@@ -18,6 +18,11 @@ on:
         required: false
         type: boolean
         default: false
+      preorder_schema:
+        description: "Also require the approved reservation-preorder schema contract"
+        required: false
+        type: boolean
+        default: false
 
 # Latest main SHA wins; older in-flight verifies may cancel (superseded revision).
 concurrency:
@@ -127,6 +132,7 @@ jobs:
       - name: PostgreSQL catalog schema probe (SELECT only)
         env:
           POSTGRES_URL_NON_POOLING: ${{ secrets[format('{0}_{1}', 'SUPABASE', 'DB_URL')] }}
+          EXPECT_RESERVATION_PREORDER_SCHEMA: ${{ inputs.preorder_schema && '1' || '0' }}
         run: |
           set -euo pipefail
           if [ -z "${POSTGRES_URL_NON_POOLING:-}" ]; then
@@ -150,6 +156,7 @@ jobs:
       - name: PostgreSQL catalog schema probe (SELECT only)
         env:
           POSTGRES_URL_NON_POOLING: ${{ secrets[format('{0}_{1}', 'SUPABASE', 'DB_URL')] }}
+          EXPECT_RESERVATION_PREORDER_SCHEMA: ${{ inputs.preorder_schema && '1' || '0' }}
         run: |
           set -euo pipefail
           if [ -z "${POSTGRES_URL_NON_POOLING:-}" ]; then

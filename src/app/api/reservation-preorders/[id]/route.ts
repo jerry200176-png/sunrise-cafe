@@ -4,6 +4,7 @@ import { verifyGuestBookingByTokenOrCredentials } from "@/lib/guest-auth";
 import {
   getPreorderCatalog,
   getReservationPreorder,
+  isGuestPreorderEditable,
   isPreorderCutoffPassed,
   isReservationPreorderEnabled,
 } from "@/lib/reservation-preorder";
@@ -36,7 +37,12 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       preorder: preorder ? { ...preorder, status: cutoffPassed && preorder.status === "submitted" ? "locked" : preorder.status } : null,
       menu: cutoffPassed ? [] : catalog.items,
       cutoff_at: new Date(new Date(auth.reservation!.start_time).getTime() - 24 * 60 * 60 * 1000).toISOString(),
-      editable: !cutoffPassed && !["cancelled", "completed"].includes(auth.reservation!.status) && !["submitted", "locked"].includes(preorder?.status ?? ""),
+      editable: isGuestPreorderEditable(
+        auth.reservation!.status,
+        preorder?.status,
+        Boolean(preorder?.requires_reconfirmation),
+        cutoffPassed,
+      ),
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "無法載入提前選餐" }, { status: 500 });
