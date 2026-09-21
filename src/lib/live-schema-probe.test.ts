@@ -17,6 +17,13 @@ describe("live schema probe safety contract", () => {
     expect(script).toContain("role_table_grants");
   });
 
+  it("can opt into the approved preorder schema without making the default probe fail before migration", () => {
+    expect(script).toContain("EXPECT_RESERVATION_PREORDER_SCHEMA");
+    expect(script).toContain("reservation_preorders");
+    expect(script).toContain("reservation_preorder_items");
+    expect(script).toContain("preorder_eligible");
+  });
+
   it("has no mutation primitive or migration-file execution path", () => {
     expect(script).not.toMatch(/CREATE\s+|ALTER\s+|DROP\s+|INSERT\s+|UPDATE\s+|DELETE\s+/i);
     expect(script).not.toContain("migration-reservation-preorder.sql");

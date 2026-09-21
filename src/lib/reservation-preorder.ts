@@ -29,6 +29,17 @@ export function isPreorderCutoffPassed(startTime: string, now = new Date()): boo
   return now >= preorderCutoff(startTime);
 }
 
+export function isGuestPreorderEditable(
+  reservationStatus: string,
+  preorderStatus: string | null | undefined,
+  requiresReconfirmation: boolean,
+  cutoffPassed: boolean,
+): boolean {
+  if (cutoffPassed || ["cancelled", "completed"].includes(reservationStatus)) return false;
+  if (!preorderStatus) return true;
+  return requiresReconfirmation || !["submitted", "locked"].includes(preorderStatus);
+}
+
 export function canonicalDraftItems(items: DraftItemInput[]): DraftItemInput[] {
   if (!Array.isArray(items) || items.length > 100) throw new Error("餐點數量格式不正確");
   return items.map((item) => {
@@ -134,14 +145,20 @@ export async function savePreorderDraft(reservationId: string, items: DraftItemI
   if (isPreorderCutoffPassed(reservation.start_time)) throw new Error("已超過提前選餐截止時間");
   await validateAndSnapshotItems(reservation, items);
   const existing = await getReservationPreorder(reservationId);
-  if (existing?.status === "submitted" || existing?.status === "locked") throw new Error("此訂位的預製餐點已送出");
+  if ((existing?.status === "submitted" || existing?.status === "locked") && !existing.requires_reconfirmation) {
+    throw new Error("此訂位的預製餐點已送出");
+  }
+  const draftItems = canonicalDraftItems(items);
+  const isReconfirmationDraft = Boolean(existing?.requires_reconfirmation);
   const { data, error } = await supabaseAdmin()
     .from("reservation_preorders")
     .upsert({
       reservation_id: reservationId,
-      status: existing?.status ?? "draft",
-      draft_items: canonicalDraftItems(items),
+      status: isReconfirmationDraft ? "draft" : (existing?.status ?? "draft"),
+      draft_items: draftItems,
       guest_notes: typeof guestNotes === "string" ? guestNotes.trim().slice(0, 1000) || null : null,
+      submitted_at: isReconfirmationDraft ? null : existing?.submitted_at ?? null,
+      locked_at: isReconfirmationDraft ? null : existing?.locked_at ?? null,
       updated_at: new Date().toISOString(),
     }, { onConflict: "reservation_id" })
     .select("id,reservation_id,status,requires_reconfirmation,guest_notes,draft_items,submitted_at,locked_at,cancelled_at,created_at,updated_at")
@@ -161,11 +178,13 @@ export async function submitPreorder(reservationId: string, items: DraftItemInpu
   if (!reservation) throw new Error("找不到訂位");
   if (["cancelled", "completed"].includes(reservation.status)) throw new Error("此訂位目前無法提前選餐");
   if (isPreorderCutoffPassed(reservation.start_time)) throw new Error("已超過提前選餐截止時間");
-  const snapshots = await validateAndSnapshotItems(reservation, items);
+  await validateAndSnapshotItems(reservation, items);
   const { data, error } = await supabaseAdmin().rpc("submit_reservation_preorder", {
     p_reservation_id: reservationId,
     p_guest_notes: typeof guestNotes === "string" ? guestNotes.trim().slice(0, 1000) || null : null,
-    p_items: snapshots,
+    // The SQL function re-reads catalog rows inside the reservation lock and
+    // creates the immutable snapshots. Never send client-owned names/prices.
+    p_items: canonicalDraftItems(items),
     p_idempotency_key: idempotencyKey,
   });
   if (error) throw error;
@@ -225,7 +244,8 @@ export async function fetchDailyPrep(branchId: string, date: string) {
   const { data: preorders, error: preorderError } = await supabaseAdmin()
     .from("reservation_preorders")
     .select("reservation_id,status,requires_reconfirmation,guest_notes,reservation_preorder_items(item_name_snapshot,quantity)")
-    .in("reservation_id", ids).in("status", ["submitted", "locked"]);
+    .in("reservation_id", ids).in("status", ["submitted", "locked"])
+    .eq("requires_reconfirmation", false);
   if (preorderError) throw preorderError;
   const byReservation = new Map((preorders ?? []).map((row) => [row.reservation_id, row]));
   const aggregates = new Map<string, number>();

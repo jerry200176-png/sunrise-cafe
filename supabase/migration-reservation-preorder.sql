@@ -102,10 +102,21 @@ AS $$
 DECLARE
   v_reservation reservations%ROWTYPE;
   v_preorder reservation_preorders%ROWTYPE;
+  v_branch_id uuid;
+  v_menu_item menu_items%ROWTYPE;
   v_item jsonb;
+  v_option_ids jsonb;
+  v_selected_options jsonb;
+  v_unit_price numeric;
+  v_quantity integer;
+  v_option_count integer;
+  v_distinct_option_count integer;
 BEGIN
   IF jsonb_typeof(p_items) IS DISTINCT FROM 'array' THEN
     RAISE EXCEPTION 'preorder items must be an array' USING ERRCODE = '22023';
+  END IF;
+  IF jsonb_array_length(p_items) > 100 THEN
+    RAISE EXCEPTION 'too many preorder items' USING ERRCODE = '22023';
   END IF;
 
   SELECT * INTO v_reservation
@@ -115,19 +126,24 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'reservation not found' USING ERRCODE = 'P0002';
   END IF;
+  SELECT branch_id INTO v_branch_id FROM rooms WHERE id = v_reservation.room_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'reservation room not found' USING ERRCODE = 'P0002';
+  END IF;
   IF v_reservation.status IN ('cancelled', 'completed') THEN
     RAISE EXCEPTION 'reservation is not eligible for preorder' USING ERRCODE = 'P0001';
-  END IF;
-  IF now() >= v_reservation.start_time - interval '24 hours' THEN
-    RAISE EXCEPTION 'preorder cutoff has passed' USING ERRCODE = 'P0001';
   END IF;
 
   SELECT * INTO v_preorder
     FROM reservation_preorders
    WHERE reservation_id = p_reservation_id
    FOR UPDATE;
-  IF FOUND AND v_preorder.status IN ('submitted', 'locked') THEN
+  IF FOUND AND v_preorder.status IN ('submitted', 'locked')
+     AND NOT v_preorder.requires_reconfirmation THEN
     RETURN jsonb_build_object('id', v_preorder.id, 'status', v_preorder.status, 'already_submitted', true);
+  END IF;
+  IF now() >= v_reservation.start_time - interval '24 hours' THEN
+    RAISE EXCEPTION 'preorder cutoff has passed' USING ERRCODE = 'P0001';
   END IF;
 
   IF v_preorder.id IS NULL THEN
@@ -135,13 +151,13 @@ BEGIN
       reservation_id, status, guest_notes, draft_items,
       submit_idempotency_key, submitted_at, updated_at
     ) VALUES (
-      p_reservation_id, 'submitted', p_guest_notes, p_items,
+      p_reservation_id, 'submitted', left(trim(p_guest_notes), 1000), p_items,
       p_idempotency_key, now(), now()
     ) RETURNING * INTO v_preorder;
   ELSE
     UPDATE reservation_preorders
        SET status = 'submitted',
-           guest_notes = p_guest_notes,
+           guest_notes = left(trim(p_guest_notes), 1000),
            draft_items = p_items,
            submit_idempotency_key = p_idempotency_key,
            submitted_at = COALESCE(submitted_at, now()),
@@ -156,17 +172,68 @@ BEGIN
   DELETE FROM reservation_preorder_items WHERE preorder_id = v_preorder.id;
   FOR v_item IN SELECT * FROM jsonb_array_elements(p_items)
   LOOP
+    v_quantity := (v_item->>'quantity')::integer;
+    IF v_quantity < 1 OR v_quantity > 99 THEN
+      RAISE EXCEPTION 'invalid preorder quantity' USING ERRCODE = '22023';
+    END IF;
+    SELECT * INTO v_menu_item
+      FROM menu_items
+     WHERE id = NULLIF(v_item->>'menu_item_id', '')::uuid
+       AND branch_id = v_branch_id
+       AND preorder_eligible = true
+       AND is_available = true
+     FOR SHARE;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'preorder item is unavailable' USING ERRCODE = 'P0001';
+    END IF;
+
+    v_option_ids := COALESCE(v_item->'option_ids', '[]'::jsonb);
+    IF jsonb_typeof(v_option_ids) IS DISTINCT FROM 'array' THEN
+      RAISE EXCEPTION 'preorder options must be an array' USING ERRCODE = '22023';
+    END IF;
+    IF jsonb_array_length(v_option_ids) > 30 THEN
+      RAISE EXCEPTION 'too many preorder options' USING ERRCODE = '22023';
+    END IF;
+    SELECT count(DISTINCT value::uuid)::integer INTO v_distinct_option_count
+      FROM jsonb_array_elements_text(v_option_ids) AS option_values(value);
+    SELECT count(*)::integer INTO v_option_count
+      FROM menu_item_options
+     WHERE item_id = v_menu_item.id
+       AND id IN (
+         SELECT DISTINCT value::uuid
+           FROM jsonb_array_elements_text(v_option_ids) AS option_values(value)
+       );
+    IF v_option_count <> v_distinct_option_count THEN
+      RAISE EXCEPTION 'preorder option is invalid' USING ERRCODE = 'P0001';
+    END IF;
+
+    SELECT
+      COALESCE(jsonb_agg(jsonb_build_object(
+        'id', option_row.id,
+        'group', option_row.option_group,
+        'name', option_row.option_name,
+        'delta', option_row.price_delta
+      ) ORDER BY option_row.display_order, option_row.id), '[]'::jsonb),
+      COALESCE(sum(option_row.price_delta), 0)
+      INTO v_selected_options, v_unit_price
+      FROM menu_item_options AS option_row
+     WHERE option_row.item_id = v_menu_item.id
+       AND option_row.id IN (
+         SELECT DISTINCT value::uuid
+           FROM jsonb_array_elements_text(v_option_ids) AS option_values(value)
+       );
+
     INSERT INTO reservation_preorder_items (
       preorder_id, source_menu_item_id, item_name_snapshot,
       unit_price_snapshot, quantity, selected_options_snapshot, special_notes
     ) VALUES (
       v_preorder.id,
-      NULLIF(v_item->>'source_menu_item_id', '')::uuid,
-      v_item->>'item_name_snapshot',
-      (v_item->>'unit_price_snapshot')::numeric,
-      (v_item->>'quantity')::integer,
-      COALESCE(v_item->'selected_options_snapshot', '[]'::jsonb),
-      NULLIF(v_item->>'special_notes', '')
+      v_menu_item.id,
+      v_menu_item.name,
+      v_menu_item.price + v_unit_price,
+      v_quantity,
+      v_selected_options,
+      NULLIF(left(trim(v_item->>'special_notes'), 500), '')
     );
   END LOOP;
 
