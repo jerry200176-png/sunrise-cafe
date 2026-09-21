@@ -11,6 +11,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: "Force a Vercel production deploy even when the source SHA is already live (used for runtime env activation)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -118,18 +124,21 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
+          FORCE_DEPLOY: ${{ inputs.force_deploy || false }}
         run: |
+          set -euo pipefail
           if [ -z "${VERCEL_TOKEN:-}" ]; then
             echo "VERCEL_TOKEN unset — skip"
             exit 0
           fi
           EXPECTED="$(git rev-parse HEAD)"
           ACTUAL="$(curl -sf "$PRODUCTION_URL/api/version" | jq -r '.commit // empty')"
-          if [ "$ACTUAL" = "$EXPECTED" ]; then
+          echo "Force deploy: ${FORCE_DEPLOY:-false}"
+          if [ "$ACTUAL" = "$EXPECTED" ] && [ "${FORCE_DEPLOY:-false}" != "true" ]; then
             echo "Production already at $EXPECTED"
             exit 0
           fi
-          echo "Deploying: prod=$ACTUAL expected=$EXPECTED"
+          echo "Deploying: prod=$ACTUAL expected=$EXPECTED force=${FORCE_DEPLOY:-false}"
           bash scripts/orchestrator/deploy.sh --wait 420 || {
             echo "::warning::Deploy step did not complete — postdeploy migrations will still run"
           }

@@ -104,5 +104,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh workflow run production-deploy-migrate.yml --repo "$GITHUB_REPOSITORY" --ref main
-          echo "Canonical production deployment dispatched after runtime operation."
+          gh workflow run production-deploy-migrate.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f force_deploy=true
+          echo "Canonical forced production deployment dispatched after runtime operation."
