@@ -60,7 +60,7 @@ try {
            detail->>'error' AS error,
            detail->>'outcome' AS outcome
       FROM public.ops_events
-     WHERE detail->>'reservation_id' = ANY(${sql.array(reservationIds)}::text[])
+     WHERE detail->>'reservation_id' = ANY(${sql.array(reservationIds, 1009)})
        AND (action LIKE 'payment.%' OR action LIKE 'line.%')
      ORDER BY ts DESC
      LIMIT 500`;
@@ -70,7 +70,7 @@ try {
         SELECT id, reservation_id, source, status, created_at, reviewed_at,
                review_note IS NOT NULL AS has_review_note
           FROM public.payment_events
-         WHERE reservation_id = ANY(${sql.array(reservationIds, "uuid")})
+         WHERE reservation_id = ANY(${sql.array(reservationIds, 2951)})
          ORDER BY created_at DESC
          LIMIT 200`
     : [];
