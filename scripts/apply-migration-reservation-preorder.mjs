@@ -141,8 +141,27 @@ async function verify(sql) {
     throw new Error(`Reservation preorder columns missing: ${missingColumns.join(", ")}`);
   }
 
+  // Check constraint semantics from catalog columns instead of matching
+  // pg_get_constraintdef text, whose schema qualification can vary with the
+  // connection/search_path while the underlying constraint is identical.
   const constraints = await sql`
-    SELECT c.conname, pg_get_constraintdef(c.oid) AS definition
+    SELECT
+      c.contype,
+      c.confdeltype,
+      c.conrelid::regclass::text AS relation,
+      c.confrelid::regclass::text AS referenced_relation,
+      (
+        SELECT array_agg(a.attname ORDER BY key.ordinality)
+        FROM unnest(c.conkey) WITH ORDINALITY AS key(attnum, ordinality)
+        JOIN pg_attribute AS a
+          ON a.attrelid = c.conrelid AND a.attnum = key.attnum
+      ) AS columns,
+      (
+        SELECT array_agg(a.attname ORDER BY key.ordinality)
+        FROM unnest(c.confkey) WITH ORDINALITY AS key(attnum, ordinality)
+        JOIN pg_attribute AS a
+          ON a.attrelid = c.confrelid AND a.attnum = key.attnum
+      ) AS referenced_columns
     FROM pg_constraint AS c
     JOIN pg_class AS t ON t.oid = c.conrelid
     JOIN pg_namespace AS n ON n.oid = t.relnamespace
@@ -150,14 +169,31 @@ async function verify(sql) {
       AND t.relname IN ('reservation_preorders', 'reservation_preorder_items')
       AND c.contype IN ('p', 'u', 'f', 'c')
   `;
-  const definitions = constraints.map((row) => row.definition).join("\n");
-  for (const required of [
-    "UNIQUE (reservation_id)",
-    "FOREIGN KEY (reservation_id) REFERENCES public.reservations(id) ON DELETE CASCADE",
-    "FOREIGN KEY (preorder_id) REFERENCES public.reservation_preorders(id) ON DELETE CASCADE",
-    "FOREIGN KEY (source_menu_item_id) REFERENCES public.menu_items(id) ON DELETE SET NULL",
-  ]) {
-    if (!definitions.includes(required)) throw new Error(`Missing constraint: ${required}`);
+  const hasConstraint = ({ contype, relation, referenced_relation, confdeltype, columns, referenced_columns }) => {
+    const names = (value) => Array.isArray(value) ? value : [];
+    return { contype, relation, referenced_relation, confdeltype, columns: names(columns), referenced_columns: names(referenced_columns) };
+  };
+  const normalizedConstraints = constraints.map(hasConstraint);
+  const hasUniqueReservation = normalizedConstraints.some(
+    (row) => row.contype === "u" && row.relation === "public.reservation_preorders" && row.columns.join(",") === "reservation_id"
+  );
+  if (!hasUniqueReservation) throw new Error("Missing unique constraint: reservation_preorders(reservation_id)");
+
+  const requiredForeignKeys = [
+    ["public.reservation_preorders", "reservation_id", "public.reservations", "id", "c"],
+    ["public.reservation_preorder_items", "preorder_id", "public.reservation_preorders", "id", "c"],
+    ["public.reservation_preorder_items", "source_menu_item_id", "public.menu_items", "id", "n"],
+  ];
+  for (const [relation, column, referencedRelation, referencedColumn, deleteAction] of requiredForeignKeys) {
+    const found = normalizedConstraints.some(
+      (row) => row.contype === "f" &&
+        row.relation === relation &&
+        row.columns.join(",") === column &&
+        row.referenced_relation === referencedRelation &&
+        row.referenced_columns.join(",") === referencedColumn &&
+        row.confdeltype === deleteAction
+    );
+    if (!found) throw new Error(`Missing foreign key: ${relation}(${column}) -> ${referencedRelation}(${referencedColumn})`);
   }
 
   const indexes = await sql`
