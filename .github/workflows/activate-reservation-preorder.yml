@@ -1,0 +1,103 @@
+name: Reservation preorder runtime activation
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "activate enables both production flags; deactivate is the rollback path"
+        required: true
+        type: choice
+        options:
+          - activate
+          - deactivate
+      confirm:
+        description: "Type ACTIVATE_RESERVATION_PREORDER or DEACTIVATE_RESERVATION_PREORDER"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: reservation-preorder-runtime-production
+  cancel-in-progress: false
+
+jobs:
+  operate:
+    name: ${{ inputs.mode }} reservation-preorder runtime
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Require exact confirmation
+        env:
+          MODE: ${{ inputs.mode }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          case "$MODE:$CONFIRM" in
+            activate:ACTIVATE_RESERVATION_PREORDER|deactivate:DEACTIVATE_RESERVATION_PREORDER) ;;
+            *) echo "confirmation does not match requested runtime operation" >&2; exit 1 ;;
+          esac
+
+      - name: Verify deployed SHA before environment mutation
+        env:
+          PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          ACTUAL=$(curl -fsS "$PRODUCTION_URL/api/version" | jq -r '.commit // empty')
+          echo "Expected main: $EXPECTED_SHA"
+          echo "Production: $ACTUAL"
+          [ "$ACTUAL" = "$EXPECTED_SHA" ]
+
+      - name: Apply allowlisted production flags
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          [ -n "${VERCEL_TOKEN:-}" ]
+          for name in RESERVATION_PREORDER_ENABLED NEXT_PUBLIC_RESERVATION_PREORDER_ENABLED; do
+            if npx vercel env ls production --token "$VERCEL_TOKEN" | awk 'NR>1 {print $1}' | grep -qx "$name"; then
+              npx vercel env rm "$name" production --yes --token "$VERCEL_TOKEN"
+            fi
+            if [ "$MODE" = activate ]; then
+              printf '1\n' | npx vercel env add "$name" production --token "$VERCEL_TOKEN"
+            fi
+          done
+          echo "Runtime operation completed for the two allowlisted flags: $MODE"
+
+      - name: Verify flag presence without reading values
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          for name in RESERVATION_PREORDER_ENABLED NEXT_PUBLIC_RESERVATION_PREORDER_ENABLED; do
+            present=false
+            if npx vercel env ls production --token "$VERCEL_TOKEN" | awk 'NR>1 {print $1}' | grep -qx "$name"; then present=true; fi
+            if [ "$MODE" = activate ] && [ "$present" != true ]; then exit 1; fi
+            if [ "$MODE" = deactivate ] && [ "$present" = true ]; then exit 1; fi
+            echo "$name present=$present"
+          done
+
+      - name: Dispatch canonical production deployment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh workflow run production-deploy-migrate.yml --repo "$GITHUB_REPOSITORY" --ref main
+          echo "Canonical production deployment dispatched after runtime operation."

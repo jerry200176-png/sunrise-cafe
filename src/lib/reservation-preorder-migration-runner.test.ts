@@ -14,6 +14,10 @@ describe("reservation preorder production migration runner", () => {
     join(root, ".github/workflows/apply-migration-reservation-preorder.yml"),
     "utf8"
   );
+  const activationWorkflow = readFileSync(
+    join(root, ".github/workflows/activate-reservation-preorder.yml"),
+    "utf8"
+  );
 
   it("is single-migration, exact-confirmation, and fail-closed", () => {
     expect(runner).toContain('const VERSION = "20260921-reservation-preorder"');
@@ -61,5 +65,17 @@ describe("reservation preorder production migration runner", () => {
     expect(workflow).toContain("Apply exact migration and verify catalog");
     expect(workflow).toContain("environment: Production");
     expect(workflow).toContain("cancel-in-progress: false");
+  });
+
+  it("keeps runtime activation allowlisted and reversible", () => {
+    expect(activationWorkflow).toContain("ACTIVATE_RESERVATION_PREORDER");
+    expect(activationWorkflow).toContain("DEACTIVATE_RESERVATION_PREORDER");
+    expect(activationWorkflow).toContain("environment: Production");
+    expect(activationWorkflow).toContain("Verify deployed SHA before environment mutation");
+    expect(activationWorkflow).toContain("RESERVATION_PREORDER_ENABLED");
+    expect(activationWorkflow).toContain("NEXT_PUBLIC_RESERVATION_PREORDER_ENABLED");
+    expect(activationWorkflow).toContain("production-deploy-migrate.yml");
+    expect(activationWorkflow).not.toContain("SUPABASE_DB_URL");
+    expect(activationWorkflow).not.toContain("DROP TABLE");
   });
 });
