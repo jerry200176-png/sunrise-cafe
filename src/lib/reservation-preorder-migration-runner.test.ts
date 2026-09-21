@@ -57,6 +57,8 @@ describe("reservation preorder production migration runner", () => {
       "utf8"
     );
     expect(productionWorkflow).not.toContain("apply-migration-reservation-preorder.mjs");
+    expect(productionWorkflow).toContain("force_deploy");
+    expect(productionWorkflow).toContain("FORCE_DEPLOY");
   });
 
   it("requires the exact production confirmation and main SHA parity", () => {
@@ -75,6 +77,7 @@ describe("reservation preorder production migration runner", () => {
     expect(activationWorkflow).toContain("RESERVATION_PREORDER_ENABLED");
     expect(activationWorkflow).toContain("NEXT_PUBLIC_RESERVATION_PREORDER_ENABLED");
     expect(activationWorkflow).toContain("vercel link --yes --token");
+    expect(activationWorkflow).toContain("-f force_deploy=true");
     expect(activationWorkflow).toContain("production-deploy-migrate.yml");
     expect(activationWorkflow).not.toContain("SUPABASE_DB_URL");
     expect(activationWorkflow).not.toContain("DROP TABLE");
