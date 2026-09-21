@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import {
+  projectRefFromDbUrl,
+  projectRefFromSupabaseUrl,
+} from "../../scripts/apply-migration-reservation-preorder.mjs";
 
 const root = process.cwd();
 
@@ -19,6 +23,19 @@ describe("reservation preorder production migration runner", () => {
     expect(runner).toContain("service_role_only");
     expect(runner).not.toContain("DROP TABLE");
     expect(runner).not.toContain("DELETE FROM");
+  });
+
+  it("matches direct and Supavisor connection formats without accepting ambiguity", () => {
+    expect(projectRefFromSupabaseUrl("https://abc-123.supabase.co")).toBe("abc-123");
+    expect(
+      projectRefFromDbUrl("postgresql://postgres:pw@db.abc-123.supabase.co:5432/postgres")
+    ).toBe("abc-123");
+    expect(
+      projectRefFromDbUrl("postgresql://postgres.abc-123:pw@aws-0-region.pooler.supabase.com:5432/postgres")
+    ).toBe("abc-123");
+    expect(
+      projectRefFromDbUrl("postgresql://default:pw@provider.example.com:5432/postgres")
+    ).toBeNull();
   });
 
   it("does not run from the generic deploy migration phase", () => {
