@@ -222,6 +222,22 @@ describe("payment-notify", () => {
     expect(result.accepted_by_platform).toBe(true);
   });
 
+  it("does not report success when the guest has no LINE binding", async () => {
+    const mockClient = createFakeSupabase({ ...defaultRow, line_user_id: null });
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex").mockResolvedValue(undefined);
+    const sendLineFlexMessageSpy = vi.spyOn(line, "sendLineFlexMessage");
+
+    const result = await notifyPaymentApproved("res-123", { client: mockClient });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("no_line_id");
+    expect(result.group_notified).toBe(true);
+    expect(result.guest_notified).toBe(false);
+    expect(mockClient.getRow().deposit_approved_notified_at).toBeNull();
+    expect(sendLineFlexSpy).toHaveBeenCalledTimes(1);
+    expect(sendLineFlexMessageSpy).not.toHaveBeenCalled();
+  });
+
   it("does not resolve the event until both required recipients are accepted", async () => {
     const mockClient = createFakeSupabase(defaultRow);
     const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex").mockResolvedValue(undefined);

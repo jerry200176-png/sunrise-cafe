@@ -33,7 +33,11 @@ export async function POST(request: NextRequest) {
   });
 
   if (result === "sent") {
-    return NextResponse.json({ ok: true, result });
+    return NextResponse.json({
+      ok: true,
+      result,
+      delivery_status: "accepted_by_line_platform",
+    });
   }
   if (result === "no_line_id") {
     return NextResponse.json(

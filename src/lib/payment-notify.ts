@@ -106,6 +106,23 @@ export type NotifyPaymentApprovedResult = {
   reason?: string;
 };
 
+export type PaymentNotificationStatus =
+  | "accepted_by_platform"
+  | "already_notified"
+  | "not_bound"
+  | "not_configured"
+  | "failed";
+
+export function paymentNotificationStatus(
+  result: NotifyPaymentApprovedResult | null | undefined
+): PaymentNotificationStatus {
+  if (result?.ok && result.already_notified) return "already_notified";
+  if (result?.ok && result.accepted_by_platform) return "accepted_by_platform";
+  if (result?.error === "no_line_id") return "not_bound";
+  if (result?.error === "admin_unconfigured") return "not_configured";
+  return "failed";
+}
+
 type ReservationNotifyTarget = {
   id: string;
   customer_name: string;
@@ -440,7 +457,10 @@ export async function notifyPaymentApproved(
     // accepted. Retries reuse each recipient's stable retry key, so a push
     // that already succeeded is reconciled by LINE while the failed recipient
     // gets another delivery attempt.
-    const confirmedAccepted = groupNotified && (!r.line_user_id || guestNotified);
+    // A missing guest binding is not a successful guest notification. The
+    // staff group may have received its copy, but the reservation must remain
+    // retryable and the UI must not report the guest message as sent.
+    const confirmedAccepted = groupNotified && Boolean(r.line_user_id) && guestNotified;
 
     if (confirmedAccepted) {
       // 7a. Confirmed accepted by LINE Platform! Permanently record notified timestamp and release claim lease.
@@ -505,7 +525,9 @@ export async function notifyPaymentApproved(
 
       return {
         ok: false,
-        error: lastSendError instanceof Error ? lastSendError.message : "line_send_failed",
+        error: r.line_user_id
+          ? lastSendError instanceof Error ? lastSendError.message : "line_send_failed"
+          : "no_line_id",
         accepted_by_platform: groupNotified || guestNotified,
         guest_notified: guestNotified,
         group_notified: groupNotified,
