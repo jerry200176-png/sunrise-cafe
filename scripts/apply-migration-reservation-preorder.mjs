@@ -67,17 +67,19 @@ function usableUrl(value) {
   return Boolean(value) && !/[\[<](?:region|ref|YOUR|PASSWORD)/i.test(value);
 }
 
-function projectRefFromSupabaseUrl(value) {
+export function projectRefFromSupabaseUrl(value) {
   return String(value ?? "").match(/^https:\/\/([a-z0-9-]+)\.supabase\.co/i)?.[1] ?? null;
 }
 
-function projectRefFromDbUrl(value) {
+export function projectRefFromDbUrl(value) {
   try {
     const url = new URL(value);
-    const hostRef = url.hostname.match(/^db\.([a-z0-9]+)\.supabase\.co$/i)?.[1];
+    const hostRef = url.hostname.match(/^db\.([a-z0-9-]+)\.supabase\.co$/i)?.[1];
     if (hostRef) return hostRef;
     const userRef = decodeURIComponent(url.username ?? "");
-    return /^[a-z0-9]+$/i.test(userRef) ? userRef : null;
+    const poolerRef = userRef.match(/^postgres\.([a-z0-9-]+)$/i)?.[1];
+    if (poolerRef) return poolerRef;
+    return null;
   } catch {
     return null;
   }
@@ -255,7 +257,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error?.message ?? error);
-  process.exit(1);
-});
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  main().catch((error) => {
+    console.error(error?.message ?? error);
+    process.exit(1);
+  });
+}
