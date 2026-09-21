@@ -223,7 +223,8 @@ async function verify(sql) {
     FROM pg_proc AS p
     JOIN pg_namespace AS n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public'
-      AND p.oid::regprocedure::text = 'public.submit_reservation_preorder(uuid,text,jsonb,text)'
+      AND p.proname = 'submit_reservation_preorder'
+      AND pg_get_function_identity_arguments(p.oid) = 'uuid, text, jsonb, text'
   `;
   if (functionRows.length !== 1) throw new Error("Submit RPC is missing");
 
