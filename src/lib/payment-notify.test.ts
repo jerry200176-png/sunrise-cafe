@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   notifyPaymentApproved,
+  isDepositApprovalNotificationEligible,
   __resetPaymentNotifyInFlightForTests,
   DISPATCH_CLAIM_LEASE_MS,
   isLineRetryKeyExpired,
@@ -22,6 +23,8 @@ interface FakeReservationRow {
   deposit_payment_note: string | null;
   line_user_id: string | null;
   is_deposit_paid: boolean;
+  status: string;
+  total_price: number | null;
   deposit_approved_notified_at: string | null;
   deposit_approved_claim_at: string | null;
   deposit_approved_retry_key: string | null;
@@ -33,6 +36,7 @@ type MockChainResult = { data: FakeReservationRow | null; error: { message: stri
 
 type MockUpdateChain = {
   eq: (col: string, val: unknown) => MockUpdateChain;
+  gt: (col: string, val: number) => MockUpdateChain;
   is: (col: string, val: unknown) => MockUpdateChain;
   or: (filter: string) => MockUpdateChain;
   select: (cols?: string) => MockUpdateChain;
@@ -45,7 +49,13 @@ type MockUpdateChain = {
 
 function createFakeSupabase(
   initialRow: FakeReservationRow,
-  options: { claimError?: { message: string } } = {}
+  options: {
+    claimError?: { message: string };
+    pendingReview?: boolean;
+    paymentEvents?: Array<{ id: string; status: string }>;
+    paymentEventError?: { message: string };
+    beforeClaim?: () => void;
+  } = {}
 ) {
   let row = { ...initialRow };
   const updateCalls: Array<Record<string, unknown>> = [];
@@ -59,6 +69,17 @@ function createFakeSupabase(
       row = { ...row, ...patch };
     },
     from: vi.fn((table: string) => {
+      if (table === "payment_events") {
+        const chain = {
+          eq: vi.fn(() => chain),
+          then: (resolve: (value: { data: Array<{ id: string; status: string }> | null; error: { message: string } | null }) => unknown, reject: (reason: unknown) => unknown) =>
+            Promise.resolve({
+              data: options.paymentEvents ?? (options.pendingReview ? [{ id: "event-pending", status: "pending_review" }] : []),
+              error: options.paymentEventError ?? null,
+            }).then(resolve, reject),
+        };
+        return { select: vi.fn(() => chain) };
+      }
       if (table === "reservations") {
         return {
           select: vi.fn(() => ({
@@ -74,10 +95,18 @@ function createFakeSupabase(
             let claimNullCheck = false;
             let claimValCheck: string | null = null;
             let checkPaid = false;
+            let checkConfirmed = false;
+            let checkPositiveTotal = false;
             let checkNotifiedNull = false;
+
+            if (payload.deposit_approved_claim_at && options.beforeClaim) {
+              options.beforeClaim();
+            }
 
             const applyUpdate = (): MockChainResult => {
               if (checkPaid && !row.is_deposit_paid) return { data: null, error: null };
+              if (checkConfirmed && row.status !== "confirmed") return { data: null, error: null };
+              if (checkPositiveTotal && !(Number(row.total_price) > 0)) return { data: null, error: null };
               if (checkNotifiedNull && row.deposit_approved_notified_at !== null) {
                 return { data: null, error: null };
               }
@@ -95,7 +124,12 @@ function createFakeSupabase(
             const chain: MockUpdateChain = {
               eq: vi.fn((col: string, val: unknown) => {
                 if (col === "is_deposit_paid" && val === true) checkPaid = true;
+                if (col === "status" && val === "confirmed") checkConfirmed = true;
                 if (col === "deposit_approved_claim_at") claimValCheck = String(val);
+                return chain;
+              }),
+              gt: vi.fn((col: string, val: number) => {
+                if (col === "total_price" && val === 0) checkPositiveTotal = true;
                 return chain;
               }),
               is: vi.fn((col: string, val: unknown) => {
@@ -154,6 +188,8 @@ describe("payment-notify", () => {
     end_time: "2026-09-10T16:00:00+08:00",
     deposit_payment_note: "後台核准",
     line_user_id: "U1234567890",
+    status: "confirmed",
+    total_price: 3000,
     is_deposit_paid: true,
     deposit_approved_notified_at: null,
     deposit_approved_claim_at: null,
@@ -220,6 +256,111 @@ describe("payment-notify", () => {
     expect(opsEvents[1].action).toBe("payment.approved_notified");
     expect((opsEvents[1].detail as Record<string, unknown>).accepted_by_platform).toBe(true);
     expect(result.accepted_by_platform).toBe(true);
+  });
+
+  it("central eligibility requires confirmed, paid, valid-deposit, and payment evidence", () => {
+    expect(isDepositApprovalNotificationEligible(defaultRow, [])).toBe(true);
+    expect(isDepositApprovalNotificationEligible(defaultRow, [{ id: "event-1", status: "approved" }])).toBe(true);
+    expect(isDepositApprovalNotificationEligible({ ...defaultRow, status: "pending" }, [])).toBe(false);
+    expect(isDepositApprovalNotificationEligible({ ...defaultRow, status: "cancelled" }, [])).toBe(false);
+    expect(isDepositApprovalNotificationEligible({ ...defaultRow, is_deposit_paid: false }, [])).toBe(false);
+    expect(isDepositApprovalNotificationEligible({ ...defaultRow, total_price: 0 }, [])).toBe(false);
+    expect(isDepositApprovalNotificationEligible(defaultRow, [{ id: "event-1", status: "pending_review" }])).toBe(false);
+    expect(isDepositApprovalNotificationEligible(defaultRow, [{ id: "event-1", status: "rejected" }])).toBe(false);
+    expect(isDepositApprovalNotificationEligible(
+      defaultRow,
+      [{ id: "event-1", status: "rejected" }],
+      { manualApproval: true }
+    )).toBe(true);
+    expect(isDepositApprovalNotificationEligible(
+      defaultRow,
+      [{ id: "event-1", status: "approved" }],
+      { paymentEventId: "another-event" }
+    )).toBe(false);
+  });
+
+  it.each([
+    ["pending reservation", { status: "pending" }],
+    ["cancelled reservation", { status: "cancelled" }],
+    ["unpaid reservation", { is_deposit_paid: false }],
+    ["reservation without deposit amount", { total_price: 0 }],
+  ])("does not send approval notice for %s", async (_label, patch) => {
+    const mockClient = createFakeSupabase({ ...defaultRow, ...patch });
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex");
+    const sendLineFlexMessageSpy = vi.spyOn(line, "sendLineFlexMessage");
+
+    const result = await notifyPaymentApproved("res-123", { client: mockClient, force: true });
+
+    expect(result.ok).toBe(false);
+    expect(sendLineFlexSpy).not.toHaveBeenCalled();
+    expect(sendLineFlexMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not send while a payment report is pending review, even on forced resend", async () => {
+    const mockClient = createFakeSupabase(defaultRow, { pendingReview: true });
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex");
+    const sendLineFlexMessageSpy = vi.spyOn(line, "sendLineFlexMessage");
+
+    const result = await notifyPaymentApproved("res-123", { client: mockClient, force: true });
+
+    expect(result).toMatchObject({ ok: false, error: "payment_pending_review" });
+    expect(sendLineFlexSpy).not.toHaveBeenCalled();
+    expect(sendLineFlexMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not resend after a rejected event unless a staff member explicitly marks paid", async () => {
+    const mockClient = createFakeSupabase(defaultRow, {
+      paymentEvents: [{ id: "event-rejected", status: "rejected" }],
+    });
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex");
+
+    const result = await notifyPaymentApproved("res-123", { client: mockClient, force: true });
+
+    expect(result).toMatchObject({ ok: false, error: "payment_not_approved" });
+    expect(sendLineFlexSpy).not.toHaveBeenCalled();
+  });
+
+  it("allows a forced resend when the reservation is still eligible", async () => {
+    const mockClient = createFakeSupabase({
+      ...defaultRow,
+      deposit_approved_notified_at: "2026-09-08T10:00:00.000Z",
+    });
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex").mockResolvedValue(undefined);
+    const sendLineFlexMessageSpy = vi
+      .spyOn(line, "sendLineFlexMessage")
+      .mockResolvedValue(undefined);
+
+    const result = await notifyPaymentApproved("res-123", { client: mockClient, force: true });
+
+    expect(result).toMatchObject({ ok: true, accepted_by_platform: true });
+    expect(sendLineFlexSpy).toHaveBeenCalledTimes(1);
+    expect(sendLineFlexMessageSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed if payment review state cannot be checked", async () => {
+    const mockClient = createFakeSupabase(defaultRow, {
+      paymentEventError: { message: "temporary database error" },
+    });
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex");
+
+    const result = await notifyPaymentApproved("res-123", { client: mockClient });
+
+    expect(result).toMatchObject({ ok: false, error: "payment_state_unavailable" });
+    expect(sendLineFlexSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not dispatch if the reservation becomes cancelled before the atomic claim", async () => {
+    const mockClient = createFakeSupabase(defaultRow, {
+      beforeClaim: () => mockClient.setRow({ status: "cancelled" }),
+    });
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex");
+    const sendLineFlexMessageSpy = vi.spyOn(line, "sendLineFlexMessage");
+
+    const result = await notifyPaymentApproved("res-123", { client: mockClient });
+
+    expect(result).toMatchObject({ ok: true, already_notified: false });
+    expect(sendLineFlexSpy).not.toHaveBeenCalled();
+    expect(sendLineFlexMessageSpy).not.toHaveBeenCalled();
   });
 
   it("does not report success when the guest has no LINE binding", async () => {

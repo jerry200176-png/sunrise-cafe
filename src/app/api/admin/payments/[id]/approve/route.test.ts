@@ -72,10 +72,26 @@ describe("POST /api/admin/payments/[id]/approve", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
+    expect(mocks.notifyPaymentApproved).toHaveBeenCalledWith("res-1", {
+      actor: "admin-1",
+      reviewNote: null,
+      paymentEventId: "payment-1",
+    });
     expect(body).toMatchObject({
       ok: true,
       notification: { ok: true, status: "accepted_by_platform" },
     });
+  });
+
+  it("does not redispatch a notification for an already processed payment event", async () => {
+    mocks.approvePaymentEvent.mockResolvedValue({ already_processed: true });
+
+    const response = await POST(request(), { params: Promise.resolve({ id: "payment-1" }) });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ ok: true, already_processed: true, notification: null });
+    expect(mocks.notifyPaymentApproved).not.toHaveBeenCalled();
   });
 
   it("keeps the committed payment approval but reports LINE failure", async () => {

@@ -120,4 +120,122 @@ describe("payment review idempotency rules", () => {
 
     await expect(approvePaymentEvent("event-1")).resolves.toEqual({ already_processed: true });
   });
+
+  it("wins the payment-event approval transition before marking the reservation paid", async () => {
+    const operations: string[] = [];
+    mocks.from.mockImplementation((table: string) => {
+      if (table === "payment_events") {
+        return {
+          select: () => ({
+            eq: () => ({
+              single: async () => ({
+                data: {
+                  id: "event-2",
+                  reservation_id: "reservation-2",
+                  source: "line_image",
+                  status: "pending_review",
+                  raw_payload: "付款截圖",
+                },
+                error: null,
+              }),
+            }),
+          }),
+          update: () => {
+            operations.push("payment_event_approved");
+            const chain = {
+              eq: () => chain,
+              select: () => chain,
+              maybeSingle: async () => ({ data: { id: "event-2" }, error: null }),
+            };
+            return chain;
+          },
+        };
+      }
+
+      return {
+        select: () => ({
+          eq: () => ({
+            single: async () => ({
+              data: {
+                is_deposit_paid: false,
+                deposit_payment_note: null,
+                status: "confirmed",
+                booking_code: "ABC123",
+              },
+              error: null,
+            }),
+          }),
+        }),
+        update: () => ({
+          eq: async () => {
+            operations.push("reservation_marked_paid");
+            return { error: null };
+          },
+        }),
+      };
+    });
+
+    await expect(approvePaymentEvent("event-2", "已確認入帳", "operator-2"))
+      .resolves.toEqual({ already_processed: false });
+    expect(operations).toEqual(["payment_event_approved", "reservation_marked_paid"]);
+  });
+
+  it("does not mark a reservation paid when another reviewer wins the event transition", async () => {
+    const operations: string[] = [];
+    mocks.from.mockImplementation((table: string) => {
+      if (table === "payment_events") {
+        return {
+          select: () => ({
+            eq: () => ({
+              single: async () => ({
+                data: {
+                  id: "event-3",
+                  reservation_id: "reservation-3",
+                  source: "line_image",
+                  status: "pending_review",
+                  raw_payload: "付款截圖",
+                },
+                error: null,
+              }),
+            }),
+          }),
+          update: () => {
+            operations.push("payment_event_cas");
+            const chain = {
+              eq: () => chain,
+              select: () => chain,
+              maybeSingle: async () => ({ data: null, error: null }),
+            };
+            return chain;
+          },
+        };
+      }
+
+      return {
+        select: () => ({
+          eq: () => ({
+            single: async () => ({
+              data: {
+                is_deposit_paid: false,
+                deposit_payment_note: null,
+                status: "confirmed",
+                booking_code: "ABC123",
+              },
+              error: null,
+            }),
+          }),
+        }),
+        update: () => ({
+          eq: async () => {
+            operations.push("reservation_marked_paid");
+            return { error: null };
+          },
+        }),
+      };
+    });
+
+    await expect(approvePaymentEvent("event-3", "已確認入帳", "operator-3"))
+      .resolves.toEqual({ already_processed: true });
+    expect(operations).toEqual(["payment_event_cas"]);
+  });
 });

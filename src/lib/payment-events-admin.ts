@@ -186,15 +186,6 @@ export async function approvePaymentEvent(
     event.raw_payload ||
     "後台核准";
 
-  const { error: resErr } = await admin()
-    .from("reservations")
-    .update({
-      is_deposit_paid: true,
-      deposit_payment_note: note,
-    })
-    .eq("id", event.reservation_id);
-  if (resErr) throw resErr;
-
   const { data: updated, error: evErr } = await admin()
     .from("payment_events")
     .update({
@@ -208,6 +199,15 @@ export async function approvePaymentEvent(
     .maybeSingle();
   if (evErr) throw evErr;
   if (!updated) return { already_processed: true };
+
+  const { error: resErr } = await admin()
+    .from("reservations")
+    .update({
+      is_deposit_paid: true,
+      deposit_payment_note: note,
+    })
+    .eq("id", event.reservation_id);
+  if (resErr) throw resErr;
 
   logPayment("payment_event.approved", {
     event_id: eventId,
