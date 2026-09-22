@@ -1,16 +1,16 @@
 {
   "schema_version": "1.0",
-  "session_id": "dfe600254a8549d59a4ddd0003c9119a",
+  "session_id": "5d8d9509c796426894ecb9ccf6180656",
   "project": "sunrise",
-  "task_id": "reservation-preorder-runtime-force-deploy-20260921",
+  "task_id": "GOV-20260922-SUNRISE-PREFLIGHT",
   "repo_remote": "https://github.com/jerry200176-png/sunrise-cafe.git",
-  "base_sha": "4bdf1fc8506f932999e08b88b489c03463a8e4a2",
-  "branch": "chore/task-reservation-preorder-runtime-force-deploy-20260921",
-  "worktree_path": "/home/jerry/workspace/tasks/sunrise/reservation-preorder-runtime-force-deploy-20260921",
-  "started_at": "2026-09-21T15:15:17Z",
+  "base_sha": "f3593eb85c3aab2495a2c6f22ba6fdbf50b074bf",
+  "branch": "chore/task-GOV-20260922-SUNRISE-PREFLIGHT",
+  "worktree_path": "/home/jerry/workspace/tasks/sunrise/GOV-20260922-SUNRISE-PREFLIGHT",
+  "started_at": "2026-09-22T05:10:36Z",
   "production_mutation": false,
   "preflight_result": "pass",
   "provenance_type": "agent-session",
-  "agent_cli": "codex",
+  "agent_cli": null,
   "gateway_version": "0.5.1"
 }
