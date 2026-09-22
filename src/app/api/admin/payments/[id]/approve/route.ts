@@ -52,6 +52,7 @@ export async function POST(request: NextRequest, { params }: Params) {
           notification = await notifyPaymentApproved(event.reservation_id, {
             actor,
             reviewNote,
+            paymentEventId: id,
           });
         } catch (notificationError) {
           // Payment is already committed; LINE delivery retries use the existing path.

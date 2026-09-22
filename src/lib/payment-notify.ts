@@ -131,6 +131,8 @@ type ReservationNotifyTarget = {
   end_time: string;
   deposit_payment_note: string | null;
   line_user_id: string | null;
+  status: string;
+  total_price: number | null;
   is_deposit_paid: boolean;
   deposit_approved_notified_at?: string | null;
   deposit_approved_claim_at?: string | null;
@@ -139,10 +141,39 @@ type ReservationNotifyTarget = {
   deposit_approved_retry_key_created_at?: string | null;
 };
 
+export function isDepositApprovalNotificationEligible(
+  reservation: Pick<ReservationNotifyTarget, "status" | "total_price" | "is_deposit_paid">,
+  paymentEvents: Array<{ id: string; status: string }>,
+  options: { paymentEventId?: string; manualApproval?: boolean } = {}
+): boolean {
+  const totalPrice = Number(reservation.total_price);
+  const depositAmount = Math.ceil(totalPrice / 2);
+  const hasPendingReview = paymentEvents.some((event) => event.status === "pending_review");
+  const hasApprovedEvent = paymentEvents.some((event) => event.status === "approved");
+  const requestedEventApproved = options.paymentEventId
+    ? paymentEvents.some(
+        (event) => event.id === options.paymentEventId && event.status === "approved"
+      )
+    : true;
+  const hasUnapprovedEventHistory = paymentEvents.length > 0 && !hasApprovedEvent;
+
+  return (
+    reservation.status === "confirmed" &&
+    reservation.is_deposit_paid &&
+    Number.isFinite(totalPrice) &&
+    depositAmount > 0 &&
+    !hasPendingReview &&
+    requestedEventApproved &&
+    (!hasUnapprovedEventHistory || Boolean(options.manualApproval))
+  );
+}
+
 export type NotifyPaymentApprovedOptions = {
   actor?: string;
   reviewNote?: string | null;
   force?: boolean;
+  paymentEventId?: string;
+  manualApproval?: boolean;
   operatorConfirmedSafeRetry?: boolean;
   reconciliationApprovedRetry?: boolean;
   client?: SupabaseClient;
@@ -182,7 +213,7 @@ export async function notifyPaymentApproved(
       const { data, error: fetchErr } = await client
         .from("reservations")
         .select(
-          "id, customer_name, booking_code, start_time, end_time, deposit_payment_note, line_user_id, is_deposit_paid, deposit_approved_notified_at, deposit_approved_claim_at, deposit_approved_retry_key, deposit_approved_guest_retry_key, deposit_approved_retry_key_created_at"
+          "id, customer_name, booking_code, start_time, end_time, deposit_payment_note, line_user_id, status, total_price, is_deposit_paid, deposit_approved_notified_at, deposit_approved_claim_at, deposit_approved_retry_key, deposit_approved_guest_retry_key, deposit_approved_retry_key_created_at"
         )
         .eq("id", reservationId)
         .maybeSingle();
@@ -204,7 +235,7 @@ export async function notifyPaymentApproved(
       const { data: legacyData, error: legacyErr } = await client
         .from("reservations")
         .select(
-          "id, customer_name, booking_code, start_time, end_time, deposit_payment_note, line_user_id, is_deposit_paid, deposit_approved_notified_at, deposit_approved_claim_at"
+          "id, customer_name, booking_code, start_time, end_time, deposit_payment_note, line_user_id, status, total_price, is_deposit_paid, deposit_approved_notified_at, deposit_approved_claim_at"
         )
         .eq("id", reservationId)
         .maybeSingle();
@@ -215,8 +246,42 @@ export async function notifyPaymentApproved(
       existing = legacyData as ReservationNotifyTarget;
     }
 
-    if (!existing.is_deposit_paid) {
-      return { ok: false, error: "deposit_not_paid" };
+    const { data: paymentEvents, error: pendingReviewError } = await client
+      .from("payment_events")
+      .select("id, status")
+      .eq("reservation_id", reservationId);
+
+    if (pendingReviewError) {
+      console.error("[payment-notify] payment review eligibility check failed:", pendingReviewError.message);
+      return { ok: false, error: "payment_state_unavailable" };
+    }
+
+    const currentPaymentEvents = (paymentEvents ?? []) as Array<{ id: string; status: string }>;
+    if (
+      !isDepositApprovalNotificationEligible(existing, currentPaymentEvents, {
+        paymentEventId: opts.paymentEventId,
+        manualApproval: opts.manualApproval,
+      })
+    ) {
+      if (currentPaymentEvents.some((event) => event.status === "pending_review")) {
+        return { ok: false, error: "payment_pending_review" };
+      }
+      if (
+        opts.paymentEventId &&
+        !currentPaymentEvents.some(
+          (event) => event.id === opts.paymentEventId && event.status === "approved"
+        )
+      ) {
+        return { ok: false, error: "payment_not_approved" };
+      }
+      if (currentPaymentEvents.length && !currentPaymentEvents.some((event) => event.status === "approved") && !opts.manualApproval) {
+        return { ok: false, error: "payment_not_approved" };
+      }
+      if (existing.status !== "confirmed") {
+        return { ok: false, error: "reservation_not_confirmed" };
+      }
+      if (!existing.is_deposit_paid) return { ok: false, error: "deposit_not_paid" };
+      return { ok: false, error: "no_valid_deposit" };
     }
     if (!opts.force && existing.deposit_approved_notified_at) {
       return { ok: true, already_notified: true };
@@ -336,7 +401,9 @@ export async function notifyPaymentApproved(
           .from("reservations")
           .update(updatePayload)
           .eq("id", reservationId)
+          .eq("status", "confirmed")
           .eq("is_deposit_paid", true)
+          .gt("total_price", 0)
           .is("deposit_approved_notified_at", null);
 
         if (existing.deposit_approved_claim_at) {

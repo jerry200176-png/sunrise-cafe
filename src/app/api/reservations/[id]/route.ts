@@ -206,6 +206,7 @@ export async function PATCH(
             paymentNotification = await notifyPaymentApproved(id, {
               actor: "admin_session",
               reviewNote: afterNote,
+              manualApproval: true,
             });
           } catch (err) {
             console.error("[reservations/id] notifyPaymentApproved failed:", err);
@@ -222,6 +223,7 @@ export async function PATCH(
           paymentNotification = await notifyPaymentApproved(id, {
             actor: "admin_session",
             reviewNote: afterNote,
+            manualApproval: true,
           });
         } catch (err) {
           console.error("[reservations/id] notifyPaymentApproved retry failed:", err);
