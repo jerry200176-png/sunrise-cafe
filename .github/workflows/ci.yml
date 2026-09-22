@@ -41,6 +41,9 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Agent preflight worktree regression tests
+        run: npm run test:agent-preflight
+
       - name: TypeScript typecheck (advisory while baseline burns down)
         run: npm run typecheck
         continue-on-error: true
