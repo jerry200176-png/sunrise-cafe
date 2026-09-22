@@ -9,7 +9,7 @@ TASK_PREFIX="/home/jerry/workspace/tasks/sunrise/"
 
 fail() {
   echo "sunrise-preflight: FAIL: $*" >&2
-  echo "sunrise-preflight: recovery: agent-start sunrise <task-id> --dry-run" >&2
+  echo "sunrise-preflight: recovery: resolve the named blocker without bypassing the check or removing ownership metadata" >&2
   exit 1
 }
 ok() { echo "sunrise-preflight: OK: $*"; }
@@ -64,7 +64,7 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 echo "$BRANCH" | grep -qE '^(feat|fix|hotfix|chore|exp|perf|test|refactor|docs|build|ci)/.+' || fail "branch needs type/slug: $BRANCH"
 MB="$(git merge-base HEAD origin/main)"
 [[ "$MB" == "$ORIGIN_MAIN" ]] || fail "stale base — recreate via agent-start"
-[[ -z "$(git status --porcelain)" ]] || fail "dirty worktree"
+node "$SCRIPT_DIR/agent-preflight-worktree.mjs" --root "$TARGET" --branch "$BRANCH" || exit 1
 GIT_DIR="$(git rev-parse --git-dir)"
 [[ ! -d "$GIT_DIR/rebase-merge" && ! -d "$GIT_DIR/rebase-apply" && ! -f "$GIT_DIR/MERGE_HEAD" ]] || fail "merge/rebase in progress"
 [[ "${SUNRISE_PRODUCTION_MUTATION:-0}" == "0" ]] || fail "SUNRISE_PRODUCTION_MUTATION must be 0"

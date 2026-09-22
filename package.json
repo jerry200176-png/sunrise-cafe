@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "vitest run",
+    "test": "vitest run && node --test scripts/agent-preflight.test.mjs",
     "typecheck": "tsc --noEmit",
     "typecheck:baseline": "node scripts/verify-typecheck-baseline.mjs",
     "test:watch": "vitest",
