@@ -349,5 +349,20 @@
       { "type": "rls", "table": "reservation_preorders", "introspect": "catalog", "note": "No anon/authenticated policies; guest authorization remains in the application API" },
       { "type": "rls", "table": "reservation_preorder_items", "introspect": "catalog", "note": "No anon/authenticated policies; guest authorization remains in the application API" }
     ]
+  },
+  {
+    "version": "20260924-booking-meals",
+    "file": "migration-booking-meals.sql",
+    "critical": true,
+    "evidence": [
+      { "type": "column", "table": "reservations", "name": "booking_request_key", "introspect": "catalog" },
+      { "type": "column", "table": "orders", "name": "reservation_id", "introspect": "catalog" },
+      { "type": "column", "table": "orders", "name": "paid_at", "introspect": "catalog" },
+      { "type": "column", "table": "order_items", "name": "served_at", "introspect": "catalog" },
+      { "type": "function", "name": "create_booking_with_meals", "introspect": "catalog" },
+      { "type": "function", "name": "activate_reservation_order", "introspect": "catalog" },
+      { "type": "function", "name": "staff_replace_preorder", "introspect": "catalog" },
+      { "type": "function", "name": "replace_menu_item_options", "introspect": "catalog" }
+    ]
   }
 ]

@@ -7,11 +7,11 @@ import {
 } from "@/lib/reservation-preorder";
 
 describe("reservation preorder contract", () => {
-  it("uses a strict reservation-start-minus-24-hours cutoff", () => {
+  it("allows same-day selection until the reservation starts", () => {
     const start = "2026-10-10T12:00:00.000Z";
-    expect(preorderCutoff(start).toISOString()).toBe("2026-10-09T12:00:00.000Z");
-    expect(isPreorderCutoffPassed(start, new Date("2026-10-09T11:59:59.999Z"))).toBe(false);
-    expect(isPreorderCutoffPassed(start, new Date("2026-10-09T12:00:00.000Z"))).toBe(true);
+    expect(preorderCutoff(start).toISOString()).toBe(start);
+    expect(isPreorderCutoffPassed(start, new Date("2026-10-10T11:59:59.999Z"))).toBe(false);
+    expect(isPreorderCutoffPassed(start, new Date(start))).toBe(true);
   });
 
   it("keeps drafts canonical and never accepts client price/name fields", () => {
@@ -33,9 +33,9 @@ describe("reservation preorder contract", () => {
     expect(canonicalDraftItems([{ menu_item_id: "00000000-0000-0000-0000-000000000001", quantity: 1, special_notes: "x".repeat(600) }])[0]?.special_notes).toHaveLength(500);
   });
 
-  it("allows a reconfirmation edit but keeps ordinary submitted prep read-only", () => {
+  it("keeps submitted prep staff-managed even when reconfirmation is needed", () => {
     expect(isGuestPreorderEditable("confirmed", "submitted", false, false)).toBe(false);
-    expect(isGuestPreorderEditable("confirmed", "submitted", true, false)).toBe(true);
+    expect(isGuestPreorderEditable("confirmed", "submitted", true, false)).toBe(false);
     expect(isGuestPreorderEditable("confirmed", "draft", true, false)).toBe(true);
     expect(isGuestPreorderEditable("confirmed", "submitted", true, true)).toBe(false);
     expect(isGuestPreorderEditable("cancelled", null, false, false)).toBe(false);

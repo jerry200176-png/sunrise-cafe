@@ -46,6 +46,8 @@ export default function AdminOrdersPage() {
   useEffect(() => {
     if (!branchId) return;
     loadOrders(branchId);
+    const timer = window.setInterval(() => loadOrders(branchId), 15000);
+    return () => window.clearInterval(timer);
   }, [branchId]);
 
   // Supabase Realtime 訂閱
@@ -268,7 +270,7 @@ function OrderCard({
       <div className="flex items-start justify-between mb-2">
         <div>
           <span className="font-bold text-gray-900">
-            桌 {order.table?.number ?? "—"}
+            {order.reservation_id ? "包廂訂位" : `桌 ${order.table?.number ?? "—"}`}
           </span>
           <span className="ml-2 text-xs text-gray-400">#{shortId}</span>
         </div>
@@ -301,14 +303,15 @@ function OrderCard({
         <span className="text-sm font-medium text-gray-900">
           ${order.total_amount}
         </span>
-        <button
+        {order.reservation_id ? <Link href={`/admin/reservation-orders/${order.reservation_id}`}
+          className="inline-flex items-center rounded-lg bg-amber-700 px-3 py-1.5 text-xs font-medium text-white">查看餐點與出餐</Link> : <button
           type="button"
           onClick={() => onAction(order.id)}
           className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-white ${btnColor}`}
         >
           {actionIcon}
           {actionLabel}
-        </button>
+        </button>}
       </div>
     </div>
   );

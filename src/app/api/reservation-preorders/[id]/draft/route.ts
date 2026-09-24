@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { enforceGuestLookupLimit } from "@/lib/guest-rate-limit";
 import { verifyGuestBookingByTokenOrCredentials } from "@/lib/guest-auth";
-import { isReservationPreorderEnabled, savePreorderDraft, type DraftItemInput } from "@/lib/reservation-preorder";
+import { getReservationPreorder, isReservationPreorderEnabled, savePreorderDraft, type DraftItemInput } from "@/lib/reservation-preorder";
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   if (!isReservationPreorderEnabled()) return NextResponse.json({ error: "提前選餐尚未開放" }, { status: 404 });
@@ -12,6 +12,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (limited) return limited;
     const verified = await verifyGuestBookingByTokenOrCredentials({ id, token: body.token, phone: body.phone, bookingCode: body.booking_code });
     if (!verified.ok) return NextResponse.json({ error: verified.error }, { status: verified.status });
+    const current = await getReservationPreorder(id);
+    if (current && ["submitted", "locked"].includes(current.status)) {
+      return NextResponse.json({ error: "餐點已送出，若需調整請聯絡店家" }, { status: 409 });
+    }
     const data = await savePreorderDraft(id, body.items ?? [], body.guest_notes ?? null);
     return NextResponse.json({ ok: true, preorder: data });
   } catch (error) {

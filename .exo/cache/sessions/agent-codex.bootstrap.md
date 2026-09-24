@@ -1,31 +1,31 @@
 ╔══════════════════════════════════════════════════════╗
 ║  >>> EXO GOVERNED SESSION                            ║
 ║  protocol: ExoProtocol v1 | mode: work               ║
-║  ticket: TKT-20260914-205919-5YLL | actor: agent:codex║
-║  model: gpt-5                                        ║
-║  branch: chore/task-migration-delivery-bank-transfer-20260914║
+║  ticket: TKT-20260924-164043-WCQH | actor: agent:codex║
+║  model: gpt-6-astra                                  ║
+║  branch: chore/task-TKT-20260924-154453-H0BW         ║
 ╚══════════════════════════════════════════════════════╝
 
 # Exo Agent Session Bootstrap
 
-session_id: SES-20260914205924-6234ECF2
+session_id: SES-20260924164048-99848E50
 actor: agent:codex
 vendor: openai
-model: gpt-5
+model: gpt-6-astra
 mode: work
 context_window_tokens: unknown
-ticket_id: TKT-20260914-205919-5YLL
-ticket_title: Repair explicit production migration delivery coverage
+ticket_id: TKT-20260924-164043-WCQH
+ticket_title: Fix migration plan TypeScript CI gate
 ticket_status: todo
-ticket_priority: 100
+ticket_priority: 3
 topic_id: repo:default
 lock_owner: agent:codex
-git_branch: chore/task-migration-delivery-bank-transfer-20260914
-lock_branch: exo/TKT-20260914-205919-5YLL
-lock_expires_at: 2026-09-14T22:59:24+08:00
+git_branch: chore/task-TKT-20260924-154453-H0BW
+lock_branch: exo/TKT-20260924-164043-WCQH
+lock_expires_at: 2026-09-24T18:40:48+08:00
 
 ## Scope
-- allow: ["scripts/**", ".github/workflows/production-deploy-migrate.yml", "src/**/*.test.ts", ".exo/cache/**", ".exo/memory/**", ".exo/locks/**", ".exo/tickets/**", ".exo/logs/**"]
+- allow: ["src/lib/production-migration-plan.test.ts", ".exo/**", ".exo/cache/**", ".exo/memory/**", ".exo/locks/**", ".exo/tickets/**", ".exo/logs/**"]
 - deny: []
 
 ## Checks
@@ -39,14 +39,13 @@ lock_expires_at: 2026-09-14T22:59:24+08:00
 ## Machine Context
 - cpu_cores: 12
 - load_avg_1m: 0.2
-- ram: 5.8GB available / 7.8GB total
+- ram: 6.7GB available / 7.8GB total
 
 ## Start Advisories
+- [INFO] Unmerged work on branch chore/task-migration-delivery-bank-transfer-20260914 (ticket=TKT-20260914-205919-5YLL, actor=agent:codex) — Repaired explicit production migration delivery: added bank-transfer apply runne
 - [INFO] Unmerged work on branch chore/task-deposit-report-reconciliation-20260914 (ticket=TKT-20260914-183815-5ZOV, actor=agent:codex) — Verified PR #345 customer-report authorization, rate limiting, real disposable P
 - [INFO] Unmerged work on branch fix/deposit-request-retry-key-20260911 (ticket=TKT-20260911-124334-F7CN, actor=human) — Aligned agent provenance task identifier with the follow-up branch name.
 - [INFO] Unmerged work on branch chore/task-deposit-line-notification-20260911 (ticket=TKT-20260911-124334-F7CN, actor=human) — Added stable delivery-UUID retry keys and 24-hour automatic retry boundary for d
-- [INFO] Unmerged work on branch chore/task-TKT-20260903-110554-J9HK (ticket=TKT-20260903-110554-J9HK, actor=agent:codex) — Added branch-aware management links to today-page upcoming and unpaid reservatio
-- [INFO] Unmerged work on branch chore/dashboard-reservation-focus-20260903 (ticket=TKT-20260903-103430-SFLJ, actor=agent:codex) — Added dashboard mobile and desktop reservation deep links into the existing bran
 
 ## Prior Session Memento
 (none)
@@ -72,10 +71,10 @@ After building a reusable utility, REGISTER it:
 - `src.lib.line-guest-delivery.ts:deliverLineGuestNotification`: Claim, send, and mark one automatic guest LINE lifecycle notification with durable dedupe and failure recording.
 
 ## Current Task
-repair explicit migration delivery gap after approved rollback
+Fix CI TypeScript migration plan test diagnostic on PR branch
 
 ## Lifecycle Commands
-- heartbeat: EXO_ACTOR=agent:codex python3 -m exo.cli lease-heartbeat --ticket-id TKT-20260914-205919-5YLL --owner agent:codex
+- heartbeat: EXO_ACTOR=agent:codex python3 -m exo.cli lease-heartbeat --ticket-id TKT-20260924-164043-WCQH --owner agent:codex
 - run worker once: EXO_ACTOR=agent:codex python3 -m exo.cli worker-poll --require-session --limit 50
 - suspend: EXO_ACTOR=agent:codex python3 -m exo.cli session-suspend --reason "<why pausing>"
-- finish: EXO_ACTOR=agent:codex python3 -m exo.cli session-finish --summary "<what changed>" --set-status review --ticket-id TKT-20260914-205919-5YLL
+- finish: EXO_ACTOR=agent:codex python3 -m exo.cli session-finish --summary "<what changed>" --set-status review --ticket-id TKT-20260924-164043-WCQH

@@ -4,7 +4,9 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { CalendarX2 } from "lucide-react";
 import Image from "next/image";
-import type { Branch, Room, RentalNoteSection } from "@/types";
+import type { Branch, Room, RentalNoteSection, MenuItem } from "@/types";
+import type { DraftItemInput } from "@/lib/reservation-preorder";
+import { MenuPicker } from "@/components/MenuPicker";
 import { getDurationOptions, getDepositAmount, isWeekendDate } from "@/lib/booking-utils";
 import { normalizePhone } from "@/lib/phone-utils";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
@@ -48,6 +50,11 @@ export default function BookPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [branchId, setBranchId] = useState("");
+  const [mealCatalog, setMealCatalog] = useState<MenuItem[]>([]);
+  const [mealFeatureEnabled, setMealFeatureEnabled] = useState(false);
+  const [mealItems, setMealItems] = useState<DraftItemInput[]>([]);
+  const [mealNotes, setMealNotes] = useState("");
+  const bookingRequestKey = useRef<string | null>(null);
   const [roomId, setRoomId] = useState("");
   const [date, setDate] = useState("");
   const [slots, setSlots] = useState<SlotItem[]>([]);
@@ -135,6 +142,19 @@ export default function BookPage() {
     }
     setDraftHydrated(true);
   }, []);
+
+  useEffect(() => {
+    setMealItems([]);
+    setMealCatalog([]);
+    setMealFeatureEnabled(false);
+    if (!branchId) return;
+    const controller = new AbortController();
+    fetch(`/api/menu?branchId=${encodeURIComponent(branchId)}`, { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("菜單載入失敗")))
+      .then((data) => { setMealFeatureEnabled(Boolean(data.preorderEnabled)); setMealCatalog((data.items ?? []).filter((item: MenuItem) => item.is_available && item.preorder_eligible)); })
+      .catch(() => { if (!controller.signal.aborted) { setMealCatalog([]); setMealFeatureEnabled(false); } });
+    return () => controller.abort();
+  }, [branchId]);
 
   useEffect(() => {
     if (!draftHydrated || (!branchId && step === "branch")) return;
@@ -466,6 +486,9 @@ export default function BookPage() {
           guest_count: guestCount === "" ? null : Number(guestCount),
           notes: null,
           line_user_id: lineUserId || null,
+          meal_items: mealItems,
+          meal_notes: mealNotes.trim() || null,
+          booking_request_key: bookingRequestKey.current ??= crypto.randomUUID(),
         }),
       }, 20000);
       const data = await res.json();
@@ -1233,6 +1256,20 @@ export default function BookPage() {
                 </div>
               )}
 
+              {mealFeatureEnabled && <section className="rounded-xl border border-stone-200 bg-stone-50 p-4" aria-labelledby="booking-meals-title">
+                <h3 id="booking-meals-title" className="font-semibold text-stone-900">預先選餐 <span className="text-sm font-normal text-stone-500">（可略過，餐費現場結帳）</span></h3>
+                <p className="mb-3 mt-1 text-sm text-stone-600">餐點會先附在訂位中；到店後由店員確認備餐。</p>
+                {mealCatalog.length ? <MenuPicker items={mealCatalog} value={mealItems} onChange={setMealItems} disabled={submitting} />
+                  : <p className="text-sm text-stone-500">目前沒有可預選的餐點。</p>}
+                {mealItems.length > 0 && <>
+                  <textarea aria-label="餐點整體備註" maxLength={1000} value={mealNotes} onChange={(event) => setMealNotes(event.target.value)}
+                    placeholder="給店員的餐點備註（選填）" className="mt-3 min-h-20 w-full rounded-lg border border-stone-300 p-2 text-sm" />
+                  <p className="mt-2 text-right font-semibold text-stone-900">餐費預估 NT$ {mealItems.reduce((sum, row) => {
+                    const item = mealCatalog.find((candidate) => candidate.id === row.menu_item_id);
+                    return sum + (Number(item?.price ?? 0) + (item?.options ?? []).filter((option) => (row.option_ids ?? []).includes(option.id)).reduce((n, option) => n + Number(option.price_delta), 0)) * row.quantity;
+                  }, 0).toLocaleString()}</p>
+                </>}
+              </section>}
               <div className="rounded-lg border border-green-200 bg-green-50 p-4">
                 <p className="mb-2 text-sm font-medium text-gray-700">{t("book.form.lineSectionTitle")}</p>
                 {lineUserId ? (

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { requirePermission } from "@/lib/admin-api-auth";
 
 function adminClient() {
   return createClient(
@@ -13,6 +14,8 @@ export async function GET(request: NextRequest) {
   if (!branchId) {
     return NextResponse.json({ error: "缺少 branchId" }, { status: 400 });
   }
+  const denied = await requirePermission(request, "orders:read", branchId);
+  if (denied) return denied;
 
   const { data, error } = await adminClient()
     .from("menu_items")
@@ -29,11 +32,20 @@ export async function POST(request: NextRequest) {
   const { branch_id, category_id, name, description, price, image_url, display_order, preorder_eligible, options } =
     body;
 
-  if (!branch_id || !name || price === undefined) {
+  if (typeof branch_id !== "string" || typeof name !== "string" || !name.trim() || price === undefined) {
     return NextResponse.json({ error: "缺少必填欄位（branch_id, name, price）" }, { status: 400 });
+  }
+  const denied = await requirePermission(request, "orders:write", branch_id);
+  if (denied) return denied;
+  if (!Number.isFinite(Number(price)) || Number(price) < 0 || !Array.isArray(options ?? [])) {
+    return NextResponse.json({ error: "價格或選項格式不正確" }, { status: 400 });
   }
 
   const db = adminClient();
+  if (category_id) {
+    const category = await db.from("menu_categories").select("branch_id").eq("id", category_id).maybeSingle();
+    if (category.error || category.data?.branch_id !== branch_id) return NextResponse.json({ error: "分類不屬於此分店" }, { status: 400 });
+  }
   const { data: item, error } = await db
     .from("menu_items")
     .insert({
@@ -55,16 +67,11 @@ export async function POST(request: NextRequest) {
 
   // 新增選項
   if (Array.isArray(options) && options.length > 0) {
-    const rows = options.map(
-      (opt: { option_group: string; option_name: string; price_delta?: number; display_order?: number }, idx: number) => ({
-        item_id: item.id,
-        option_group: opt.option_group,
-        option_name: opt.option_name,
-        price_delta: opt.price_delta ?? 0,
-        display_order: opt.display_order ?? idx,
-      })
-    );
-    await db.from("menu_item_options").insert(rows);
+    const result = await db.rpc("replace_menu_item_options", { p_item_id: item.id, p_options: options });
+    if (result.error) {
+      await db.from("menu_items").delete().eq("id", item.id);
+      return NextResponse.json({ error: result.error.message }, { status: 400 });
+    }
   }
 
   return NextResponse.json({ ok: true, id: item.id });

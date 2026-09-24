@@ -1,0 +1,41 @@
+id: TKT-20260924-163012-3JJ5
+title: Automate booking meals predeploy migration
+intent: Automate booking meals predeploy migration
+kind: task
+parent_id: INT-20260924-154648-06DP
+boundary: Automate approved booking meals and prerequisite preorder migrations in
+  existing predeploy workflow; preserve production approval gate
+success_condition: Predeploy runner applies both migrations fail-closed and verifies
+  expected schema before deployment
+priority: 3
+labels: []
+scope:
+  allow:
+  - scripts/**
+  - src/lib/production-migration-plan.test.ts
+  - docs/BOOKING_MEALS_RUNBOOK.md
+  - .exo/**
+  - .exo/cache/**
+  - .exo/memory/**
+  - .exo/locks/**
+  - .exo/tickets/**
+  - .exo/logs/**
+  deny: []
+budgets:
+  max_files_changed: 15
+  max_loc_changed: 850
+checks:
+- npm test
+- npm run lint
+type: feature
+status: review
+spec_ref: null
+notes: []
+blockers: []
+created_at: '2026-09-24T16:30:12+08:00'
+brain_dump: ''
+risk: medium
+children: []
+resource_profile: default
+commits:
+- 9ae0868bd04cf02a5c3f88dc6ce1982fd47b9aa7

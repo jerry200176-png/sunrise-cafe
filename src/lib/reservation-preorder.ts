@@ -22,7 +22,7 @@ export function isReservationPreorderEnabled(): boolean {
 }
 
 export function preorderCutoff(startTime: string): Date {
-  return new Date(new Date(startTime).getTime() - 24 * 60 * 60 * 1000);
+  return new Date(startTime);
 }
 
 export function isPreorderCutoffPassed(startTime: string, now = new Date()): boolean {
@@ -37,7 +37,7 @@ export function isGuestPreorderEditable(
 ): boolean {
   if (cutoffPassed || ["cancelled", "completed"].includes(reservationStatus)) return false;
   if (!preorderStatus) return true;
-  return requiresReconfirmation || !["submitted", "locked"].includes(preorderStatus);
+  return !["submitted", "locked"].includes(preorderStatus);
 }
 
 export function canonicalDraftItems(items: DraftItemInput[]): DraftItemInput[] {
@@ -48,6 +48,7 @@ export function canonicalDraftItems(items: DraftItemInput[]): DraftItemInput[] {
     }
     const quantity = Number(item.quantity);
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) throw new Error("餐點數量不正確");
+    if (item.option_ids != null && !Array.isArray(item.option_ids)) throw new Error("餐點選項格式不正確");
     const optionIds = Array.from(new Set((item.option_ids ?? []).filter((id): id is string => typeof id === "string")));
     if (optionIds.length > 30) throw new Error("餐點選項數量不正確");
     return {
@@ -62,7 +63,7 @@ export function canonicalDraftItems(items: DraftItemInput[]): DraftItemInput[] {
 export async function getReservationPreorder(reservationId: string) {
   const { data, error } = await supabaseAdmin()
     .from("reservation_preorders")
-    .select("id,reservation_id,status,requires_reconfirmation,guest_notes,submitted_at,locked_at,cancelled_at,created_at,updated_at,reservation_preorder_items(id,source_menu_item_id,item_name_snapshot,unit_price_snapshot,quantity,selected_options_snapshot,special_notes,created_at)")
+    .select("id,reservation_id,status,requires_reconfirmation,guest_notes,draft_items,submitted_at,locked_at,cancelled_at,created_at,updated_at,reservation_preorder_items(id,source_menu_item_id,item_name_snapshot,unit_price_snapshot,quantity,selected_options_snapshot,special_notes,created_at)")
     .eq("reservation_id", reservationId)
     .maybeSingle();
   if (error) throw error;
@@ -101,7 +102,8 @@ type CatalogItem = {
 
 export async function validateAndSnapshotItems(
   reservation: { room?: { branch_id?: string } | { branch_id?: string }[] | null },
-  rawItems: DraftItemInput[]
+  rawItems: DraftItemInput[],
+  preorderOnly = true,
 ): Promise<PreorderItemSnapshot[]> {
   const items = canonicalDraftItems(rawItems);
   const room = Array.isArray(reservation.room) ? reservation.room[0] : reservation.room;
@@ -109,13 +111,14 @@ export async function validateAndSnapshotItems(
   if (!branchId) throw new Error("找不到訂位分店");
   const ids = Array.from(new Set(items.map((item) => item.menu_item_id)));
   if (ids.length === 0) return [];
-  const { data, error } = await supabaseAdmin()
+  let query = supabaseAdmin()
     .from("menu_items")
     .select("id,name,price,branch_id,is_available,options:menu_item_options(id,option_group,option_name,price_delta)")
     .in("id", ids)
     .eq("branch_id", branchId)
-    .eq("preorder_eligible", true)
     .eq("is_available", true);
+  if (preorderOnly) query = query.eq("preorder_eligible", true);
+  const { data, error } = await query;
   if (error) throw error;
   const byId = new Map((data ?? []).map((row) => [row.id, row as unknown as CatalogItem]));
   if (byId.size !== ids.length) throw new Error("部分餐點目前無法預訂");
@@ -127,6 +130,9 @@ export async function validateAndSnapshotItems(
       if (!option) throw new Error("餐點選項已變更，請重新選擇");
       return { id, group: option.option_group, name: option.option_name, delta: Number(option.price_delta) };
     });
+    if (new Set(selected.map((option) => option.group)).size !== selected.length) {
+      throw new Error("每組餐點選項只能選一項");
+    }
     return {
       source_menu_item_id: catalog.id,
       item_name_snapshot: catalog.name,

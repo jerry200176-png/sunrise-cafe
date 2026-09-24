@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { isReservationPreorderEnabled } from "@/lib/reservation-preorder";
 
 function adminClient() {
   return createClient(
@@ -40,5 +41,6 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     categories: catResult.data ?? [],
     items: itemResult.data ?? [],
+    preorderEnabled: isReservationPreorderEnabled(),
   });
 }

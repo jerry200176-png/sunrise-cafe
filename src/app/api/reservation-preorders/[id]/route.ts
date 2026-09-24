@@ -36,7 +36,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       },
       preorder: preorder ? { ...preorder, status: cutoffPassed && preorder.status === "submitted" ? "locked" : preorder.status } : null,
       menu: cutoffPassed ? [] : catalog.items,
-      cutoff_at: new Date(new Date(auth.reservation!.start_time).getTime() - 24 * 60 * 60 * 1000).toISOString(),
+      cutoff_at: new Date(auth.reservation!.start_time).toISOString(),
       editable: isGuestPreorderEditable(
         auth.reservation!.status,
         preorder?.status,

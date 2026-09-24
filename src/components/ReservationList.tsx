@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { formatReservationDateKey, reservationDateKey, toTaipei } from "@/lib/datetime";
@@ -895,6 +896,10 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                       {r.preorder.guest_notes && <span className="block mt-0.5">備註：{r.preorder.guest_notes}</span>}
                     </div>
                   )}
+                  {!["cancelled", "rejected"].includes(r.status) && <Link href={`/admin/reservation-orders/${r.id}`}
+                    className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100">
+                    餐點管理／到店確認
+                  </Link>}
                   {r.guest_count != null && (
                     <span className="flex items-center gap-1">
                       <Users className="h-3.5 w-3.5 text-gray-400" />
