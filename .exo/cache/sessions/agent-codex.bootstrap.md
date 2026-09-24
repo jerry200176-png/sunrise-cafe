@@ -1,31 +1,31 @@
 ╔══════════════════════════════════════════════════════╗
 ║  >>> EXO GOVERNED SESSION                            ║
 ║  protocol: ExoProtocol v1 | mode: work               ║
-║  ticket: TKT-20260924-161236-I8IL | actor: agent:codex║
+║  ticket: TKT-20260924-163012-3JJ5 | actor: agent:codex║
 ║  model: gpt-6-astra                                  ║
 ║  branch: chore/task-TKT-20260924-154453-H0BW         ║
 ╚══════════════════════════════════════════════════════╝
 
 # Exo Agent Session Bootstrap
 
-session_id: SES-20260924161359-CE2F72DC
+session_id: SES-20260924163020-01B16674
 actor: agent:codex
 vendor: openai
 model: gpt-6-astra
 mode: work
 context_window_tokens: unknown
-ticket_id: TKT-20260924-161236-I8IL
-ticket_title: Complete booking meals and migration registry
+ticket_id: TKT-20260924-163012-3JJ5
+ticket_title: Automate booking meals predeploy migration
 ticket_status: todo
 ticket_priority: 3
 topic_id: repo:default
 lock_owner: agent:codex
 git_branch: chore/task-TKT-20260924-154453-H0BW
-lock_branch: exo/TKT-20260924-161236-I8IL
-lock_expires_at: 2026-09-24T18:13:59+08:00
+lock_branch: exo/TKT-20260924-163012-3JJ5
+lock_expires_at: 2026-09-24T18:30:20+08:00
 
 ## Scope
-- allow: ["src/**", "supabase/**", "docs/**", "scripts/production-migration-plan.json", ".exo/cache/**", ".exo/memory/**", ".exo/locks/**", ".exo/tickets/**", ".exo/logs/**"]
+- allow: ["scripts/**", "src/lib/production-migration-plan.test.ts", "docs/BOOKING_MEALS_RUNBOOK.md", ".exo/**", ".exo/cache/**", ".exo/memory/**", ".exo/locks/**", ".exo/tickets/**", ".exo/logs/**"]
 - deny: []
 
 ## Checks
@@ -38,8 +38,8 @@ lock_expires_at: 2026-09-24T18:13:59+08:00
 
 ## Machine Context
 - cpu_cores: 12
-- load_avg_1m: 2.4
-- ram: 6.6GB available / 7.8GB total
+- load_avg_1m: 0.4
+- ram: 6.7GB available / 7.8GB total
 
 ## Start Advisories
 - [INFO] Unmerged work on branch chore/task-migration-delivery-bank-transfer-20260914 (ticket=TKT-20260914-205919-5YLL, actor=agent:codex) — Repaired explicit production migration delivery: added bank-transfer apply runne
@@ -71,10 +71,10 @@ After building a reusable utility, REGISTER it:
 - `src.lib.line-guest-delivery.ts:deliverLineGuestNotification`: Claim, send, and mark one automatic guest LINE lifecycle notification with durable dedupe and failure recording.
 
 ## Current Task
-Complete approved Sunrise booking meals and migration registry, verify and prepare draft PR
+Automate approved predeploy booking meals migration and base prerequisite using existing workflow
 
 ## Lifecycle Commands
-- heartbeat: EXO_ACTOR=agent:codex python3 -m exo.cli lease-heartbeat --ticket-id TKT-20260924-161236-I8IL --owner agent:codex
+- heartbeat: EXO_ACTOR=agent:codex python3 -m exo.cli lease-heartbeat --ticket-id TKT-20260924-163012-3JJ5 --owner agent:codex
 - run worker once: EXO_ACTOR=agent:codex python3 -m exo.cli worker-poll --require-session --limit 50
 - suspend: EXO_ACTOR=agent:codex python3 -m exo.cli session-suspend --reason "<why pausing>"
-- finish: EXO_ACTOR=agent:codex python3 -m exo.cli session-finish --summary "<what changed>" --set-status review --ticket-id TKT-20260924-161236-I8IL
+- finish: EXO_ACTOR=agent:codex python3 -m exo.cli session-finish --summary "<what changed>" --set-status review --ticket-id TKT-20260924-163012-3JJ5
