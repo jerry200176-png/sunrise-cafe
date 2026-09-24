@@ -20,7 +20,7 @@
     { "version": "20260908-deposit-approved-retry-key", "file": "migration-deposit-approved-retry-key.sql", "runner": "scripts/apply-migration-deposit-approved-retry-key.mjs", "phase": "postdeploy" },
     { "version": "20260914-bank-transfer-reports", "file": "migration-bank-transfer-reports.sql", "runner": "scripts/apply-migration-bank-transfer-reports.mjs", "phase": "predeploy" },
     { "file": "migration-market-parity-rounds-3-7.sql", "runner": "scripts/apply-migration-market-parity.mjs", "execution": "workflow_untracked_contract", "phase": "postdeploy" }
-    ,{ "version": "20260921-reservation-preorder", "file": "migration-reservation-preorder.sql", "execution": "manual_sql_editor", "runtime_flag": "RESERVATION_PREORDER_ENABLED" }
-    ,{ "version": "20260924-booking-meals", "file": "migration-booking-meals.sql", "execution": "manual_sql_editor", "runtime_flag": "RESERVATION_PREORDER_ENABLED" }
+    ,{ "version": "20260921-reservation-preorder", "file": "migration-reservation-preorder.sql", "runner": "scripts/apply-migration-reservation-preorder.mjs", "phase": "predeploy", "runtime_flag": "RESERVATION_PREORDER_ENABLED" }
+    ,{ "version": "20260924-booking-meals", "file": "migration-booking-meals.sql", "runner": "scripts/apply-migration-booking-meals.mjs", "phase": "predeploy", "runtime_flag": "RESERVATION_PREORDER_ENABLED" }
   ]
 }

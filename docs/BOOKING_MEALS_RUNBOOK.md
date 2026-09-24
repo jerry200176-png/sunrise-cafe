@@ -2,9 +2,9 @@
 
 ## 上線順序
 
-1. 在隔離環境先套用 `supabase/migration-booking-meals.sql`；此檔須在 `migration-reservation-preorder.sql` 與原本桌位點餐 migration 後執行。確認 `schema_migrations` 的 `20260924-booking-meals`、新欄位、函式與 RLS policy。`menu-photos` bucket 由後台首次上傳照片時透過 Storage API 建立。
-2. 依正式環境遷移審批流程，先備份，再套用 migration；不要在未核准時修改正式資料庫。
-3. 部署應用程式並確認 `RESERVATION_PREORDER_ENABLED=true`。後台於「菜單管理」設定可於訂位時預選的品項，並貼上或上傳照片。把後台顯示的 `/menu` 完整網址貼到官方 LINE。
+1. 在隔離環境測試 `scripts/run-production-migration-phase.mjs predeploy`：既有 runner 會先套用 `migration-reservation-preorder.sql`，再套用 `migration-booking-meals.sql`；任一步失敗即停止部署。確認兩筆 `schema_migrations` 紀錄、新欄位、函式與 RLS policy。`menu-photos` bucket 由後台首次上傳照片時透過 Storage API 建立。
+2. 完成獨立審查與 Founder 核准後合併 PR；`main` 推送會由既有 production workflow 自動執行 predeploy migration、驗證並部署。不需人工貼 SQL。執行者需確認正式環境有與 Supabase API 同專案的資料庫連線設定；缺少時 runner 會停止部署。
+3. 部署後確認 `RESERVATION_PREORDER_ENABLED=true`。後台於「菜單管理」設定可於訂位時預選的品項，並貼上或上傳照片。把後台顯示的 `/menu` 完整網址貼到官方 LINE。
 4. 從公開網址匿名測試分店切換；建立一筆有餐點的測試訂位及一筆無餐點訂位；後台確認預點內容、到店、逐項出餐與結帳，再取消測試資料。核對 `/api/version` 的 SHA 與預期部署一致。
 
 ## 行為與排查

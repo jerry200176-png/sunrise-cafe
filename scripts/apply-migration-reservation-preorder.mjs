@@ -85,7 +85,7 @@ export function projectRefFromDbUrl(value) {
   }
 }
 
-async function connect() {
+export async function connect() {
   const connectionString = postgresUrl();
   if (!usableUrl(connectionString)) {
     throw new Error("Missing usable SUPABASE_DB_URL/POSTGRES_URL; migration is fail-closed");

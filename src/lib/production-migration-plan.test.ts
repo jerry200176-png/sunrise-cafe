@@ -7,6 +7,7 @@ import {
   phaseExecutionUnits,
   validateMigrationPlan,
 } from "../../scripts/run-production-migration-phase.mjs";
+import { applyBookingMeals, migrationBody } from "../../scripts/apply-migration-booking-meals.mjs";
 
 const root = process.cwd();
 const plan = JSON.parse(
@@ -76,9 +77,28 @@ describe("explicit production migration plan", () => {
     const postdeployUnits = phaseExecutionUnits(plan, "postdeploy") as typeof plan.entries;
     expect(predeployEntries.map((entry) => entry.version)).toEqual([
       "20260914-bank-transfer-reports",
+      "20260921-reservation-preorder",
+      "20260924-booking-meals",
     ]);
     expect(postdeployUnits.length).toBeLessThan(postdeployEntries.length);
     expect(postdeployUnits.every((entry) => entry.phase === "postdeploy")).toBe(true);
+  });
+
+  it("runs the preorder prerequisite before booking meals and rejects a missing prerequisite", async () => {
+    const units = phaseExecutionUnits(plan, "predeploy");
+    expect(units.map((entry) => entry.runner).slice(-2)).toEqual([
+      "scripts/apply-migration-reservation-preorder.mjs",
+      "scripts/apply-migration-booking-meals.mjs",
+    ]);
+    let began = false;
+    const sql = Object.assign(async () => [], { begin: async () => { began = true; } });
+    await expect(applyBookingMeals(sql as never)).rejects.toThrow(/Prerequisite migration missing/);
+    expect(began).toBe(false);
+    const source = readFileSync(join(root, "supabase/migration-booking-meals.sql"), "utf8");
+    const body = migrationBody(source);
+    expect(body).toContain("CREATE OR REPLACE FUNCTION public.create_booking_with_meals");
+    expect(body).not.toMatch(/^BEGIN;/);
+    expect(body).not.toMatch(/COMMIT;\s*$/);
   });
 
   it("fails closed for unknown, missing, or duplicate phases", () => {
@@ -112,7 +132,11 @@ describe("explicit production migration plan", () => {
   it("does not run a postdeploy entry during predeploy", async () => {
     const calls: string[] = [];
     await executePhase(plan, "predeploy", async (runner) => calls.push(runner));
-    expect(calls).toEqual(["scripts/apply-migration-bank-transfer-reports.mjs"]);
+    expect(calls).toEqual([
+      "scripts/apply-migration-bank-transfer-reports.mjs",
+      "scripts/apply-migration-reservation-preorder.mjs",
+      "scripts/apply-migration-booking-meals.mjs",
+    ]);
   });
 
   it("propagates predeploy failure so the dependent deploy cannot proceed", async () => {
@@ -130,7 +154,7 @@ describe("explicit production migration plan", () => {
       return { status: "already_applied" };
     });
     expect(alreadyApplied.phase).toBe("predeploy");
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(3);
 
     const emptyPlan = { schema_version: 2, entries: [] };
     const postdeploy = await executePhase(emptyPlan, "postdeploy", async () => {
