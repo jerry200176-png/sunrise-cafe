@@ -41,7 +41,7 @@ async function verify(sql, status) {
       FROM menu_items
   `;
   const recovery = await sql`
-    SELECT count(*) AS rows,
+    SELECT count(*) AS recovery_count,
            has_table_privilege('anon', 'public.preorder_menu_seed_changes', 'SELECT') AS anon_read,
            has_table_privilege('authenticated', 'public.preorder_menu_seed_changes', 'SELECT') AS user_read
       FROM preorder_menu_seed_changes
@@ -49,7 +49,7 @@ async function verify(sql, status) {
   const result = {
     ledger: VERSION, status,
     available: Number(counts[0].available), eligible: Number(counts[0].eligible),
-    recovery_rows: Number(recovery[0].rows),
+    recovery_rows: Number(recovery[0].recovery_count),
   };
   if (recovery[0].anon_read || recovery[0].user_read) throw new Error("Preorder menu seed recovery record is publicly readable");
   if (status === "applied" && result.available > 0 && result.eligible === 0) {
