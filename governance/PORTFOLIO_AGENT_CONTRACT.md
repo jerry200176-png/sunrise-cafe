@@ -13,16 +13,20 @@ minimum that travels with each governed repository.
 - Read this repository's committed instructions and ExoProtocol's `.exo/`
   constitution/lock when present. Do not edit governance files to make a task
   pass or to bypass a lock, ticket, session, CI check, or review.
-- Every change goes through a pull request and requires an independent human
-  approval. Branch prefixes and self-authored provenance files never grant a
-  bypass.
-- Agents may prepare code and Draft PRs. Merge, deploy, production-data
-  mutation, credential rotation/revocation, issue closure, and history rewrite
-  require Founder approval.
+- Every change goes through a pull request. Required GitHub checks and
+  independent evidence review must pass; a human click is not a release gate.
+  Branch prefixes and self-authored provenance files never grant a bypass.
+- The implementing Agent squash-merges R0–R3 after required checks, dispatches
+  the committed production path when needed, verifies live SHA and behavior,
+  and closes issues with evidence. R3 requires an exact target, bounded
+  execution package, recovery path where applicable, and post-action probes.
+  Stop when an essential control cannot be verified. Never force-push,
+  rewrite history, use `--admin`, print secrets, or access production by SSH.
 - Prefer mature open-source tools for generic lint, security, workflow, and
   policy checks; keep company-specific risk, provenance, evidence, and release
   boundaries in committed policy and CI.
 
-If this overlay conflicts with a stricter product or safety rule, the stricter
-rule wins. If the overlay or required governance context is unavailable, stop
-and report the missing context instead of inventing a replacement.
+If this overlay conflicts with a stricter product safety rule, the stricter
+rule wins; a routine Founder click is not a safety rule. If the overlay or
+required governance context is unavailable, stop and report the missing
+context instead of inventing a replacement.
