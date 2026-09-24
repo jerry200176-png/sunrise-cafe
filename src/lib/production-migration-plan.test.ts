@@ -106,6 +106,7 @@ describe("explicit production migration plan", () => {
     const seed = menuSeedBody(readFileSync(join(root, "supabase/migration-preorder-menu-seed.sql"), "utf8"));
     expect(seed).toContain("WHERE is_available = true");
     expect(seed).toContain("AND preorder_eligible = false");
+    expect(seed).not.toMatch(/REFERENCES menu_items/i);
   });
 
   it("fails closed for unknown, missing, or duplicate phases", () => {

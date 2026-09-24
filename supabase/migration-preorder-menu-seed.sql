@@ -3,7 +3,7 @@
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS preorder_menu_seed_changes (
-  menu_item_id uuid PRIMARY KEY REFERENCES menu_items(id) ON DELETE RESTRICT,
+  menu_item_id uuid PRIMARY KEY,
   previous_preorder_eligible boolean NOT NULL,
   changed_at timestamptz NOT NULL DEFAULT now()
 );
