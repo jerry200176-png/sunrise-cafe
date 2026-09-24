@@ -85,7 +85,7 @@ describe("explicit production migration plan", () => {
   });
 
   it("runs the preorder prerequisite before booking meals and rejects a missing prerequisite", async () => {
-    const units = phaseExecutionUnits(plan, "predeploy");
+    const units = phaseExecutionUnits(plan, "predeploy") as typeof plan.entries;
     expect(units.map((entry) => entry.runner).slice(-2)).toEqual([
       "scripts/apply-migration-reservation-preorder.mjs",
       "scripts/apply-migration-booking-meals.mjs",
