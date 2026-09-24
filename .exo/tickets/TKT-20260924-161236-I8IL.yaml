@@ -27,7 +27,7 @@ checks:
 - npm test
 - npm run lint
 type: feature
-status: todo
+status: review
 spec_ref: null
 notes: []
 blockers: []
@@ -36,3 +36,5 @@ brain_dump: ''
 risk: medium
 children: []
 resource_profile: default
+commits:
+- c3afb21d7d94945cc07ddd11857b639bdab33ae4
