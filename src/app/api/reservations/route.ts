@@ -16,7 +16,7 @@ import { createClient } from "@supabase/supabase-js";
 import { logOps } from "@/lib/ops-log";
 import { signLookupToken } from "@/lib/lookup-token";
 import { stableLineRetryKey } from "@/lib/line-retry-key";
-import { fetchPreorderSummaries } from "@/lib/reservation-preorder";
+import { canonicalDraftItems, fetchPreorderSummaries, isReservationPreorderEnabled, type DraftItemInput } from "@/lib/reservation-preorder";
 
 function supabaseAdmin() {
   return createClient(
@@ -80,6 +80,9 @@ export async function POST(request: NextRequest) {
       guest_count: guestCount,
       notes,
       line_user_id: lineUserId,
+      meal_items: mealItems,
+      meal_notes: mealNotes,
+      booking_request_key: bookingRequestKey,
     } = body as {
       room_id: string;
       customer_name: string;
@@ -90,6 +93,9 @@ export async function POST(request: NextRequest) {
       guest_count?: number | null;
       notes?: string | null;
       line_user_id?: string | null;
+      meal_items?: DraftItemInput[];
+      meal_notes?: string | null;
+      booking_request_key?: string;
     };
 
     if (!roomId || !customerName?.trim() || !phone?.trim() || !startTime || !endTime) {
@@ -129,14 +135,6 @@ export async function POST(request: NextRequest) {
 
     const totalPrice = computeReservationTotalPrice(room, startTime, endTime);
 
-    const conflict = await hasSlotConflict(roomId, startTime, endTime);
-    if (conflict) {
-      return NextResponse.json(
-        { error: "該時段已被預訂，請重新選擇" },
-        { status: 409 }
-      );
-    }
-
     // 若客人已在表單中綁定 LINE，優先使用；否則嘗試從舊訂位複製
     let finalLineUserId: string | null = lineUserId ?? null;
     if (!finalLineUserId) {
@@ -152,7 +150,7 @@ export async function POST(request: NextRequest) {
       } catch { /* 查無舊綁定，略過 */ }
     }
 
-    const { id, booking_code } = await insertReservationAdmin({
+    const bookingPayload = {
       room_id: roomId,
       customer_name: customerName.trim(),
       phone: phone.trim(),
@@ -164,7 +162,41 @@ export async function POST(request: NextRequest) {
       guest_count: guestCount ?? null,
       notes: notes?.trim() || null,
       line_user_id: finalLineUserId,
-    });
+    };
+    let chosenMeals: DraftItemInput[];
+    try {
+      chosenMeals = mealItems === undefined ? [] : canonicalDraftItems(mealItems);
+    } catch {
+      return NextResponse.json({ error: "餐點內容不正確，請重新選擇" }, { status: 400 });
+    }
+    if (chosenMeals.length > 0 && !isReservationPreorderEnabled()) {
+      return NextResponse.json({ error: "訂位選餐尚未開放" }, { status: 503 });
+    }
+    // The meal RPC owns conflict detection under the database exclusion constraint.
+    // A preflight query here would reject an idempotent retry of the same booking.
+    if (chosenMeals.length === 0 && await hasSlotConflict(roomId, startTime, endTime)) {
+      return NextResponse.json({ error: "該時段已被預訂，請重新選擇" }, { status: 409 });
+    }
+    let created: { id: string; booking_code: string };
+    if (chosenMeals.length > 0) {
+      if (!bookingRequestKey || !/^[a-f0-9-]{16,128}$/i.test(bookingRequestKey)) {
+        return NextResponse.json({ error: "訂位識別碼無效，請重新整理後再試" }, { status: 400 });
+      }
+      const { data, error } = await supabaseAdmin().rpc("create_booking_with_meals", {
+        p_booking: bookingPayload,
+        p_items: chosenMeals,
+        p_guest_notes: mealNotes ?? null,
+        p_idempotency_key: bookingRequestKey,
+      });
+      if (error) {
+        if (error.code === "23P01") throw new SlotConflictError();
+        throw error;
+      }
+      created = data as { id: string; booking_code: string };
+    } else {
+      created = await insertReservationAdmin(bookingPayload);
+    }
+    const { id, booking_code } = created;
 
     // 傳群組通知（失敗不影響主流程）
     try {

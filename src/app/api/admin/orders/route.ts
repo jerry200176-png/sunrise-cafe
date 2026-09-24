@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { requirePermission } from "@/lib/admin-api-auth";
 
 function adminClient() {
   return createClient(
@@ -15,6 +16,8 @@ export async function GET(request: NextRequest) {
   if (!branchId) {
     return NextResponse.json({ error: "缺少 branchId" }, { status: 400 });
   }
+  const denied = await requirePermission(request, "orders:read", branchId);
+  if (denied) return denied;
 
   let query = adminClient()
     .from("orders")

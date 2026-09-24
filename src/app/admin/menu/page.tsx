@@ -28,12 +28,15 @@ export default function AdminMenuPage() {
   const [fPrice, setFPrice] = useState("0");
   const [fCategoryId, setFCategoryId] = useState("");
   const [fImageUrl, setFImageUrl] = useState("");
+  const [fImageFile, setFImageFile] = useState<File | null>(null);
+  const [fOptions, setFOptions] = useState<Array<{ option_group: string; option_name: string; price_delta: number }>>([]);
   const [fOrder, setFOrder] = useState("0");
   const [fPreorderEligible, setFPreorderEligible] = useState(false);
 
   // 分類表單
   const [catFormOpen, setCatFormOpen] = useState(false);
   const [catName, setCatName] = useState("");
+  const [catEditing, setCatEditing] = useState<MenuCategory | null>(null);
 
   const [confirmDeleteItemId, setConfirmDeleteItemId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -65,12 +68,12 @@ export default function AdminMenuPage() {
     try {
       const [itemRes, catRes] = await Promise.all([
         fetch(`/api/admin/menu-items?branchId=${encodeURIComponent(bid)}`),
-        fetch(`/api/menu?branchId=${encodeURIComponent(bid)}`),
+        fetch(`/api/admin/menu-categories?branchId=${encodeURIComponent(bid)}`),
       ]);
       const itemData = await itemRes.json();
       const catData = await catRes.json();
       setItems(Array.isArray(itemData) ? itemData : []);
-      setCategories(Array.isArray(catData?.categories) ? catData.categories : []);
+      setCategories(Array.isArray(catData) ? catData : []);
     } catch {
       setError("載入失敗");
     } finally {
@@ -87,6 +90,7 @@ export default function AdminMenuPage() {
     setFName(""); setFDesc(""); setFPrice("0");
     setFCategoryId(categories[0]?.id ?? "");
     setFImageUrl(""); setFOrder("0");
+    setFImageFile(null); setFOptions([]);
     setFPreorderEligible(false);
     setFormOpen(true);
   };
@@ -98,6 +102,8 @@ export default function AdminMenuPage() {
     setFPrice(String(item.price));
     setFCategoryId(item.category_id ?? "");
     setFImageUrl(item.image_url ?? "");
+    setFImageFile(null);
+    setFOptions((item.options ?? []).map((option) => ({ option_group: option.option_group, option_name: option.option_name, price_delta: Number(option.price_delta) })));
     setFOrder(String(item.display_order));
     setFPreorderEligible(Boolean(item.preorder_eligible));
     setFormOpen(true);
@@ -107,6 +113,16 @@ export default function AdminMenuPage() {
     e.preventDefault();
     setError(null);
     try {
+      let imageUrl = fImageUrl.trim() || null;
+      if (fImageFile) {
+        const form = new FormData();
+        form.append("branch_id", branchId);
+        form.append("photo", fImageFile);
+        const upload = await fetch("/api/admin/menu-photos", { method: "POST", body: form });
+        const result = await upload.json();
+        if (!upload.ok) throw new Error(result.error ?? "照片上傳失敗");
+        imageUrl = result.url;
+      }
       if (editing) {
         const res = await fetch(`/api/admin/menu-items/${editing.id}`, {
           method: "PATCH",
@@ -116,7 +132,8 @@ export default function AdminMenuPage() {
             description: fDesc.trim() || null,
             price: Number(fPrice),
             category_id: fCategoryId || null,
-            image_url: fImageUrl.trim() || null,
+            image_url: imageUrl,
+            options: fOptions,
             display_order: Number(fOrder),
             preorder_eligible: fPreorderEligible,
           }),
@@ -132,7 +149,8 @@ export default function AdminMenuPage() {
             description: fDesc.trim() || null,
             price: Number(fPrice),
             category_id: fCategoryId || null,
-            image_url: fImageUrl.trim() || null,
+            image_url: imageUrl,
+            options: fOptions,
             display_order: Number(fOrder),
             preorder_eligible: fPreorderEligible,
           }),
@@ -173,15 +191,18 @@ export default function AdminMenuPage() {
   const addCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!catName.trim()) return;
-    const res = await fetch("/api/admin/menu-categories", {
-      method: "POST",
+    const res = await fetch(catEditing ? `/api/admin/menu-categories/${catEditing.id}` : "/api/admin/menu-categories", {
+      method: catEditing ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ branch_id: branchId, name: catName.trim() }),
     });
     if (res.ok) {
       setCatName("");
+      setCatEditing(null);
       setCatFormOpen(false);
       loadData(branchId);
+    } else {
+      setError((await res.json()).error ?? "分類儲存失敗");
     }
   };
 
@@ -220,6 +241,13 @@ export default function AdminMenuPage() {
       </header>
 
       <div className="mx-auto max-w-4xl px-4 py-6 space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <div><p className="font-semibold text-stone-900">官方 LINE 菜單網址</p><p className="text-sm text-stone-600">客人無須訂位即可瀏覽，開啟後選擇分店。</p></div>
+          <button type="button" onClick={async () => {
+            await navigator.clipboard.writeText(`${window.location.origin}/menu`);
+            showToast("已複製菜單網址", "success");
+          }} className="rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white">複製網址</button>
+        </div>
         {error && (
           <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800">
             {error}
@@ -232,7 +260,7 @@ export default function AdminMenuPage() {
             <h2 className="font-semibold text-gray-900">菜單分類</h2>
             <button
               type="button"
-              onClick={() => setCatFormOpen(true)}
+              onClick={() => { setCatEditing(null); setCatName(""); setCatFormOpen(true); }}
               className="inline-flex items-center gap-1 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700"
             >
               <Plus className="h-4 w-4" /> 新增分類
@@ -243,9 +271,14 @@ export default function AdminMenuPage() {
           ) : (
             <div className="flex flex-wrap gap-2">
               {categories.map((c) => (
-                <span key={c.id} className="rounded-full bg-amber-100 px-3 py-1 text-sm text-amber-800">
-                  {c.name}
-                </span>
+                <div key={c.id} className="inline-flex items-center gap-2 rounded-full bg-amber-100 px-3 py-1 text-sm text-amber-800">
+                  <span>{c.name}{!c.is_active ? "（隱藏）" : ""}</span>
+                  <button type="button" aria-label={`編輯${c.name}`} onClick={() => { setCatEditing(c); setCatName(c.name); setCatFormOpen(true); }}><Pencil className="h-3.5 w-3.5" /></button>
+                  <button type="button" onClick={async () => {
+                    const res = await fetch(`/api/admin/menu-categories/${c.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_active: !c.is_active }) });
+                    if (!res.ok) setError((await res.json()).error ?? "分類更新失敗"); else loadData(branchId);
+                  }} className="text-xs underline">{c.is_active ? "隱藏" : "顯示"}</button>
+                </div>
               ))}
             </div>
           )}
@@ -404,13 +437,26 @@ export default function AdminMenuPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">圖片 URL</label>
-                <input
-                  type="url"
-                  value={fImageUrl} onChange={(e) => setFImageUrl(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
-                  placeholder="https://..."
-                />
+                <label htmlFor="menu-photo" className="block text-sm font-medium text-gray-700 mb-1">餐點照片</label>
+                <input id="menu-photo" type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => setFImageFile(e.target.files?.[0] ?? null)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+                {fImageUrl && !fImageFile && <p className="mt-1 truncate text-xs text-stone-500">目前照片：{fImageUrl}</p>}
+                {fImageUrl && !fImageFile && <button type="button" onClick={() => setFImageUrl("")} className="mt-1 text-xs text-rose-700 underline">移除目前照片</button>}
+              </div>
+              <div className="border-t border-stone-200 pt-3">
+                <div className="flex items-center justify-between"><p className="text-sm font-semibold">客製選項</p>
+                  <button type="button" onClick={() => setFOptions((old) => [...old, { option_group: "", option_name: "", price_delta: 0 }])}
+                    className="text-sm font-medium text-amber-800">＋ 新增選項</button></div>
+                <p className="mb-2 text-xs text-stone-500">同一群組如「甜度」，顧客可選其中一項。</p>
+                {fOptions.map((option, index) => <div key={index} className="mb-2 grid grid-cols-[1fr_1fr_5rem_auto] gap-2">
+                  <input aria-label={`選項${index + 1}群組`} placeholder="群組" value={option.option_group} onChange={(e) => setFOptions((old) => old.map((item, i) => i === index ? { ...item, option_group: e.target.value } : item))}
+                    className="min-w-0 rounded border border-stone-300 px-2 py-1.5 text-sm" />
+                  <input aria-label={`選項${index + 1}名稱`} placeholder="名稱" value={option.option_name} onChange={(e) => setFOptions((old) => old.map((item, i) => i === index ? { ...item, option_name: e.target.value } : item))}
+                    className="min-w-0 rounded border border-stone-300 px-2 py-1.5 text-sm" />
+                  <input aria-label={`選項${index + 1}加價`} type="number" value={option.price_delta} onChange={(e) => setFOptions((old) => old.map((item, i) => i === index ? { ...item, price_delta: Number(e.target.value) } : item))}
+                    className="min-w-0 rounded border border-stone-300 px-2 py-1.5 text-sm" />
+                  <button type="button" aria-label={`刪除選項${index + 1}`} onClick={() => setFOptions((old) => old.filter((_, i) => i !== index))} className="text-rose-700">×</button>
+                </div>)}
               </div>
               <div className="flex gap-2 pt-2">
                 <button
@@ -436,7 +482,7 @@ export default function AdminMenuPage() {
       {catFormOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-sm rounded-xl bg-white p-4 shadow-xl">
-            <h3 className="text-lg font-semibold mb-4">新增分類</h3>
+            <h3 className="text-lg font-semibold mb-4">{catEditing ? "編輯分類" : "新增分類"}</h3>
             <form onSubmit={addCategory} className="space-y-3">
               <input
                 type="text" required
@@ -456,7 +502,7 @@ export default function AdminMenuPage() {
                   type="submit"
                   className="flex-1 rounded-lg bg-amber-600 py-2 text-white hover:bg-amber-700"
                 >
-                  新增
+                  儲存
                 </button>
               </div>
             </form>

@@ -105,6 +105,9 @@ export default function Home() {
                 <ArrowUpRight className="h-4 w-4" strokeWidth={1.5} />
               </span>
             </Link>
+            <Link href="/menu" className="self-start px-2 py-1 text-sm font-medium text-caramel-deep underline underline-offset-4">
+              不訂位也能先看菜單 →
+            </Link>
           </nav>
         </header>
 

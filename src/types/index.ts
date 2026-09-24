@@ -154,6 +154,8 @@ export interface Order {
   id: string;
   branch_id: string;
   table_id: string | null;
+  reservation_id?: string | null;
+  paid_at?: string | null;
   status: OrderStatus;
   total_amount: number;
   notes: string | null;
@@ -174,6 +176,7 @@ export interface OrderItem {
   unit_price: number;
   selected_options: SelectedOption[] | null;
   special_notes: string | null;
+  served_at?: string | null;
 }
 
 // ── Stripe 支付模組 ──────────────────────────────────────────
