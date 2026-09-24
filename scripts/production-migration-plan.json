@@ -22,5 +22,6 @@
     { "file": "migration-market-parity-rounds-3-7.sql", "runner": "scripts/apply-migration-market-parity.mjs", "execution": "workflow_untracked_contract", "phase": "postdeploy" }
     ,{ "version": "20260921-reservation-preorder", "file": "migration-reservation-preorder.sql", "runner": "scripts/apply-migration-reservation-preorder.mjs", "phase": "predeploy", "runtime_flag": "RESERVATION_PREORDER_ENABLED" }
     ,{ "version": "20260924-booking-meals", "file": "migration-booking-meals.sql", "runner": "scripts/apply-migration-booking-meals.mjs", "phase": "predeploy", "runtime_flag": "RESERVATION_PREORDER_ENABLED" }
+    ,{ "version": "20260924-preorder-menu-seed", "file": "migration-preorder-menu-seed.sql", "runner": "scripts/apply-migration-preorder-menu-seed.mjs", "phase": "predeploy", "runtime_flag": "RESERVATION_PREORDER_ENABLED" }
   ]
 }

@@ -364,5 +364,15 @@
       { "type": "function", "name": "staff_replace_preorder", "introspect": "catalog" },
       { "type": "function", "name": "replace_menu_item_options", "introspect": "catalog" }
     ]
+  },
+  {
+    "version": "20260924-preorder-menu-seed",
+    "file": "migration-preorder-menu-seed.sql",
+    "critical": true,
+    "evidence": [
+      { "type": "column", "table": "menu_items", "name": "preorder_eligible", "introspect": "catalog", "note": "One-time seed enables existing available items; later staff edits remain authoritative" },
+      { "type": "table", "name": "preorder_menu_seed_changes", "introspect": "catalog", "note": "Private exact preimage of the one-time change" },
+      { "type": "rls", "table": "preorder_menu_seed_changes", "introspect": "catalog", "note": "No anon or authenticated access to the recovery record" }
+    ]
   }
 ]

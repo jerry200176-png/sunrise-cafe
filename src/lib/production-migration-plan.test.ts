@@ -8,6 +8,7 @@ import {
   validateMigrationPlan,
 } from "../../scripts/run-production-migration-phase.mjs";
 import { applyBookingMeals, migrationBody } from "../../scripts/apply-migration-booking-meals.mjs";
+import { applyPreorderMenuSeed, migrationBody as menuSeedBody } from "../../scripts/apply-migration-preorder-menu-seed.mjs";
 
 const root = process.cwd();
 const plan = JSON.parse(
@@ -79,6 +80,7 @@ describe("explicit production migration plan", () => {
       "20260914-bank-transfer-reports",
       "20260921-reservation-preorder",
       "20260924-booking-meals",
+      "20260924-preorder-menu-seed",
     ]);
     expect(postdeployUnits.length).toBeLessThan(postdeployEntries.length);
     expect(postdeployUnits.every((entry) => entry.phase === "postdeploy")).toBe(true);
@@ -86,9 +88,10 @@ describe("explicit production migration plan", () => {
 
   it("runs the preorder prerequisite before booking meals and rejects a missing prerequisite", async () => {
     const units = phaseExecutionUnits(plan, "predeploy") as typeof plan.entries;
-    expect(units.map((entry) => entry.runner).slice(-2)).toEqual([
+    expect(units.map((entry) => entry.runner).slice(-3)).toEqual([
       "scripts/apply-migration-reservation-preorder.mjs",
       "scripts/apply-migration-booking-meals.mjs",
+      "scripts/apply-migration-preorder-menu-seed.mjs",
     ]);
     let began = false;
     const sql = Object.assign(async () => [], { begin: async () => { began = true; } });
@@ -99,6 +102,10 @@ describe("explicit production migration plan", () => {
     expect(body).toContain("CREATE OR REPLACE FUNCTION public.create_booking_with_meals");
     expect(body).not.toMatch(/^BEGIN;/);
     expect(body).not.toMatch(/COMMIT;\s*$/);
+    await expect(applyPreorderMenuSeed(sql as never)).rejects.toThrow(/Prerequisite migration missing/);
+    const seed = menuSeedBody(readFileSync(join(root, "supabase/migration-preorder-menu-seed.sql"), "utf8"));
+    expect(seed).toContain("WHERE is_available = true");
+    expect(seed).toContain("AND preorder_eligible = false");
   });
 
   it("fails closed for unknown, missing, or duplicate phases", () => {
@@ -136,6 +143,7 @@ describe("explicit production migration plan", () => {
       "scripts/apply-migration-bank-transfer-reports.mjs",
       "scripts/apply-migration-reservation-preorder.mjs",
       "scripts/apply-migration-booking-meals.mjs",
+      "scripts/apply-migration-preorder-menu-seed.mjs",
     ]);
   });
 
@@ -154,7 +162,7 @@ describe("explicit production migration plan", () => {
       return { status: "already_applied" };
     });
     expect(alreadyApplied.phase).toBe("predeploy");
-    expect(calls).toHaveLength(3);
+    expect(calls).toHaveLength(4);
 
     const emptyPlan = { schema_version: 2, entries: [] };
     const postdeploy = await executePhase(emptyPlan, "postdeploy", async () => {
