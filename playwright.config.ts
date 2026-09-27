@@ -20,7 +20,11 @@ export default defineConfig({
     // 與客人實際使用環境一致（台灣時區）；避免 slot 按鈕文字因 UTC 偏移而對不上
     timezoneId: "Asia/Taipei",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    // Guest booking is mostly used from iPhone Safari / LINE's in-app browser (WebKit on iOS).
+    { name: "webkit", testMatch: "booking-flow.spec.ts", use: { ...devices["Desktop Safari"] } },
+  ],
   webServer: {
     command: "npm run start",
     url: baseURL,

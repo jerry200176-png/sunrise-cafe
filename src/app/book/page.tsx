@@ -81,6 +81,10 @@ export default function BookPage() {
   const [draftHydrated, setDraftHydrated] = useState(false);
   const [availabilityRetry, setAvailabilityRetry] = useState(0);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  /** Booking (room|start|duration) whose submit ended without a readable response — it may or may not exist. */
+  const [uncertainSubmitKey, setUncertainSubmitKey] = useState<string | null>(null);
+  const currentSubmitKey = `${roomId}|${selectedStart}|${duration}`;
+  const submitUncertain = uncertainSubmitKey === currentSubmitKey;
   const errorBannerRef = useRef<HTMLDivElement>(null);
   const stepPanelRef = useRef<HTMLDivElement>(null);
 
@@ -494,7 +498,9 @@ export default function BookPage() {
       const data = await res.json();
       setSubmitting(false);
       if (res.status === 409) {
-        setError((data as { error?: string })?.error ?? t("book.error.slotTaken"));
+        // Without meals the server has no idempotent replay: a retry after an
+        // unanswered submit can collide with the guest's own booking.
+        setError(submitUncertain ? t("book.error.slotTakenAfterUncertain") : (data as { error?: string })?.error ?? t("book.error.slotTaken"));
         errorBannerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
         return;
       }
@@ -559,11 +565,12 @@ export default function BookPage() {
       } else {
         setError(t("book.error.noBookingCode"));
       }
-    } catch (e) {
+    } catch {
+      // Timeout, dropped connection or unreadable body: the request may still have been saved.
       setSubmitting(false);
-      const isTimeout = e instanceof DOMException && e.name === "AbortError";
-      setError(isTimeout ? "訂位請求逾時，請檢查網路後重試" : e instanceof Error ? e.message : t("book.error.connectionFailed"));
-      errorBannerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+      setUncertainSubmitKey(currentSubmitKey);
+      setError(t("book.error.submitUncertain"));
+      requestAnimationFrame(() => errorBannerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }));
     }
   };
 
@@ -652,7 +659,7 @@ export default function BookPage() {
         tabIndex={-1}
         role="region"
         aria-label={`${t("book.headerTitle")} — ${t(`book.steps.${step}` as "book.steps.branch")}`}
-        className={`outline-none ${step === "form" ? "pb-sticky-form" : ""}`}
+        className={`outline-none ${step === "form" || step === "slot" ? "pb-sticky-form" : ""}`}
       >
         {error && (
           <div
@@ -661,6 +668,11 @@ export default function BookPage() {
             className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
           >
             {error}
+            {submitUncertain && step === "form" && (
+              <Link href="/book/query" className="mt-2 block font-medium text-red-900 underline underline-offset-2">
+                {t("book.error.goToQuery")}
+              </Link>
+            )}
           </div>
         )}
 
@@ -1033,23 +1045,37 @@ export default function BookPage() {
                   </div>
                 </div>
 
-                {/* Summary Bar: 預約摘要 */}
-                {summary && (
-                  <div className="mt-4 mb-2 rounded-lg bg-emerald-50 border border-emerald-100 p-3 text-sm text-emerald-900 animate-in fade-in slide-in-from-bottom-2">
-                    <p className="font-bold">{t("book.slot.summaryLabel")}</p>
-                    <p>{summary.dateLabel} {summary.startLabel} ~ {summary.endLabel} {t("book.slot.summaryDuration", { duration })}</p>
+                {/* 選定摘要 + 下一步固定在底部，選完時段不必捲過整片按鈕 */}
+                <div
+                  className="fixed inset-x-0 bottom-0 z-20 border-t border-amber-200 bg-white/95 px-4 pt-3 sm:px-0 sticky-bottom-safe shadow-[0_-4px_12px_rgba(0,0,0,0.08)] backdrop-blur-sm"
+                  role="region"
+                  aria-label={t("book.slot.nextStep")}
+                >
+                  <div className="mx-auto flex max-w-lg flex-wrap items-center gap-x-3 gap-y-2 sm:px-4">
+                    <p className="flex-[999_1_9rem] text-sm text-gray-800" aria-live="polite">
+                      {summary ? (
+                        <>
+                          <span className="block text-xs text-gray-500">
+                            {t("book.slot.summaryLabel")} {summary.dateLabel}
+                          </span>
+                          <span className="block">
+                            <span className="whitespace-nowrap font-semibold tabular-nums">{summary.startLabel}–{summary.endLabel}</span>{" "}
+                            <span className="whitespace-nowrap text-xs text-gray-600">{t("book.slot.summaryDuration", { duration })}</span>
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-gray-500">{t("book.slot.pickTimeHint")}</span>
+                      )}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={!selectedStart || !canSelectDuration(selectedStart)}
+                      onClick={() => changeStep("form")}
+                      className="flex-[1_0_auto] rounded-lg bg-amber-600 px-4 py-3 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                    >
+                      {t("book.slot.nextStep")}
+                    </button>
                   </div>
-                )}
-
-                <div className="mt-4 flex justify-end">
-                  <button
-                    type="button"
-                    disabled={!selectedStart || !canSelectDuration(selectedStart)}
-                    onClick={() => changeStep("form")}
-                    className="rounded-lg bg-amber-600 px-4 py-2 text-white disabled:opacity-50"
-                  >
-                    {t("book.slot.nextStep")}
-                  </button>
                 </div>
               </>
               );
@@ -1237,12 +1263,13 @@ export default function BookPage() {
                         }
                       }}
                       aria-invalid={Boolean(fieldErrors["booking-agree-terms"])}
+                      aria-describedby={fieldErrors["booking-agree-terms"] ? "booking-agree-terms-error" : undefined}
                       className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
                     />
                     <span className="font-medium">{t("book.form.agreeNotes")}</span>
                   </label>
                   {fieldErrors["booking-agree-terms"] && (
-                    <p className="mt-1 text-xs text-red-600" role="alert">
+                    <p id="booking-agree-terms-error" className="mt-1 text-xs text-red-600" role="alert">
                       {fieldErrors["booking-agree-terms"]}
                     </p>
                   )}
@@ -1311,7 +1338,7 @@ export default function BookPage() {
           <button
             type="submit"
             form="booking-form"
-            disabled={submitting || (rentalNotes.length > 0 && !agreeToTerms)}
+            disabled={submitting}
             className="w-full rounded-lg bg-amber-600 py-3.5 text-base font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
           >
             {submitting ? t("book.form.submitting") : t("book.form.submit")}
