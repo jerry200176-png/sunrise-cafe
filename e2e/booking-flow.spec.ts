@@ -248,5 +248,20 @@ test.describe("手機訂位：選時段、同意條款、送出結果不明", ()
     await expect(page.getByRole("alert").filter({ hasText: "可能就是您剛才送出的訂位" })).toBeVisible();
     expect(keys).toHaveLength(2);
     expect(keys[1]).toBe(keys[0]); // 重試沿用同一個 booking_request_key
+
+    // 回上一步選同一時段：仍是同一筆可能已送出的訂位
+    await page.getByRole("button", { name: "← 重選時段" }).click();
+    await page.getByRole("button", { name: "10:00–12:00" }).click();
+    await page.getByRole("button", { name: "下一步 · 填寫資料" }).click();
+    await submit.click();
+    await expect(page.getByRole("alert").filter({ hasText: "可能就是您剛才送出的訂位" })).toBeVisible();
+
+    // 換不同時段：409 只代表被別人訂走
+    await page.getByRole("button", { name: "← 重選時段" }).click();
+    await page.getByRole("button", { name: "12:00–14:00" }).click();
+    await page.getByRole("button", { name: "下一步 · 填寫資料" }).click();
+    await submit.click();
+    await expect(page.getByRole("alert").filter({ hasText: "該時段已被預訂，請重新選擇" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "前往查詢我的訂位" })).toHaveCount(0);
   });
 });

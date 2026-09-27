@@ -81,8 +81,10 @@ export default function BookPage() {
   const [draftHydrated, setDraftHydrated] = useState(false);
   const [availabilityRetry, setAvailabilityRetry] = useState(0);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  /** A submit ended without a readable response — the booking may or may not exist. */
-  const [submitUncertain, setSubmitUncertain] = useState(false);
+  /** Booking (room|start|duration) whose submit ended without a readable response — it may or may not exist. */
+  const [uncertainSubmitKey, setUncertainSubmitKey] = useState<string | null>(null);
+  const currentSubmitKey = `${roomId}|${selectedStart}|${duration}`;
+  const submitUncertain = uncertainSubmitKey === currentSubmitKey;
   const errorBannerRef = useRef<HTMLDivElement>(null);
   const stepPanelRef = useRef<HTMLDivElement>(null);
 
@@ -93,11 +95,6 @@ export default function BookPage() {
   const [stripeLiveEnabled, setStripeLiveEnabled] = useState(false);
   const paymentModalTriggered = useRef(false);
   const funnelEntered = useRef(false);
-
-  // The uncertainty only concerns the exact booking that was submitted.
-  useEffect(() => {
-    setSubmitUncertain(false);
-  }, [roomId, date, selectedStart, duration]);
 
   const focusStepPanel = useCallback(() => {
     requestAnimationFrame(() => {
@@ -571,7 +568,7 @@ export default function BookPage() {
     } catch {
       // Timeout, dropped connection or unreadable body: the request may still have been saved.
       setSubmitting(false);
-      setSubmitUncertain(true);
+      setUncertainSubmitKey(currentSubmitKey);
       setError(t("book.error.submitUncertain"));
       requestAnimationFrame(() => errorBannerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }));
     }
