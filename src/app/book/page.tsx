@@ -28,6 +28,7 @@ import {
   saveBookingSuccessMeta,
 } from "@/lib/booking-draft";
 import { formatBookingPolicyLines } from "@/lib/booking-policy";
+import { resolveBranchGuestSettings } from "@/lib/branch-guest-settings";
 import {
   canSelectStart,
   endIsoForDuration,
@@ -75,8 +76,13 @@ export default function BookPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [rentalNotes, setRentalNotes] = useState<RentalNoteSection[]>([]);
-  const [depositInfo, setDepositInfo] = useState<string | null>(null);
+  const [sharedRentalNotes, setSharedRentalNotes] = useState<RentalNoteSection[]>([]);
+  const [sharedDepositInfo, setSharedDepositInfo] = useState<string | null>(null);
+  // 分店有填就用分店的，沒填沿用全站設定
+  const { rental_notes: rentalNotes, deposit_info: depositInfo } = resolveBranchGuestSettings(
+    branches.find((b) => b.id === branchId),
+    { rental_notes: sharedRentalNotes, deposit_info: sharedDepositInfo }
+  );
   const [lineUserId, setLineUserId] = useState<string | null>(null);
   const [draftHydrated, setDraftHydrated] = useState(false);
   const [availabilityRetry, setAvailabilityRetry] = useState(0);
@@ -230,8 +236,8 @@ export default function BookPage() {
     fetchWithTimeout("/api/settings")
       .then((r) => r.json())
       .then((d) => {
-        if (Array.isArray(d?.rental_notes)) setRentalNotes(d.rental_notes);
-        if (d?.deposit_info) setDepositInfo(d.deposit_info);
+        if (Array.isArray(d?.rental_notes)) setSharedRentalNotes(d.rental_notes);
+        if (d?.deposit_info) setSharedDepositInfo(d.deposit_info);
       })
       .catch(() => { });
   }, [branchId, changeStep]);

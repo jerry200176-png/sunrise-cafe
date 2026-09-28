@@ -5,14 +5,19 @@
 
 ---
 
-## 1. 資料庫
+## 1. 分店資料（後台 → 分店管理，不需直接改 Supabase）
 
-1. 在 Supabase 新增 `branches` 列：
-   - `name`, `slug`, `display_name`
-   - `payment_info`, `line_pay_url`（訂金話術用）
-   - `line_group_id`（該店 LINE 群組 ID）
-2. 新增 `rooms` 列並設定時段定價
-3. 確認 `migration-branches-line-group-id.sql` 已套用（若使用 DB 欄位而非 env fallback）
+1. 新增分店：`名稱`、`對客顯示名稱`（例：昇昇咖啡 (信義店)，也用於 LINE 卡片）、地址、電話、營業時間
+2. `LINE 群組 ID`、`匯款資訊`、`LINE Pay 連結`
+3. 選填，**只有這間店和全站設定不同時才填**（留空＝沿用「設定」頁的全站內容）：
+   - 此店 Google 評論連結（結帳後的評論邀請）
+   - 此店訂金說明（訂位表單顯示）
+   - 此店租借注意事項（每段第一行是標題，下面每行一個項目，段落間空一行；客人需勾選同意）
+4. 新增包廂並設定平日／假日時價、人數、照片
+5. 公休日：「公休日設定」選該分店後設定
+6. 菜單：菜單管理選該分店建立
+
+欄位來源：`branches` 表（覆寫欄位由 `migration-branch-guest-settings.sql` 新增，走 predeploy 自動套用）。
 
 ---
 

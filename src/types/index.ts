@@ -10,6 +10,10 @@ export interface Branch {
   closed_dates?: string[];
   payment_info?: string | null;
   line_pay_url?: string | null;
+  /** 分店覆寫；null = 沿用 settings 全站設定 */
+  rental_notes?: RentalNoteSection[] | null;
+  deposit_info?: string | null;
+  google_review_url?: string | null;
   created_at: string;
 }
 

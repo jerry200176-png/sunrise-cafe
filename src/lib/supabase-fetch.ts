@@ -57,7 +57,7 @@ export async function fetchBranches(): Promise<unknown[]> {
 export async function fetchPublicBranches(): Promise<unknown[]> {
   const { url: baseUrl } = base();
   const res = await fetch(
-    `${baseUrl}/rest/v1/branches?select=id,name,address,phone,open_time,close_time,closed_dates,display_name&order=name.asc`,
+    `${baseUrl}/rest/v1/branches?select=id,name,address,phone,open_time,close_time,closed_dates,display_name,rental_notes,deposit_info&order=name.asc`,
     { method: "GET", headers: headers(), cache: "no-store" }
   );
   if (!res.ok) {
@@ -77,6 +77,9 @@ export async function insertBranch(body: {
   display_name?: string | null;
   payment_info?: string | null;
   line_pay_url?: string | null;
+  rental_notes?: import("@/types").RentalNoteSection[] | null;
+  deposit_info?: string | null;
+  google_review_url?: string | null;
 }): Promise<void> {
   const { url: baseUrl } = base();
   const res = await fetch(`${baseUrl}/rest/v1/branches`, {
@@ -92,7 +95,7 @@ export async function insertBranch(body: {
 
 export async function updateBranch(
   id: string,
-  body: Partial<{ name: string; address: string | null; phone: string | null; open_time: string | null; close_time: string | null; line_group_id: string | null; display_name: string | null; payment_info: string | null; line_pay_url: string | null; closed_dates: string[] }>
+  body: Partial<{ name: string; address: string | null; phone: string | null; open_time: string | null; close_time: string | null; line_group_id: string | null; display_name: string | null; payment_info: string | null; line_pay_url: string | null; closed_dates: string[]; rental_notes: import("@/types").RentalNoteSection[] | null; deposit_info: string | null; google_review_url: string | null }>
 ): Promise<void> {
   const { url: baseUrl } = base();
   const res = await fetch(`${baseUrl}/rest/v1/branches?id=eq.${encodeURIComponent(id)}`, {
