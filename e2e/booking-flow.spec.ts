@@ -6,6 +6,20 @@ import {
   setupBookingApiMocks,
 } from "./helpers/mock-booking";
 
+// Side requests the booking page makes on load. Without a DB they fail and the page
+// falls back to empty values; answering them here keeps that result but stops
+// every test from spending the server's shared per-IP API rate limit.
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/rooms?**", (route) => route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
+  await page.route("**/api/menu?**", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ preorderEnabled: false, items: [] }) })
+  );
+  await page.route("**/api/booking-funnel", (route) => route.fulfill({ status: 204, body: "" }));
+  await page.route("**/api/payment/status", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ stripe_enabled: false }) })
+  );
+});
+
 /**
  * Guest booking journey with mocked APIs (CI-safe, no production DB).
  * Addresses #59 — verified gap: prior e2e only loaded pages.
