@@ -28,6 +28,27 @@
 
 ---
 
+## 分店專屬群組 Bot（各店用自己的訊息額度）
+
+每間分店可以有自己的群組 Bot（另一個 LINE 官方帳號），該店的店員通知就從它發出、用它自己的每月額度。沒設定的分店照舊用預設群組 Bot（`LINE_CHANNEL_ACCESS_TOKEN`）。
+
+1. LINE Official Account Manager 建立新官方帳號 → 啟用 Messaging API
+2. LINE Developers 取得此 channel 的 **Channel secret** 與 **Channel access token**
+3. Webhook URL 設為 `https://sunrise-cafe-six.vercel.app/api/webhooks/line`，開啟 Use webhook，按 Verify
+4. Vercel 環境變數 `LINE_EXTRA_GROUP_BOTS`（Production）設成 JSON 陣列，**不要貼到聊天或 commit**：
+   ```json
+   [{ "name": "同德店", "secret": "<Channel secret>", "token": "<Channel access token>" }]
+   ```
+   設定後需重新部署才生效。
+5. 把新 Bot 拉進該分店的 LINE 群組 → Bot 會在群組回覆「此群組 ID：C…」
+6. 後台「分店管理」→ 該分店 → 「LINE 群組 ID」貼上 → 儲存
+
+運作方式：發送群組通知時，程式先問 LINE「哪個 Bot 在這個群組裡」（group summary API，不耗額度），用那個 Bot 的 token 發送；結果快取 10 分鐘。分店 Bot 的 webhook 只處理「加入群組」事件，店員在群組裡的對話不會被當成客人付款回報。
+
+依分店發送的通知：新訂位、付款待確認、已付訂金（含 LINE Pay）、改期、候補轉訂位、訂金逾期釋放、明日提醒、出席確認。
+
+---
+
 ## 換客人 Bot（步驟）
 
 1. 取得新 Bot 的 Channel Access Token

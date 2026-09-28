@@ -20,6 +20,7 @@ import {
   type LineNotificationPriority,
 } from "@/lib/line-usage";
 import { observeLineProviderRejection } from "@/lib/line-provider-observability";
+import { tokenForGroup } from "@/lib/line-group-bots";
 
 export {
   buildNewBookingFlex,
@@ -84,8 +85,10 @@ async function sendGroupPayload(
   messages: Record<string, unknown>[],
   options?: LineSendOptions
 ): Promise<void> {
-  const { token } = getLineConfig();
-  if (!token) throw new Error("缺少 LINE_CHANNEL_ACCESS_TOKEN");
+  const { token: defaultToken } = getLineConfig();
+  if (!defaultToken) throw new Error("缺少 LINE_CHANNEL_ACCESS_TOKEN");
+  // A branch with its own Official Account pushes from that account (its own quota).
+  const token = await tokenForGroup(groupId, defaultToken);
 
   const budget = readLineUsageBudget();
   if (
@@ -190,6 +193,17 @@ export async function sendLineFlex(
     );
   }
   return sendLineFlexToGroup(altText, contents, groupId, options);
+}
+
+/** Branch group when the branch has one, else the default LINE_GROUP_ID group. */
+export async function sendLineFlexToBranchGroup(
+  altText: string,
+  contents: LineFlexContainer,
+  branchGroupId: string | null | undefined,
+  options?: LineSendOptions
+): Promise<void> {
+  if (branchGroupId?.trim()) return sendLineFlexToGroup(altText, contents, branchGroupId.trim(), options);
+  return sendLineFlex(altText, contents, options);
 }
 
 /** Batch helper using the legacy LINE_GROUP_ID fallback. */
