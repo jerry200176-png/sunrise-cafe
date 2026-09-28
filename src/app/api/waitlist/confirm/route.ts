@@ -3,8 +3,9 @@ import { isWeekendDate } from "@/lib/booking-utils";
 import { SlotConflictError } from "@/lib/slot-conflict";
 import { createClient } from "@supabase/supabase-js";
 import { hasSlotConflict, insertReservationAdmin, isAdminConfigured } from "@/lib/supabase-admin";
-import { sendLineFlex, buildWaitlistBookedGroupFlex } from "@/lib/line-notify";
+import { sendLineFlexToBranchGroup, buildWaitlistBookedGroupFlex } from "@/lib/line-notify";
 import { WAITLIST_CONFIRM_WINDOW_MINUTES, notifyWaitlist } from "@/lib/waitlist";
+import { branchLineGroupIdForRoom } from "@/lib/branch-line-group";
 
 function supabaseAdmin() {
   return createClient(
@@ -141,7 +142,7 @@ export async function POST(request: NextRequest) {
     await supabaseAdmin().from("waitlist").update({ status: "booked" }).eq("id", entry.id);
 
     try {
-      await sendLineFlex(
+      await sendLineFlexToBranchGroup(
         `候補轉訂位：${entry.customer_name}`,
         buildWaitlistBookedGroupFlex({
           customerName: entry.customer_name,
@@ -150,7 +151,8 @@ export async function POST(request: NextRequest) {
           roomLabel: `${branch?.name ?? ""} — ${room?.name ?? ""}`,
           startTime: entry.start_time,
           endTime: entry.end_time,
-        })
+        }),
+        await branchLineGroupIdForRoom(supabaseAdmin(), entry.room_id)
       );
     } catch (err) {
       console.error("[waitlist/confirm] 群組通知失敗:", err);

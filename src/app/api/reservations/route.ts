@@ -6,7 +6,7 @@ import {
   isAdminConfigured,
   fetchRoom,
 } from "@/lib/supabase-admin";
-import { sendLineFlex, buildNewBookingFlex } from "@/lib/line-notify";
+import { sendLineFlexToBranchGroup, buildNewBookingFlex } from "@/lib/line-notify";
 import { requireAdminApiAuth, getAdminContext } from "@/lib/admin-api-auth";
 import { assertReservationReadAllowed } from "@/lib/reservation-access";
 import { fetchPendingPaymentCountsByReservation } from "@/lib/payment-events-admin";
@@ -17,6 +17,7 @@ import { logOps } from "@/lib/ops-log";
 import { signLookupToken } from "@/lib/lookup-token";
 import { stableLineRetryKey } from "@/lib/line-retry-key";
 import { canonicalDraftItems, fetchPreorderSummaries, isReservationPreorderEnabled, type DraftItemInput } from "@/lib/reservation-preorder";
+import { branchLineGroupIdForRoom } from "@/lib/branch-line-group";
 
 function supabaseAdmin() {
   return createClient(
@@ -209,7 +210,7 @@ export async function POST(request: NextRequest) {
         guestCount,
         notes,
       });
-      await sendLineFlex(`📩 新訂位申請：${customerName.trim()}`, flex, {
+      await sendLineFlexToBranchGroup(`📩 新訂位申請：${customerName.trim()}`, flex, await branchLineGroupIdForRoom(supabaseAdmin(), roomId), {
         retryKey: stableLineRetryKey("booking-created-group", String(id)),
       });
     } catch (err) {
