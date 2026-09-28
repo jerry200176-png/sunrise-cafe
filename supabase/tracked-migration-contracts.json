@@ -402,5 +402,19 @@
         "note": "Nullable per-branch override; NULL falls back to settings(id='app')"
       }
     ]
+  },
+  {
+    "version": "20260928-branch-weekly-hours",
+    "file": "migration-branch-weekly-hours.sql",
+    "critical": true,
+    "evidence": [
+      {
+        "type": "column",
+        "table": "branches",
+        "name": "weekly_hours",
+        "introspect": "catalog",
+        "note": "Nullable per-weekday hours; NULL keeps open_time/close_time for every day"
+      }
+    ]
   }
 ]
