@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   rpc: vi.fn(), fetchRoom: vi.fn(), hasSlotConflict: vi.fn(), insertReservationAdmin: vi.fn(),
-  sendLineFlex: vi.fn(), logOps: vi.fn(),
+  sendLineFlexToBranchGroup: vi.fn(), fetchBranchLineGroupIdForRoom: vi.fn(), logOps: vi.fn(),
 }));
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ rpc: mocks.rpc }) }));
 vi.mock("@/lib/supabase-admin", () => ({
@@ -16,7 +16,8 @@ vi.mock("@/lib/reservation-preorder", () => ({
   fetchPreorderSummaries: vi.fn(),
 }));
 vi.mock("@/lib/booking-utils", () => ({ computeReservationTotalPrice: () => 600 }));
-vi.mock("@/lib/line-notify", () => ({ sendLineFlex: mocks.sendLineFlex, buildNewBookingFlex: () => ({}) }));
+vi.mock("@/lib/line-notify", () => ({ sendLineFlexToBranchGroup: mocks.sendLineFlexToBranchGroup, buildNewBookingFlex: () => ({}) }));
+vi.mock("@/lib/branch-line-group", () => ({ branchLineGroupIdForRoom: (_db: unknown, roomId: string) => mocks.fetchBranchLineGroupIdForRoom(roomId) }));
 vi.mock("@/lib/ops-log", () => ({ logOps: mocks.logOps }));
 vi.mock("@/lib/lookup-token", () => ({ signLookupToken: () => "lookup" }));
 vi.mock("@/lib/line-retry-key", () => ({ stableLineRetryKey: () => "retry" }));
@@ -43,7 +44,8 @@ describe("booking meals submit", () => {
     mocks.hasSlotConflict.mockResolvedValue(false);
     mocks.rpc.mockResolvedValue({ data: { id: "reservation-1", booking_code: "ABC123" }, error: null });
     mocks.insertReservationAdmin.mockResolvedValue({ id: "reservation-2", booking_code: "DEF456" });
-    mocks.sendLineFlex.mockResolvedValue(undefined);
+    mocks.sendLineFlexToBranchGroup.mockResolvedValue(undefined);
+    mocks.fetchBranchLineGroupIdForRoom.mockResolvedValue(null);
   });
 
   it("uses the atomic RPC and server-computed room price when meals are selected", async () => {
@@ -70,6 +72,16 @@ describe("booking meals submit", () => {
     const response = await POST(request({ meal_items: [{ menu_item_id: "00000000-0000-0000-0000-000000000002", quantity: 1 }] }));
     expect(response.status).toBe(500);
     expect(mocks.insertReservationAdmin).not.toHaveBeenCalled();
-    expect(mocks.sendLineFlex).not.toHaveBeenCalled();
+    expect(mocks.sendLineFlexToBranchGroup).not.toHaveBeenCalled();
+  });
+
+  it("notifies the booked room's branch group", async () => {
+    mocks.fetchBranchLineGroupIdForRoom.mockResolvedValue("C-tongde-group");
+    const response = await POST(request({ meal_items: [] }));
+    expect(response.status).toBe(200);
+    expect(mocks.fetchBranchLineGroupIdForRoom).toHaveBeenCalledWith(base.room_id);
+    expect(mocks.sendLineFlexToBranchGroup).toHaveBeenCalledWith(
+      expect.stringContaining("新訂位申請"), expect.anything(), "C-tongde-group", expect.anything()
+    );
   });
 });

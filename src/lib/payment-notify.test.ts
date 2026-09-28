@@ -217,7 +217,7 @@ describe("payment-notify", () => {
       deposit_approved_notified_at: "2026-09-08T10:00:00.000Z",
     });
 
-    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex");
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup");
     const sendLineFlexMessageSpy = vi.spyOn(line, "sendLineFlexMessage");
 
     const result = await notifyPaymentApproved("res-123", { client: mockClient });
@@ -231,7 +231,7 @@ describe("payment-notify", () => {
   it("only marks deposit_approved_notified_at upon confirmed sent", async () => {
     const mockClient = createFakeSupabase(defaultRow);
 
-    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex").mockResolvedValue(undefined);
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup").mockResolvedValue(undefined);
     const sendLineFlexMessageSpy = vi
       .spyOn(line, "sendLineFlexMessage")
       .mockResolvedValue(undefined);
@@ -286,7 +286,7 @@ describe("payment-notify", () => {
     ["reservation without deposit amount", { total_price: 0 }],
   ])("does not send approval notice for %s", async (_label, patch) => {
     const mockClient = createFakeSupabase({ ...defaultRow, ...patch });
-    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex");
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup");
     const sendLineFlexMessageSpy = vi.spyOn(line, "sendLineFlexMessage");
 
     const result = await notifyPaymentApproved("res-123", { client: mockClient, force: true });
@@ -298,7 +298,7 @@ describe("payment-notify", () => {
 
   it("does not send while a payment report is pending review, even on forced resend", async () => {
     const mockClient = createFakeSupabase(defaultRow, { pendingReview: true });
-    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex");
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup");
     const sendLineFlexMessageSpy = vi.spyOn(line, "sendLineFlexMessage");
 
     const result = await notifyPaymentApproved("res-123", { client: mockClient, force: true });
@@ -312,7 +312,7 @@ describe("payment-notify", () => {
     const mockClient = createFakeSupabase(defaultRow, {
       paymentEvents: [{ id: "event-rejected", status: "rejected" }],
     });
-    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex");
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup");
 
     const result = await notifyPaymentApproved("res-123", { client: mockClient, force: true });
 
@@ -325,7 +325,7 @@ describe("payment-notify", () => {
       ...defaultRow,
       deposit_approved_notified_at: "2026-09-08T10:00:00.000Z",
     });
-    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex").mockResolvedValue(undefined);
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup").mockResolvedValue(undefined);
     const sendLineFlexMessageSpy = vi
       .spyOn(line, "sendLineFlexMessage")
       .mockResolvedValue(undefined);
@@ -341,7 +341,7 @@ describe("payment-notify", () => {
     const mockClient = createFakeSupabase(defaultRow, {
       paymentEventError: { message: "temporary database error" },
     });
-    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex");
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup");
 
     const result = await notifyPaymentApproved("res-123", { client: mockClient });
 
@@ -353,7 +353,7 @@ describe("payment-notify", () => {
     const mockClient = createFakeSupabase(defaultRow, {
       beforeClaim: () => mockClient.setRow({ status: "cancelled" }),
     });
-    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex");
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup");
     const sendLineFlexMessageSpy = vi.spyOn(line, "sendLineFlexMessage");
 
     const result = await notifyPaymentApproved("res-123", { client: mockClient });
@@ -365,7 +365,7 @@ describe("payment-notify", () => {
 
   it("does not report success when the guest has no LINE binding", async () => {
     const mockClient = createFakeSupabase({ ...defaultRow, line_user_id: null });
-    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex").mockResolvedValue(undefined);
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup").mockResolvedValue(undefined);
     const sendLineFlexMessageSpy = vi.spyOn(line, "sendLineFlexMessage");
 
     const result = await notifyPaymentApproved("res-123", { client: mockClient });
@@ -381,7 +381,7 @@ describe("payment-notify", () => {
 
   it("does not resolve the event until both required recipients are accepted", async () => {
     const mockClient = createFakeSupabase(defaultRow);
-    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex").mockResolvedValue(undefined);
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup").mockResolvedValue(undefined);
     const sendLineFlexMessageSpy = vi
       .spyOn(line, "sendLineFlexMessage")
       .mockRejectedValueOnce(new Error("guest timeout"))
@@ -419,7 +419,7 @@ describe("payment-notify", () => {
     const mockClient = createFakeSupabase(defaultRow, {
       claimError: { message: "database unavailable" },
     });
-    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex");
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup");
     const sendLineFlexMessageSpy = vi.spyOn(line, "sendLineFlexMessage");
 
     const result = await notifyPaymentApproved("res-123", { client: mockClient });
@@ -434,7 +434,7 @@ describe("payment-notify", () => {
     const mockClient = createFakeSupabase(defaultRow);
 
     const sendLineFlexSpy = vi
-      .spyOn(lineNotify, "sendLineFlex")
+      .spyOn(lineNotify, "sendLineFlexToBranchGroup")
       .mockRejectedValue(new Error("LINE API 504 Gateway Timeout"));
     const sendLineFlexMessageSpy = vi
       .spyOn(line, "sendLineFlexMessage")
@@ -479,7 +479,7 @@ describe("payment-notify", () => {
       deposit_approved_claim_at: activeClaimAt,
     });
 
-    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex");
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup");
     const sendLineFlexMessageSpy = vi.spyOn(line, "sendLineFlexMessage");
 
     const result = await notifyPaymentApproved("res-123", { client: mockClient });
@@ -501,7 +501,7 @@ describe("payment-notify", () => {
       deposit_approved_retry_key_created_at: crashedClaimAt,
     });
 
-    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex").mockResolvedValue(undefined);
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup").mockResolvedValue(undefined);
     const sendLineFlexMessageSpy = vi
       .spyOn(line, "sendLineFlexMessage")
       .mockResolvedValue(undefined);
@@ -514,6 +514,7 @@ describe("payment-notify", () => {
     expect(sendLineFlexSpy).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(Object),
+      null,
       { retryKey: "crashed-instance-uuid-key" }
     );
     expect(sendLineFlexMessageSpy).toHaveBeenCalledTimes(1);
@@ -540,7 +541,7 @@ describe("payment-notify", () => {
 
     // On retry, LINE returns 409 Conflict with x-line-accepted-request-id
     // sendLineFlex handles 409 reconciliation and resolves successfully
-    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex").mockResolvedValue(undefined);
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup").mockResolvedValue(undefined);
     const sendLineFlexMessageSpy = vi
       .spyOn(line, "sendLineFlexMessage")
       .mockResolvedValue(undefined);
@@ -552,6 +553,7 @@ describe("payment-notify", () => {
     expect(sendLineFlexSpy).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(Object),
+      null,
       { retryKey: testRetryUuid }
     );
     expect(sendLineFlexMessageSpy).toHaveBeenCalled();
@@ -567,7 +569,7 @@ describe("payment-notify", () => {
     // When sendLineFlex encounters 409 for same retry key, it resolves without throwing error
     const mockClient = createFakeSupabase(defaultRow);
 
-    vi.spyOn(lineNotify, "sendLineFlex").mockResolvedValue(undefined);
+    vi.spyOn(lineNotify, "sendLineFlexToBranchGroup").mockResolvedValue(undefined);
     vi.spyOn(line, "sendLineFlexMessage").mockResolvedValue(undefined);
 
     const result = await notifyPaymentApproved("res-123", { client: mockClient });
@@ -585,7 +587,7 @@ describe("payment-notify", () => {
     const mockClient = createFakeSupabase(defaultRow);
 
     let concurrentCalls = 0;
-    vi.spyOn(lineNotify, "sendLineFlex").mockImplementation(async () => {
+    vi.spyOn(lineNotify, "sendLineFlexToBranchGroup").mockImplementation(async () => {
       concurrentCalls++;
       await new Promise((r) => setTimeout(r, 20));
     });
@@ -618,7 +620,7 @@ describe("payment-notify", () => {
       deposit_approved_retry_key_created_at: keyCreatedAt,
     });
 
-    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex").mockResolvedValue(undefined);
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup").mockResolvedValue(undefined);
     const sendLineFlexMessageSpy = vi
       .spyOn(line, "sendLineFlexMessage")
       .mockResolvedValue(undefined);
@@ -629,6 +631,7 @@ describe("payment-notify", () => {
     expect(sendLineFlexSpy).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(Object),
+      null,
       { retryKey: stableGroupRetryUuid }
     );
     expect(sendLineFlexMessageSpy).toHaveBeenCalledWith(
@@ -671,7 +674,7 @@ describe("payment-notify", () => {
       deposit_approved_retry_key_created_at: beyond24hIso,
     });
 
-    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex");
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup");
     const sendLineFlexMessageSpy = vi.spyOn(line, "sendLineFlexMessage");
 
     const result = await notifyPaymentApproved("res-123", { client: mockClient });
@@ -718,7 +721,7 @@ describe("payment-notify", () => {
       deposit_approved_retry_key_created_at: beyond24hIso,
     });
 
-    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex");
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup");
     const sendLineFlexMessageSpy = vi.spyOn(line, "sendLineFlexMessage");
 
     const result = await notifyPaymentApproved("res-123", { client: mockClient });
@@ -747,7 +750,7 @@ describe("payment-notify", () => {
       deposit_approved_retry_key_created_at: null,
     });
 
-    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex").mockResolvedValue(undefined);
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup").mockResolvedValue(undefined);
     const sendLineFlexMessageSpy = vi.spyOn(line, "sendLineFlexMessage").mockResolvedValue(undefined);
 
     const result = await notifyPaymentApproved("res-123", { client: mockClient });
@@ -767,6 +770,7 @@ describe("payment-notify", () => {
     expect(sendLineFlexSpy).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(Object),
+      null,
       { retryKey: finalRow.deposit_approved_retry_key }
     );
     expect(sendLineFlexMessageSpy).toHaveBeenCalledWith(
@@ -792,7 +796,7 @@ describe("payment-notify", () => {
       deposit_approved_retry_key_created_at: beyond24hIso,
     });
 
-    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex").mockResolvedValue(undefined);
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup").mockResolvedValue(undefined);
     vi.spyOn(line, "sendLineFlexMessage").mockResolvedValue(undefined);
 
     const result = await notifyPaymentApproved("res-123", {
@@ -809,6 +813,7 @@ describe("payment-notify", () => {
     expect(sendLineFlexSpy).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(Object),
+      null,
       { retryKey: finalRow.deposit_approved_retry_key }
     );
   });
@@ -817,7 +822,7 @@ describe("payment-notify", () => {
     const mockClient = createFakeSupabase(defaultRow);
 
     // Both staff group and guest bot pushes succeed (accepted by LINE Platform)
-    vi.spyOn(lineNotify, "sendLineFlex").mockResolvedValue(undefined);
+    vi.spyOn(lineNotify, "sendLineFlexToBranchGroup").mockResolvedValue(undefined);
     vi.spyOn(line, "sendLineFlexMessage").mockResolvedValue(undefined);
 
     const result = await notifyPaymentApproved("res-123", { client: mockClient });
@@ -840,7 +845,7 @@ describe("payment-notify", () => {
       is_deposit_paid: false,
     });
 
-    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex");
+    const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup");
     const result = await notifyPaymentApproved("res-123", { client: mockClient });
 
     expect(result.ok).toBe(false);
@@ -964,7 +969,7 @@ describe("payment-notify", () => {
         deposit_approved_retry_key_created_at: beyond24hIso,
       });
 
-      const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex");
+      const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup");
       const sendLineFlexMessageSpy = vi.spyOn(line, "sendLineFlexMessage");
 
       const result = await reconcilePaymentNotificationMarkSent("res-123", {
@@ -1029,7 +1034,7 @@ describe("payment-notify", () => {
         deposit_approved_retry_key_created_at: beyond24hIso,
       });
 
-      const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlex").mockResolvedValue(undefined);
+      const sendLineFlexSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup").mockResolvedValue(undefined);
       const sendLineFlexMessageSpy = vi.spyOn(line, "sendLineFlexMessage").mockResolvedValue(undefined);
 
       const result = await reconcilePaymentNotificationSafeRetry("res-123", {

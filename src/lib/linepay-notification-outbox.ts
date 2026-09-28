@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { buildPaymentConfirmedFlex, sendLineFlex } from "@/lib/line-notify";
+import { buildPaymentConfirmedFlex, sendLineFlexToBranchGroup } from "@/lib/line-notify";
 import { safeLinePayError } from "@/lib/linepay-lifecycle";
 import { stableLineRetryKey } from "@/lib/line-retry-key";
+import { branchLineGroupIdForReservation } from "@/lib/branch-line-group";
 
 type OutboxRow = {
   id: string;
@@ -45,7 +46,7 @@ export async function deliverLinePayNotification(
     // claim a pending/retrying row for a given attempt.
     .eq("status", current.status)
     .eq("attempt_count", Number(current.attempt_count ?? 0))
-    .select("id, status, attempt_count, payload")
+    .select("id, status, attempt_count, payload, reservation_id")
     .maybeSingle();
   if (claimError) throw claimError;
   if (!claimed) return "skipped";
@@ -55,7 +56,7 @@ export async function deliverLinePayNotification(
     if (!payload.customer_name || !payload.booking_code || !payload.start_time || !payload.end_time) {
       throw new Error("LINE Pay notification payload is incomplete");
     }
-    await sendLineFlex(
+    await sendLineFlexToBranchGroup(
       `LINE Pay payment confirmed: ${payload.customer_name}`,
       buildPaymentConfirmedFlex({
         customerName: payload.customer_name,
@@ -64,6 +65,7 @@ export async function deliverLinePayNotification(
         endTime: payload.end_time,
         rawText: `LINE Pay paid: NT$ ${Number(payload.amount ?? 0)}`,
       }),
+      claimed.reservation_id ? await branchLineGroupIdForReservation(db, String(claimed.reservation_id)) : null,
       { retryKey: stableLineRetryKey("linepay-confirmed-group", outboxId) }
     );
     await db.from("line_pay_notification_outbox").update({
