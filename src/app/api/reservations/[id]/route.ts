@@ -19,6 +19,7 @@ import { deliverLineGuestNotification } from "@/lib/line-guest-delivery";
 import { buildGuestBookingCancelledFlex } from "@/lib/line-cards";
 import { notifyPaymentApproved, paymentNotificationStatus, type NotifyPaymentApprovedResult } from "@/lib/payment-notify";
 import { cancelReservationPreorder, lockReservationPreorder, requirePreorderReconfirmation } from "@/lib/reservation-preorder";
+import { resolveBranchGuestSettings } from "@/lib/branch-guest-settings";
 function supabaseAdmin() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,7 +27,7 @@ function supabaseAdmin() {
   );
 }
 
-type RoomWithBranch = { name?: string; branch: { id?: string; name: string; display_name?: string | null }[] }[];
+type RoomWithBranch = { name?: string; branch: { id?: string; name: string; display_name?: string | null; google_review_url?: string | null }[] }[];
 type CancellationNoticeRow = {
   line_user_id?: string | null;
   customer_name?: string | null;
@@ -287,24 +288,25 @@ export async function PATCH(
             line_user_id,
             customer_name,
             review_invited_at,
-            room_with_branch:rooms(branch:branches(name, display_name))
+            room_with_branch:rooms(branch:branches(name, display_name, google_review_url))
           `)
           .eq("id", id)
           .single();
 
         if (r?.line_user_id && !r.review_invited_at) {
+          // PostgREST returns many-to-one embeds as objects; tolerate arrays too.
+          const roomRaw = r.room_with_branch as unknown as RoomWithBranch[number] | RoomWithBranch | null;
+          const roomInfo = Array.isArray(roomRaw) ? roomRaw[0] : roomRaw;
+          const branchRaw = roomInfo?.branch as RoomWithBranch[number]["branch"] | RoomWithBranch[number]["branch"][number] | undefined;
+          const branch = Array.isArray(branchRaw) ? branchRaw[0] : branchRaw;
           const settings = await fetchSettings();
-          if (settings.google_review_url) {
-            // PostgREST returns many-to-one embeds as objects; tolerate arrays too.
-            const roomRaw = r.room_with_branch as unknown as RoomWithBranch[number] | RoomWithBranch | null;
-            const roomInfo = Array.isArray(roomRaw) ? roomRaw[0] : roomRaw;
-            const branchRaw = roomInfo?.branch as RoomWithBranch[number]["branch"] | RoomWithBranch[number]["branch"][number] | undefined;
-            const branch = Array.isArray(branchRaw) ? branchRaw[0] : branchRaw;
+          const { google_review_url: reviewUrl } = resolveBranchGuestSettings(branch, settings);
+          if (reviewUrl) {
             const branchName = branch?.display_name || branch?.name || "";
             const flex = buildReviewInviteFlex({
               customerName: r.customer_name,
               branchName,
-              reviewUrl: settings.google_review_url,
+              reviewUrl,
             });
             await sendLineFlexMessage(r.line_user_id, "感謝光臨昇昇咖啡", flex);
             await updateReservationAdmin(id, { review_invited_at: new Date().toISOString() });

@@ -6,6 +6,20 @@ import {
   setupBookingApiMocks,
 } from "./helpers/mock-booking";
 
+// Side requests the booking page makes on load. Without a DB they fail and the page
+// falls back to empty values; answering them here keeps that result but stops
+// every test from spending the server's shared per-IP API rate limit.
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/rooms?**", (route) => route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
+  await page.route("**/api/menu?**", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ preorderEnabled: false, items: [] }) })
+  );
+  await page.route("**/api/booking-funnel", (route) => route.fulfill({ status: 204, body: "" }));
+  await page.route("**/api/payment/status", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ stripe_enabled: false }) })
+  );
+});
+
 /**
  * Guest booking journey with mocked APIs (CI-safe, no production DB).
  * Addresses #59 — verified gap: prior e2e only loaded pages.
@@ -263,5 +277,62 @@ test.describe("手機訂位：選時段、同意條款、送出結果不明", ()
     await submit.click();
     await expect(page.getByRole("alert").filter({ hasText: "該時段已被預訂，請重新選擇" })).toBeVisible();
     await expect(page.getByRole("link", { name: "前往查詢我的訂位" })).toHaveCount(0);
+  });
+});
+
+test.describe("多分店：各店注意事項／訂金說明", () => {
+  test("有自己注意事項的分店顯示自己的；沒填的分店沿用全站設定", async ({ page }) => {
+    const date = bookingDateOffset(2);
+    await setupBookingApiMocks(page, date);
+    await page.route("**/api/branches", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          { ...MOCK_BRANCH, rental_notes: null, deposit_info: null },
+          {
+            ...MOCK_BRANCH,
+            id: "e2e-branch-2",
+            name: "E2E 分店 B",
+            rental_notes: [{ title: "B 店規則", items: ["B 店禁止外食"] }],
+            deposit_info: "B 店訂金說明",
+          },
+        ]),
+      })
+    );
+    await page.route("**/api/settings", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          rental_notes: [{ title: "全站規則", items: ["全站請準時"] }],
+          deposit_info: "全站訂金說明",
+          closed_dates: [],
+        }),
+      })
+    );
+
+    async function reachForm(branchName: string) {
+      await page.goto("/book");
+      await page.getByRole("button", { name: branchName }).click();
+      await page.locator("#booking-date").fill(date);
+      await page.getByRole("button", { name: "下一步" }).click();
+      await page.getByRole("button", { name: new RegExp(MOCK_ROOM.roomName) }).click();
+      await page.locator("div.grid button:not([disabled])").first().click();
+      await page.getByRole("button", { name: /下一步 · 填寫資料/ }).click();
+      await expect(page.locator("#booking-name")).toBeVisible();
+    }
+
+    await reachForm("E2E 分店 B");
+    await expect(page.getByText("B 店禁止外食")).toBeVisible();
+    await expect(page.getByText("B 店訂金說明")).toBeVisible();
+    await expect(page.getByText("全站請準時")).toHaveCount(0);
+
+    await page.evaluate(() => sessionStorage.clear());
+    await page.evaluate(() => localStorage.clear());
+    await reachForm(MOCK_BRANCH.name);
+    await expect(page.getByText("全站請準時")).toBeVisible();
+    await expect(page.getByText("全站訂金說明")).toBeVisible();
+    await expect(page.getByText("B 店禁止外食")).toHaveCount(0);
   });
 });

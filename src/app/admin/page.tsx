@@ -11,6 +11,7 @@ import { AdminModal } from "@/components/AdminModal";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
+import { formatRentalNotesText, parseRentalNotesText } from "@/lib/branch-guest-settings";
 
 export default function AdminBranchesRoomsPage() {
   const [focusBranchId, setFocusBranchId] = useState<string | null>(null);
@@ -35,6 +36,9 @@ export default function AdminBranchesRoomsPage() {
   const [branchDisplayName, setBranchDisplayName] = useState("");
   const [branchPaymentInfo, setBranchPaymentInfo] = useState("");
   const [branchLinePayUrl, setBranchLinePayUrl] = useState("");
+  const [branchReviewUrl, setBranchReviewUrl] = useState("");
+  const [branchDepositInfo, setBranchDepositInfo] = useState("");
+  const [branchRentalNotesText, setBranchRentalNotesText] = useState("");
 
   const [roomFormOpen, setRoomFormOpen] = useState(false);
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
@@ -171,6 +175,9 @@ export default function AdminBranchesRoomsPage() {
     setBranchDisplayName("");
     setBranchPaymentInfo("");
     setBranchLinePayUrl("");
+    setBranchReviewUrl("");
+    setBranchDepositInfo("");
+    setBranchRentalNotesText("");
     setBranchFormOpen(true);
   };
 
@@ -186,6 +193,9 @@ export default function AdminBranchesRoomsPage() {
     setBranchDisplayName((rec.display_name as string) ?? "");
     setBranchPaymentInfo((rec.payment_info as string) ?? "");
     setBranchLinePayUrl((rec.line_pay_url as string) ?? "");
+    setBranchReviewUrl(b.google_review_url ?? "");
+    setBranchDepositInfo(b.deposit_info ?? "");
+    setBranchRentalNotesText(formatRentalNotesText(b.rental_notes));
     setBranchFormOpen(true);
   };
 
@@ -206,6 +216,9 @@ export default function AdminBranchesRoomsPage() {
             display_name: branchDisplayName.trim() || null,
             payment_info: branchPaymentInfo.trim() || null,
             line_pay_url: branchLinePayUrl.trim() || null,
+            google_review_url: branchReviewUrl.trim() || null,
+            deposit_info: branchDepositInfo.trim() || null,
+            rental_notes: parseRentalNotesText(branchRentalNotesText),
           }),
         });
         if (!res.ok) throw new Error((await res.json()).error ?? "更新失敗");
@@ -223,6 +236,9 @@ export default function AdminBranchesRoomsPage() {
             display_name: branchDisplayName.trim() || null,
             payment_info: branchPaymentInfo.trim() || null,
             line_pay_url: branchLinePayUrl.trim() || null,
+            google_review_url: branchReviewUrl.trim() || null,
+            deposit_info: branchDepositInfo.trim() || null,
+            rental_notes: parseRentalNotesText(branchRentalNotesText),
           }),
         });
         if (!res.ok) throw new Error((await res.json()).error ?? "新增失敗");
@@ -985,6 +1001,20 @@ export default function AdminBranchesRoomsPage() {
               <div>
                 <label className="block text-xs font-medium text-stone-500 mb-1.5 uppercase tracking-wide">LINE Pay 連結</label>
                 <input type="text" value={branchLinePayUrl} onChange={(e) => setBranchLinePayUrl(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" placeholder="https://qrcodepay.line.me/..." />
+              </div>
+              <p className="rounded-xl bg-stone-50 px-3 py-2 text-xs text-stone-500">以下三項留空＝沿用「設定」頁的全站共用內容；只有這間店不同時才需要填。</p>
+              <div>
+                <label htmlFor="branch-review-url" className="block text-xs font-medium text-stone-500 mb-1.5 uppercase tracking-wide">此店 Google 評論連結</label>
+                <input id="branch-review-url" type="url" value={branchReviewUrl} onChange={(e) => setBranchReviewUrl(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" placeholder="https://g.page/r/..." />
+              </div>
+              <div>
+                <label htmlFor="branch-deposit-info" className="block text-xs font-medium text-stone-500 mb-1.5 uppercase tracking-wide">此店訂金說明（訂位表單顯示）</label>
+                <textarea id="branch-deposit-info" value={branchDepositInfo} onChange={(e) => setBranchDepositInfo(e.target.value)} rows={3} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" />
+              </div>
+              <div>
+                <label htmlFor="branch-rental-notes" className="block text-xs font-medium text-stone-500 mb-1.5 uppercase tracking-wide">此店租借注意事項</label>
+                <textarea id="branch-rental-notes" aria-describedby="branch-rental-notes-hint" value={branchRentalNotesText} onChange={(e) => setBranchRentalNotesText(e.target.value)} rows={6} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" placeholder={"入場規則\n請準時入場\n禁止攜帶外食\n\n取消規則\n訂位前 24 小時可免費取消"} />
+                <p id="branch-rental-notes-hint" className="mt-1 text-xs text-stone-400">每段第一行是標題，下面每行一個項目；段落之間空一行。客人訂位時需勾選同意。</p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
