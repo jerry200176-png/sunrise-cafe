@@ -374,5 +374,33 @@
       { "type": "table", "name": "preorder_menu_seed_changes", "introspect": "catalog", "note": "Private exact preimage of the one-time change" },
       { "type": "rls", "table": "preorder_menu_seed_changes", "introspect": "catalog", "note": "No anon or authenticated access to the recovery record" }
     ]
+  },
+  {
+    "version": "20260928-branch-guest-settings",
+    "file": "migration-branch-guest-settings.sql",
+    "critical": true,
+    "evidence": [
+      {
+        "type": "column",
+        "table": "branches",
+        "name": "rental_notes",
+        "introspect": "catalog",
+        "note": "Nullable per-branch override; NULL falls back to settings(id='app')"
+      },
+      {
+        "type": "column",
+        "table": "branches",
+        "name": "deposit_info",
+        "introspect": "catalog",
+        "note": "Nullable per-branch override; NULL falls back to settings(id='app')"
+      },
+      {
+        "type": "column",
+        "table": "branches",
+        "name": "google_review_url",
+        "introspect": "catalog",
+        "note": "Nullable per-branch override; NULL falls back to settings(id='app')"
+      }
+    ]
   }
 ]
