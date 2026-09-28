@@ -6,6 +6,7 @@
  *
  * 使用前：
  *   1. cp .env.example .env  → 填入 SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY
+ *      多分店時再填 BRANCH_ID（此台印表機所在分店的 branches.id），只印該店的單
  *   2. 確認 Star TSP100III USB 已連接此電腦
  *   3. npm install
  *   4. npm start
@@ -19,6 +20,8 @@ const { formatTicket } = require("./escpos-helper");
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+// 未設定時沿用單店行為：列印所有分店的訂單
+const BRANCH_ID = process.env.BRANCH_ID?.trim() || null;
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error("❌  請在 print-bridge/.env 填入 SUPABASE_URL 與 SUPABASE_SERVICE_ROLE_KEY");
@@ -92,10 +95,16 @@ function subscribe() {
     .channel("print-bridge-orders")
     .on(
       "postgres_changes",
-      { event: "INSERT", schema: "public", table: "orders" },
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "orders",
+        ...(BRANCH_ID ? { filter: `branch_id=eq.${BRANCH_ID}` } : {}),
+      },
       async (payload) => {
         const orderId = payload.new?.id;
         if (!orderId) return;
+        if (BRANCH_ID && payload.new?.branch_id !== BRANCH_ID) return;
 
         // 防重複：先確認 is_printed 仍為 false
         const { data: check } = await supabase
@@ -136,6 +145,7 @@ function subscribe() {
 
 console.log("=== print-bridge 啟動 ===");
 console.log(`Supabase: ${SUPABASE_URL}`);
+console.log(BRANCH_ID ? `分店：${BRANCH_ID}（只印此分店）` : "分店：未設定 BRANCH_ID，列印所有分店訂單");
 subscribe();
 
 process.on("SIGINT", async () => {

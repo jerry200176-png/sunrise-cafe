@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchPublicBranches, insertBranch } from "@/lib/supabase-fetch";
-import { requireAdminApiAuth } from "@/lib/admin-api-auth";
+import { fetchBranches, fetchPublicBranches, insertBranch } from "@/lib/supabase-fetch";
+import { hasValidAdminSession, requireAdminApiAuth } from "@/lib/admin-api-auth";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const data = await fetchPublicBranches();
+    // The admin branch editor round-trips LINE group / payment fields; guests only get the public subset.
+    const data = (await hasValidAdminSession(request)) ? await fetchBranches() : await fetchPublicBranches();
     return NextResponse.json(data ?? []);
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法載入分店";

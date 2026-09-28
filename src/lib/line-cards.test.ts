@@ -73,6 +73,21 @@ describe("line-cards LINE API shape", () => {
     }), "review");
   });
 
+  it("names the actual store on review invites instead of assuming 大安", () => {
+    const secondStore = JSON.stringify(buildReviewInviteFlex({
+      customerName: "測試",
+      branchName: "昇昇咖啡 (信義店)",
+      reviewUrl: "https://g.page/review",
+    }));
+    expect(secondStore).toContain("昇昇咖啡 (信義店)");
+    expect(secondStore).not.toContain("大安");
+    expect(JSON.stringify(buildReviewInviteFlex({
+      customerName: "測試",
+      branchName: "",
+      reviewUrl: "https://g.page/review",
+    }))).toContain("昇昇咖啡");
+  });
+
   it("keeps payment-report, approved, and delayed-request copy unambiguous", () => {
     const request = JSON.stringify(
       buildPaymentFlex({
