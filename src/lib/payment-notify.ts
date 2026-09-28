@@ -40,12 +40,13 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { isAdminConfigured } from "@/lib/supabase-admin";
 import {
-  sendLineFlex,
+  sendLineFlexToBranchGroup,
   buildPaymentConfirmedFlex,
   isLineConfigured,
   sendLineMessage,
 } from "@/lib/line-notify";
 import { sendLineFlexMessage } from "@/lib/line";
+import { branchLineGroupIdForReservation } from "@/lib/branch-line-group";
 import { buildGuestPaymentApprovedFlex } from "@/lib/line-cards";
 import { signLookupToken } from "@/lib/lookup-token";
 
@@ -487,7 +488,7 @@ export async function notifyPaymentApproved(
         endTime: r.end_time,
         rawText: opts.reviewNote?.trim() || r.deposit_payment_note || "已核准",
       });
-      await sendLineFlex(`💰 客人已付訂金：${r.customer_name}`, flex, {
+      await sendLineFlexToBranchGroup(`💰 客人已付訂金：${r.customer_name}`, flex, await branchLineGroupIdForReservation(client, reservationId), {
         retryKey: effectiveGroupKey,
       });
       groupNotified = true;

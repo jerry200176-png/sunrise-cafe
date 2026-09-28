@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { sendLineFlex } = vi.hoisted(() => ({ sendLineFlex: vi.fn() }));
 vi.mock("@/lib/line-notify", () => ({
-  sendLineFlex,
+  sendLineFlexToBranchGroup: sendLineFlex,
   buildPaymentConfirmedFlex: vi.fn(() => ({ type: "bubble" })),
 }));
 

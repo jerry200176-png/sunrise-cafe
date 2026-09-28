@@ -3,8 +3,9 @@ import {
   updateReservationAdmin,
   hasSlotConflict,
   isAdminConfigured,
+  supabaseAdmin,
 } from "@/lib/supabase-admin";
-import { sendLineFlex, buildRescheduleGroupFlex } from "@/lib/line-notify";
+import { sendLineFlexToBranchGroup, buildRescheduleGroupFlex } from "@/lib/line-notify";
 import { sendLineFlexMessage } from "@/lib/line";
 import { buildGuestBookingRescheduledFlex } from "@/lib/line-cards";
 import { deliverLineGuestNotification } from "@/lib/line-guest-delivery";
@@ -15,6 +16,7 @@ import { requirePreorderReconfirmation } from "@/lib/reservation-preorder";
 
 import { verifyGuestBookingByTokenOrCredentials } from "@/lib/guest-auth";
 import { enforceGuestLookupLimit } from "@/lib/guest-rate-limit";
+import { branchLineGroupIdForReservation } from "@/lib/branch-line-group";
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
@@ -153,7 +155,7 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      await sendLineFlex(
+      await sendLineFlexToBranchGroup(
         `客人改期：${match.customer_name}`,
         buildRescheduleGroupFlex({
           customerName: match.customer_name,
@@ -164,6 +166,7 @@ export async function POST(request: NextRequest) {
           newStart,
           newEnd,
         }),
+        await branchLineGroupIdForReservation(supabaseAdmin(), id),
         {
           retryKey: stableLineRetryKey(
             "booking-rescheduled-group",

@@ -4,6 +4,7 @@ import {
   fetchFailedDepositReleaseGroupDeliveries,
   updateReservationAdmin,
   isAdminConfigured,
+  supabaseAdmin,
 } from "@/lib/supabase-admin";
 import { sendLineFlexMessage } from "@/lib/line";
 import {
@@ -12,8 +13,12 @@ import {
 } from "@/lib/line-cards";
 import {
   sendLineFlexBatch,
+  sendLineFlexBatchToGroup,
   buildDepositReleasedGroupFlex,
+  type LineFlexMessage,
+  type LineSendOptions,
 } from "@/lib/line-notify";
+import { branchLineGroupIdForReservation } from "@/lib/branch-line-group";
 import {
   computeDepositDeadline,
   formatDepositDeadlineLabel,
@@ -110,6 +115,7 @@ async function handleRun() {
   let messageCount = 0;
   const pendingGroupReleases: {
     deliveryId: string | null;
+    groupId: string | null;
     altText: string;
     contents: Record<string, unknown>;
   }[] = [];
@@ -123,7 +129,8 @@ async function handleRun() {
       const claimed = await claimFailedLineReminderDelivery(failed.delivery_id);
       if (!claimed) continue;
       const notice = buildGroupReleaseNotice(failed.reservation as unknown as Row);
-      pendingGroupReleases.push({ deliveryId: failed.delivery_id, ...notice });
+      const groupId = await branchLineGroupIdForReservation(supabaseAdmin(), (failed.reservation as unknown as Row).id);
+      pendingGroupReleases.push({ deliveryId: failed.delivery_id, groupId, ...notice });
     }
   } catch (err) {
     errors++;
@@ -193,7 +200,8 @@ async function handleRun() {
         }
 
         if (!groupClaim.available || groupClaim.id) {
-          pendingGroupReleases.push({ deliveryId: groupClaim.id, ...buildGroupReleaseNotice(r) });
+          const groupId = await branchLineGroupIdForReservation(supabaseAdmin(), r.id);
+          pendingGroupReleases.push({ deliveryId: groupClaim.id, groupId, ...buildGroupReleaseNotice(r) });
         }
 
         notifyWaitlist(r.room?.id ?? "", r.start_time, r.end_time).catch((err) =>
@@ -322,11 +330,22 @@ async function handleRun() {
   // reservation as its own actionable Flex card, but send up to five cards in
   // one push request so LINE counts the group recipient once per batch rather
   // than once per reservation. Delivery ledger claims remain per reservation.
-  for (let offset = 0; offset < pendingGroupReleases.length; offset += 5) {
-    const batch = pendingGroupReleases.slice(offset, offset + 5);
+  // Each branch's releases go to that branch's group (default group when unset).
+  const sendBatch = (groupId: string | null, messages: LineFlexMessage[], options: LineSendOptions) =>
+    groupId ? sendLineFlexBatchToGroup(messages, groupId, options) : sendLineFlexBatch(messages, options);
+  const releasesByGroup = new Map<string | null, typeof pendingGroupReleases>();
+  for (const release of pendingGroupReleases) {
+    releasesByGroup.set(release.groupId, [...(releasesByGroup.get(release.groupId) ?? []), release]);
+  }
+  const batches = [...releasesByGroup.values()].flatMap((releases) =>
+    Array.from({ length: Math.ceil(releases.length / 5) }, (_, i) => releases.slice(i * 5, i * 5 + 5))
+  );
+  for (const batch of batches) {
+    const groupId = batch[0].groupId;
     const retryKey = crypto.randomUUID();
     try {
-      await sendLineFlexBatch(
+      await sendBatch(
+        groupId,
         batch.map(({ altText, contents }) => ({ altText, contents })),
         { retryKey },
       );
@@ -341,7 +360,8 @@ async function handleRun() {
       // accepted by LINE; a second request with the same key becomes a 409
       // reconciliation instead of a duplicate push.
       try {
-        await sendLineFlexBatch(
+        await sendBatch(
+          groupId,
           batch.map(({ altText, contents }) => ({ altText, contents })),
           { retryKey },
         );
