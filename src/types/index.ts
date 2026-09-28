@@ -14,6 +14,8 @@ export interface Branch {
   rental_notes?: RentalNoteSection[] | null;
   deposit_info?: string | null;
   google_review_url?: string | null;
+  /** 每週營業時間；null = 每天用 open_time/close_time */
+  weekly_hours?: import("@/lib/branch-hours").WeeklyHours | null;
   created_at: string;
 }
 

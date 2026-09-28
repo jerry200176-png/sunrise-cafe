@@ -80,6 +80,7 @@ export async function insertBranch(body: {
   rental_notes?: import("@/types").RentalNoteSection[] | null;
   deposit_info?: string | null;
   google_review_url?: string | null;
+  weekly_hours?: import("@/lib/branch-hours").WeeklyHours | null;
 }): Promise<void> {
   const { url: baseUrl } = base();
   const res = await fetch(`${baseUrl}/rest/v1/branches`, {
@@ -95,7 +96,7 @@ export async function insertBranch(body: {
 
 export async function updateBranch(
   id: string,
-  body: Partial<{ name: string; address: string | null; phone: string | null; open_time: string | null; close_time: string | null; line_group_id: string | null; display_name: string | null; payment_info: string | null; line_pay_url: string | null; closed_dates: string[]; rental_notes: import("@/types").RentalNoteSection[] | null; deposit_info: string | null; google_review_url: string | null }>
+  body: Partial<{ name: string; address: string | null; phone: string | null; open_time: string | null; close_time: string | null; line_group_id: string | null; display_name: string | null; payment_info: string | null; line_pay_url: string | null; closed_dates: string[]; rental_notes: import("@/types").RentalNoteSection[] | null; deposit_info: string | null; google_review_url: string | null; weekly_hours: import("@/lib/branch-hours").WeeklyHours | null }>
 ): Promise<void> {
   const { url: baseUrl } = base();
   const res = await fetch(`${baseUrl}/rest/v1/branches?id=eq.${encodeURIComponent(id)}`, {

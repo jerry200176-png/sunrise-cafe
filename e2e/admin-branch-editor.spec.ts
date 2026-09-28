@@ -54,3 +54,39 @@ test("編輯分店：保留 LINE 群組與匯款資訊，並送出此店的注�
     rental_notes: [{ title: "E2E 規則", items: ["請準時"] }],
   });
 });
+
+test("編輯分店：依星期設定營業時間（同德店：週一公休、週二至週五 14–18、週末 10–18）", async ({ page, context }) => {
+  await seedAdminSession(context);
+  const branch = {
+    id: "e2e-branch-2", name: "E2E 同德店", address: null, phone: null,
+    open_time: "10:00", close_time: "18:00", closed_dates: [], weekly_hours: null,
+  };
+  await page.route("**/api/branches", (route) =>
+    route.request().method() === "GET"
+      ? route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([branch]) })
+      : route.fallback()
+  );
+  let patched: Record<string, unknown> | null = null;
+  await page.route(`**/api/branches/${branch.id}`, async (route) => {
+    patched = route.request().postDataJSON();
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
+  });
+
+  await page.goto("/admin");
+  await page.getByTitle("編輯").first().click();
+  await page.getByLabel(/依星期設定營業時間/).check();
+  await page.getByLabel("週一公休").check();
+  await expect(page.getByLabel("週一開始")).toBeDisabled();
+  for (const day of ["週二", "週三", "週四", "週五"]) {
+    await page.getByLabel(`${day}開始`).fill("14:00");
+  }
+  await page.getByLabel("每週營業時間").screenshot({ path: test.info().outputPath("weekly-hours.png") });
+  await page.locator("form", { has: page.locator("#branch-review-url") }).getByRole("button", { name: "儲存" }).click();
+
+  await expect.poll(() => patched).not.toBeNull();
+  const tueToFri = { open: "14:00", close: "18:00" };
+  expect(patched!.weekly_hours).toEqual({
+    mon: null, tue: tueToFri, wed: tueToFri, thu: tueToFri, fri: tueToFri,
+    sat: { open: "10:00", close: "18:00" }, sun: { open: "10:00", close: "18:00" },
+  });
+});
