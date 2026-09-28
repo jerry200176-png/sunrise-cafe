@@ -12,6 +12,7 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 import { formatRentalNotesText, parseRentalNotesText } from "@/lib/branch-guest-settings";
+import { formRowsToWeekly, weeklyToFormRows, WEEKDAY_LABELS, type WeekdayFormRow } from "@/lib/branch-hours";
 
 export default function AdminBranchesRoomsPage() {
   const [focusBranchId, setFocusBranchId] = useState<string | null>(null);
@@ -32,6 +33,8 @@ export default function AdminBranchesRoomsPage() {
   const [branchPhone, setBranchPhone] = useState("");
   const [branchOpenTime, setBranchOpenTime] = useState("09:00");
   const [branchCloseTime, setBranchCloseTime] = useState("21:00");
+  const [branchWeeklyEnabled, setBranchWeeklyEnabled] = useState(false);
+  const [branchWeeklyRows, setBranchWeeklyRows] = useState<WeekdayFormRow[]>(() => weeklyToFormRows(null, "09:00", "21:00"));
   const [branchLineGroupId, setBranchLineGroupId] = useState("");
   const [branchDisplayName, setBranchDisplayName] = useState("");
   const [branchPaymentInfo, setBranchPaymentInfo] = useState("");
@@ -171,6 +174,8 @@ export default function AdminBranchesRoomsPage() {
     setBranchPhone("");
     setBranchOpenTime("09:00");
     setBranchCloseTime("21:00");
+    setBranchWeeklyEnabled(false);
+    setBranchWeeklyRows(weeklyToFormRows(null, "09:00", "21:00"));
     setBranchLineGroupId("");
     setBranchDisplayName("");
     setBranchPaymentInfo("");
@@ -188,6 +193,8 @@ export default function AdminBranchesRoomsPage() {
     setBranchPhone(b.phone ?? "");
     setBranchOpenTime(b.open_time ?? "09:00");
     setBranchCloseTime(b.close_time ?? "21:00");
+    setBranchWeeklyEnabled(Boolean(b.weekly_hours));
+    setBranchWeeklyRows(weeklyToFormRows(b.weekly_hours, b.open_time ?? "09:00", b.close_time ?? "21:00"));
     setBranchLineGroupId(((b as unknown) as Record<string, unknown>).line_group_id as string ?? "");
     const rec = (b as unknown) as Record<string, unknown>;
     setBranchDisplayName((rec.display_name as string) ?? "");
@@ -212,6 +219,7 @@ export default function AdminBranchesRoomsPage() {
             phone: branchPhone.trim() || null,
             open_time: branchOpenTime || null,
             close_time: branchCloseTime || null,
+            weekly_hours: branchWeeklyEnabled ? formRowsToWeekly(branchWeeklyRows) : null,
             line_group_id: branchLineGroupId.trim() || null,
             display_name: branchDisplayName.trim() || null,
             payment_info: branchPaymentInfo.trim() || null,
@@ -232,6 +240,7 @@ export default function AdminBranchesRoomsPage() {
             phone: branchPhone.trim() || null,
             open_time: branchOpenTime || null,
             close_time: branchCloseTime || null,
+            weekly_hours: branchWeeklyEnabled ? formRowsToWeekly(branchWeeklyRows) : null,
             line_group_id: branchLineGroupId.trim() || null,
             display_name: branchDisplayName.trim() || null,
             payment_info: branchPaymentInfo.trim() || null,
@@ -1025,6 +1034,33 @@ export default function AdminBranchesRoomsPage() {
                   <label className="block text-xs font-medium text-stone-500 mb-1.5 uppercase tracking-wide">結束時間</label>
                   <input type="time" value={branchCloseTime} onChange={(e) => setBranchCloseTime(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" />
                 </div>
+              </div>
+              <div className="rounded-xl border border-stone-200 p-3">
+                <label className="flex items-center gap-2 text-sm font-medium text-stone-700">
+                  <input type="checkbox" checked={branchWeeklyEnabled} onChange={(e) => setBranchWeeklyEnabled(e.target.checked)} className="h-4 w-4" />
+                  依星期設定營業時間（不同天不同時間、固定公休）
+                </label>
+                {branchWeeklyEnabled && (
+                  <div className="mt-3 space-y-2" role="group" aria-label="每週營業時間">
+                    {branchWeeklyRows.map((row, i) => {
+                      const update = (patch: Partial<WeekdayFormRow>) =>
+                        setBranchWeeklyRows((rows) => rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+                      return (
+                        <div key={row.key} className="flex flex-wrap items-center gap-2 text-sm">
+                          <span className="w-10 font-medium text-stone-700">{WEEKDAY_LABELS[row.key]}</span>
+                          <label className="flex items-center gap-1 text-stone-600">
+                            <input type="checkbox" checked={row.closed} onChange={(e) => update({ closed: e.target.checked })} aria-label={`${WEEKDAY_LABELS[row.key]}公休`} />
+                            公休
+                          </label>
+                          <input type="time" value={row.open} disabled={row.closed} onChange={(e) => update({ open: e.target.value })} aria-label={`${WEEKDAY_LABELS[row.key]}開始`} className="rounded-lg border border-stone-200 px-2 py-1.5 text-sm focus:border-amber-400 focus:outline-none disabled:bg-stone-100 disabled:text-stone-400" />
+                          <span className="text-stone-400">–</span>
+                          <input type="time" value={row.close} disabled={row.closed} onChange={(e) => update({ close: e.target.value })} aria-label={`${WEEKDAY_LABELS[row.key]}結束`} className="rounded-lg border border-stone-200 px-2 py-1.5 text-sm focus:border-amber-400 focus:outline-none disabled:bg-stone-100 disabled:text-stone-400" />
+                        </div>
+                      );
+                    })}
+                    <p className="text-xs text-stone-400">勾選「公休」的那天，客人不能訂位。</p>
+                  </div>
+                )}
               </div>
               <div className="flex gap-2 pt-1">
                 <button type="button" onClick={() => setBranchFormOpen(false)} className="flex-1 rounded-xl border border-stone-200 py-2.5 text-sm text-stone-600 hover:bg-stone-50 transition-colors">取消</button>

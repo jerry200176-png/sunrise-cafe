@@ -9,6 +9,7 @@ import {
 import { fetchSettings } from "@/lib/supabase-fetch";
 import { isDateClosed, resolveClosedDates } from "@/lib/branch-closed-dates";
 import { buildHalfHourSlots } from "@/lib/slot-grid";
+import { hoursForDate, type WeeklyHours } from "@/lib/branch-hours";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -106,6 +107,13 @@ export async function GET(request: NextRequest) {
     if (isDateClosed(date, closedDates)) {
       return NextResponse.json({ closed: true });
     }
+    // Weekly schedule: a weekday marked closed behaves like a closed date.
+    const dayHours = branchForClosed
+      ? hoursForDate(branchForClosed as { open_time?: string | null; close_time?: string | null; weekly_hours?: WeeklyHours | null }, date)
+      : undefined;
+    if (dayHours === null) {
+      return NextResponse.json({ closed: true });
+    }
 
     if (roomId) {
       const [branch, room, blockedRaw] = await Promise.all([
@@ -117,8 +125,8 @@ export async function GET(request: NextRequest) {
       if (!branch || !room || room.branch_id !== branchId) {
         return NextResponse.json({ error: "分店或包廂不存在" }, { status: 404 });
       }
-      const open = parseTime(branch.open_time, DEFAULT_OPEN);
-      const close = parseTime(branch.close_time, DEFAULT_CLOSE);
+      const open = parseTime(dayHours?.open ?? branch.open_time, DEFAULT_OPEN);
+      const close = parseTime(dayHours?.close ?? branch.close_time, DEFAULT_CLOSE);
       const roomBlocked = blocked.filter((b) => b.room_id === roomId);
       const slots = buildSlotsForRoom(date, open, close, roomBlocked, isToday);
 
@@ -128,8 +136,8 @@ export async function GET(request: NextRequest) {
         roomType: room.type,
         min_capacity: room.min_capacity,
         branchName: branch.name,
-        openTime: branch.open_time,
-        closeTime: branch.close_time,
+        openTime: dayHours?.open ?? branch.open_time,
+        closeTime: dayHours?.close ?? branch.close_time,
         // ✅ 修正：現在 fetchRoom 已經有正確型別，不需要 as any
         image_url: room.image_url,
       }, { headers: { "Cache-Control": "no-store" } });
@@ -144,8 +152,8 @@ export async function GET(request: NextRequest) {
     if (!branch) {
       return NextResponse.json({ error: "分店不存在" }, { status: 404 });
     }
-    const open = parseTime(branch.open_time, DEFAULT_OPEN);
-    const close = parseTime(branch.close_time, DEFAULT_CLOSE);
+    const open = parseTime(dayHours?.open ?? branch.open_time, DEFAULT_OPEN);
+    const close = parseTime(dayHours?.close ?? branch.close_time, DEFAULT_CLOSE);
 
     const roomList = rooms.map((room) => {
       const roomBlocked = blocked.filter((b) => b.room_id === room.id);
