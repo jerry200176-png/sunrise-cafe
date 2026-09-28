@@ -461,7 +461,7 @@ export function buildReviewInviteFlex(params: {
   branchName: string;
   reviewUrl: string;
 }): LineFlexContainer {
-  const storeName = params.branchName.includes("大安") ? "昇昇咖啡 (大安店)" : "昇昇咖啡";
+  const storeName = params.branchName.trim() || "昇昇咖啡";
   return flexBubble({
     icon: "⭐",
     title: "感謝光臨",
@@ -482,7 +482,7 @@ export function buildReviewInviteMessage(params: {
   branchName: string;
   reviewUrl: string;
 }): string {
-  const storeName = params.branchName.includes("大安") ? "昇昇咖啡 (大安店)" : "昇昇咖啡";
+  const storeName = params.branchName.trim() || "昇昇咖啡";
   return (
     `${params.customerName} 您好，感謝您今天光臨${storeName}！\n\n` +
     `若您喜歡這次的體驗，能否花 30 秒給我們一個 Google 評論？對小店真的很有幫助 🙏\n` +
