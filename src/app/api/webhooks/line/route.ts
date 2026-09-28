@@ -1,7 +1,6 @@
-import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { sendLineFlex, buildPaymentPendingReviewGroupFlex } from "@/lib/line-notify";
+import { sendLineFlexToBranchGroup, buildPaymentPendingReviewGroupFlex } from "@/lib/line-notify";
 import {
   DEFAULT_PAYMENT_KEYWORDS,
   isPaymentMessage,
@@ -30,6 +29,8 @@ import {
   buildGuestPaymentPendingFlex,
 } from "@/lib/line-cards";
 import { sendDepositPaymentRequest } from "@/lib/payment-request-line";
+import { groupJoinedMessage, matchWebhookBot, replyGroupText } from "@/lib/line-group-bots";
+import { branchLineGroupIdForReservation } from "@/lib/branch-line-group";
 
 async function fetchPaymentKeywords(): Promise<string[]> {
   try {
@@ -74,19 +75,6 @@ async function replyFlex(replyToken: string, altText: string, contents: Record<s
     console.error("[webhook] replyFlex failed:", err);
     await replyMessage(replyToken, altText);
   }
-}
-
-function verifySignature(body: string, signature: string): boolean {
-  const secret = process.env.LINE_CHANNEL_SECRET;
-  if (!secret) {
-    console.error("[webhook] LINE_CHANNEL_SECRET is not set");
-    return false;
-  }
-  const hash = crypto
-    .createHmac("sha256", secret)
-    .update(body)
-    .digest("base64");
-  return hash === signature;
 }
 
 async function handleBookingCode(userId: string, rawText: string, replyToken?: string) {
@@ -252,7 +240,11 @@ async function handlePaymentReport(
       customerName: reservation.customer_name,
       bookingCode: reservation.booking_code,
     });
-    await sendLineFlex(`付款待確認：${reservation.customer_name}`, flex);
+    await sendLineFlexToBranchGroup(
+      `付款待確認：${reservation.customer_name}`,
+      flex,
+      await branchLineGroupIdForReservation(supabaseAdmin(), reservation.id)
+    );
   } catch (err) {
     console.error("[webhook] group pending-review notify failed:", err);
   }
@@ -270,7 +262,8 @@ export async function POST(request: NextRequest) {
   const rawBody = await request.text();
   const signature = request.headers.get("x-line-signature") ?? "";
 
-  if (!verifySignature(rawBody, signature)) {
+  const bot = matchWebhookBot(rawBody, signature);
+  if (!bot) {
     logOps("webhook", "webhook.signature_failed", {});
     console.error("[webhook] signature verification failed");
     return new NextResponse("Forbidden", { status: 403 });
@@ -280,7 +273,7 @@ export async function POST(request: NextRequest) {
     events: {
       type: string;
       replyToken?: string;
-      source: { userId?: string };
+      source: { userId?: string; type?: string; groupId?: string };
       message?: { type: string; id?: string; text?: string };
     }[];
   };
@@ -295,6 +288,19 @@ export async function POST(request: NextRequest) {
 
   const events = payload.events ?? [];
   for (const event of events) {
+    // Any group bot added to a group reports that group's ID so staff can paste it into the branch.
+    if (event.type === "join" && event.source.type === "group" && event.source.groupId && event.replyToken) {
+      const token = bot.kind === "extra" ? bot.bot.token : process.env.LINE_CHANNEL_ACCESS_TOKEN;
+      if (token) {
+        await replyGroupText(token, event.replyToken, groupJoinedMessage(event.source.groupId)).catch((err) =>
+          console.error("[webhook] group join reply failed:", err instanceof Error ? err.message : err)
+        );
+      }
+      logOps("webhook", "webhook.event_handled", { route: "line", event_type: "join", bot: bot.kind === "extra" ? bot.bot.name : "default" });
+      continue;
+    }
+    // Branch staff bots only report group IDs; their chat is never read as guest payment reports.
+    if (bot.kind === "extra") continue;
     if (event.type !== "message") continue;
 
     const userId = event.source.userId;
