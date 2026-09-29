@@ -234,6 +234,8 @@ export async function updateReservationAdmin(
     is_reminded_7d?: boolean;
     is_deposit_paid?: boolean;
     deposit_payment_note?: string | null;
+    deposit_paid_on?: string | null;
+    deposit_last_five?: string | null;
     deposit_approved_notified_at?: string | null;
     deposit_approved_claim_at?: string | null;
     deposit_approved_retry_key?: string | null;
