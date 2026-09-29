@@ -1,28 +1,27 @@
 # LINE 整合指南
 
-## 雙 Channel 架構
+## 雙 Channel 架構（2026-09-29 依正式設定核對）
 
-| | 群組 Bot | 客人 Bot |
+| | 群組 Bot（貓咪頭像「昇咖啡包廂預約提醒機器人」） | 客人帳號（「昇咖啡 x 大安店」） |
 |---|---|---|
-| **env** | `LINE_CHANNEL_ACCESS_TOKEN` + `LINE_CHANNEL_SECRET` | `LINE_CUSTOMER_ACCESS_TOKEN` |
-| **用途** | 推播群組通知、接收 Webhook | Push 訂金請求、回覆客人 |
+| **env** | `LINE_CHANNEL_ACCESS_TOKEN` | `LINE_CUSTOMER_ACCESS_TOKEN` + `LINE_CHANNEL_SECRET` |
+| **用途** | 推播店員群組通知 | 推播給客人、回覆客人、接收 Webhook |
 | **需要在群組裡** | ✅ | ❌ |
-| **Webhook 設定** | ✅ 需要 | ❌ |
-| **程式碼** | `src/lib/line-notify.ts` | `src/lib/line.ts` |
+| **Webhook 設定** | ❌（未設定） | ✅ `/api/webhooks/line` |
+| **程式碼** | `src/lib/line-notify.ts` | `src/lib/line.ts`、`src/app/api/webhooks/line/route.ts` |
+
+注意：`LINE_CHANNEL_SECRET` 雖然名字像群組 Bot，實際是**大安店客人帳號**的 secret（webhook 簽章與回覆 token 必須是同一個 channel）。
 
 ---
 
 ## 換群組 Bot（步驟）
 
 1. LINE Official Account Manager → 新帳號 → 設定 → Messaging API → 點進 LINE Developers
-2. 取得：Channel Secret（Basic settings）、Channel Access Token（Messaging API → Issue）
+2. 取得：Channel Access Token（Messaging API → Issue）
 3. 把新 Bot 邀請進 LINE 群組
-4. 更新 `.env.local`：`LINE_CHANNEL_ACCESS_TOKEN`、`LINE_CHANNEL_SECRET`
-5. 更新 Vercel 環境變數（同上兩個）→ Redeploy
-6. 在新 channel 設定 Webhook URL：
-   - `https://sunrise-cafe-six.vercel.app/api/webhooks/line`
-   - 開啟 Use webhook
-   - 按 Verify 確認連線
+4. 更新 `.env.local` 與 Vercel 的 `LINE_CHANNEL_ACCESS_TOKEN` → Redeploy
+5. **不要改 `LINE_CHANNEL_SECRET`**：它是大安店客人帳號的 secret，改掉會讓客人訊息的 webhook 全部 403。群組 Bot 不需要 webhook。
+6. （選用）若要讓新群組 Bot 被拉進群組時自動回報群組 ID，請改用下方「分店專屬群組 Bot」的 `LINE_EXTRA_GROUP_BOTS`。
 7. 測試：`GET /api/admin/test-line-group`，確認新帳號發出訊息
 8. 確認正常後，把舊帳號踢出群組
 
@@ -46,6 +45,23 @@
 運作方式：發送群組通知時，程式先問 LINE「哪個 Bot 在這個群組裡」（group summary API，不耗額度），用那個 Bot 的 token 發送；結果快取 10 分鐘。分店 Bot 的 webhook 只處理「加入群組」事件，店員在群組裡的對話不會被當成客人付款回報。
 
 依分店發送的通知：新訂位、付款待確認、已付訂金（含 LINE Pay）、改期、候補轉訂位、訂金逾期釋放、明日提醒、出席確認。
+
+---
+
+## 分店專屬客人帳號（同德店等，客人加的是該店的官方帳號）
+
+分店有自己的客人官方帳號時，該店訂位的所有客人通知（繳費、提醒、取消、改期、候補、評論邀請…）都由該帳號發送；客人傳到該帳號的訂位代號與付款截圖也會被處理（付款截圖只對應該店的訂位）。沒設定的分店照舊用大安店帳號。
+
+1. 該官方帳號在 LINE Official Account Manager → 設定 → Messaging API → 啟用，Provider 選 **sunrise_cafe**（和 LINE Login 同一個，客人的 LINE 綁定才能共用）。**Provider 選了不能改。**
+2. LINE Developers 該 channel → Messaging API：Webhook URL 設 `https://sunrise-cafe-six.vercel.app/api/webhooks/line`，開啟 Use webhook。
+3. 發行 Channel access token（long-lived），並記下 Channel secret。**不要截圖、不要貼到聊天或 commit。**
+4. 分店必須已在後台建立（需要它的 branch_id）。Vercel 環境變數 `LINE_BRANCH_CUSTOMER_BOTS`（Production）：
+   ```json
+   [{ "branch_id": "<branches.id>", "name": "同德店", "secret": "<Channel secret>", "token": "<Channel access token>" }]
+   ```
+5. 以既有流程重新部署（`production-deploy-migrate.yml`，`force_deploy=true`），回 LINE Developers 按 Verify。
+
+客人要**加該店官方帳號為好友**才收得到訊息（推播只會送到好友）。
 
 ---
 

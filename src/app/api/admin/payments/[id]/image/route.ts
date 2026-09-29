@@ -3,7 +3,9 @@ import { createClient } from "@supabase/supabase-js";
 import { requirePermission } from "@/lib/admin-api-auth";
 import { fetchLineMessageContent } from "@/lib/line-content";
 import { parseLineImageMessageId } from "@/lib/payment-event-payload";
-import { isAdminConfigured } from "@/lib/supabase-admin";
+import { isAdminConfigured, supabaseAdmin } from "@/lib/supabase-admin";
+import { branchCustomerBots, customerTokenForBranch } from "@/lib/customer-line-bots";
+import { branchIdForReservation } from "@/lib/branch-line-group";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -24,7 +26,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
   const { data: event, error } = await db
     .from("payment_events")
-    .select("source, raw_payload, status")
+    .select("source, raw_payload, status, reservation_id")
     .eq("id", id)
     .single();
 
@@ -44,7 +46,11 @@ export async function GET(request: NextRequest, { params }: Params) {
   }
 
   try {
-    const { body, contentType } = await fetchLineMessageContent(messageId);
+    // A screenshot sent to a store's own account is only downloadable with that account's token.
+    const branchId = branchCustomerBots().length && event.reservation_id
+      ? await branchIdForReservation(supabaseAdmin(), String(event.reservation_id))
+      : null;
+    const { body, contentType } = await fetchLineMessageContent(messageId, customerTokenForBranch(branchId));
     return new NextResponse(body, {
       headers: {
         "Content-Type": contentType,

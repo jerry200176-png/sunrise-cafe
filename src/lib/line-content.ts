@@ -5,11 +5,12 @@
 
 const CONTENT_BASE = "https://api-data.line.me/v2/bot/message";
 
-export async function fetchLineMessageContent(messageId: string): Promise<{
+export async function fetchLineMessageContent(messageId: string, channelToken?: string): Promise<{
   body: ArrayBuffer;
   contentType: string;
 }> {
-  const token = process.env.LINE_CUSTOMER_ACCESS_TOKEN;
+  // Content is only downloadable with the token of the account that received the message.
+  const token = channelToken ?? process.env.LINE_CUSTOMER_ACCESS_TOKEN;
   if (!token) throw new Error("LINE_CUSTOMER_ACCESS_TOKEN 未設定");
 
   const res = await fetch(`${CONTENT_BASE}/${messageId}/content`, {
