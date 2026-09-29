@@ -36,3 +36,23 @@ export async function branchLineGroupIdForReservation(db: SupabaseClient, reserv
     return null;
   }
 }
+
+/** Branch that owns a reservation (null on any lookup problem). */
+export async function branchIdForReservation(db: SupabaseClient, reservationId: string): Promise<string | null> {
+  try {
+    const { data } = await db.from("reservations").select("room:rooms(branch_id)").eq("id", reservationId).maybeSingle();
+    return one((data as { room?: { branch_id?: string | null } | { branch_id?: string | null }[] | null } | null)?.room)?.branch_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Branch that owns a room (null on any lookup problem). */
+export async function branchIdForRoom(db: SupabaseClient, roomId: string): Promise<string | null> {
+  try {
+    const { data } = await db.from("rooms").select("branch_id").eq("id", roomId).maybeSingle();
+    return (data as { branch_id?: string | null } | null)?.branch_id ?? null;
+  } catch {
+    return null;
+  }
+}

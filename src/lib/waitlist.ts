@@ -178,6 +178,7 @@ export async function notifyWaitlist(
     });
     await sendLineFlexMessage(lineUserId, "您等位的時段空出來了！", flex, {
       retryKey: stableLineRetryKey("waitlist-available", entry.id),
+      roomId,
     });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);

@@ -141,6 +141,7 @@ async function notifyGuestAttendance(r: Record<string, unknown>, lookupToken: st
               String(r.id),
               String(r.line_user_id)
             ),
+            reservationId: String(r.id),
           }
         ),
     });

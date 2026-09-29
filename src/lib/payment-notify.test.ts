@@ -638,7 +638,7 @@ describe("payment-notify", () => {
       defaultRow.line_user_id,
       expect.any(String),
       expect.any(Object),
-      { retryKey: stableGuestRetryUuid }
+      { retryKey: stableGuestRetryUuid, reservationId: "res-123" }
     );
 
     const finalRow = mockClient.getRow();
@@ -777,7 +777,7 @@ describe("payment-notify", () => {
       defaultRow.line_user_id,
       expect.any(String),
       expect.any(Object),
-      { retryKey: finalRow.deposit_approved_guest_retry_key }
+      { retryKey: finalRow.deposit_approved_guest_retry_key, reservationId: "res-123" }
     );
   });
 

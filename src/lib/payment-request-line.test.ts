@@ -127,7 +127,7 @@ describe("sendDepositPaymentRequest", () => {
       "U1",
       "訂金繳費通知",
       expect.any(Object),
-      { retryKey: "00000000-0000-4000-8000-000000000001" }
+      { retryKey: "00000000-0000-4000-8000-000000000001", reservationId: "r1" }
     );
     expect(client._update).toHaveBeenCalled();
   });
@@ -262,7 +262,7 @@ describe("sendDepositPaymentRequest", () => {
     expect((await sendDepositPaymentRequest("r2", { client: mockClient(r2) as never })).result).toBe("sent");
     expect(mockSend).toHaveBeenCalledTimes(3);
     expect(mockSend.mock.calls[0]).toEqual(mockSend.mock.calls[1]);
-    expect(mockSend.mock.calls[0]?.[3]).toEqual({ retryKey: "delivery-r1-first" });
+    expect(mockSend.mock.calls[0]?.[3]).toEqual({ retryKey: "delivery-r1-first", reservationId: "r1" });
     expect(mockClaim).toHaveBeenLastCalledWith(
       expect.objectContaining({ reservationId: "r2", recipientId: "U2" })
     );

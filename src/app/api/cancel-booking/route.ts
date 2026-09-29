@@ -109,7 +109,8 @@ export async function POST(request: NextRequest) {
                 bookingCode: guest.booking_code,
                 startTime: guest.start_time,
                 endTime: guest.end_time,
-              })
+              }),
+              { reservationId: match.id }
             ),
         });
       } catch (err) {

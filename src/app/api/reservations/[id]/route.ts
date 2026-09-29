@@ -166,7 +166,8 @@ export async function PATCH(
                 bookingCode: cancellationNotice.booking_code,
                 startTime: cancellationNotice.start_time!,
                 endTime: cancellationNotice.end_time!,
-              })
+              }),
+              { reservationId: id }
             ),
         });
         if (result === "error") console.error("[reservations/id] guest cancellation notify failed");
@@ -308,7 +309,7 @@ export async function PATCH(
               branchName,
               reviewUrl,
             });
-            await sendLineFlexMessage(r.line_user_id, "感謝光臨昇昇咖啡", flex);
+            await sendLineFlexMessage(r.line_user_id, "感謝光臨昇昇咖啡", flex, { reservationId: id });
             await updateReservationAdmin(id, { review_invited_at: new Date().toISOString() });
           }
         }
