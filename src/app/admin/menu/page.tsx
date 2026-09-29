@@ -8,6 +8,25 @@ import type { Branch, MenuItem, MenuCategory } from "@/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 
+// 手機原圖常 3–5 MB，直接上傳很慢；先在瀏覽器縮到 1200px JPEG（約 100–300 KB）。
+async function shrinkPhoto(file: File): Promise<File> {
+  try {
+    const img = await createImageBitmap(file);
+    const scale = Math.min(1, 1200 / Math.max(img.width, img.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "#fff"; // 透明 PNG 轉 JPEG 時不要變黑底
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/jpeg", 0.82));
+    return blob && blob.size < file.size ? new File([blob], "photo.jpg", { type: "image/jpeg" }) : file;
+  } catch {
+    return file;
+  }
+}
+
 interface MenuItemWithCategory extends MenuItem {
   category?: { name: string } | null;
 }
@@ -19,6 +38,7 @@ export default function AdminMenuPage() {
   const [items, setItems] = useState<MenuItemWithCategory[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   // 表單狀態
   const [formOpen, setFormOpen] = useState(false);
@@ -111,13 +131,15 @@ export default function AdminMenuPage() {
 
   const submitItem = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return;
     setError(null);
+    setSaving(true);
     try {
       let imageUrl = fImageUrl.trim() || null;
       if (fImageFile) {
         const form = new FormData();
         form.append("branch_id", branchId);
-        form.append("photo", fImageFile);
+        form.append("photo", await shrinkPhoto(fImageFile));
         const upload = await fetch("/api/admin/menu-photos", { method: "POST", body: form });
         const result = await upload.json();
         if (!upload.ok) throw new Error(result.error ?? "照片上傳失敗");
@@ -161,6 +183,8 @@ export default function AdminMenuPage() {
       loadData(branchId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "操作失敗");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -468,9 +492,10 @@ export default function AdminMenuPage() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 rounded-lg bg-amber-600 py-2 text-white hover:bg-amber-700"
+                  disabled={saving}
+                  className="flex-1 rounded-lg bg-amber-600 py-2 text-white hover:bg-amber-700 disabled:opacity-60"
                 >
-                  儲存
+                  {saving ? "儲存中…" : "儲存"}
                 </button>
               </div>
             </form>
