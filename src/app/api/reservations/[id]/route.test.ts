@@ -131,6 +131,18 @@ describe("PATCH /api/reservations/[id]", () => {
     expect(res.status).toBe(200);
     expect(updateReservationAdmin).toHaveBeenCalledWith("res-1", { notes: "updated" });
   });
+
+  it.each([
+    [{ deposit_last_five: "1234a" }, "末五碼須為 5 位數字"],
+    [{ deposit_last_five: "123456" }, "末五碼須為 5 位數字"],
+    [{ deposit_paid_on: "09/28" }, "匯款日期格式錯誤"],
+  ])("rejects malformed deposit transfer info %j", async (body, error) => {
+    const token = await managerSession();
+    const res = await PATCH(patchRequest(body, token), { params });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error });
+    expect(updateReservationAdmin).not.toHaveBeenCalled();
+  });
 });
 
 describe("DELETE /api/reservations/[id]", () => {

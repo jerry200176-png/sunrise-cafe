@@ -416,5 +416,21 @@
         "note": "Nullable per-weekday hours; NULL keeps open_time/close_time for every day"
       }
     ]
+  },
+  {
+    "version": "20260929-reservations-deposit-transfer-info",
+    "file": "migration-reservations-deposit-transfer-info.sql",
+    "critical": true,
+    "evidence": [
+      { "type": "column", "table": "reservations", "name": "deposit_paid_on", "introspect": "rest" },
+      { "type": "column", "table": "reservations", "name": "deposit_last_five", "introspect": "rest" },
+      {
+        "type": "constraint",
+        "name": "reservations_deposit_last_five_format",
+        "table": "reservations",
+        "introspect": "unsupported",
+        "note": "CHECK 5 digits — not visible via PostgREST"
+      }
+    ]
   }
 ]

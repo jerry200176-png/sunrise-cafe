@@ -25,5 +25,6 @@
     ,{ "version": "20260924-preorder-menu-seed", "file": "migration-preorder-menu-seed.sql", "runner": "scripts/apply-migration-preorder-menu-seed.mjs", "phase": "predeploy", "runtime_flag": "RESERVATION_PREORDER_ENABLED" }
     ,{ "version": "20260928-branch-guest-settings", "file": "migration-branch-guest-settings.sql", "runner": "scripts/apply-migration-branch-guest-settings.mjs", "phase": "predeploy" }
     ,{ "version": "20260928-branch-weekly-hours", "file": "migration-branch-weekly-hours.sql", "runner": "scripts/apply-migration-branch-weekly-hours.mjs", "phase": "predeploy" }
+    ,{ "version": "20260929-reservations-deposit-transfer-info", "file": "migration-reservations-deposit-transfer-info.sql", "runner": "scripts/apply-migration-reservations-deposit-transfer-info.mjs", "phase": "predeploy" }
   ]
 }
