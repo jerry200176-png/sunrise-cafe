@@ -90,3 +90,44 @@ test("編輯分店：依星期設定營業時間（同德店：週一公休、�
     sat: { open: "10:00", close: "18:00" }, sun: { open: "10:00", close: "18:00" },
   });
 });
+
+test("包廂照片：選檔案 → 儲存時先上傳，再把照片網址存進包廂", async ({ page, context }) => {
+  await seedAdminSession(context);
+  const branch = { id: "e2e-branch-3", name: "E2E 同德店", open_time: "10:00", close_time: "18:00", closed_dates: [] };
+  const room = { id: "e2e-room-9", branch_id: branch.id, name: "E2E 包廂", type: null, min_capacity: 2, capacity: 6,
+    price_weekday: 200, price_weekend: 250, image_url: null };
+  const photoUrl = "https://placeholder.supabase.co/storage/v1/object/public/menu-photos/e2e-branch-3/p.png";
+  await page.route("**/api/branches", (route) =>
+    route.request().method() === "GET"
+      ? route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([branch]) })
+      : route.fallback()
+  );
+  await page.route("**/api/rooms?branchId=*", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([room]) })
+  );
+  let uploadedBranch: string | null = null;
+  await page.route("**/api/admin/menu-photos", async (route) => {
+    uploadedBranch = /name="branch_id"\r\n\r\n([^\r]+)/.exec(route.request().postData() ?? "")?.[1] ?? null;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ url: photoUrl }) });
+  });
+  let patched: Record<string, unknown> | null = null;
+  await page.route(`**/api/rooms/${room.id}`, async (route) => {
+    patched = route.request().postDataJSON();
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
+  });
+
+  await page.goto("/admin");
+  await page.locator("select", { has: page.locator("option", { hasText: "選擇分店" }) }).first().selectOption(branch.id);
+  await page.getByText("E2E 包廂").waitFor();
+  await page.locator("li, div", { hasText: "E2E 包廂" }).getByTitle("編輯").last().click();
+  await page.getByLabel("包廂照片").setInputFiles({
+    name: "room.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"),
+  });
+  await page.locator("form", { has: page.locator("#room-photo") }).getByRole("button", { name: "儲存" }).click();
+
+  await expect.poll(() => patched).not.toBeNull();
+  expect(uploadedBranch).toBe(branch.id);
+  expect(patched!.image_url).toBe(photoUrl);
+});

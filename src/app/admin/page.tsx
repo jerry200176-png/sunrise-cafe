@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Plus, Pencil, Trash2, MapPin, ChefHat, UtensilsCrossed, QrCode, Printer, Building2, LayoutGrid, ClipboardList, CalendarDays, CalendarX, BarChart2, Star, DollarSign, Activity, Clock, AlertTriangle, LayoutDashboard } from "lucide-react";
@@ -51,6 +52,8 @@ export default function AdminBranchesRoomsPage() {
   const [roomCapacity, setRoomCapacity] = useState(4);
   const [roomPriceWeekday, setRoomPriceWeekday] = useState(0);
   const [roomPriceWeekend, setRoomPriceWeekend] = useState(0);
+  const [roomImageUrl, setRoomImageUrl] = useState("");
+  const [roomImageFile, setRoomImageFile] = useState<File | null>(null);
 
   const [rentalNotes, setRentalNotes] = useState<RentalNoteSection[]>([]);
   const [notesSaving, setNotesSaving] = useState(false);
@@ -281,6 +284,8 @@ export default function AdminBranchesRoomsPage() {
     setRoomCapacity(4);
     setRoomPriceWeekday(0);
     setRoomPriceWeekend(0);
+    setRoomImageUrl("");
+    setRoomImageFile(null);
     setRoomFormOpen(true);
   };
 
@@ -292,6 +297,8 @@ export default function AdminBranchesRoomsPage() {
     setRoomCapacity(r.capacity);
     setRoomPriceWeekday(Number(r.price_weekday));
     setRoomPriceWeekend(Number(r.price_weekend));
+    setRoomImageUrl(r.image_url ?? "");
+    setRoomImageFile(null);
     setRoomFormOpen(true);
   };
 
@@ -299,11 +306,22 @@ export default function AdminBranchesRoomsPage() {
     e.preventDefault();
     if (!selectedBranchId) return;
     try {
+      // Same branch-scoped photo storage the menu uses; the rooms API only accepts its URLs.
+      let imageUrl = roomImageUrl || null;
+      if (roomImageFile) {
+        const form = new FormData();
+        form.append("branch_id", selectedBranchId);
+        form.append("photo", roomImageFile);
+        const upload = await fetch("/api/admin/menu-photos", { method: "POST", body: form });
+        const result = await upload.json();
+        if (!upload.ok) throw new Error(result.error ?? "照片上傳失敗");
+        imageUrl = result.url;
+      }
       if (editingRoom) {
         const res = await fetch(`/api/rooms/${editingRoom.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: roomName.trim(), type: roomType.trim() || null, min_capacity: roomMinCapacity, capacity: roomCapacity, price_weekday: roomPriceWeekday, price_weekend: roomPriceWeekend }),
+          body: JSON.stringify({ name: roomName.trim(), type: roomType.trim() || null, min_capacity: roomMinCapacity, capacity: roomCapacity, price_weekday: roomPriceWeekday, price_weekend: roomPriceWeekend, image_url: imageUrl }),
         });
         if (!res.ok) throw new Error((await res.json()).error ?? "更新失敗");
       } else {
@@ -318,6 +336,7 @@ export default function AdminBranchesRoomsPage() {
             capacity: roomCapacity,
             price_weekday: roomPriceWeekday,
             price_weekend: roomPriceWeekend,
+            image_url: imageUrl,
           }),
         });
         if (!res.ok) throw new Error((await res.json()).error ?? "新增失敗");
@@ -1103,6 +1122,20 @@ export default function AdminBranchesRoomsPage() {
                   <label className="block text-xs font-medium text-stone-500 mb-1.5 uppercase tracking-wide">假日每小時 *</label>
                   <input type="number" min={0} step={1} required value={roomPriceWeekend} onChange={(e) => setRoomPriceWeekend(Number(e.target.value) || 0)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" placeholder="300" />
                 </div>
+              </div>
+              <div>
+                <label htmlFor="room-photo" className="block text-xs font-medium text-stone-500 mb-1.5 uppercase tracking-wide">包廂照片</label>
+                {roomImageUrl && !roomImageFile && (
+                  <div className="mb-2 flex items-center gap-3">
+                    <div className="relative h-16 w-28 overflow-hidden rounded-lg bg-stone-100">
+                      <Image src={roomImageUrl} alt="目前的包廂照片" fill sizes="112px" className="object-cover" />
+                    </div>
+                    <button type="button" onClick={() => setRoomImageUrl("")} className="text-xs text-rose-700 underline">移除照片</button>
+                  </div>
+                )}
+                <input id="room-photo" type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => setRoomImageFile(e.target.files?.[0] ?? null)}
+                  className="w-full rounded-xl border border-stone-200 px-3 py-2 text-sm" />
+                <p className="mt-1 text-xs text-stone-400">JPG、PNG 或 WebP，5 MB 以下。按「儲存」時才會上傳；客人在訂位頁選包廂時會看到。</p>
               </div>
               <div className="flex gap-2 pt-1">
                 <button type="button" onClick={() => setRoomFormOpen(false)} className="flex-1 rounded-xl border border-stone-200 py-2.5 text-sm text-stone-600 hover:bg-stone-50 transition-colors">取消</button>
