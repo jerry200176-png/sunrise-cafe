@@ -605,14 +605,18 @@ export async function runSendLineReminder(
     const guestRows = allRows.filter(
       (row) => row.line_user_id && !row.d1_guest_reminder_sent_at
     );
+    // One digest per guest per store: each store's own LINE account sends its bookings.
     const guestByUser = new Map<string, Record<string, unknown>[]>();
     for (const row of guestRows) {
-      const userId = String(row.line_user_id);
-      const rows = guestByUser.get(userId) ?? [];
+      const room = row.room as { branch_id?: string; branch?: { id?: string; name?: string } } | undefined;
+      const branch = room?.branch_id ?? room?.branch?.id ?? room?.branch?.name ?? "";
+      const key = `${String(row.line_user_id)}\u0000${branch}`;
+      const rows = guestByUser.get(key) ?? [];
       rows.push(row);
-      guestByUser.set(userId, rows);
+      guestByUser.set(key, rows);
     }
-    for (const [lineUserId, rows] of guestByUser) {
+    for (const rows of guestByUser.values()) {
+      const lineUserId = String(rows[0]!.line_user_id);
       for (let offset = 0; offset < rows.length; offset += REMINDER_DIGEST_CAROUSEL_MAX) {
         const rowChunk = rows.slice(offset, offset + REMINDER_DIGEST_CAROUSEL_MAX);
         const claims = await claimRows(
@@ -644,7 +648,7 @@ export async function runSendLineReminder(
           const part = rows.length > REMINDER_DIGEST_CAROUSEL_MAX
             ? `（${Math.floor(offset / REMINDER_DIGEST_CAROUSEL_MAX) + 1}/${Math.ceil(rows.length / REMINDER_DIGEST_CAROUSEL_MAX)}）`
             : "";
-          await sendLineFlexMessage(lineUserId, `明日訂位提醒${part}`, flex!);
+          await sendLineFlexMessage(lineUserId, `明日訂位提醒${part}`, flex!, { reservationId: String(claimed[0]!.row.id) });
           accepted = true;
           guest_sent_count += 1;
           await settleClaims(claimed, "sent");

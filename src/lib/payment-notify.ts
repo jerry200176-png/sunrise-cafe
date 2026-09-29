@@ -511,7 +511,7 @@ export async function notifyPaymentApproved(
             endTime: r.end_time,
             lookupToken,
           }),
-          { retryKey: effectiveGuestKey }
+          { retryKey: effectiveGuestKey, reservationId }
         );
         guestNotified = true;
       } catch (guestErr) {

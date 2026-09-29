@@ -267,6 +267,22 @@ describe("runSendLineReminder — retry regression", () => {
     expect(sendLineFlexToGroup).not.toHaveBeenCalled();
   });
 
+  it("sends one digest per store when a guest has bookings at two stores", async () => {
+    const row = (id: string, branchId: string, name: string) => ({
+      id, booking_code: id, start_time: "2026-07-17T10:00:00+08:00", end_time: "2026-07-17T12:00:00+08:00",
+      customer_name: "A", phone: "0912", line_user_id: "U1", is_deposit_paid: true,
+      room: { name: "包廂1", branch_id: branchId, branch: { id: branchId, name } },
+    });
+    vi.mocked(fetchReservationsForReminder).mockResolvedValue(
+      [row("d1", "b-daan", "大安店"), row("t1", "b-tongde", "同德店"), row("d2", "b-daan", "大安店")] as never
+    );
+
+    await runSendLineReminder({ sendHeartbeatOnEmpty: true, enforceDayIdempotency: true, trigger_source: "cron" });
+
+    const guestCalls = vi.mocked(sendLineFlexMessage).mock.calls.filter(([, alt]) => String(alt).startsWith("明日訂位提醒"));
+    expect(guestCalls.map((call) => call[3])).toEqual([{ reservationId: "d1" }, { reservationId: "t1" }]);
+  });
+
   it("only sends pending rows and marks them notified (idempotent retry)", async () => {
     const pending = [
       {
@@ -295,7 +311,7 @@ describe("runSendLineReminder — retry regression", () => {
     expect(json.guest_sent_count).toBe(1);
     expect(sendLineFlexToGroup).toHaveBeenCalled();
     expect(updateReservationAdmin).toHaveBeenCalledWith("p1", { is_notified: true });
-    expect(sendLineFlexMessage).toHaveBeenCalledWith("U1", "明日訂位提醒", expect.anything());
+    expect(sendLineFlexMessage).toHaveBeenCalledWith("U1", "明日訂位提醒", expect.anything(), { reservationId: "p1" });
 
     // Second call with empty pending = already notified path, no digest re-send
     vi.clearAllMocks();

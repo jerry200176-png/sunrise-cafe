@@ -43,13 +43,17 @@ async function handleSend() {
 
     let sent = 0;
     let errors = 0;
+    // One digest per guest per store: each store's own LINE account sends its bookings.
     const byUser = new Map<string, typeof rows>();
     for (const row of rows) {
-      const userId = String(row.line_user_id);
-      byUser.set(userId, [...(byUser.get(userId) ?? []), row]);
+      const room = row.room as { branch_id?: string; branch?: { id?: string; name?: string } } | undefined;
+      const branch = room?.branch_id ?? room?.branch?.id ?? room?.branch?.name ?? "";
+      const key = `${String(row.line_user_id)}\u0000${branch}`;
+      byUser.set(key, [...(byUser.get(key) ?? []), row]);
     }
 
-    for (const [lineUserId, userRows] of byUser) {
+    for (const userRows of byUser.values()) {
+      const lineUserId = String(userRows[0]!.line_user_id);
       for (let offset = 0; offset < userRows.length; offset += REMINDER_DIGEST_CAROUSEL_MAX) {
         const rowChunk = userRows.slice(offset, offset + REMINDER_DIGEST_CAROUSEL_MAX);
         const claims: { row: (typeof rows)[number]; id: string | null }[] = [];
@@ -82,7 +86,7 @@ async function handleSend() {
           const part = userRows.length > REMINDER_DIGEST_CAROUSEL_MAX
             ? `（${Math.floor(offset / REMINDER_DIGEST_CAROUSEL_MAX) + 1}/${Math.ceil(userRows.length / REMINDER_DIGEST_CAROUSEL_MAX)}）`
             : "";
-          await sendLineFlexMessage(lineUserId, `7 天後訂位提醒${part}`, flex!);
+          await sendLineFlexMessage(lineUserId, `7 天後訂位提醒${part}`, flex!, { reservationId: String(claims[0]!.row.id) });
           lineAccepted = true;
           sent++;
           await Promise.all(

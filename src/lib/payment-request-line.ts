@@ -213,7 +213,7 @@ export async function sendDepositPaymentRequest(
     // window instead of minting a key after a timeout. Manual force resend
     // deliberately stays outside this automatic retry path.
     await sendLineFlexMessage(String(r.line_user_id), "訂金繳費通知", flex,
-      deliveryId ? { retryKey: deliveryId } : undefined);
+      { ...(deliveryId ? { retryKey: deliveryId } : {}), reservationId: String(r.id) });
     await recordPushAction("pushed");
     if (deliveryId) {
       try {

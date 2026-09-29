@@ -146,7 +146,8 @@ export async function POST(request: NextRequest) {
                 oldEnd,
                 newStart,
                 newEnd,
-              })
+              }),
+              { reservationId: id }
             ),
         });
       } catch (err) {

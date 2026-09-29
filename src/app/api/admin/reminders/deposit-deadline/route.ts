@@ -82,7 +82,8 @@ async function sendDepositReminder(r: Row, urgency: "ok" | "soon") {
       endTime: r.end_time,
       urgency,
       deadlineLabel,
-    })
+    }),
+    { reservationId: r.id }
   );
 }
 
@@ -183,7 +184,8 @@ async function handleRun() {
                 bookingCode: r.booking_code,
                 startTime: r.start_time,
                 endTime: r.end_time,
-              })
+              }),
+              { reservationId: r.id }
             );
             messageCount++;
             if (guestClaim?.id) await markLineReminderDelivery(guestClaim.id, { status: "sent" });

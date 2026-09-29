@@ -8,6 +8,9 @@ import {
 } from "@/lib/line-cards";
 import type { LineFlexContainer } from "@/lib/line-flex";
 import { observeLineProviderRejection } from "@/lib/line-provider-observability";
+import { branchCustomerBots, customerTokenForBranch } from "@/lib/customer-line-bots";
+import { branchIdForReservation, branchIdForRoom } from "@/lib/branch-line-group";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export {
   buildPaymentFlex,
@@ -26,13 +29,27 @@ const REPLY_URL = "https://api.line.me/v2/bot/message/reply";
 
 export type LineCustomerSendOptions = {
   retryKey?: string;
+  /** Which store's customer account sends it: the reservation's branch, or a branch directly. */
+  reservationId?: string;
+  roomId?: string;
+  branchId?: string | null;
 };
+
+/** Token of the sending store's customer account; the default account when none is configured. */
+async function customerSendToken(options?: LineCustomerSendOptions): Promise<string | undefined> {
+  if (branchCustomerBots().length === 0) return process.env.LINE_CUSTOMER_ACCESS_TOKEN;
+  const db = supabaseAdmin();
+  const branchId = options?.branchId
+    ?? (options?.reservationId ? await branchIdForReservation(db, options.reservationId) : null)
+    ?? (options?.roomId ? await branchIdForRoom(db, options.roomId) : null);
+  return customerTokenForBranch(branchId);
+}
 
 async function lineCustomerFetch(
   body: Record<string, unknown>,
   options?: LineCustomerSendOptions
 ): Promise<void> {
-  const token = process.env.LINE_CUSTOMER_ACCESS_TOKEN;
+  const token = await customerSendToken(options);
   if (!token) throw new Error("LINE_CUSTOMER_ACCESS_TOKEN 未設定");
 
   const headers: Record<string, string> = {
