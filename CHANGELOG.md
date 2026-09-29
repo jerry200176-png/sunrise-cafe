@@ -9,6 +9,7 @@
 ### Admin — 核准訂金時記錄匯款日期與末五碼 (2026-09-29)
 - 「一鍵核准訂金」改為「核准訂金」表單：銀行匯款必填匯款日期＋帳號末五碼；LINE Pay／現金必填備註
 - 已付訂金顯示「🏦 09/28 匯款・末五碼 12345」，可「修改付款資料」（不重發 LINE 通知）
+- 客人自行回報的銀行轉帳在「付款審核」核准後，末五碼與回報日（台北日期）也寫入同樣欄位
 - 新欄位 `reservations.deposit_paid_on`、`deposit_last_five`（migration `migration-reservations-deposit-transfer-info.sql`，predeploy）
 
 ### Guest — LINE 確認準時到店後一鍵查詢 (#351) (2026-09-18)

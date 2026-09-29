@@ -96,6 +96,39 @@ describe("payment review idempotency rules", () => {
     });
   });
 
+  it("bank-transfer approval copies the reported last five and Taipei report date onto the reservation", async () => {
+    const update = vi.fn(() => ({ eq: async () => ({ error: null }) }));
+    mocks.from.mockImplementation((table: string) =>
+      table === "reservations"
+        ? { update }
+        : {
+            select: () => ({
+              eq: () => ({
+                single: async () => ({
+                  data: {
+                    id: "event-1",
+                    reservation_id: "reservation-1",
+                    source: "bank_transfer",
+                    status: "pending_review",
+                    raw_payload: "customer_portal_transfer_report",
+                    reported_account_last_five: "54321",
+                    reported_at: "2026-09-28T17:30:00Z", // 台北 09/29 01:30
+                  },
+                  error: null,
+                }),
+              }),
+            }),
+          }
+    );
+    mocks.rpc.mockResolvedValue({
+      data: [{ reservation_id: "reservation-1", outcome: "confirmed", reservation_status: "confirmed" }],
+      error: null,
+    });
+
+    await expect(approvePaymentEvent("event-1")).resolves.toEqual({ already_processed: false });
+    expect(update).toHaveBeenCalledWith({ deposit_last_five: "54321", deposit_paid_on: "2026-09-29" });
+  });
+
   it("already-processed confirmation is a no-op for notification callers", async () => {
     mocks.from.mockReturnValue({
       select: () => ({
