@@ -3,6 +3,7 @@
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { logPayment, logDepositStatusChange } from "@/lib/payment-log";
+import { taipeiDateString } from "@/lib/datetime";
 
 export type PaymentEventStatus = "pending_review" | "approved" | "rejected";
 
@@ -147,7 +148,7 @@ export async function approvePaymentEvent(
 ): Promise<ApprovePaymentResult> {
   const { data: event, error: fetchErr } = await admin()
     .from("payment_events")
-    .select("id, reservation_id, source, status, raw_payload")
+    .select("id, reservation_id, source, status, raw_payload, reported_account_last_five, reported_at")
     .eq("id", eventId)
     .single();
   if (fetchErr || !event) throw new Error("找不到付款事件");
@@ -164,6 +165,20 @@ export async function approvePaymentEvent(
     const result = Array.isArray(data) ? data[0] : data;
     if (!result) throw new Error("找不到付款事件");
     if (result.outcome === "already_processed") return { already_processed: true };
+    // RPC 已驗過末五碼；寫回訂位的對帳欄位，與後台手動核准一致。回報時間當匯款日（客人通常匯完就回報）。
+    // 寫入失敗不回滾核准：資料仍在 payment_events。
+    try {
+      const { error: infoErr } = await admin()
+        .from("reservations")
+        .update({
+          deposit_last_five: event.reported_account_last_five,
+          deposit_paid_on: event.reported_at ? taipeiDateString(new Date(event.reported_at)) : null,
+        })
+        .eq("id", result.reservation_id);
+      if (infoErr) throw infoErr;
+    } catch (err) {
+      console.error("[payment-events] deposit transfer info write failed:", err);
+    }
     logPayment("payment_event.approved", {
       event_id: eventId,
       reservation_id: result.reservation_id,
