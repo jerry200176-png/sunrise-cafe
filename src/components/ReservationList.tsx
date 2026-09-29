@@ -11,8 +11,8 @@ import { isDepositRequired, isWeekendDate } from "@/lib/booking-utils";
 import { buildPaymentMessage, type BranchPaymentConfig } from "@/lib/payment-message";
 import type { Reservation, ReservationStatus, Room } from "@/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { PromptDialog } from "@/components/PromptDialog";
 import { DepositStatusControl } from "@/components/admin/DepositStatusControl";
+import { transferInfoLabel, type DepositInfo } from "@/components/admin/DepositPaidDialog";
 import { BatchDepositMessageWorkbench } from "@/components/BatchDepositMessageWorkbench";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 import {
@@ -121,12 +121,6 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   const confirmResolver = useRef<((value: boolean) => void) | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const toastId = useRef(0);
-  const [promptDialog, setPromptDialog] = useState<{
-    title: string;
-    message: string;
-    placeholder?: string;
-  } | null>(null);
-  const promptResolver = useRef<((value: string | null) => void) | null>(null);
 
   const showToast = useCallback((message: string, variant: ToastVariant = "info") => {
     const id = ++toastId.current;
@@ -300,22 +294,6 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       setBatchLoading(false);
     }
   }, [selectedReservationIds, showToast]);
-
-  const openPrompt = useCallback(
-    (title: string, message: string, placeholder?: string) => {
-      return new Promise<string | null>((resolve) => {
-        promptResolver.current = resolve;
-        setPromptDialog({ title, message, placeholder });
-      });
-    },
-    []
-  );
-
-  const closePrompt = useCallback((value: string | null) => {
-    promptResolver.current?.(value);
-    promptResolver.current = null;
-    setPromptDialog(null);
-  }, []);
 
   const openConfirm = useCallback((title: string, message: string) => {
     return new Promise<boolean>((resolve) => {
@@ -526,7 +504,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     }
   };
 
-  const updateDepositStatus = async (id: string, is_deposit_paid: boolean, note?: string | null) => {
+  const updateDepositStatus = async (id: string, is_deposit_paid: boolean, info?: DepositInfo) => {
     const row = reservations.find((r) => r.id === id);
     if (is_deposit_paid && (row?.pending_payment_reviews ?? 0) > 0) {
       const ok = await openConfirm(
@@ -538,14 +516,11 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     const prev = reservations;
     setReservations((list) =>
       list.map((r) =>
-        r.id === id ? { ...r, is_deposit_paid, deposit_payment_note: note !== undefined ? note : r.deposit_payment_note } : r
+        r.id === id ? { ...r, is_deposit_paid, ...info } : r
       )
     );
     try {
-      const payload: { is_deposit_paid: boolean; deposit_payment_note?: string | null } = { is_deposit_paid };
-      if (note !== undefined) {
-        payload.deposit_payment_note = note;
-      }
+      const payload: { is_deposit_paid: boolean } & Partial<DepositInfo> = { is_deposit_paid, ...info };
       const res = await fetch(`${RESERVATIONS_API}/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -579,28 +554,28 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     }
   };
 
-  const updateDepositNote = async (id: string, note: string | null) => {
+  const updateDepositInfo = async (id: string, info: DepositInfo) => {
     const prev = reservations;
     setReservations((list) =>
-      list.map((r) => (r.id === id ? { ...r, deposit_payment_note: note } : r))
+      list.map((r) => (r.id === id ? { ...r, ...info } : r))
     );
     try {
       const res = await fetch(`${RESERVATIONS_API}/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deposit_payment_note: note }),
+        body: JSON.stringify(info),
       });
       if (!res.ok) {
         setReservations(prev);
         const data = (await res.json().catch(() => ({}))) as { error?: string };
-        showToast(data.error ?? "備註更新失敗", "error");
+        showToast(data.error ?? "付款資料更新失敗", "error");
         return;
       }
       fetchReservations(false);
-      showToast("已更新付款備註", "success");
+      showToast("已更新付款資料", "success");
     } catch {
       setReservations(prev);
-      showToast("連線失敗，備註未更新", "error");
+      showToast("連線失敗，付款資料未更新", "error");
     }
   };
 
@@ -920,7 +895,11 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                   {activeTab === "history" && isDepositRequired(reservationDateKey(r.start_time)) && (
                     r.is_deposit_paid ? (
                       <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-800 border border-green-200">
-                        ✅ 已付訂金{r.deposit_payment_note ? `（${r.deposit_payment_note}）` : ""}
+                        ✅ 已付訂金
+                        {(() => {
+                          const detail = [transferInfoLabel(r), r.deposit_payment_note].filter(Boolean).join("・");
+                          return detail ? `（${detail}）` : "";
+                        })()}
                       </span>
                     ) : (
                       <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 border border-amber-200">
@@ -970,8 +949,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                       reservation={r}
                       isDepositRequired={true}
                       onUpdateDepositStatus={updateDepositStatus}
-                      onUpdateDepositNote={updateDepositNote}
-                      onOpenPrompt={openPrompt}
+                      onUpdateDepositInfo={updateDepositInfo}
                       onOpenConfirm={openConfirm}
                     />
                   </div>
@@ -1490,15 +1468,6 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         message={confirmDialog?.message ?? ""}
         onConfirm={() => closeConfirm(true)}
         onCancel={() => closeConfirm(false)}
-      />
-
-      <PromptDialog
-        open={promptDialog != null}
-        title={promptDialog?.title ?? ""}
-        message={promptDialog?.message ?? ""}
-        placeholder={promptDialog?.placeholder}
-        onConfirm={(value) => closePrompt(value)}
-        onCancel={() => closePrompt(null)}
       />
 
       <ToastStack toasts={toasts} onDismiss={dismissToast} />

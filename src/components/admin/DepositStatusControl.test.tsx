@@ -21,36 +21,78 @@ describe("DepositStatusControl", () => {
     created_at: "2026-09-08T10:00:00+08:00",
   };
 
-  it("renders one-click approve button and side-effect notice when deposit is unpaid", () => {
-    const onUpdate = vi.fn().mockResolvedValue(undefined);
+  it("renders approve button and side-effect notice when deposit is unpaid", () => {
     render(
       <DepositStatusControl
         reservation={baseReservation}
         isDepositRequired={true}
-        onUpdateDepositStatus={onUpdate}
+        onUpdateDepositStatus={vi.fn()}
+        onUpdateDepositInfo={vi.fn()}
       />
     );
 
     expect(screen.getByText("💰 需收訂金")).toBeDefined();
     expect(screen.getByText(/核准自動發 LINE 通知/)).toBeDefined();
-    expect(screen.getByRole("button", { name: /一鍵核准訂金/ })).toBeDefined();
+    expect(screen.getByRole("button", { name: /核准訂金/ })).toBeDefined();
   });
 
-  it("approves deposit with a single click without requiring text input", async () => {
+  it("requires transfer date and 5-digit last five before approving", async () => {
     const onUpdate = vi.fn().mockResolvedValue(undefined);
     render(
       <DepositStatusControl
         reservation={baseReservation}
         isDepositRequired={true}
         onUpdateDepositStatus={onUpdate}
+        onUpdateDepositInfo={vi.fn()}
       />
     );
 
-    const approveBtn = screen.getByRole("button", { name: /一鍵核准訂金/ });
-    fireEvent.click(approveBtn);
+    fireEvent.click(screen.getByRole("button", { name: /核准訂金/ }));
+    const confirmBtn = screen.getByRole("button", { name: "確認" }) as HTMLButtonElement;
+    expect(confirmBtn.disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText("匯款日期"), { target: { value: "2026-09-10" } });
+    fireEvent.change(screen.getByLabelText("帳號末五碼"), { target: { value: "98a76" } });
+    expect(confirmBtn.disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText("帳號末五碼"), { target: { value: "98765" } });
+    expect(confirmBtn.disabled).toBe(false);
+    fireEvent.click(confirmBtn);
 
     await waitFor(() => {
-      expect(onUpdate).toHaveBeenCalledWith("res-test-1", true, null);
+      expect(onUpdate).toHaveBeenCalledWith("res-test-1", true, {
+        deposit_paid_on: "2026-09-10",
+        deposit_last_five: "98765",
+        deposit_payment_note: null,
+      });
+    });
+  });
+
+  it("allows non-transfer approval with a required note", async () => {
+    const onUpdate = vi.fn().mockResolvedValue(undefined);
+    render(
+      <DepositStatusControl
+        reservation={baseReservation}
+        isDepositRequired={true}
+        onUpdateDepositStatus={onUpdate}
+        onUpdateDepositInfo={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /核准訂金/ }));
+    fireEvent.click(screen.getByLabelText(/其他/));
+    const confirmBtn = screen.getByRole("button", { name: "確認" }) as HTMLButtonElement;
+    expect(confirmBtn.disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText(/備註/), { target: { value: "現場現金" } });
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(onUpdate).toHaveBeenCalledWith("res-test-1", true, {
+        deposit_paid_on: null,
+        deposit_last_five: null,
+        deposit_payment_note: "現場現金",
+      });
     });
   });
 
@@ -67,11 +109,12 @@ describe("DepositStatusControl", () => {
         reservation={resWithPending}
         isDepositRequired={true}
         onUpdateDepositStatus={onUpdate}
+        onUpdateDepositInfo={vi.fn()}
         onOpenConfirm={onOpenConfirm}
       />
     );
 
-    const approveBtn = screen.getByRole("button", { name: /一鍵核准訂金/ });
+    const approveBtn = screen.getByRole("button", { name: /核准訂金/ });
     fireEvent.click(approveBtn);
 
     expect(onOpenConfirm).toHaveBeenCalledWith(
@@ -81,31 +124,31 @@ describe("DepositStatusControl", () => {
     expect(onUpdate).not.toHaveBeenCalled();
   });
 
-  it("supports separate remark entry via '填備註核准'", async () => {
-    const onUpdate = vi.fn().mockResolvedValue(undefined);
-    const onOpenPrompt = vi.fn().mockResolvedValue("末五碼 98765");
-
+  it("edits payment info on a paid reservation without re-approving", async () => {
+    const onUpdate = vi.fn();
+    const onUpdateInfo = vi.fn().mockResolvedValue(undefined);
     render(
       <DepositStatusControl
-        reservation={baseReservation}
+        reservation={{ ...baseReservation, is_deposit_paid: true, deposit_paid_on: "2026-09-09", deposit_last_five: "11111" }}
         isDepositRequired={true}
         onUpdateDepositStatus={onUpdate}
-        onOpenPrompt={onOpenPrompt}
+        onUpdateDepositInfo={onUpdateInfo}
       />
     );
 
-    const noteBtn = screen.getByRole("button", { name: /填備註核准/ });
-    fireEvent.click(noteBtn);
-
-    expect(onOpenPrompt).toHaveBeenCalledWith(
-      expect.stringContaining("備註"),
-      expect.any(String),
-      ""
-    );
+    expect(screen.getByText("🏦 09/09 匯款・末五碼 11111")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: /修改付款資料/ }));
+    fireEvent.change(screen.getByLabelText("帳號末五碼"), { target: { value: "22222" } });
+    fireEvent.click(screen.getByRole("button", { name: "確認" }));
 
     await waitFor(() => {
-      expect(onUpdate).toHaveBeenCalledWith("res-test-1", true, "末五碼 98765");
+      expect(onUpdateInfo).toHaveBeenCalledWith("res-test-1", {
+        deposit_paid_on: "2026-09-09",
+        deposit_last_five: "22222",
+        deposit_payment_note: null,
+      });
     });
+    expect(onUpdate).not.toHaveBeenCalled();
   });
 
   it("renders paid status, remark tag, and LINE delivery indicator when paid", () => {
@@ -121,6 +164,7 @@ describe("DepositStatusControl", () => {
         reservation={paidReservation}
         isDepositRequired={true}
         onUpdateDepositStatus={vi.fn()}
+        onUpdateDepositInfo={vi.fn()}
       />
     );
 
@@ -143,6 +187,7 @@ describe("DepositStatusControl", () => {
         reservation={paidReservation}
         isDepositRequired={true}
         onUpdateDepositStatus={onUpdate}
+        onUpdateDepositInfo={vi.fn()}
         onOpenConfirm={onOpenConfirm}
       />
     );
@@ -156,7 +201,11 @@ describe("DepositStatusControl", () => {
     );
 
     await waitFor(() => {
-      expect(onUpdate).toHaveBeenCalledWith("res-test-1", false, null);
+      expect(onUpdate).toHaveBeenCalledWith("res-test-1", false, {
+        deposit_paid_on: null,
+        deposit_last_five: null,
+        deposit_payment_note: null,
+      });
     });
   });
 });

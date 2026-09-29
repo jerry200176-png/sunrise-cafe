@@ -19,6 +19,8 @@ const WRITE_FIELDS = new Set([
 const DEPOSIT_FIELDS = new Set([
   "is_deposit_paid",
   "deposit_payment_note",
+  "deposit_paid_on",
+  "deposit_last_five",
   "deposit_approved_notified_at",
   "deposit_approved_claim_at",
   "deposit_approved_retry_key",

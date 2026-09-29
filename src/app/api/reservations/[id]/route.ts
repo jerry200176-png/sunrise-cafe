@@ -74,6 +74,20 @@ export async function PATCH(
     if (body.is_deposit_paid !== undefined) patch.is_deposit_paid = Boolean(body.is_deposit_paid);
     if (body.deposit_payment_note !== undefined)
       patch.deposit_payment_note = body.deposit_payment_note == null || body.deposit_payment_note === "" ? null : String(body.deposit_payment_note);
+    if (body.deposit_paid_on !== undefined) {
+      const v = body.deposit_paid_on == null || body.deposit_paid_on === "" ? null : String(body.deposit_paid_on);
+      if (v !== null && !/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+        return NextResponse.json({ error: "匯款日期格式錯誤" }, { status: 400 });
+      }
+      patch.deposit_paid_on = v;
+    }
+    if (body.deposit_last_five !== undefined) {
+      const v = body.deposit_last_five == null || body.deposit_last_five === "" ? null : String(body.deposit_last_five).trim();
+      if (v !== null && !/^\d{5}$/.test(v)) {
+        return NextResponse.json({ error: "末五碼須為 5 位數字" }, { status: 400 });
+      }
+      patch.deposit_last_five = v;
+    }
     if (body.deposit_approved_notified_at !== undefined)
       patch.deposit_approved_notified_at = body.deposit_approved_notified_at == null || body.deposit_approved_notified_at === "" ? null : String(body.deposit_approved_notified_at);
     if (body.deposit_approved_claim_at !== undefined)
@@ -105,11 +119,16 @@ export async function PATCH(
       return NextResponse.json({ error: rbacDenied }, { status: 403 });
     }
 
-    const touchesDeposit =
-      patch.is_deposit_paid !== undefined || patch.deposit_payment_note !== undefined;
+    const touchesDepositInfo =
+      patch.deposit_payment_note !== undefined ||
+      patch.deposit_paid_on !== undefined ||
+      patch.deposit_last_five !== undefined;
+    const touchesDeposit = patch.is_deposit_paid !== undefined || touchesDepositInfo;
     let beforeRow: {
       is_deposit_paid: boolean;
       deposit_payment_note: string | null;
+      deposit_paid_on: string | null;
+      deposit_last_five: string | null;
       deposit_approved_notified_at?: string | null;
       status: string;
       booking_code: string;
@@ -118,7 +137,7 @@ export async function PATCH(
     if (touchesDeposit) {
       const { data } = await supabaseAdmin()
         .from("reservations")
-        .select("is_deposit_paid, deposit_payment_note, deposit_approved_notified_at, status, booking_code")
+        .select("is_deposit_paid, deposit_payment_note, deposit_paid_on, deposit_last_five, deposit_approved_notified_at, status, booking_code")
         .eq("id", id)
         .single();
       if (data) beforeRow = data;
@@ -185,6 +204,10 @@ export async function PATCH(
         patch.deposit_payment_note !== undefined
           ? patch.deposit_payment_note
           : beforeRow.deposit_payment_note;
+      const afterPaidOn =
+        patch.deposit_paid_on !== undefined ? patch.deposit_paid_on : beforeRow.deposit_paid_on;
+      const afterLastFive =
+        patch.deposit_last_five !== undefined ? patch.deposit_last_five : beforeRow.deposit_last_five;
 
       if (beforeRow.is_deposit_paid !== afterPaid) {
         logDepositStatusChange({
@@ -195,11 +218,15 @@ export async function PATCH(
           before: {
             is_deposit_paid: beforeRow.is_deposit_paid,
             deposit_payment_note: beforeRow.deposit_payment_note,
+            deposit_paid_on: beforeRow.deposit_paid_on,
+            deposit_last_five: beforeRow.deposit_last_five,
             status: beforeRow.status,
           },
           after: {
             is_deposit_paid: afterPaid,
             deposit_payment_note: afterNote,
+            deposit_paid_on: afterPaidOn,
+            deposit_last_five: afterLastFive,
             status: patch.status ?? beforeRow.status,
           },
         });
@@ -232,8 +259,10 @@ export async function PATCH(
           paymentNotification = { ok: false, error: "notification_dispatch_failed" };
         }
       } else if (
-        patch.deposit_payment_note !== undefined &&
-        beforeRow.deposit_payment_note !== afterNote
+        touchesDepositInfo &&
+        (beforeRow.deposit_payment_note !== afterNote ||
+          beforeRow.deposit_paid_on !== afterPaidOn ||
+          beforeRow.deposit_last_five !== afterLastFive)
       ) {
         logDepositStatusChange({
           action: "deposit.note_updated",
@@ -243,10 +272,14 @@ export async function PATCH(
           before: {
             is_deposit_paid: beforeRow.is_deposit_paid,
             deposit_payment_note: beforeRow.deposit_payment_note,
+            deposit_paid_on: beforeRow.deposit_paid_on,
+            deposit_last_five: beforeRow.deposit_last_five,
           },
           after: {
             is_deposit_paid: afterPaid,
             deposit_payment_note: afterNote,
+            deposit_paid_on: afterPaidOn,
+            deposit_last_five: afterLastFive,
           },
         });
       }

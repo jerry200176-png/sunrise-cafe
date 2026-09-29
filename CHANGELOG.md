@@ -6,6 +6,11 @@
 
 ## [Unreleased]
 
+### Admin — 核准訂金時記錄匯款日期與末五碼 (2026-09-29)
+- 「一鍵核准訂金」改為「核准訂金」表單：銀行匯款必填匯款日期＋帳號末五碼；LINE Pay／現金必填備註
+- 已付訂金顯示「🏦 09/28 匯款・末五碼 12345」，可「修改付款資料」（不重發 LINE 通知）
+- 新欄位 `reservations.deposit_paid_on`、`deposit_last_five`（migration `migration-reservations-deposit-transfer-info.sql`，predeploy）
+
 ### Guest — LINE 確認準時到店後一鍵查詢 (#351) (2026-09-18)
 - 出席確認 API 回傳既有 `lookup_token`；確認頁與 D-1 提醒／確認成功 Flex 優先連到 `/book/query?token=`
 - 修復官方帳號 WebView 無 session 電話時，`?code=` 無法自動查到訂位的問題；不開放 code-only 公開查詢
