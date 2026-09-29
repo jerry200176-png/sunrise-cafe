@@ -30,6 +30,7 @@ import {
 } from "@/lib/line-cards";
 import { sendDepositPaymentRequest } from "@/lib/payment-request-line";
 import { groupJoinedMessage, matchWebhookBot, replyGroupText } from "@/lib/line-group-bots";
+import { matchCustomerBotSignature } from "@/lib/customer-line-bots";
 import { branchLineGroupIdForReservation } from "@/lib/branch-line-group";
 
 async function fetchPaymentKeywords(): Promise<string[]> {
@@ -60,24 +61,33 @@ function supabaseAdmin() {
   );
 }
 
-async function replyMessage(replyToken: string, text: string) {
+/** The customer account that received the event: the default one (大安店) or a store's own. */
+type GuestAccount = { token?: string; branchId: string | null };
+const DEFAULT_ACCOUNT: GuestAccount = { branchId: null };
+
+async function replyMessage(replyToken: string, text: string, account: GuestAccount = DEFAULT_ACCOUNT) {
   try {
-    await replyLineTextMessage(replyToken, text);
+    await replyLineTextMessage(replyToken, text, account.token);
   } catch (err) {
     console.error("[webhook] replyMessage failed:", err);
   }
 }
 
-async function replyFlex(replyToken: string, altText: string, contents: Record<string, unknown>) {
+async function replyFlex(
+  replyToken: string,
+  altText: string,
+  contents: Record<string, unknown>,
+  account: GuestAccount = DEFAULT_ACCOUNT
+) {
   try {
-    await replyLineFlexMessage(replyToken, altText, contents);
+    await replyLineFlexMessage(replyToken, altText, contents, account.token);
   } catch (err) {
     console.error("[webhook] replyFlex failed:", err);
-    await replyMessage(replyToken, altText);
+    await replyMessage(replyToken, altText, account);
   }
 }
 
-async function handleBookingCode(userId: string, rawText: string, replyToken?: string) {
+async function handleBookingCode(userId: string, rawText: string, replyToken?: string, account: GuestAccount = DEFAULT_ACCOUNT) {
   const payload = parseLineBindPayload(rawText);
   if (!payload) return;
 
@@ -90,21 +100,21 @@ async function handleBookingCode(userId: string, rawText: string, replyToken?: s
   if (error || !reservation) {
     console.log(`[webhook] booking code not found: ${payload.bookingCode}`);
     if (replyToken) {
-      await replyFlex(replyToken, "查無此訂位代號", buildGuestBindErrorFlex("not_found"));
+      await replyFlex(replyToken, "查無此訂位代號", buildGuestBindErrorFlex("not_found"), account);
     }
     return;
   }
 
   if (!payload.phone) {
     if (replyToken) {
-      await replyFlex(replyToken, "請驗證手機號碼", buildGuestBindErrorFlex("phone_prompt"));
+      await replyFlex(replyToken, "請驗證手機號碼", buildGuestBindErrorFlex("phone_prompt"), account);
     }
     return;
   }
 
   if (!reservation.phone || !phonesMatchReservation(reservation.phone, payload.phone)) {
     if (replyToken) {
-      await replyFlex(replyToken, "手機號碼不符", buildGuestBindErrorFlex("phone_mismatch"));
+      await replyFlex(replyToken, "手機號碼不符", buildGuestBindErrorFlex("phone_mismatch"), account);
     }
     return;
   }
@@ -130,7 +140,8 @@ async function handleBookingCode(userId: string, rawText: string, replyToken?: s
       buildGuestBindSuccessFlex({
         confirmed,
         paymentSent: paymentSentNow,
-      })
+      }),
+      account
     );
   }
 }
@@ -145,7 +156,8 @@ type PaymentReservation = {
 
 async function findPaymentReservation(
   userId: string,
-  rawText: string
+  rawText: string,
+  branchId: string | null
 ): Promise<PaymentReservation | null> {
   const codeInMessage = extractBookingCode(rawText);
   if (codeInMessage) {
@@ -160,17 +172,20 @@ async function findPaymentReservation(
     return data;
   }
 
-  const { data } = await supabaseAdmin()
+  // A message to a store's own account only matches that store's bookings.
+  let query = supabaseAdmin()
     .from("reservations")
-    .select("id, booking_code, customer_name, start_time, end_time")
-    .eq("line_user_id", userId)
+    .select(branchId ? "id, booking_code, customer_name, start_time, end_time, room:rooms!inner(branch_id)" : "id, booking_code, customer_name, start_time, end_time")
+    .eq("line_user_id", userId);
+  if (branchId) query = query.eq("room.branch_id", branchId);
+  const { data } = await query
     .in("status", ["confirmed", "pending"])
     .eq("is_deposit_paid", false)
     .order("start_time", { ascending: true })
     .limit(1)
     .single();
 
-  return data ?? null;
+  return (data as PaymentReservation | null) ?? null;
 }
 
 async function handlePaymentReport(
@@ -178,9 +193,10 @@ async function handlePaymentReport(
   rawText: string,
   source: PaymentEventSource,
   replyToken?: string,
-  keywords: string[] = DEFAULT_PAYMENT_KEYWORDS
+  keywords: string[] = DEFAULT_PAYMENT_KEYWORDS,
+  account: GuestAccount = DEFAULT_ACCOUNT
 ) {
-  const reservation = await findPaymentReservation(userId, rawText);
+  const reservation = await findPaymentReservation(userId, rawText, account.branchId);
 
   if (!reservation) return;
   if (source === "line_text" && !isPaymentMessage(rawText, keywords)) return;
@@ -200,7 +216,8 @@ async function handlePaymentReport(
         await replyFlex(
           replyToken,
           "付款已收到",
-          buildGuestPaymentPendingFlex({ bookingCode: reservation.booking_code })
+          buildGuestPaymentPendingFlex({ bookingCode: reservation.booking_code }),
+          account
         );
       }
       return;
@@ -223,7 +240,8 @@ async function handlePaymentReport(
     if (replyToken) {
       await replyMessage(
         replyToken,
-        "已收到您的訊息，但系統暫時無法記錄，請稍後再試或聯繫店家。"
+        "已收到您的訊息，但系統暫時無法記錄，請稍後再試或聯繫店家。",
+        account
       );
     }
     return;
@@ -253,7 +271,8 @@ async function handlePaymentReport(
     await replyFlex(
       replyToken,
       "付款已收到",
-      buildGuestPaymentPendingFlex({ bookingCode: reservation.booking_code })
+      buildGuestPaymentPendingFlex({ bookingCode: reservation.booking_code }),
+      account
     );
   }
 }
@@ -262,8 +281,10 @@ export async function POST(request: NextRequest) {
   const rawBody = await request.text();
   const signature = request.headers.get("x-line-signature") ?? "";
 
+  // Default customer account (LINE_CHANNEL_SECRET), a branch staff-group bot, or a store's own customer account.
   const bot = matchWebhookBot(rawBody, signature);
-  if (!bot) {
+  const storeAccount = bot ? null : matchCustomerBotSignature(rawBody, signature);
+  if (!bot && !storeAccount) {
     logOps("webhook", "webhook.signature_failed", {});
     console.error("[webhook] signature verification failed");
     return new NextResponse("Forbidden", { status: 403 });
@@ -290,17 +311,21 @@ export async function POST(request: NextRequest) {
   for (const event of events) {
     // Any group bot added to a group reports that group's ID so staff can paste it into the branch.
     if (event.type === "join" && event.source.type === "group" && event.source.groupId && event.replyToken) {
-      const token = bot.kind === "extra" ? bot.bot.token : process.env.LINE_CHANNEL_ACCESS_TOKEN;
+      // Reply with the token of the channel that signed this webhook (the default secret is the 大安 customer account's).
+      const token = bot?.kind === "extra" ? bot.bot.token : storeAccount ? storeAccount.token : process.env.LINE_CUSTOMER_ACCESS_TOKEN;
       if (token) {
         await replyGroupText(token, event.replyToken, groupJoinedMessage(event.source.groupId)).catch((err) =>
           console.error("[webhook] group join reply failed:", err instanceof Error ? err.message : err)
         );
       }
-      logOps("webhook", "webhook.event_handled", { route: "line", event_type: "join", bot: bot.kind === "extra" ? bot.bot.name : "default" });
+      logOps("webhook", "webhook.event_handled", { route: "line", event_type: "join", bot: bot?.kind === "extra" ? bot.bot.name : storeAccount ? storeAccount.name : "default" });
       continue;
     }
     // Branch staff bots only report group IDs; their chat is never read as guest payment reports.
-    if (bot.kind === "extra") continue;
+    if (bot?.kind === "extra") continue;
+    const account: GuestAccount = storeAccount
+      ? { token: storeAccount.token, branchId: storeAccount.branchId }
+      : DEFAULT_ACCOUNT;
     if (event.type !== "message") continue;
 
     const userId = event.source.userId;
@@ -313,7 +338,7 @@ export async function POST(request: NextRequest) {
       if (msgType === "image") {
         const messageId = event.message?.id;
         const payloadText = messageId ? buildLineImagePayload(messageId) : PAYMENT_IMAGE_PAYLOAD;
-        await handlePaymentReport(userId, payloadText, "line_image", replyToken, paymentKeywords);
+        await handlePaymentReport(userId, payloadText, "line_image", replyToken, paymentKeywords, account);
         logOps("webhook", "webhook.event_handled", {
           route: "line",
           msg_type: "image",
@@ -329,7 +354,7 @@ export async function POST(request: NextRequest) {
 
       const bookingCode = extractBookingCode(rawText);
       if (bookingCode) {
-        await handleBookingCode(userId, rawText, replyToken);
+        await handleBookingCode(userId, rawText, replyToken, account);
         logOps("webhook", "webhook.event_handled", {
           route: "line",
           msg_type: "text",
@@ -337,7 +362,7 @@ export async function POST(request: NextRequest) {
           handler: "booking_code",
         });
       } else {
-        await handlePaymentReport(userId, rawText, "line_text", replyToken, paymentKeywords);
+        await handlePaymentReport(userId, rawText, "line_text", replyToken, paymentKeywords, account);
         logOps("webhook", "webhook.event_handled", {
           route: "line",
           msg_type: "text",

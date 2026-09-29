@@ -119,9 +119,11 @@ export async function sendLineFlexMessage(
 export async function replyLineFlexMessage(
   replyToken: string,
   altText: string,
-  contents: LineFlexContainer
+  contents: LineFlexContainer,
+  /** Token of the account that received the event (a reply token only works with its own channel). */
+  channelToken?: string
 ): Promise<void> {
-  const token = process.env.LINE_CUSTOMER_ACCESS_TOKEN;
+  const token = channelToken ?? process.env.LINE_CUSTOMER_ACCESS_TOKEN;
   if (!token) return;
 
   const res = await fetch(REPLY_URL, {
@@ -144,8 +146,8 @@ export async function replyLineFlexMessage(
 }
 
 /** Webhook 回覆純文字（僅用於無 replyToken 或 fallback） */
-export async function replyLineTextMessage(replyToken: string, text: string): Promise<void> {
-  const token = process.env.LINE_CUSTOMER_ACCESS_TOKEN;
+export async function replyLineTextMessage(replyToken: string, text: string, channelToken?: string): Promise<void> {
+  const token = channelToken ?? process.env.LINE_CUSTOMER_ACCESS_TOKEN;
   if (!token) return;
 
   const res = await fetch(REPLY_URL, {

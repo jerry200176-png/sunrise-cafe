@@ -27,18 +27,16 @@
 系統有**兩個獨立的 LINE Official Account**：
 
 ```
-群組 Bot（LINE_CHANNEL_ACCESS_TOKEN + LINE_CHANNEL_SECRET）
-  → 推播明日訂位提醒到 LINE 群組
-  → Webhook 驗證用此 secret（/api/webhooks/line）
-  → 客人付款時群組收到通知
+群組 Bot（LINE_CHANNEL_ACCESS_TOKEN；貓咪頭像，無 webhook）
+  → 推播店員群組通知（明日提醒、新訂位、付款待確認…）
 
-客人 Bot（LINE_CUSTOMER_ACCESS_TOKEN）
-  → Push 訂金請求給客人（個人訊息）
-  → 回覆客人付款確認
+客人帳號「昇咖啡 x 大安店」（LINE_CUSTOMER_ACCESS_TOKEN + LINE_CHANNEL_SECRET）
+  → Push 訂金請求、提醒給客人
+  → 接收 Webhook（/api/webhooks/line，簽章用 LINE_CHANNEL_SECRET）並回覆客人
 ```
 
-換任一 Bot 時，記得同步更新 `.env.local` 和 Vercel 環境變數。
-換群組 Bot 時，還需在新 channel 設定 Webhook URL。
+`LINE_CHANNEL_SECRET` 是**客人帳號**的 secret（2026-09-29 依正式設定核對），不是群組 Bot 的；換群組 Bot 不要動它。
+分店可各自有群組 Bot（`LINE_EXTRA_GROUP_BOTS`）與客人帳號（`LINE_BRANCH_CUSTOMER_BOTS`），見 `docs/LINE.md`。
 
 ### 時區陷阱
 
