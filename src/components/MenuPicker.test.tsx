@@ -33,3 +33,12 @@ it("selects a meal and keeps only one choice from each option group", async () =
     menu_item_id: latte.id, quantity: 2, option_ids: ["none"],
   })]);
 });
+
+it("opens a full-screen photo on tap and closes it on tap", async () => {
+  const user = userEvent.setup();
+  render(<MenuPicker items={[{ ...latte, image_url: "https://x.supabase.co/latte.jpg" }]} value={[]} onChange={() => {}} />);
+  await user.click(screen.getByRole("button", { name: "放大拿鐵圖片" }));
+  expect(screen.getByRole("img", { name: "拿鐵" })).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "關閉大圖" }));
+  expect(screen.queryByRole("img", { name: "拿鐵" })).toBeNull();
+});
