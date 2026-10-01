@@ -111,6 +111,7 @@ export default function MenuPage() {
 
   return (
     <main className="min-h-screen bg-gray-50 pb-28">
+      <BranchMenuBanner branchName={branchName} />
       {/* 分類 Tab */}
       <div className="sticky top-0 z-10 bg-white border-b border-gray-200 overflow-x-auto">
         <div className="flex gap-1 px-4 py-2 min-w-max">
@@ -136,8 +137,7 @@ export default function MenuPage() {
 
       {/* 餐點列表 */}
       <div className="grid grid-cols-1 gap-3 p-4">
-        <BranchMenuBanner branchName={branchName} className="rounded-xl" />
-        <p className="text-center text-xs text-gray-500">{MENU_PHOTO_NOTE}</p>
+        {items.some(i => i.image_url) && <p className="text-xs text-gray-500">{MENU_PHOTO_NOTE}</p>}
         {visibleItems.map(item => (
           <div key={item.id} className="rounded-xl bg-white border border-gray-200 overflow-hidden flex">
             {item.image_url && (

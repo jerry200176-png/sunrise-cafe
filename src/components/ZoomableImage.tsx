@@ -27,7 +27,7 @@ export function ZoomableImage({ src, alt, className, sizes, unoptimized = false,
   </>;
 }
 
-export const MENU_PHOTO_NOTE = "圖片僅供參考，實際以現場出餐為準。";
+export const MENU_PHOTO_NOTE = "＊餐點圖片僅供參考，實際以現場出餐為準。";
 
 /** 大安店菜單 banner（圖上印的是大安店地址電話，其他分店不顯示）。 */
 // ponytail: 用分店名稱比對；分店多了再改成後台可上傳的 branches.menu_banner_url。

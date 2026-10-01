@@ -44,6 +44,7 @@ export default function PublicMenuPage() {
     <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[28rem]"
       style={{ background: "radial-gradient(80% 70% at 85% -10%, rgba(240,194,122,0.45) 0%, rgba(240,194,122,0) 60%)" }} />
 
+    <BranchMenuBanner branchName={branches.find((b) => b.id === branchId)?.name} className="relative" />
     <div className="relative mx-auto max-w-md px-6 pb-20 pt-8 md:max-w-xl">
       <Link href="/" className={`inline-flex min-h-11 items-center gap-1.5 text-sm text-ink-soft transition-colors duration-300 ${EASE} hover:text-caramel-deep`}>
         <ArrowLeft className="h-4 w-4" strokeWidth={1.5} />回首頁
@@ -86,8 +87,6 @@ export default function PublicMenuPage() {
       </div>}
 
       {branchId && !error && !loading && <>
-        <BranchMenuBanner branchName={branches.find((b) => b.id === branchId)?.name} className="mt-10 rounded-2xl ring-1 ring-ink/5" />
-        <p className="mt-3 text-center text-xs text-ink-faint">{MENU_PHOTO_NOTE}</p>
         {sections.length > 1 && <nav aria-label="菜單分類"
           className="sticky top-0 z-10 -mx-6 mt-10 flex gap-2 overflow-x-auto border-b border-latte bg-paper/85 px-6 py-3 backdrop-blur [scrollbar-width:none]">
           {sections.map((s) => <a key={s.id} href={`#category-${s.id}`}
@@ -96,6 +95,7 @@ export default function PublicMenuPage() {
           </a>)}
         </nav>}
 
+        {items.some((i) => i.image_url) && <p className="mt-6 text-xs text-ink-faint">{MENU_PHOTO_NOTE}</p>}
         <div className="mt-10 space-y-14">
           {sections.map((s, idx) => <section key={s.id} id={`category-${s.id}`} aria-labelledby={`h-${s.id}`} className="scroll-mt-20">
             <div className="flex items-baseline gap-3">
