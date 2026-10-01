@@ -1,8 +1,7 @@
 "use client";
 
 import type { MenuItem, MenuItemOption } from "@/types";
-import Image from "next/image";
-import { useState } from "react";
+import { MENU_PHOTO_NOTE, ZoomableImage } from "@/components/ZoomableImage";
 import type { DraftItemInput } from "@/lib/reservation-preorder";
 
 function groupOptions(options: MenuItemOption[]): Record<string, MenuItemOption[]> {
@@ -18,7 +17,6 @@ export function MenuPicker({ items, value, onChange, disabled = false }: {
   onChange: (items: DraftItemInput[]) => void;
   disabled?: boolean;
 }) {
-  const [zoomed, setZoomed] = useState<MenuItem | null>(null);
   function change(id: string, patch: Partial<DraftItemInput> | null) {
     const old = value.find((row) => row.menu_item_id === id);
     onChange(patch === null ? value.filter((row) => row.menu_item_id !== id)
@@ -26,16 +24,15 @@ export function MenuPicker({ items, value, onChange, disabled = false }: {
       : [...value, { menu_item_id: id, quantity: 1, option_ids: [], special_notes: "", ...patch }]);
   }
   return <div className="space-y-3">
+    {items.some((item) => item.image_url) && <p className="text-xs text-stone-500">{MENU_PHOTO_NOTE}</p>}
     {items.map((item) => {
       const row = value.find((entry) => entry.menu_item_id === item.id);
       return <div key={item.id} className="rounded-xl border border-stone-200 bg-white p-3">
         <div className="flex items-start gap-3">
           <input aria-label={`選擇${item.name}`} type="checkbox" disabled={disabled} checked={Boolean(row)}
             onChange={(event) => change(item.id, event.target.checked ? {} : null)} className="mt-1 h-4 w-4 accent-amber-700" />
-          {item.image_url && <button type="button" aria-label={`放大${item.name}圖片`} onClick={() => setZoomed(item)}
-            className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-stone-100">
-            <Image src={item.image_url} alt="" fill unoptimized sizes="64px" className="object-cover" />
-          </button>}
+          {item.image_url && <ZoomableImage src={item.image_url} alt={item.name} unoptimized sizes="64px"
+            className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-stone-100" />}
           <div className="min-w-0 flex-1">
             <div className="flex justify-between gap-3 font-medium text-stone-900"><span>{item.name}</span><span>NT$ {Number(item.price).toLocaleString()}</span></div>
             {item.description && <p className="mt-1 text-sm text-stone-500">{item.description}</p>}
@@ -63,10 +60,5 @@ export function MenuPicker({ items, value, onChange, disabled = false }: {
         </div>
       </div>;
     })}
-    {zoomed?.image_url && <button type="button" aria-label="關閉大圖" onClick={() => setZoomed(null)}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/90 p-4">
-      <span className="relative h-[80vh] w-full"><Image src={zoomed.image_url} alt={zoomed.name} fill unoptimized sizes="100vw" className="object-contain" /></span>
-      <span className="text-white">{zoomed.name}（點一下關閉）</span>
-    </button>}
   </div>;
 }
