@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { ArrowLeft, ArrowUpRight } from "lucide-react";
 import type { Branch, MenuCategory, MenuItem } from "@/types";
+import { BranchMenuBanner, MENU_PHOTO_NOTE, ZoomableImage } from "@/components/ZoomableImage";
 
 const EASE = "ease-[cubic-bezier(0.32,0.72,0,1)]";
 
@@ -86,6 +86,8 @@ export default function PublicMenuPage() {
       </div>}
 
       {branchId && !error && !loading && <>
+        <BranchMenuBanner branchName={branches.find((b) => b.id === branchId)?.name} className="mt-10 rounded-2xl ring-1 ring-ink/5" />
+        <p className="mt-3 text-center text-xs text-ink-faint">{MENU_PHOTO_NOTE}</p>
         {sections.length > 1 && <nav aria-label="菜單分類"
           className="sticky top-0 z-10 -mx-6 mt-10 flex gap-2 overflow-x-auto border-b border-latte bg-paper/85 px-6 py-3 backdrop-blur [scrollbar-width:none]">
           {sections.map((s) => <a key={s.id} href={`#category-${s.id}`}
@@ -123,9 +125,8 @@ export default function PublicMenuPage() {
 
 function MenuRow({ item }: { item: MenuItem }) {
   return <article className={`flex gap-4 py-5 ${item.is_available ? "" : "opacity-60"}`}>
-    {item.image_url && <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl bg-paper-deep ring-1 ring-ink/5 sm:h-24 sm:w-24">
-      <Image src={item.image_url} alt={item.name} fill unoptimized sizes="96px" className="object-cover" />
-    </div>}
+    {item.image_url && <ZoomableImage src={item.image_url} alt={item.name} unoptimized sizes="96px"
+      className="h-20 w-20 shrink-0 overflow-hidden rounded-2xl bg-paper-deep ring-1 ring-ink/5 sm:h-24 sm:w-24" />}
     <div className="min-w-0 flex-1">
       <div className="flex items-baseline gap-2">
         <h3 className="font-serif text-[1.05rem] tracking-wide text-ink">{item.name}</h3>

@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import Image from "next/image";
 import { ShoppingCart, X, Plus, Minus } from "lucide-react";
 import type { MenuCategory, MenuItem, CartItem, SelectedOption } from "@/types";
+import { BranchMenuBanner, MENU_PHOTO_NOTE, ZoomableImage } from "@/components/ZoomableImage";
 
 export default function MenuPage() {
   const { tableToken } = useParams<{ tableToken: string }>();
@@ -13,6 +13,7 @@ export default function MenuPage() {
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [items, setItems] = useState<MenuItem[]>([]);
   const [activeCat, setActiveCat] = useState<string>("all");
+  const [branchName, setBranchName] = useState<string | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
 
   // 選項 Sheet
@@ -27,6 +28,7 @@ export default function MenuPage() {
       .then(r => r.json())
       .then(d => {
         if (d.branch_id) {
+          setBranchName(d.branches?.name ?? null);
           return fetch(`/api/menu?branchId=${encodeURIComponent(d.branch_id)}`);
         }
         throw new Error("無效桌位");
@@ -134,12 +136,12 @@ export default function MenuPage() {
 
       {/* 餐點列表 */}
       <div className="grid grid-cols-1 gap-3 p-4">
+        <BranchMenuBanner branchName={branchName} className="rounded-xl" />
+        <p className="text-center text-xs text-gray-500">{MENU_PHOTO_NOTE}</p>
         {visibleItems.map(item => (
           <div key={item.id} className="rounded-xl bg-white border border-gray-200 overflow-hidden flex">
             {item.image_url && (
-              <div className="relative h-24 w-24 shrink-0">
-                <Image src={item.image_url} alt={item.name} fill sizes="96px" className="object-cover" />
-              </div>
+              <ZoomableImage src={item.image_url} alt={item.name} sizes="96px" className="h-24 w-24 shrink-0" />
             )}
             <div className="flex flex-1 items-center justify-between p-3">
               <div>
