@@ -2,22 +2,27 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { friendlyMessage, thrownMessage } from "@/lib/friendly-error";
+import { responseError, thrownMessage } from "@/lib/friendly-error";
+import { csvRow } from "@/lib/csv";
+import type { Branch } from "@/types";
 import { ArrowLeft, Download, TrendingUp, CalendarDays, XCircle, Wallet } from "lucide-react";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
 
 interface Summary {
-  total_revenue: number;
-  total_bookings: number;
+  received_deposits: number;
+  received_orders: number;
+  expected_upcoming: number;
+  unpaid_deposits: number;
+  bookings: number;
   cancellation_count: number;
   cancellation_rate: number;
   deposit_paid_count: number;
-  deposit_recovery_rate: number;
+  deposit_rate: number | null;
 }
-interface MonthlyRow { month: string; revenue: number; bookings: number; }
-interface RoomRow { name: string; bookings: number; revenue: number; }
+interface MonthlyRow { month: string; label: string; bookings: number; received_deposits: number; received_orders: number; }
+interface RoomRow { name: string; bookings: number; booked_amount: number; }
 interface HourRow { hour: number; label: string; count: number; }
 interface ReportData { summary: Summary; monthly: MonthlyRow[]; by_room: RoomRow[]; by_hour: HourRow[]; }
 
@@ -44,18 +49,19 @@ function MetricCard({ icon: Icon, label, value, sub, color }: {
 
 function exportCSV(data: ReportData) {
   const rows = [
-    ["月份", "訂位數", "營收（元）"],
-    ...data.monthly.map((r) => [r.month, r.bookings, r.revenue]),
+    ["月份", "訂位數", "已收訂金（元）", "已收餐點（元）"],
+    ...data.monthly.map((r) => [r.month, r.bookings, r.received_deposits, r.received_orders]),
     [],
-    ["包廂", "訂位數", "營收（元）"],
-    ...data.by_room.map((r) => [r.name, r.bookings, r.revenue]),
+    ["包廂", "訂位數", "訂位金額（元，預計）"],
+    ...data.by_room.map((r) => [r.name, r.bookings, r.booked_amount]),
   ];
-  const csv = rows.map((r) => r.join(",")).join("\n");
-  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+  const csv = rows.map(csvRow).join("\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `sunrise-cafe-report-${new Date().toISOString().slice(0, 10)}.csv`;
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", month: "2-digit", day: "2-digit" }).format(new Date());
+  a.download = `昇咖啡營收報表-${day}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -65,21 +71,26 @@ export default function ReportsPage() {
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [branchId, setBranchId] = useState("");
+
+  useEffect(() => {
+    fetch("/api/branches").then((r) => r.json()).then((d) => setBranches(Array.isArray(d) ? d : [])).catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/reports?months=${period}`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(friendlyMessage(json.error, res.status));
-      setData(json);
+      const res = await fetch(`/api/admin/reports?months=${period}${branchId ? `&branchId=${encodeURIComponent(branchId)}` : ""}`);
+      if (!res.ok) throw new Error(await responseError(res));
+      setData(await res.json());
     } catch (err) {
       setError(thrownMessage(err, "報表暫時讀不到，請重試"));
     } finally {
       setLoading(false);
     }
-  }, [period]);
+  }, [period, branchId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -98,12 +109,21 @@ export default function ReportsPage() {
             <h1 className="text-xl font-bold text-gray-800">營收報表</h1>
           </div>
           <div className="flex items-center gap-2">
+            <select
+              value={branchId}
+              onChange={(e) => setBranchId(e.target.value)}
+              aria-label="分店"
+              className="min-h-[44px] rounded-lg border border-gray-200 bg-white px-2 text-sm text-gray-700"
+            >
+              <option value="">全部分店</option>
+              {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
             <div className="flex rounded-lg border border-gray-200 bg-white overflow-hidden">
               {PERIODS.map((p) => (
                 <button
                   key={p.value}
                   onClick={() => setPeriod(p.value)}
-                  className={`px-3 py-1.5 text-sm ${period === p.value ? "bg-amber-500 text-white" : "text-gray-600 hover:bg-gray-50"}`}
+                  className={`min-h-[44px] px-3 text-sm ${period === p.value ? "bg-amber-500 text-white" : "text-gray-600 hover:bg-gray-50"}`}
                 >
                   {p.label}
                 </button>
@@ -112,7 +132,7 @@ export default function ReportsPage() {
             {data && (
               <button
                 onClick={() => exportCSV(data)}
-                className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50"
+                className="flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-600 hover:bg-gray-50"
               >
                 <Download size={14} /> 匯出
               </button>
@@ -120,21 +140,33 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        {loading && <p className="py-20 text-center text-sm text-gray-400">載入中…</p>}
+        {loading && !data && <p className="py-20 text-center text-sm text-gray-400">載入中…</p>}
         {error && <p className="rounded-xl bg-red-50 p-4 text-sm text-red-600">{error}</p>}
 
         {data && (
           <div className="space-y-6">
 
-            {/* 總覽指標 */}
+            {/* 已收到的錢：訂金和餐點分開，不加總 */}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <MetricCard
-                icon={TrendingUp} label="總營收" color="bg-amber-500"
-                value={`$${data.summary.total_revenue.toLocaleString()}`}
+                icon={Wallet} label="已收訂金" color="bg-green-500"
+                value={`$${data.summary.received_deposits.toLocaleString()}`}
+                sub="已確認收款"
               />
               <MetricCard
-                icon={CalendarDays} label="總訂位" color="bg-blue-500"
-                value={String(data.summary.total_bookings)}
+                icon={TrendingUp} label="已收餐點" color="bg-amber-500"
+                value={`$${data.summary.received_orders.toLocaleString()}`}
+                sub="已結帳的點餐"
+              />
+              <MetricCard
+                icon={CalendarDays} label="預計訂位金額" color="bg-stone-400"
+                value={`$${data.summary.expected_upcoming.toLocaleString()}`}
+                sub={`還沒到；訂金還沒收 $${data.summary.unpaid_deposits.toLocaleString()}`}
+              />
+              <MetricCard
+                icon={CalendarDays} label="訂位數" color="bg-blue-500"
+                value={String(data.summary.bookings)}
+                sub="不含已取消"
               />
               <MetricCard
                 icon={XCircle} label="取消率" color="bg-red-400"
@@ -142,22 +174,24 @@ export default function ReportsPage() {
                 sub={`共 ${data.summary.cancellation_count} 筆`}
               />
               <MetricCard
-                icon={Wallet} label="訂金回收率" color="bg-green-500"
-                value={`${Math.round(data.summary.deposit_recovery_rate * 100)}%`}
-                sub={`${data.summary.deposit_paid_count} / ${data.summary.total_bookings} 筆`}
+                icon={Wallet} label="訂金收款率" color="bg-green-500"
+                value={data.summary.deposit_rate == null ? "—" : `${Math.round(data.summary.deposit_rate * 100)}%`}
+                sub={`${data.summary.deposit_paid_count} / ${data.summary.bookings} 筆已付訂金`}
               />
             </div>
 
             {/* 月份趨勢 */}
             <div className="rounded-2xl bg-white p-5 shadow-sm">
-              <h2 className="mb-4 font-semibold text-gray-700">月份營收趨勢</h2>
+              <h2 className="mb-4 font-semibold text-gray-700">每月已收到的錢</h2>
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={data.monthly} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-                  <Tooltip formatter={(v) => [`$${Number(v).toLocaleString()}`, "營收"]} />
-                  <Bar dataKey="revenue" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                  <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${Number(v).toLocaleString()}`} width={56} />
+                  <Tooltip formatter={(v) => `$${Number(v).toLocaleString()}`} />
+                  <Legend />
+                  <Bar dataKey="received_deposits" name="訂金" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="received_orders" name="餐點" fill="#f59e0b" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -173,7 +207,7 @@ export default function ReportsPage() {
                     <div key={r.name}>
                       <div className="mb-1 flex justify-between text-sm">
                         <span className="text-gray-700">{r.name}</span>
-                        <span className="text-gray-500">{r.bookings} 筆 · ${r.revenue.toLocaleString()}</span>
+                        <span className="text-gray-500">{r.bookings} 筆 · 訂位金額 ${r.booked_amount.toLocaleString()}</span>
                       </div>
                       <div className="h-2 rounded-full bg-gray-100">
                         <div
