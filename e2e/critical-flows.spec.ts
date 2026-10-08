@@ -37,9 +37,11 @@ test.describe("後台（需已登入）", () => {
     await expect(page.getByRole("heading", { name: "付款審核" })).toBeVisible();
   });
 
-  test("Executive 儀表板在登入後可開啟", async ({ page }) => {
+  test("經營總覽與系統狀態在登入後可開啟", async ({ page }) => {
     await loginAdmin(page);
     await page.goto("/admin/executive");
-    await expect(page.getByText(/營運風險|Executive|訂金率/).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "經營總覽" })).toBeVisible();
+    await page.goto("/admin/system");
+    await expect(page.getByRole("heading", { name: /系統狀態/ })).toBeVisible();
   });
 });

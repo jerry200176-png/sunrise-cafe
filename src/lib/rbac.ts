@@ -82,6 +82,21 @@ export function filterBranchIds(
   return allBranchIds.filter((id) => ctx.branch_ids!.includes(id));
 }
 
+/**
+ * 讀取報表類資料時的分店範圍。
+ * 指定分店：只能是自己有權限的（否則 ok:false → 403）。
+ * 沒指定（「全部分店」）：只含自己有權限的分店；null 代表不受限（老闆／共用帳號）。
+ */
+export function resolveBranchScope(
+  ctx: AdminContext,
+  requested: string | null | undefined
+): { ok: true; scope: string[] | null } | { ok: false } {
+  if (requested) {
+    return canAccessBranch(ctx, requested) ? { ok: true, scope: [requested] } : { ok: false };
+  }
+  return { ok: true, scope: ctx.branch_ids === null ? null : [...ctx.branch_ids] };
+}
+
 export function ownerContext(legacy = false): AdminContext {
   return {
     user_id: null,
