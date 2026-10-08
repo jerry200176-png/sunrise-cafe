@@ -532,10 +532,47 @@ export default function AdminBranchesRoomsPage() {
     <>
       <AdminShell
         title="後台管理"
-        subtitle="昇咖啡 · 營運中樞"
+        subtitle="昇咖啡"
         backHref="/"
       >
         <div className="space-y-6">
+        {/* 訂位管理 */}
+        <span id="reservations" />
+        <section id="reservation-management" className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 bg-stone-50/50 px-5 py-3.5">
+            <div className="flex items-center gap-2">
+              <CalendarDays className="h-4 w-4 text-violet-500" />
+              <h2 className="text-sm font-semibold tracking-wide text-stone-700">訂位列表</h2>
+            </div>
+            <div className="flex items-center gap-2">
+              <BranchSwitcher
+                branches={branches}
+                currentBranchId={reservationBranchId}
+                onBranchChange={(id) => {
+                  setReservationBranchId(id);
+                  fetch("/api/settings", {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ current_branch_id: id }),
+                  }).catch(() => { });
+                }}
+                disabled={loading}
+              />
+              <button type="button" onClick={() => setAddFormOpen(true)} disabled={!reservationBranchId}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50 transition-colors">
+                <Plus className="h-3.5 w-3.5" /> 新增訂位
+              </button>
+            </div>
+          </div>
+          <div className="p-4">
+            <ReservationList
+              branchId={reservationBranchId}
+              rooms={roomsForReservations}
+              focusReservationId={focusReservationId}
+            />
+          </div>
+        </section>
+
           {/* Floor ops — primary */}
           <section aria-label="今日營運">
             <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-500">
@@ -571,9 +608,9 @@ export default function AdminBranchesRoomsPage() {
           </section>
 
           {/* Tools — secondary */}
-          <section aria-label="系統工具">
+          <section aria-label="其他功能">
             <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-500">
-              系統工具
+              其他功能
             </p>
             <ul className="divide-y divide-stone-200/80 overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
               {[
@@ -609,6 +646,7 @@ export default function AdminBranchesRoomsPage() {
           </div>
         )}
 
+        <p className="pt-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-500">店務設定（分店、包廂、訂金、公休日）</p>
         {/* 分店管理 */}
         <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-stone-100 bg-stone-50/70 px-5 py-3.5">
@@ -642,12 +680,12 @@ export default function AdminBranchesRoomsPage() {
                     </p>
                   </div>
                   <div className="flex gap-1.5">
-                    <button type="button" onClick={() => openEditBranch(b)} title="編輯"
-                      className="rounded-lg border border-stone-200 p-2 text-stone-500 hover:bg-stone-50 hover:text-stone-700 transition-colors">
+                    <button type="button" onClick={() => openEditBranch(b)} title="編輯" aria-label={`編輯 ${b.name}`}
+                      className="flex h-11 w-11 items-center justify-center rounded-lg border border-stone-200 text-stone-500 hover:bg-stone-50 hover:text-stone-700 transition-colors">
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
-                    <button type="button" onClick={() => setConfirmDeleteBranchId(b.id)} title="刪除"
-                      className="rounded-lg border border-red-100 p-2 text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors">
+                    <button type="button" onClick={() => setConfirmDeleteBranchId(b.id)} title="刪除" aria-label={`刪除 ${b.name}`}
+                      className="flex h-11 w-11 items-center justify-center rounded-lg border border-red-100 text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
@@ -710,12 +748,12 @@ export default function AdminBranchesRoomsPage() {
                       <td className="py-2.5 pr-3 text-stone-500">${Number(r.price_weekday)} / ${Number(r.price_weekend)}</td>
                       <td className="py-2.5">
                         <div className="flex gap-1">
-                          <button type="button" onClick={() => openEditRoom(r)} title="編輯"
-                            className="rounded border border-stone-200 p-1.5 text-stone-500 hover:bg-stone-50 transition-colors">
+                          <button type="button" onClick={() => openEditRoom(r)} title="編輯" aria-label={`編輯 ${r.name}`}
+                            className="flex h-11 w-11 items-center justify-center rounded border border-stone-200 text-stone-500 hover:bg-stone-50 transition-colors">
                             <Pencil className="h-3 w-3" />
                           </button>
-                          <button type="button" onClick={() => setConfirmDeleteRoomId(r.id)} title="刪除"
-                            className="rounded border border-red-100 p-1.5 text-red-400 hover:bg-red-50 transition-colors">
+                          <button type="button" onClick={() => setConfirmDeleteRoomId(r.id)} title="刪除" aria-label={`刪除 ${r.name}`}
+                            className="flex h-11 w-11 items-center justify-center rounded border border-red-100 text-red-400 hover:bg-red-50 transition-colors">
                             <Trash2 className="h-3 w-3" />
                           </button>
                         </div>
@@ -952,43 +990,6 @@ export default function AdminBranchesRoomsPage() {
                 ))}
               </div>
             )}
-          </div>
-        </section>
-
-        {/* 訂位管理 */}
-        <span id="reservations" />
-        <section id="reservation-management" className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 bg-stone-50/50 px-5 py-3.5">
-            <div className="flex items-center gap-2">
-              <CalendarDays className="h-4 w-4 text-violet-500" />
-              <h2 className="text-sm font-semibold tracking-wide text-stone-700">訂位管理</h2>
-            </div>
-            <div className="flex items-center gap-2">
-              <BranchSwitcher
-                branches={branches}
-                currentBranchId={reservationBranchId}
-                onBranchChange={(id) => {
-                  setReservationBranchId(id);
-                  fetch("/api/settings", {
-                    method: "PATCH",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ current_branch_id: id }),
-                  }).catch(() => { });
-                }}
-                disabled={loading}
-              />
-              <button type="button" onClick={() => setAddFormOpen(true)} disabled={!reservationBranchId}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50 transition-colors">
-                <Plus className="h-3.5 w-3.5" /> 新增訂位
-              </button>
-            </div>
-          </div>
-          <div className="p-4">
-            <ReservationList
-              branchId={reservationBranchId}
-              rooms={roomsForReservations}
-              focusReservationId={focusReservationId}
-            />
           </div>
         </section>
         </div>
