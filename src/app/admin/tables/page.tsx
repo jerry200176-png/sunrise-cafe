@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Plus, QrCode, Printer, LogOut } from "lucide-react";
 import type { Branch, Table } from "@/types";
+import { responseError, thrownMessage } from "@/lib/friendly-error";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 
 export default function AdminTablesPage() {
@@ -13,7 +14,7 @@ export default function AdminTablesPage() {
   const [newNumber, setNewNumber] = useState("");
   const [qrMap, setQrMap] = useState<Record<string, { qr_data_url: string; order_url: string }>>({});
   const [toasts, setToasts] = useState<ToastItem[]>([]);
-  const toastId = { current: 0 };
+  const toastId = useRef(0);
 
   const showToast = (message: string, variant: ToastVariant = "info") => {
     const id = ++toastId.current;
@@ -40,11 +41,21 @@ export default function AdminTablesPage() {
   const addTable = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newNumber.trim()) return;
-    await fetch("/api/admin/tables", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ branch_id: branchId, number: newNumber.trim() }),
-    });
+    try {
+      const res = await fetch("/api/admin/tables", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ branch_id: branchId, number: newNumber.trim() }),
+      });
+      if (!res.ok) {
+        showToast(await responseError(res), "error");
+        return;
+      }
+      showToast(`已新增桌號 ${newNumber.trim()}`, "success");
+    } catch (err) {
+      showToast(thrownMessage(err), "error");
+      return;
+    }
     setNewNumber("");
     loadTables(branchId);
   };

@@ -99,7 +99,7 @@ export default function AdminUsersPage() {
     <main className="min-h-screen bg-stone-50">
       <header className="border-b border-stone-200 bg-white px-4 py-3">
         <div className="mx-auto flex max-w-3xl items-center gap-3">
-          <Link href="/admin/ops" className="text-stone-400 hover:text-stone-600">
+          <Link href="/admin" className="text-stone-400 hover:text-stone-600">
             <ArrowLeft className="h-5 w-5" />
           </Link>
           <Shield className="h-5 w-5 text-violet-600" />

@@ -9,20 +9,28 @@ type AdminModalProps = {
   onClose: () => void;
   children: ReactNode;
   icon?: ReactNode;
+  /** 儲存失敗的訊息，顯示在視窗內（不會被遮罩蓋住）。 */
+  error?: string | null;
 };
 
-export function AdminModal({ open, title, onClose, children, icon }: AdminModalProps) {
+export function AdminModal({ open, title, onClose, children, icon, error }: AdminModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  // 呼叫端常傳入每次 render 都不同的 onClose；放進 ref，避免 effect 重跑把焦點從輸入框搶走。
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     };
     document.addEventListener("keydown", onKey);
-    requestAnimationFrame(() => panelRef.current?.focus());
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+    const raf = requestAnimationFrame(() => panelRef.current?.focus());
+    return () => {
+      cancelAnimationFrame(raf);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
   if (!open) return null;
 
@@ -32,13 +40,11 @@ export function AdminModal({ open, title, onClose, children, icon }: AdminModalP
       role="dialog"
       aria-modal="true"
       aria-labelledby="admin-modal-title"
-      onClick={onClose}
     >
       <div
         ref={panelRef}
         tabIndex={-1}
         className="flex max-h-[90dvh] w-full max-w-md flex-col rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl outline-none"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-stone-100 px-5 py-4">
           <div className="flex items-center gap-2">
@@ -56,6 +62,11 @@ export function AdminModal({ open, title, onClose, children, icon }: AdminModalP
             <X className="h-5 w-5" />
           </button>
         </div>
+        {error && (
+          <p role="alert" className="mx-5 mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+            {error}
+          </p>
+        )}
         <div className="overflow-y-auto p-5">{children}</div>
       </div>
     </div>
