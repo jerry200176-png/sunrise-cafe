@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   fetchReservationsAdmin,
   insertReservationAdmin,
-  hasSlotConflict,
   isAdminConfigured,
   fetchRoom,
 } from "@/lib/supabase-admin";
@@ -11,6 +10,7 @@ import { requireAdminApiAuth, getAdminContext } from "@/lib/admin-api-auth";
 import { assertReservationReadAllowed } from "@/lib/reservation-access";
 import { fetchPendingPaymentCountsByReservation } from "@/lib/payment-events-admin";
 import { computeReservationTotalPrice } from "@/lib/booking-utils";
+import { BOOKABLE_HTTP, checkBookable } from "@/lib/bookable";
 import { SlotConflictError } from "@/lib/slot-conflict";
 import { createClient } from "@supabase/supabase-js";
 import { logOps } from "@/lib/ops-log";
@@ -106,32 +106,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const startMs = new Date(startTime).getTime();
-    const endMs = new Date(endTime).getTime();
-    const durationHours = (endMs - startMs) / (60 * 60 * 1000);
-
-    if (durationHours <= 0) {
-      return NextResponse.json(
-        { error: "結束時間必須晚於開始時間" },
-        { status: 400 }
-      );
-    }
-    if (durationHours < 2) {
-      return NextResponse.json(
-        { error: "包廂最少需預約 2 小時" },
-        { status: 400 }
-      );
-    }
-    if (durationHours > 8) {
-      return NextResponse.json(
-        { error: "單次預約時長不得超過 8 小時" },
-        { status: 400 }
-      );
-    }
-
     const room = await fetchRoom(roomId);
     if (!room) {
       return NextResponse.json({ error: "包廂不存在" }, { status: 404 });
+    }
+
+    // The meal RPC owns conflict detection under the database exclusion constraint.
+    // A preflight query there would reject an idempotent retry of the same booking.
+    const mealsRequested = Array.isArray(mealItems) && mealItems.length > 0;
+    const bookable = await checkBookable(roomId, startTime, endTime, {
+      actor: "guest",
+      checkConflict: !mealsRequested,
+    });
+    if (!bookable.ok) {
+      const { status, error } = BOOKABLE_HTTP[bookable.reason];
+      return NextResponse.json({ error }, { status });
     }
 
     const totalPrice = computeReservationTotalPrice(room, startTime, endTime);
@@ -172,11 +161,6 @@ export async function POST(request: NextRequest) {
     }
     if (chosenMeals.length > 0 && !isReservationPreorderEnabled()) {
       return NextResponse.json({ error: "訂位選餐尚未開放" }, { status: 503 });
-    }
-    // The meal RPC owns conflict detection under the database exclusion constraint.
-    // A preflight query here would reject an idempotent retry of the same booking.
-    if (chosenMeals.length === 0 && await hasSlotConflict(roomId, startTime, endTime)) {
-      return NextResponse.json({ error: "該時段已被預訂，請重新選擇" }, { status: 409 });
     }
     let created: { id: string; booking_code: string };
     if (chosenMeals.length > 0) {

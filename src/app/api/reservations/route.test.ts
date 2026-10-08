@@ -2,13 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
-  rpc: vi.fn(), fetchRoom: vi.fn(), hasSlotConflict: vi.fn(), insertReservationAdmin: vi.fn(),
+  rpc: vi.fn(), fetchRoom: vi.fn(), checkBookable: vi.fn(), insertReservationAdmin: vi.fn(),
   sendLineFlexToBranchGroup: vi.fn(), fetchBranchLineGroupIdForRoom: vi.fn(), logOps: vi.fn(),
 }));
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ rpc: mocks.rpc }) }));
 vi.mock("@/lib/supabase-admin", () => ({
-  fetchRoom: mocks.fetchRoom, hasSlotConflict: mocks.hasSlotConflict,
+  fetchRoom: mocks.fetchRoom,
   insertReservationAdmin: mocks.insertReservationAdmin, isAdminConfigured: () => true,
+}));
+vi.mock("@/lib/bookable", async (orig) => ({
+  ...(await orig<typeof import("@/lib/bookable")>()),
+  checkBookable: mocks.checkBookable,
 }));
 vi.mock("@/lib/reservation-preorder", () => ({
   canonicalDraftItems: (items: unknown[]) => items,
@@ -41,7 +45,7 @@ describe("booking meals submit", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.fetchRoom.mockResolvedValue({ id: base.room_id, branch_id: "branch-1" });
-    mocks.hasSlotConflict.mockResolvedValue(false);
+    mocks.checkBookable.mockResolvedValue({ ok: true });
     mocks.rpc.mockResolvedValue({ data: { id: "reservation-1", booking_code: "ABC123" }, error: null });
     mocks.insertReservationAdmin.mockResolvedValue({ id: "reservation-2", booking_code: "DEF456" });
     mocks.sendLineFlexToBranchGroup.mockResolvedValue(undefined);
@@ -57,7 +61,7 @@ describe("booking meals submit", () => {
       p_booking: expect.objectContaining({ total_price: 600 }),
     }));
     expect(mocks.insertReservationAdmin).not.toHaveBeenCalled();
-    expect(mocks.hasSlotConflict).not.toHaveBeenCalled();
+    expect(mocks.checkBookable).toHaveBeenCalledWith(base.room_id, base.start_time, base.end_time, { actor: "guest", checkConflict: false });
   });
 
   it("preserves the existing booking path when meals are skipped", async () => {
