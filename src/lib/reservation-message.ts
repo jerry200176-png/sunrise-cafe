@@ -1,3 +1,4 @@
+import { getDepositAmount } from "@/lib/booking-utils";
 import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { toTaipei } from "@/lib/datetime";
@@ -110,7 +111,7 @@ export function renderReservationMessage(
     }
     const amount =
       reservation.total_price != null && Number(reservation.total_price) > 0
-        ? ` $${Math.ceil(Number(reservation.total_price) / 2)}`
+        ? ` $${getDepositAmount(Number(reservation.total_price))}`
         : "";
     return joinMessageLines([
       `您好，這裡是${name}。`,
