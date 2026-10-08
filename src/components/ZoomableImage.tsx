@@ -34,5 +34,5 @@ export const MENU_PHOTO_NOTE = "＊餐點圖片僅供參考，實際以現場出
 export function BranchMenuBanner({ branchName, className = "" }: { branchName?: string | null; className?: string }) {
   if (!branchName?.includes("大安")) return null;
   return <ZoomableImage src="/banners/daan.png" alt="昇咖啡大安店" landscape sizes="(max-width: 640px) 100vw, 576px"
-    className={`aspect-[1024/520] w-full overflow-hidden ${className}`} />;
+    className={`aspect-[1754/929] w-full overflow-hidden ${className}`} />;
 }
