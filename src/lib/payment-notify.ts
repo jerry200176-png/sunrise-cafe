@@ -37,6 +37,7 @@
  *     Every provider attempt is recorded (`payment.approved_attempt`), confirmed acceptance is recorded as
  *     `payment.approved_notified`, and ambiguous expired states record `payment.approved_notification_reconciliation_required`.
  */
+import { getDepositAmount } from "@/lib/booking-utils";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { isAdminConfigured } from "@/lib/supabase-admin";
 import {
@@ -148,7 +149,7 @@ export function isDepositApprovalNotificationEligible(
   options: { paymentEventId?: string; manualApproval?: boolean } = {}
 ): boolean {
   const totalPrice = Number(reservation.total_price);
-  const depositAmount = Math.ceil(totalPrice / 2);
+  const depositAmount = getDepositAmount(totalPrice);
   const hasPendingReview = paymentEvents.some((event) => event.status === "pending_review");
   const hasApprovedEvent = paymentEvents.some((event) => event.status === "approved");
   const requestedEventApproved = options.paymentEventId

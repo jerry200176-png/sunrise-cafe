@@ -4,6 +4,7 @@
  * 店名、匯款資訊、LINE Pay 連結皆由分店設定（branches 表）驅動，
  * 不再於程式內硬編碼任何分店資訊。未設定時以通用話術降級。
  */
+import { getDepositAmount } from "@/lib/booking-utils";
 import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { toTaipei } from "@/lib/datetime";
@@ -43,7 +44,7 @@ export function buildPaymentMessage(opts: {
   const endDate = toTaipei(endTime);
   const formattedDate = format(startDate, "yyyy/MM/dd (EEE)", { locale: zhTW });
   const timeRange = `${format(startDate, "HH:mm")}–${format(endDate, "HH:mm")}`;
-  const deposit = Math.ceil(total / 2);
+  const deposit = getDepositAmount(total);
   const storeName = resolveStoreName(branch);
   const code = bookingCode?.trim();
 

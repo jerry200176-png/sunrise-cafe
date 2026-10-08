@@ -1,9 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   from: vi.fn(),
   rpc: vi.fn(),
+  markDepositPaid: vi.fn(),
 }));
+
+// The paid-state write, audit and notification are tested through the deposit-paid interface.
+vi.mock("@/lib/deposit-paid", () => ({ markDepositPaid: mocks.markDepositPaid }));
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: vi.fn(() => ({ from: mocks.from, rpc: mocks.rpc })),
@@ -15,6 +19,11 @@ vi.mock("@/lib/payment-log", () => ({
 }));
 
 import { approvePaymentEvent } from "@/lib/payment-events-admin";
+
+beforeEach(() => {
+  mocks.markDepositPaid.mockReset();
+  mocks.markDepositPaid.mockResolvedValue({ changed: true, notification: null });
+});
 
 /**
  * 審核狀態轉換規則（與 payment-events-admin 邏輯對齊，純函式供測試）
@@ -88,7 +97,7 @@ describe("payment review idempotency rules", () => {
     });
 
     await expect(approvePaymentEvent("event-1", "已核對銀行入帳", "operator-1"))
-      .resolves.toEqual({ already_processed: false });
+      .resolves.toEqual({ already_processed: false, notification: null });
     expect(mocks.rpc).toHaveBeenCalledWith("confirm_bank_transfer_payment", {
       p_event_id: "event-1",
       p_actor: "operator-1",
@@ -97,10 +106,9 @@ describe("payment review idempotency rules", () => {
   });
 
   it("bank-transfer approval copies the reported last five and Taipei report date onto the reservation", async () => {
-    const update = vi.fn(() => ({ eq: async () => ({ error: null }) }));
     mocks.from.mockImplementation((table: string) =>
       table === "reservations"
-        ? { update }
+        ? {}
         : {
             select: () => ({
               eq: () => ({
@@ -125,8 +133,13 @@ describe("payment review idempotency rules", () => {
       error: null,
     });
 
-    await expect(approvePaymentEvent("event-1")).resolves.toEqual({ already_processed: false });
-    expect(update).toHaveBeenCalledWith({ deposit_last_five: "54321", deposit_paid_on: "2026-09-29" });
+    await expect(approvePaymentEvent("event-1")).resolves.toEqual({ already_processed: false, notification: null });
+    expect(mocks.markDepositPaid).toHaveBeenCalledWith(
+      "reservation-1",
+      "payment_review",
+      expect.objectContaining({ lastFive: "54321", paidOn: "2026-09-29", paymentEventId: "event-1" }),
+      "admin_payment_review"
+    );
   });
 
   it("already-processed confirmation is a no-op for notification callers", async () => {
@@ -208,8 +221,12 @@ describe("payment review idempotency rules", () => {
       };
     });
 
+    mocks.markDepositPaid.mockImplementation(async () => {
+      operations.push("reservation_marked_paid");
+      return { changed: true, notification: null };
+    });
     await expect(approvePaymentEvent("event-2", "已確認入帳", "operator-2"))
-      .resolves.toEqual({ already_processed: false });
+      .resolves.toEqual({ already_processed: false, notification: null });
     expect(operations).toEqual(["payment_event_approved", "reservation_marked_paid"]);
   });
 
