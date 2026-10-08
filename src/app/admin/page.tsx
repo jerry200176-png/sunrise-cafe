@@ -27,6 +27,8 @@ export default function AdminBranchesRoomsPage() {
   const [addFormOpen, setAddFormOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const [branchFormOpen, setBranchFormOpen] = useState(false);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
@@ -187,6 +189,7 @@ export default function AdminBranchesRoomsPage() {
     setBranchReviewUrl("");
     setBranchDepositInfo("");
     setBranchRentalNotesText("");
+    setModalError(null);
     setBranchFormOpen(true);
   };
 
@@ -207,11 +210,15 @@ export default function AdminBranchesRoomsPage() {
     setBranchReviewUrl(b.google_review_url ?? "");
     setBranchDepositInfo(b.deposit_info ?? "");
     setBranchRentalNotesText(formatRentalNotesText(b.rental_notes));
+    setModalError(null);
     setBranchFormOpen(true);
   };
 
   const submitBranch = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    setModalError(null);
     try {
       if (editingBranch) {
         const res = await fetch(`/api/branches/${editingBranch.id}`, {
@@ -259,7 +266,9 @@ export default function AdminBranchesRoomsPage() {
       setBranchFormOpen(false);
       loadBranches();
     } catch (err) {
-      setError(thrownMessage(err, "操作失敗，請稍後再試"));
+      setModalError(thrownMessage(err, "儲存失敗，請稍後再試"));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -287,6 +296,7 @@ export default function AdminBranchesRoomsPage() {
     setRoomPriceWeekend(0);
     setRoomImageUrl("");
     setRoomImageFile(null);
+    setModalError(null);
     setRoomFormOpen(true);
   };
 
@@ -300,12 +310,15 @@ export default function AdminBranchesRoomsPage() {
     setRoomPriceWeekend(Number(r.price_weekend));
     setRoomImageUrl(r.image_url ?? "");
     setRoomImageFile(null);
+    setModalError(null);
     setRoomFormOpen(true);
   };
 
   const submitRoom = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedBranchId) return;
+    if (!selectedBranchId || saving) return;
+    setSaving(true);
+    setModalError(null);
     try {
       // Same branch-scoped photo storage the menu uses; the rooms API only accepts its URLs.
       let imageUrl = roomImageUrl || null;
@@ -345,7 +358,9 @@ export default function AdminBranchesRoomsPage() {
       setRoomFormOpen(false);
       loadRooms();
     } catch (err) {
-      setError(thrownMessage(err, "操作失敗，請稍後再試"));
+      setModalError(thrownMessage(err, "儲存失敗，請稍後再試"));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -941,6 +956,7 @@ export default function AdminBranchesRoomsPage() {
         </section>
 
         {/* 訂位管理 */}
+        <span id="reservations" />
         <section id="reservation-management" className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 bg-stone-50/50 px-5 py-3.5">
             <div className="flex items-center gap-2">
@@ -997,6 +1013,7 @@ export default function AdminBranchesRoomsPage() {
         open={branchFormOpen}
         title={editingBranch ? "編輯分店" : "新增分店"}
         onClose={() => setBranchFormOpen(false)}
+        error={modalError}
         icon={<Building2 className="h-4 w-4 text-amber-600" />}
       >
         <form onSubmit={submitBranch} className="space-y-3">
@@ -1084,7 +1101,7 @@ export default function AdminBranchesRoomsPage() {
               </div>
               <div className="flex gap-2 pt-1">
                 <button type="button" onClick={() => setBranchFormOpen(false)} className="flex-1 rounded-xl border border-stone-200 py-2.5 text-sm text-stone-600 hover:bg-stone-50 transition-colors">取消</button>
-                <button type="submit" className="flex-1 rounded-xl bg-amber-600 py-2.5 text-sm font-medium text-white hover:bg-amber-700 transition-colors">儲存</button>
+                <button type="submit" disabled={saving} className="flex-1 rounded-xl bg-amber-600 py-2.5 text-sm font-medium text-white hover:bg-amber-700 transition-colors disabled:opacity-60">{saving ? "儲存中…" : "儲存"}</button>
               </div>
             </form>
       </AdminModal>
@@ -1093,6 +1110,7 @@ export default function AdminBranchesRoomsPage() {
         open={roomFormOpen}
         title={editingRoom ? "編輯包廂" : "新增包廂"}
         onClose={() => setRoomFormOpen(false)}
+        error={modalError}
         icon={<LayoutGrid className="h-4 w-4 text-amber-500" />}
       >
         <form onSubmit={submitRoom} className="space-y-3">
@@ -1140,7 +1158,7 @@ export default function AdminBranchesRoomsPage() {
               </div>
               <div className="flex gap-2 pt-1">
                 <button type="button" onClick={() => setRoomFormOpen(false)} className="flex-1 rounded-xl border border-stone-200 py-2.5 text-sm text-stone-600 hover:bg-stone-50 transition-colors">取消</button>
-                <button type="submit" className="flex-1 rounded-xl bg-amber-600 py-2.5 text-sm font-medium text-white hover:bg-amber-700 transition-colors">儲存</button>
+                <button type="submit" disabled={saving} className="flex-1 rounded-xl bg-amber-600 py-2.5 text-sm font-medium text-white hover:bg-amber-700 transition-colors disabled:opacity-60">{saving ? "儲存中…" : "儲存"}</button>
               </div>
             </form>
       </AdminModal>

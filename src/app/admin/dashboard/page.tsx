@@ -16,7 +16,7 @@ import {
 import { AdminShell } from "@/components/admin/AdminShell";
 import { AdminEmptyState } from "@/components/admin/AdminEmptyState";
 import { formatTaipeiTime } from "@/lib/datetime";
-import { friendlyMessage, thrownMessage } from "@/lib/friendly-error";
+import { friendlyMessage, responseError, thrownMessage } from "@/lib/friendly-error";
 import { reservationStatusLabel } from "@/lib/status-labels";
 import type { Branch } from "@/types";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
@@ -767,14 +767,18 @@ export default function AdminDashboardPage() {
                           onClick={async () => {
                             setRemindersUpdating(r.id);
                             try {
-                              await fetch(`/api/admin/reminders/${r.id}`, { method: "PATCH" });
+                              const res = await fetch(`/api/admin/reminders/${r.id}`, { method: "PATCH" });
+                              if (!res.ok) {
+                                showToast(`沒標記成功：${await responseError(res)}`, "error");
+                                return;
+                              }
                               setReminders((prev) =>
                                 prev.map((item) =>
                                   item.id === r.id ? { ...item, is_notified: true } : item
                                 )
                               );
-                            } catch {
-                              // ignore
+                            } catch (err) {
+                              showToast(`沒標記成功：${thrownMessage(err)}`, "error");
                             } finally {
                               setRemindersUpdating(null);
                             }

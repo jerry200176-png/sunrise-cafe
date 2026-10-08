@@ -6,6 +6,7 @@ import { ArrowLeft, RefreshCw, CheckCircle, ChefHat, Bell, LogOut } from "lucide
 import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { supabase } from "@/lib/supabase";
+import { responseError, thrownMessage } from "@/lib/friendly-error";
 import type { Branch, Order, OrderStatus } from "@/types";
 
 const ACTIVE_STATUSES: OrderStatus[] = ["pending", "preparing", "ready"];
@@ -15,6 +16,7 @@ export default function AdminOrdersPage() {
   const [branchId, setBranchId] = useState<string>("");
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const prevOrderIds = useRef<Set<string>>(new Set());
 
@@ -81,11 +83,21 @@ export default function AdminOrdersPage() {
   }, [orders]);
 
   const updateStatus = async (id: string, status: OrderStatus) => {
-    await fetch(`/api/admin/orders/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
+    try {
+      const res = await fetch(`/api/admin/orders/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      if (!res.ok) {
+        setActionError(`訂單沒有更新：${await responseError(res)}`);
+        return;
+      }
+    } catch (err) {
+      setActionError(`訂單沒有更新：${thrownMessage(err)}`);
+      return;
+    }
+    setActionError(null);
     setOrders((prev) =>
       prev.map((o) => (o.id === id ? { ...o, status } : o)).filter((o) =>
         ACTIVE_STATUSES.includes(o.status)
@@ -149,6 +161,9 @@ export default function AdminOrdersPage() {
           </div>
         </div>
       </header>
+      {actionError && (
+        <p role="alert" className="mx-auto max-w-7xl border-b border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{actionError}</p>
+      )}
 
       <div className="mx-auto max-w-7xl px-4 py-4">
         {/* 看板三欄 */}

@@ -256,7 +256,7 @@ export default function AdminTodayPage() {
             等位 {s ? `(${s.waitlist_open})` : ""}
           </Link>
           <Link
-            href="/admin/tables"
+            href="/admin#reservations"
             className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium transition-[border-color,background-color] duration-200 hover:border-amber-300"
           >
             訂位列表

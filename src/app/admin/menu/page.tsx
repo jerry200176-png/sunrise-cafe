@@ -40,6 +40,7 @@ export default function AdminMenuPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
 
   // 表單狀態
   const [formOpen, setFormOpen] = useState(false);
@@ -113,6 +114,7 @@ export default function AdminMenuPage() {
     setFImageUrl(""); setFOrder("0");
     setFImageFile(null); setFOptions([]);
     setFPreorderEligible(false);
+    setModalError(null);
     setFormOpen(true);
   };
 
@@ -127,13 +129,14 @@ export default function AdminMenuPage() {
     setFOptions((item.options ?? []).map((option) => ({ option_group: option.option_group, option_name: option.option_name, price_delta: Number(option.price_delta) })));
     setFOrder(String(item.display_order));
     setFPreorderEligible(Boolean(item.preorder_eligible));
+    setModalError(null);
     setFormOpen(true);
   };
 
   const submitItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (saving) return;
-    setError(null);
+    setModalError(null);
     setSaving(true);
     try {
       let imageUrl = fImageUrl.trim() || null;
@@ -183,7 +186,7 @@ export default function AdminMenuPage() {
       setFormOpen(false);
       loadData(branchId);
     } catch (err) {
-      setError(thrownMessage(err));
+      setModalError(thrownMessage(err));
     } finally {
       setSaving(false);
     }
@@ -203,31 +206,47 @@ export default function AdminMenuPage() {
   };
 
   const toggleAvailable = async (item: MenuItem) => {
-    await fetch(`/api/admin/menu-items/${item.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ is_available: !item.is_available }),
-    });
-    setItems((prev) =>
-      prev.map((i) => (i.id === item.id ? { ...i, is_available: !item.is_available } : i))
-    );
+    try {
+      const res = await fetch(`/api/admin/menu-items/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_available: !item.is_available }),
+      });
+      if (!res.ok) {
+        showToast(`沒改成：${await responseError(res)}`, "error");
+        return;
+      }
+      setItems((prev) =>
+        prev.map((i) => (i.id === item.id ? { ...i, is_available: !item.is_available } : i))
+      );
+    } catch (err) {
+      showToast(`沒改成：${thrownMessage(err)}`, "error");
+    }
   };
 
   const addCategory = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!catName.trim()) return;
-    const res = await fetch(catEditing ? `/api/admin/menu-categories/${catEditing.id}` : "/api/admin/menu-categories", {
-      method: catEditing ? "PATCH" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ branch_id: branchId, name: catName.trim() }),
-    });
-    if (res.ok) {
+    if (!catName.trim() || saving) return;
+    setSaving(true);
+    setModalError(null);
+    try {
+      const res = await fetch(catEditing ? `/api/admin/menu-categories/${catEditing.id}` : "/api/admin/menu-categories", {
+        method: catEditing ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ branch_id: branchId, name: catName.trim() }),
+      });
+      if (!res.ok) {
+        setModalError(await responseError(res));
+        return;
+      }
       setCatName("");
       setCatEditing(null);
       setCatFormOpen(false);
       loadData(branchId);
-    } else {
-      setError(await responseError(res));
+    } catch (err) {
+      setModalError(thrownMessage(err));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -285,7 +304,7 @@ export default function AdminMenuPage() {
             <h2 className="font-semibold text-gray-900">菜單分類</h2>
             <button
               type="button"
-              onClick={() => { setCatEditing(null); setCatName(""); setCatFormOpen(true); }}
+              onClick={() => { setCatEditing(null); setCatName(""); setModalError(null); setCatFormOpen(true); }}
               className="inline-flex items-center gap-1 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700"
             >
               <Plus className="h-4 w-4" /> 新增分類
@@ -298,7 +317,7 @@ export default function AdminMenuPage() {
               {categories.map((c) => (
                 <div key={c.id} className="inline-flex items-center gap-2 rounded-full bg-amber-100 px-3 py-1 text-sm text-amber-800">
                   <span>{c.name}{!c.is_active ? "（客人看不到）" : ""}</span>
-                  <button type="button" aria-label={`編輯${c.name}`} onClick={() => { setCatEditing(c); setCatName(c.name); setCatFormOpen(true); }}><Pencil className="h-3.5 w-3.5" /></button>
+                  <button type="button" aria-label={`編輯${c.name}`} onClick={() => { setCatEditing(c); setCatName(c.name); setModalError(null); setCatFormOpen(true); }}><Pencil className="h-3.5 w-3.5" /></button>
                   <button type="button" onClick={async () => {
                     const res = await fetch(`/api/admin/menu-categories/${c.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_active: !c.is_active }) });
                     if (!res.ok) setError(await responseError(res)); else loadData(branchId);
@@ -406,6 +425,7 @@ export default function AdminMenuPage() {
             <h3 className="text-lg font-semibold mb-4">
               {editing ? "編輯餐點" : "新增餐點"}
             </h3>
+            {modalError && <p role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{modalError}</p>}
             <form onSubmit={submitItem} className="space-y-3">
               <div>
                 <label className="flex items-center gap-2 text-sm text-gray-700">
@@ -512,7 +532,8 @@ export default function AdminMenuPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-sm rounded-xl bg-white p-4 shadow-xl">
             <h3 className="text-lg font-semibold mb-4">{catEditing ? "編輯分類" : "新增分類"}</h3>
-            <form onSubmit={addCategory} className="space-y-3">
+            {modalError && <p role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{modalError}</p>}
+                        <form onSubmit={addCategory} className="space-y-3">
               <input
                 type="text" required
                 value={catName} onChange={(e) => setCatName(e.target.value)}
@@ -529,9 +550,10 @@ export default function AdminMenuPage() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 rounded-lg bg-amber-600 py-2 text-white hover:bg-amber-700"
+                  disabled={saving}
+                  className="flex-1 rounded-lg bg-amber-600 py-2 text-white hover:bg-amber-700 disabled:opacity-60"
                 >
-                  儲存
+                  {saving ? "儲存中…" : "儲存"}
                 </button>
               </div>
             </form>
