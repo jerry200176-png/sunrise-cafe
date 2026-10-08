@@ -54,6 +54,7 @@ export async function fetchBranches() {
   const { data, error } = await supabaseAdmin()
     .from("branches")
     .select("*")
+    .is("archived_at", null)
     .order("name", { ascending: true });
   if (error) throw error;
   return data;

@@ -24,7 +24,7 @@ test("編輯分店：保留 LINE 群組與匯款資訊，並送出此店的注�
     deposit_info: null,
     google_review_url: null,
   };
-  await page.route("**/api/branches", (route) =>
+  await page.route(/\/api\/branches(\?.*)?$/, (route) =>
     route.request().method() === "GET"
       ? route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([branch]) })
       : route.fallback()
@@ -61,7 +61,7 @@ test("編輯分店：依星期設定營業時間（同德店：週一公休、�
     id: "e2e-branch-2", name: "E2E 同德店", address: null, phone: null,
     open_time: "10:00", close_time: "18:00", closed_dates: [], weekly_hours: null,
   };
-  await page.route("**/api/branches", (route) =>
+  await page.route(/\/api\/branches(\?.*)?$/, (route) =>
     route.request().method() === "GET"
       ? route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([branch]) })
       : route.fallback()
@@ -97,7 +97,7 @@ test("包廂照片：選檔案 → 儲存時先上傳，再把照片網址存進
   const room = { id: "e2e-room-9", branch_id: branch.id, name: "E2E 包廂", type: null, min_capacity: 2, capacity: 6,
     price_weekday: 200, price_weekend: 250, image_url: null };
   const photoUrl = "https://placeholder.supabase.co/storage/v1/object/public/menu-photos/e2e-branch-3/p.png";
-  await page.route("**/api/branches", (route) =>
+  await page.route(/\/api\/branches(\?.*)?$/, (route) =>
     route.request().method() === "GET"
       ? route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([branch]) })
       : route.fallback()

@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Plus, Pencil, Trash2, MapPin, ChefHat, UtensilsCrossed, QrCode, Printer, Building2, LayoutGrid, ClipboardList, CalendarDays, CalendarX, BarChart2, Star, DollarSign, Activity, Clock, AlertTriangle, LayoutDashboard } from "lucide-react";
+import { Archive, Plus, Pencil, Trash2, MapPin, ChefHat, UtensilsCrossed, QrCode, Printer, Building2, LayoutGrid, ClipboardList, CalendarDays, CalendarX, BarChart2, Star, DollarSign, Activity, Clock, AlertTriangle, LayoutDashboard } from "lucide-react";
 import type { Branch, Room, RentalNoteSection } from "@/types";
 import { BranchSwitcher } from "@/components/BranchSwitcher";
 import { ReservationList } from "@/components/ReservationList";
@@ -20,6 +20,7 @@ export default function AdminBranchesRoomsPage() {
   const [focusBranchId, setFocusBranchId] = useState<string | null>(null);
   const [focusReservationId, setFocusReservationId] = useState<string | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [archivedBranches, setArchivedBranches] = useState<Branch[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
   const [reservationBranchId, setReservationBranchId] = useState<string | null>(null);
@@ -101,9 +102,13 @@ export default function AdminBranchesRoomsPage() {
   }, []);
 
   const loadBranches = async () => {
-    const res = await fetch("/api/branches");
+    const res = await fetch("/api/branches?include=archived");
     const data = await res.json();
-    if (res.ok) setBranches(Array.isArray(data) ? data : []);
+    if (res.ok) {
+      const all: Branch[] = Array.isArray(data) ? data : [];
+      setBranches(all.filter((b) => !b.archived_at));
+      setArchivedBranches(all.filter((b) => b.archived_at));
+    }
   };
 
   const loadRooms = async () => {
@@ -272,16 +277,20 @@ export default function AdminBranchesRoomsPage() {
     }
   };
 
-  const deleteBranch = async (id: string) => {
+  const setArchived = async (id: string, archived: boolean) => {
+    const verb = archived ? "封存" : "還原";
     try {
-      const res = await fetch(`/api/branches/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/branches/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archived }),
+      });
       if (!res.ok) throw new Error(await responseError(res));
-      if (selectedBranchId === id) setSelectedBranchId(null);
-      loadBranches();
-      showToast("已刪除分店", "success");
+      if (archived && selectedBranchId === id) setSelectedBranchId(null);
+      await loadBranches();
+      showToast(archived ? "已封存分店，資料都還在，可以隨時還原" : "已還原分店", "success");
     } catch (err) {
-      setError(thrownMessage(err, "刪除失敗，請稍後再試"));
-      showToast(thrownMessage(err, "刪除失敗，請稍後再試"), "error");
+      showToast(`${verb}失敗：${thrownMessage(err)}`, "error");
     }
   };
 
@@ -684,14 +693,30 @@ export default function AdminBranchesRoomsPage() {
                       className="flex h-11 w-11 items-center justify-center rounded-lg border border-stone-200 text-stone-500 hover:bg-stone-50 hover:text-stone-700 transition-colors">
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
-                    <button type="button" onClick={() => setConfirmDeleteBranchId(b.id)} title="刪除" aria-label={`刪除 ${b.name}`}
-                      className="flex h-11 w-11 items-center justify-center rounded-lg border border-red-100 text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors">
-                      <Trash2 className="h-3.5 w-3.5" />
+                    <button type="button" onClick={() => setConfirmDeleteBranchId(b.id)} title="封存" aria-label={`封存 ${b.name}`}
+                      className="flex h-11 min-w-[44px] items-center justify-center gap-1 rounded-lg border border-stone-200 px-2 text-xs text-stone-600 hover:bg-stone-50 transition-colors">
+                      <Archive className="h-3.5 w-3.5" /> 封存
                     </button>
                   </div>
                 </li>
               ))}
             </ul>
+          )}
+          {archivedBranches.length > 0 && (
+            <details className="mt-3 border-t border-stone-100 pt-3">
+              <summary className="cursor-pointer text-sm text-stone-500">已封存的分店（{archivedBranches.length}）</summary>
+              <ul className="mt-2 divide-y divide-stone-100">
+                {archivedBranches.map((b) => (
+                  <li key={b.id} className="flex items-center justify-between gap-2 py-2">
+                    <span className="text-sm text-stone-500">{b.name}</span>
+                    <button type="button" onClick={() => void setArchived(b.id, false)}
+                      className="min-h-[44px] rounded-lg border border-stone-200 px-3 text-sm text-stone-700 hover:bg-stone-50">
+                      還原
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </details>
           )}
           </div>
         </section>
@@ -1165,14 +1190,14 @@ export default function AdminBranchesRoomsPage() {
       </AdminModal>
       <ConfirmDialog
         open={confirmDeleteBranchId !== null}
-        title="刪除分店"
-        message="確定要刪除此分店嗎？底下的包廂與預約也會一併刪除。"
-        confirmLabel="刪除"
-        variant="danger"
+        title="封存分店"
+        message="封存後，客人訂位頁和後台選單都不會再看到這間分店，每日提醒也會停止。包廂、訂位和訂單全部保留，之後可以在「已封存的分店」還原。"
+        confirmLabel="封存"
+        variant="default"
         onConfirm={() => {
           const id = confirmDeleteBranchId;
           setConfirmDeleteBranchId(null);
-          if (id) void deleteBranch(id);
+          if (id) void setArchived(id, true);
         }}
         onCancel={() => setConfirmDeleteBranchId(null)}
       />
