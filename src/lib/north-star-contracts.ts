@@ -33,7 +33,7 @@ export const NORTH_STAR_CONTRACTS: Record<NorthStarMetricId, MetricContract> = {
   deposit_conversion: {
     id: "deposit_conversion",
     numerator: "reservations is_deposit_paid=true AND deposit-required (weekend/holiday or branch policy)",
-    denominator: "deposit-eligible reservations status IN (pending,confirmed,reserved,checked_in,completed) created in window",
+    denominator: "deposit-eligible reservations status IN (pending,confirmed,checked_in,completed) created in window",
     timezone: "Asia/Taipei",
     window: "rolling 30d",
     freshness_sla: "≤1h",

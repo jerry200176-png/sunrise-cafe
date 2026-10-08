@@ -43,7 +43,6 @@ const STATUS_STYLES: Record<string, string> = {
   checked_in: "bg-emerald-100 text-emerald-800",
   cancelled: "bg-gray-100 text-gray-600",
   completed: "bg-blue-100 text-blue-800",
-  reserved: "bg-amber-100 text-amber-800",
   paid: "bg-blue-100 text-blue-800",
 };
 
@@ -459,6 +458,23 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     }
   };
 
+  const restoreReservation = async (id: string) => {
+    const ok = await openConfirm("還原訂位", "確定要還原這筆已取消的訂位嗎？原時段若已被訂走將無法還原。");
+    if (!ok) return;
+    const res = await fetch(`${RESERVATIONS_API}/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ intent: "restore" }),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      showToast(data.error ?? "還原失敗，請重新整理後再試", "error");
+      return;
+    }
+    showToast("已還原訂位", "success");
+    fetchReservations(false);
+  };
+
   const updateStatus = async (id: string, status: ReservationStatus) => {
     const prev = reservations;
     setReservations((list) =>
@@ -863,7 +879,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                       {r.preorder.guest_notes && <span className="block mt-0.5">備註：{r.preorder.guest_notes}</span>}
                     </div>
                   )}
-                  {!["cancelled", "rejected"].includes(r.status) && <Link href={`/admin/reservation-orders/${r.id}`}
+                  {r.status !== "cancelled" && <Link href={`/admin/reservation-orders/${r.id}`}
                     className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100">
                     餐點管理／到店確認
                   </Link>}
@@ -1035,6 +1051,15 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                         className="rounded-lg border border-green-300 bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 hover:bg-green-100 disabled:opacity-50"
                       >
                         {sendingLinePaymentTo === r.id ? "傳送中…" : "💬 重送 LINE 繳費"}
+                      </button>
+                    )}
+                    {r.status === "cancelled" && (
+                      <button
+                        type="button"
+                        onClick={() => restoreReservation(r.id)}
+                        className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+                      >
+                        ↩️ 還原
                       </button>
                     )}
                   </div>

@@ -271,7 +271,7 @@ export async function insertReservation(body: {
   notes?: string | null;
 }): Promise<void> {
   const { url: baseUrl } = base();
-  const payload: Record<string, unknown> = { ...body, status: body.status ?? "reserved" };
+  const payload: Record<string, unknown> = { ...body, status: body.status ?? "pending" };
   if (body.guest_count !== undefined) payload.guest_count = body.guest_count;
   if (body.notes !== undefined) payload.notes = body.notes;
   const res = await fetch(`${baseUrl}/rest/v1/reservations`, {

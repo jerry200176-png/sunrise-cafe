@@ -1,24 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  updateReservationAdmin,
-  isAdminConfigured,
-  supabaseAdmin,
-} from "@/lib/supabase-admin";
-import { BOOKABLE_HTTP, checkBookable } from "@/lib/bookable";
-import { sendLineFlexToBranchGroup, buildRescheduleGroupFlex } from "@/lib/line-notify";
-import { sendLineFlexMessage } from "@/lib/line";
-import { buildGuestBookingRescheduledFlex } from "@/lib/line-cards";
-import { deliverLineGuestNotification } from "@/lib/line-guest-delivery";
-import { notifyWaitlist } from "@/lib/waitlist";
-import { resetLineReminderDeliveries } from "@/lib/line-delivery";
-import { stableLineRetryKey } from "@/lib/line-retry-key";
-import { requirePreorderReconfirmation } from "@/lib/reservation-preorder";
-
+import { isAdminConfigured } from "@/lib/supabase-admin";
+import { transitionHttp, transitionReservation } from "@/lib/reservation-lifecycle";
 import { verifyGuestBookingByTokenOrCredentials } from "@/lib/guest-auth";
 import { enforceGuestLookupLimit } from "@/lib/guest-rate-limit";
-import { branchLineGroupIdForReservation } from "@/lib/branch-line-group";
-
-const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
 export async function POST(request: NextRequest) {
   if (!isAdminConfigured()) {
@@ -67,120 +51,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: verified.error }, { status: verified.status });
     }
 
-    const match = verified.reservation;
-    if (match.status === "cancelled") {
-      return NextResponse.json({ error: "此訂位已取消" }, { status: 400 });
-    }
-
-    const originalStartMs = new Date(match.start_time).getTime();
-    if (originalStartMs - Date.now() < TWENTY_FOUR_HOURS_MS) {
-      return NextResponse.json(
-        { error: "預約時間 24 小時內不可自行改期，請來電店家" },
-        { status: 400 }
-      );
-    }
-
-    const newStartMs = new Date(newStart).getTime();
-    if (newStartMs - Date.now() < TWENTY_FOUR_HOURS_MS) {
-      return NextResponse.json(
-        { error: "新時段須在 24 小時後，請選擇更晚的時間" },
-        { status: 400 }
-      );
-    }
-
-    const bookable = await checkBookable(match.room_id, newStart, newEnd, {
-      actor: "guest",
-      excludeId: id,
-    });
-    if (!bookable.ok) {
-      const { status, error } = BOOKABLE_HTTP[bookable.reason];
-      return NextResponse.json({ error }, { status });
-    }
-
-    const requestedGuestCount = newGuestCount ?? match.guest_count;
-    const sameSchedule =
-      new Date(newStart).getTime() === new Date(match.start_time).getTime() &&
-      new Date(newEnd).getTime() === new Date(match.end_time).getTime() &&
-      requestedGuestCount === match.guest_count;
-    if (sameSchedule) {
-      return NextResponse.json({ ok: true, already: true });
-    }
-
-    const oldStart = match.start_time;
-    const oldEnd = match.end_time;
-
-    await updateReservationAdmin(id, {
-      start_time: newStart,
-      end_time: newEnd,
-      guest_count: requestedGuestCount,
-      is_notified: false,
-      d1_guest_reminder_sent_at: null,
-    });
-    await requirePreorderReconfirmation(id, "guest_reschedule", "guest");
-    await resetLineReminderDeliveries(id);
-
-    if (match.line_user_id) {
-      const roomRaw = match.room as { branch?: { name?: string } | { name?: string }[] | null } | { branch?: { name?: string } | { name?: string }[] | null }[] | null;
-      const room = Array.isArray(roomRaw) ? roomRaw[0] : roomRaw;
-      const branchRaw = room?.branch;
-      const branch = Array.isArray(branchRaw) ? branchRaw[0] : branchRaw;
-      try {
-        await deliverLineGuestNotification({
-          notificationType: "booking_rescheduled",
-          reservationId: id,
-          recipientId: String(match.line_user_id),
-          eventKey: `${newStart}|${newEnd}`,
-          send: () =>
-            sendLineFlexMessage(
-              String(match.line_user_id),
-              "訂位已改期",
-              buildGuestBookingRescheduledFlex({
-                customerName: match.customer_name,
-                branchName: branch?.name ?? "昇咖啡",
-                bookingCode: match.booking_code,
-                oldStart,
-                oldEnd,
-                newStart,
-                newEnd,
-              }),
-              { reservationId: id }
-            ),
-        });
-      } catch (err) {
-        console.error("[reschedule-booking] guest LINE notify failed:", err);
-      }
-    }
-
-    try {
-      await sendLineFlexToBranchGroup(
-        `客人改期：${match.customer_name}`,
-        buildRescheduleGroupFlex({
-          customerName: match.customer_name,
-          phone: match.phone,
-          bookingCode: match.booking_code,
-          oldStart,
-          oldEnd,
-          newStart,
-          newEnd,
-        }),
-        await branchLineGroupIdForReservation(supabaseAdmin(), id),
-        {
-          retryKey: stableLineRetryKey(
-            "booking-rescheduled-group",
-            id,
-            newStart,
-            newEnd,
-            String(requestedGuestCount ?? "")
-          ),
-        }
-      );
-    } catch (err) {
-      console.error("[reschedule-booking] 群組通知失敗:", err);
-    }
-
-    notifyWaitlist(match.room_id, oldStart, oldEnd).catch((err) =>
-      console.error("[reschedule-booking] waitlist notify failed:", err)
+    const result = await transitionReservation(
+      verified.reservation.id,
+      { type: "reschedule", start: newStart, end: newEnd, guestCount: newGuestCount },
+      { kind: "guest" }
     );
+    if (!result.ok) {
+      const { status, body } = transitionHttp(result);
+      return NextResponse.json(body, { status });
+    }
+    if (result.already) return NextResponse.json({ ok: true, already: true });
 
     return NextResponse.json({ ok: true });
   } catch (err) {

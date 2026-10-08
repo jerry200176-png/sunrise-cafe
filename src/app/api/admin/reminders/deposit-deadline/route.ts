@@ -27,7 +27,7 @@ import {
   shouldSendDepositReminder,
   shouldSendUrgentDepositReminder,
 } from "@/lib/deposit-deadline";
-import { notifyWaitlist } from "@/lib/waitlist";
+import { transitionReservation } from "@/lib/reservation-lifecycle";
 import { toTaipei, taipeiDateString } from "@/lib/datetime";
 import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
@@ -42,7 +42,6 @@ import {
   markLineReminderDelivery,
   safeLineDeliveryError,
 } from "@/lib/line-delivery";
-import { cancelReservationPreorder } from "@/lib/reservation-preorder";
 
 type Row = {
   id: string;
@@ -171,8 +170,13 @@ async function handleRun() {
           // inactive between the candidate query and this atomic claim.
           continue;
         }
-        await updateReservationAdmin(r.id, { status: "cancelled" });
-        await cancelReservationPreorder(r.id, "deposit_deadline_auto_cancel");
+        // Lifecycle owns status, preorder and waitlist; this job sends its own release cards below.
+        const cancelled = await transitionReservation(
+          r.id,
+          { type: "cancel", reason: "deposit_deadline" },
+          { kind: "system", job: "deposit_deadline" }
+        );
+        if (!cancelled.ok) throw new Error(cancelled.message);
 
         if (r.line_user_id && (!guestClaim?.available || guestClaim.id)) {
           try {
@@ -205,10 +209,6 @@ async function handleRun() {
           const groupId = await branchLineGroupIdForReservation(supabaseAdmin(), r.id);
           pendingGroupReleases.push({ deliveryId: groupClaim.id, groupId, ...buildGroupReleaseNotice(r) });
         }
-
-        notifyWaitlist(r.room?.id ?? "", r.start_time, r.end_time).catch((err) =>
-          console.error("[deposit-deadline] waitlist notify failed:", err)
-        );
 
         released++;
         logPayment("deposit_deadline.released", {

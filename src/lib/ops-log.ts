@@ -30,6 +30,7 @@ export type OpsLogAction =
   | "guest.preorder_submitted"
   | "preorder.cancelled"
   | "preorder.reconfirmation_required"
+  | "reservation.transitioned"
   | "guest.cancel_ok"
   | "guest.cancel_blocked"
   | "guest.refund_requested"
