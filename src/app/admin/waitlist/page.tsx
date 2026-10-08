@@ -41,6 +41,7 @@ function telHref(phone: string): string {
 export default function AdminWaitlistPage() {
   const [items, setItems] = useState<WaitlistItem[]>([]);
   const [needsCallCount, setNeedsCallCount] = useState(0);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,16 +68,15 @@ export default function AdminWaitlistPage() {
       const data = await res.json();
       if (!res.ok) {
         setError(friendlyMessage(data.error, res.status));
-        setItems([]);
-        setNeedsCallCount(0);
         return;
       }
       setItems(data.items ?? []);
       setNeedsCallCount(data.needs_call_count ?? 0);
+      setUpdatedAt(
+        new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Taipei" })
+      );
     } catch {
-      setError("載入失敗");
-      setItems([]);
-      setNeedsCallCount(0);
+      setError("載入失敗，請按重新整理再試");
     } finally {
       setLoading(false);
     }
@@ -84,6 +84,10 @@ export default function AdminWaitlistPage() {
 
   useEffect(() => {
     load();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, 60_000);
+    return () => window.clearInterval(timer);
   }, [load]);
 
   const remove = async (id: string) => {
@@ -145,7 +149,7 @@ export default function AdminWaitlistPage() {
     <>
     <AdminShell
       title="等位清單"
-      subtitle={loading ? "載入中…" : `${waitingCount} 位等候中`}
+      subtitle={loading && !updatedAt ? "載入中…" : `${waitingCount} 位等候中${updatedAt ? ` · 更新於 ${updatedAt}` : ""}`}
       actions={
         <button
           type="button"
@@ -194,7 +198,7 @@ export default function AdminWaitlistPage() {
         </div>
 
         <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
-          {loading ? (
+          {loading && items.length === 0 ? (
             <p className="p-4 text-sm text-stone-500">載入中…</p>
           ) : visible.length === 0 ? (
             <div className="p-8 text-center text-stone-500">

@@ -114,6 +114,7 @@ export default function AdminTodayPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [pending, startTransition] = useTransition();
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/branches", { credentials: "include" })
@@ -123,7 +124,10 @@ export default function AdminTodayPage() {
         setBranches(list);
         if (list[0]) setBranchId(list[0].id);
       })
-      .catch(() => setError("無法載入分店"));
+      .catch(() => {
+        setError("無法載入分店，請重新整理");
+        setLoading(false);
+      });
   }, []);
 
   const load = useCallback(() => {
@@ -138,9 +142,10 @@ export default function AdminTodayPage() {
         const json = await res.json();
         if (!res.ok) throw new Error(friendlyMessage(json.error, res.status));
         setData(json as TodayBundle);
+        setUpdatedAt(fmtTime(new Date().toISOString()));
       } catch (e) {
+        // 自動更新失敗時保留原本的資料，只顯示錯誤
         setError(e instanceof Error ? e.message : "載入失敗，請重試");
-        setData(null);
       } finally {
         setLoading(false);
       }
@@ -149,13 +154,18 @@ export default function AdminTodayPage() {
 
   useEffect(() => {
     load();
+    // 尖峰時段不用手動按重新整理：每 60 秒自動更新（分頁在背景時不打 API）
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") load();
+    }, 60_000);
+    return () => window.clearInterval(timer);
   }, [load]);
 
   const s = data?.summary;
   const subtitle = loading && !data
     ? "載入中…"
     : data?.date
-      ? fmtDateLabel(data.date)
+      ? `${fmtDateLabel(data.date)}${updatedAt ? ` · 更新於 ${updatedAt}` : ""}`
       : "今天的訂位與待辦";
 
   return (
@@ -265,7 +275,7 @@ export default function AdminTodayPage() {
 
         <section aria-label="即將到店" className="rounded-2xl bg-white p-3.5 shadow-sm ring-1 ring-stone-200/80">
           <h2 className="mb-2 text-sm font-semibold text-stone-800">即將到店 / 今日行程</h2>
-          {!(data?.upcoming?.length) && !loading && (
+          {data && !data.upcoming?.length && !loading && (
             <p className="text-sm text-stone-500">今日尚無訂位</p>
           )}
           <ul className="divide-y divide-stone-100">
@@ -307,7 +317,7 @@ export default function AdminTodayPage() {
 
         <section aria-label="未付與逾期風險" className="rounded-2xl bg-white p-3.5 shadow-sm ring-1 ring-stone-200/80">
           <h2 className="mb-2 text-sm font-semibold text-stone-800">未付訂金 / 逾期風險</h2>
-          {!(data?.unpaid?.length) && !loading && (
+          {data && !data.unpaid?.length && !loading && (
             <p className="text-sm text-stone-500">目前沒有未付訂金的今日訂位</p>
           )}
           <ul className="divide-y divide-stone-100">
@@ -344,7 +354,7 @@ export default function AdminTodayPage() {
 
         <section aria-label="等位" className="rounded-2xl bg-white p-3.5 shadow-sm ring-1 ring-stone-200/80">
           <h2 className="mb-2 text-sm font-semibold text-stone-800">等位待處理</h2>
-          {!(data?.waitlist?.length) && !loading && (
+          {data && !data.waitlist?.length && !loading && (
             <p className="text-sm text-stone-500">目前沒有等位</p>
           )}
           <ul className="divide-y divide-stone-100">
