@@ -1,6 +1,7 @@
 /**
  * LINE Flex 卡片建構器 — 客人 Bot + 群組 Bot 統一入口
  */
+import { getDepositAmount } from "@/lib/booking-utils";
 import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { toTaipei } from "@/lib/datetime";
@@ -68,7 +69,7 @@ export function buildPaymentFlex(params: {
   /** 建立時間；用於顯示真實訂金截止（與 deposit-deadline 規則一致） */
   createdAt?: string | null;
 }): LineFlexContainer {
-  const deposit = Math.ceil(params.total / 2);
+  const deposit = getDepositAmount(params.total);
   const storeName = resolveStoreName(params.branch);
   const code = params.bookingCode?.trim();
   const paymentInfo = params.branch.payment_info?.trim();

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe, isStripeEnabled } from "@/lib/stripe";
 import { createClient } from "@supabase/supabase-js";
+import { markDepositPaid, verifyStripeIntentForReservation } from "@/lib/deposit-paid";
 import { logOps } from "@/lib/ops-log";
 
 /**
@@ -66,13 +67,16 @@ export async function POST(request: NextRequest) {
           .eq("stripe_pi_id", paymentIntent.id);
 
         if (reservationId) {
-          await supabaseAdmin()
-            .from("reservations")
-            .update({
-              deposit_status: "paid",
-              is_deposit_paid: true,
-            })
-            .eq("id", reservationId);
+          try {
+            const binding = await verifyStripeIntentForReservation(paymentIntent, reservationId);
+            if (!binding.ok) {
+              console.error("[stripe-webhook] PaymentIntent rejected for reservation:", binding.error, paymentIntent.id);
+              break;
+            }
+            await markDepositPaid(reservationId, "stripe_webhook", {}, "stripe");
+          } catch (err) {
+            console.error("[stripe-webhook] markDepositPaid failed:", err);
+          }
         }
 
         logOps("webhook", "stripe.payment_intent_succeeded", {
