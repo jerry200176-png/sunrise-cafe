@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   fetchReservationsByPhone,
   fetchRoom,
-  hasSlotConflict,
   insertReservationAdmin,
   isAdminConfigured,
 } from "@/lib/supabase-admin";
@@ -11,6 +10,7 @@ import { assertReservationWriteAllowed } from "@/lib/reservation-access";
 import { isWeekendDate } from "@/lib/booking-utils";
 import { reservationDateKey } from "@/lib/datetime";
 import { sendDepositPaymentRequest } from "@/lib/payment-request-line";
+import { BOOKABLE_HTTP, checkBookable } from "@/lib/bookable";
 import { SlotConflictError } from "@/lib/slot-conflict";
 
 type RequestBody = {
@@ -52,19 +52,10 @@ export async function POST(request: NextRequest) {
 
     const startMs = new Date(startTime).getTime();
     const endMs = new Date(endTime).getTime();
-    const durationHours = (endMs - startMs) / 3_600_000;
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
       return NextResponse.json({ error: "開始與結束時間格式錯誤" }, { status: 400 });
     }
-    if (durationHours <= 0) {
-      return NextResponse.json({ error: "結束時間必須晚於開始時間" }, { status: 400 });
-    }
-    if (durationHours < 2 || durationHours > 8) {
-      return NextResponse.json(
-        { error: durationHours < 2 ? "包廂最少需預約 2 小時" : "單次預約時長不得超過 8 小時" },
-        { status: 400 }
-      );
-    }
+    const durationHours = (endMs - startMs) / 3_600_000;
 
     const room = await fetchRoom(roomId);
     if (!room) return NextResponse.json({ error: "包廂不存在" }, { status: 404 });
@@ -73,8 +64,10 @@ export async function POST(request: NextRequest) {
     const rbacDenied = assertReservationWriteAllowed(ctx, room.branch_id);
     if (rbacDenied) return NextResponse.json({ error: rbacDenied }, { status: 403 });
 
-    if (await hasSlotConflict(roomId, startTime, endTime)) {
-      return NextResponse.json({ error: "該時段已被預訂，請重新選擇" }, { status: 409 });
+    const bookable = await checkBookable(roomId, startTime, endTime, { actor: "admin" });
+    if (!bookable.ok) {
+      const { status, error } = BOOKABLE_HTTP[bookable.reason];
+      return NextResponse.json({ error }, { status });
     }
 
     const previousReservations = await fetchReservationsByPhone(phone).catch(() => []);

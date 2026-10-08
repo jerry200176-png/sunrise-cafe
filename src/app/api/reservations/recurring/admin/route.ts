@@ -4,6 +4,7 @@ import { isAdminConfigured } from "@/lib/supabase-admin";
 import { requireAdminApiAuth, getAdminContext } from "@/lib/admin-api-auth";
 import { assertReservationWriteAllowed } from "@/lib/reservation-access";
 import { fetchRoomBranchId } from "@/lib/supabase-admin";
+import { BOOKABLE_HTTP, checkBookable } from "@/lib/bookable";
 import { toTaipei } from "@/lib/datetime";
 
 const supabaseAdmin = createClient(
@@ -102,32 +103,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No dates match the selected weekdays" }, { status: 400 });
     }
 
-    // 2. 檢查衝突
-    const minStart = candidates[0].start;
-    const maxEnd = candidates[candidates.length - 1].end;
-
-    const { data: existingRaw, error: fetchError } = await supabaseAdmin
-      .from("reservations")
-      .select("start_time, end_time")
-      .eq("room_id", room_id)
-      .eq("status", "confirmed")
-      .gte("end_time", minStart)
-      .lte("start_time", maxEnd);
-
-    if (fetchError) throw fetchError;
-
-    // ✅ 修正：明確轉型，移除 implicit any
-    const existing = (existingRaw ?? []) as { start_time: string; end_time: string }[];
-
+    // 2. 檢查規則與衝突（與其他訂位入口同一份規則）
     const conflicts: string[] = [];
     const validReservations: NewReservation[] = [];
 
     for (const c of candidates) {
-      const isConflict = existing.some((e) => {
-        return c.start < e.end_time && c.end > e.start_time;
-      });
-
-      if (isConflict) {
+      const bookable = await checkBookable(room_id, c.start, c.end, { actor: "admin" });
+      if (!bookable.ok && bookable.reason !== "conflict") {
+        const { status, error } = BOOKABLE_HTTP[bookable.reason];
+        return NextResponse.json({ error }, { status });
+      }
+      if (!bookable.ok) {
         conflicts.push(c.start.slice(0, 10));
       } else {
         const code = Math.random().toString(36).substring(2, 8).toUpperCase();
