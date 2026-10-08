@@ -29,6 +29,10 @@ CREATE TABLE IF NOT EXISTS line_deliveries (
 CREATE INDEX IF NOT EXISTS idx_line_deliveries_status
   ON line_deliveries (kind, status, created_at DESC);
 
+-- Service-role only. Supabase default privileges grant new public tables to anon/authenticated,
+-- so revoke explicitly in addition to RLS (enabled, and deliberately no anon/authenticated policy).
+REVOKE ALL ON TABLE line_deliveries FROM PUBLIC, anon, authenticated;
+GRANT ALL ON TABLE line_deliveries TO service_role;
 ALTER TABLE line_deliveries ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "service_all_line_deliveries" ON line_deliveries;
@@ -44,11 +48,11 @@ CREATE OR REPLACE FUNCTION claim_line_delivery(
 RETURNS TABLE (delivery_id UUID)
 LANGUAGE SQL
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
-  INSERT INTO line_deliveries (kind, reservation_id, recipient_id, event_key, status)
+  INSERT INTO public.line_deliveries (kind, reservation_id, recipient_id, event_key, status)
   SELECT p_kind, r.id, p_recipient_id, p_event_key, 'sending'
-  FROM reservations r
+  FROM public.reservations r
   WHERE r.id = p_reservation_id
   ON CONFLICT (kind, reservation_id, recipient_id, event_key) DO UPDATE
     SET status = 'sending',
@@ -59,7 +63,7 @@ AS $$
   RETURNING id;
 $$;
 
-REVOKE ALL ON FUNCTION claim_line_delivery(TEXT, UUID, TEXT, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION claim_line_delivery(TEXT, UUID, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION claim_line_delivery(TEXT, UUID, TEXT, TEXT) TO service_role;
 
 -- Carry over what was already delivered or claimed (skipped on a fresh database

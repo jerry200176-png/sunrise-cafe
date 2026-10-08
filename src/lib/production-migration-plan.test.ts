@@ -141,6 +141,14 @@ describe("explicit production migration plan", () => {
     const source = readFileSync(join(root, "supabase/migration-line-deliveries.sql"), "utf8");
     const body = lineDeliveriesBody(source);
     expect(body).toContain("CREATE TABLE IF NOT EXISTS line_deliveries");
+    // service-role only: RLS on, no policy for anon/authenticated, explicit revokes, pinned search_path
+    expect(body).toContain("ENABLE ROW LEVEL SECURITY");
+    expect(body).toMatch(/REVOKE ALL ON TABLE line_deliveries FROM PUBLIC, anon, authenticated/);
+    expect(body).toMatch(/REVOKE ALL ON FUNCTION claim_line_delivery\([^)]*\) FROM PUBLIC, anon, authenticated/);
+    expect(body).toContain("SET search_path = public, pg_temp");
+    const code = body.replace(/^--.*$/gm, "");
+    expect(code).not.toMatch(/\bGRANT [^;]*(anon|authenticated)/i);
+    expect(body).not.toMatch(/CREATE POLICY[^;]*(anon|authenticated|PUBLIC)/i);
     expect(body).not.toMatch(/DROP TABLE|DELETE FROM|TRUNCATE|ALTER TABLE (?!line_deliveries)/i);
     const sql = Object.assign(async () => [], { begin: async () => {} });
     await expect(applyLineDeliveries(sql as never)).rejects.toThrow(/missing from schema_migrations/);
