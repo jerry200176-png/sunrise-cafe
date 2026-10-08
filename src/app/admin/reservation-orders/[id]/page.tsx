@@ -87,7 +87,7 @@ export default function ReservationOrderPage() {
               className="mt-3 rounded-lg border border-amber-700 px-4 py-2 font-medium text-amber-900 disabled:opacity-50">儲存餐點調整</button>
           </div>
         </section>
-        <button disabled={busy || ["cancelled", "completed", "rejected"].includes(view.reservation.status) || Boolean(view.preorder?.requires_reconfirmation)}
+        <button disabled={busy || ["cancelled", "completed"].includes(view.reservation.status) || Boolean(view.preorder?.requires_reconfirmation)}
           onClick={() => act("check_in")} className="w-full rounded-lg bg-amber-700 px-4 py-3 font-semibold text-white disabled:opacity-50">
           確認客人到店，送入備餐清單
         </button>

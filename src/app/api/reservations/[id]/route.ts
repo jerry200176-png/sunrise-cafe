@@ -1,44 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateReservationAdmin, deleteReservationAdmin, isAdminConfigured } from "@/lib/supabase-admin";
-import {
-  sendLineFlexMessage,
-  buildReviewInviteFlex,
-} from "@/lib/line";
 import { sendDepositPaymentRequest } from "@/lib/payment-request-line";
-import { notifyWaitlist } from "@/lib/waitlist";
-import { fetchSettings } from "@/lib/supabase-fetch";
 import { requireAdminApiAuth, getAdminContext } from "@/lib/admin-api-auth";
 import {
   assertReservationPatchAllowed,
   assertReservationCancelAllowed,
+  assertReservationRestoreAllowed,
 } from "@/lib/reservation-access";
 import { fetchReservationBranchId, fetchRoom } from "@/lib/supabase-admin";
 import { logDepositStatusChange } from "@/lib/payment-log";
 import { createClient } from "@supabase/supabase-js";
-import { deliverLineGuestNotification } from "@/lib/line-guest-delivery";
-import { buildGuestBookingCancelledFlex } from "@/lib/line-cards";
 import { notifyPaymentApproved, paymentNotificationStatus, type NotifyPaymentApprovedResult } from "@/lib/payment-notify";
-import { cancelReservationPreorder, lockReservationPreorder, requirePreorderReconfirmation } from "@/lib/reservation-preorder";
-import { resolveBranchGuestSettings } from "@/lib/branch-guest-settings";
+import { requirePreorderReconfirmation } from "@/lib/reservation-preorder";
+import {
+  intentForStatusChange,
+  loadReservation,
+  transitionHttp,
+  transitionReservation,
+  type Intent,
+} from "@/lib/reservation-lifecycle";
+import { isPostgresExclusionViolation } from "@/lib/slot-conflict";
+
 function supabaseAdmin() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
-}
-
-type RoomWithBranch = { name?: string; branch: { id?: string; name: string; display_name?: string | null; google_review_url?: string | null }[] }[];
-type CancellationNoticeRow = {
-  line_user_id?: string | null;
-  customer_name?: string | null;
-  booking_code?: string | null;
-  start_time?: string | null;
-  end_time?: string | null;
-  room?: { branch?: { name?: string } | { name?: string }[] | null } | { branch?: { name?: string } | { name?: string }[] | null }[] | null;
-};
-
-function firstRelation<T>(value: T | T[] | null | undefined): T | null {
-  return Array.isArray(value) ? value[0] ?? null : value ?? null;
 }
 
 export async function PATCH(
@@ -67,7 +54,6 @@ export async function PATCH(
     if (body.start_time !== undefined) patch.start_time = body.start_time;
     if (body.end_time !== undefined) patch.end_time = body.end_time;
     if (body.room_id !== undefined) patch.room_id = String(body.room_id);
-    if (body.status !== undefined) patch.status = body.status;
     if (body.total_price !== undefined) patch.total_price = body.total_price == null ? null : Number(body.total_price);
     if (body.guest_count !== undefined) patch.guest_count = body.guest_count == null ? null : Number(body.guest_count);
     if (body.notes !== undefined) patch.notes = body.notes == null || body.notes === "" ? null : String(body.notes).trim();
@@ -99,7 +85,15 @@ export async function PATCH(
     if (body.deposit_approved_retry_key_created_at !== undefined)
       patch.deposit_approved_retry_key_created_at = body.deposit_approved_retry_key_created_at == null || body.deposit_approved_retry_key_created_at === "" ? null : String(body.deposit_approved_retry_key_created_at);
 
-    if (Object.keys(patch).length === 0) {
+    const requestedStatus: string | undefined = typeof body.status === "string" ? body.status : undefined;
+    const wantsRestore = body.intent === "restore";
+    if (body.status !== undefined && requestedStatus === undefined) {
+      return NextResponse.json({ error: "狀態格式錯誤" }, { status: 400 });
+    }
+    if (body.intent !== undefined && !wantsRestore) {
+      return NextResponse.json({ error: "不支援的操作" }, { status: 400 });
+    }
+    if (Object.keys(patch).length === 0 && requestedStatus === undefined && !wantsRestore) {
       return NextResponse.json({ error: "未提供可更新欄位" }, { status: 400 });
     }
 
@@ -114,9 +108,26 @@ export async function PATCH(
       }
     }
     const ctx = await getAdminContext(request);
-    const rbacDenied = assertReservationPatchAllowed(ctx, patch, branchId);
+    const rbacDenied =
+      Object.keys(patch).length > 0 || requestedStatus !== undefined
+        ? assertReservationPatchAllowed(ctx, requestedStatus !== undefined ? { ...patch, status: requestedStatus } : patch, branchId)
+        : null;
     if (rbacDenied) {
       return NextResponse.json({ error: rbacDenied }, { status: 403 });
+    }
+    if (wantsRestore) {
+      const restoreDenied = assertReservationRestoreAllowed(ctx, branchId);
+      if (restoreDenied) return NextResponse.json({ error: restoreDenied }, { status: 403 });
+    }
+
+    // Status changes go through the lifecycle module; validate before writing anything.
+    let intent: Intent | null = wantsRestore ? { type: "restore" } : null;
+    if (requestedStatus !== undefined && !wantsRestore) {
+      const current = await loadReservation(id);
+      if (!current) return NextResponse.json({ error: "找不到訂位" }, { status: 404 });
+      const planned = intentForStatusChange(current.status, requestedStatus);
+      if ("error" in planned) return NextResponse.json({ error: planned.error }, { status: 409 });
+      if ("intent" in planned) intent = planned.intent;
     }
 
     const touchesDepositInfo =
@@ -143,56 +154,25 @@ export async function PATCH(
       if (data) beforeRow = data;
     }
 
-    let cancellationNotice: CancellationNoticeRow | null = null;
-    if (patch.status === "cancelled") {
-      const { data } = await supabaseAdmin()
-        .from("reservations")
-        .select("line_user_id, customer_name, booking_code, start_time, end_time, room:rooms(branch:branches(name))")
-        .eq("id", id)
-        .maybeSingle();
-      cancellationNotice = data as CancellationNoticeRow | null;
-    }
-
-    await updateReservationAdmin(id, patch);
+    if (Object.keys(patch).length > 0) await updateReservationAdmin(id, patch);
 
     let paymentNotification: NotifyPaymentApprovedResult | null = null;
 
-    if (patch.status === "cancelled") {
-      await cancelReservationPreorder(id, "admin_cancel_or_reject");
-    } else if (
+    if (
       patch.start_time !== undefined || patch.end_time !== undefined ||
       patch.guest_count !== undefined || patch.room_id !== undefined
     ) {
       await requirePreorderReconfirmation(id, "admin_reservation_change", ctx.user_id ?? ctx.role);
     }
-    if (patch.status === "completed") await lockReservationPreorder(id);
 
-    if (cancellationNotice?.line_user_id) {
-      const room = firstRelation(cancellationNotice.room);
-      const branch = firstRelation(room?.branch);
-      try {
-        const result = await deliverLineGuestNotification({
-          notificationType: "booking_cancelled",
-          reservationId: id,
-          recipientId: cancellationNotice.line_user_id,
-          send: () =>
-            sendLineFlexMessage(
-              cancellationNotice.line_user_id!,
-              "訂位已取消",
-              buildGuestBookingCancelledFlex({
-                customerName: cancellationNotice.customer_name ?? "您好",
-                branchName: branch?.name ?? "昇咖啡",
-                bookingCode: cancellationNotice.booking_code,
-                startTime: cancellationNotice.start_time!,
-                endTime: cancellationNotice.end_time!,
-              }),
-              { reservationId: id }
-            ),
-        });
-        if (result === "error") console.error("[reservations/id] guest cancellation notify failed");
-      } catch (err) {
-        console.error("[reservations/id] guest cancellation claim failed:", err);
+    let lineResult: string | null = null;
+    if (intent) {
+      const result = await transitionReservation(id, intent, { kind: "admin", userId: ctx.user_id, label: ctx.role });
+      if (!result.ok) {
+        const { status, body } = transitionHttp(result);
+        return NextResponse.json(body, { status });
       }
+      lineResult = result.lineResult ?? null;
     }
 
     if (beforeRow && touchesDeposit) {
@@ -227,7 +207,7 @@ export async function PATCH(
             deposit_payment_note: afterNote,
             deposit_paid_on: afterPaidOn,
             deposit_last_five: afterLastFive,
-            status: patch.status ?? beforeRow.status,
+            status: requestedStatus ?? beforeRow.status,
           },
         });
         if (afterPaid) {
@@ -285,70 +265,14 @@ export async function PATCH(
       }
     }
 
-    // 後台取消時，通知等位清單
-    if (patch.status === "cancelled") {
-      const { data: cancelled } = await supabaseAdmin()
-        .from("reservations")
-        .select("room_id, start_time, end_time")
-        .eq("id", id)
-        .single();
-      if (cancelled) {
-        notifyWaitlist(cancelled.room_id, cancelled.start_time, cancelled.end_time).catch(
-          (err) => console.error("[reservations/id] waitlist notify failed:", err)
-        );
-      }
-    }
-
-    // 確認訂位 or 填金額時：自動推一次繳費通知（已送過則略過，避免雙則相同訊息）
-    const triggerLine = patch.status === "confirmed" || patch.total_price !== undefined;
-    let lineResult: string | null = null;
-    if (triggerLine) {
+    // Filling in the amount: push the payment request once (skipped if already sent).
+    if (patch.total_price !== undefined && lineResult === null) {
       const { result, detail } = await sendDepositPaymentRequest(id, {
         force: false,
         actorUserId: ctx.user_id,
       });
       lineResult = detail ? `${result}: ${detail}` : result;
-      if (result === "error") {
-        console.error("[confirm] LINE 推播失敗:", detail);
-      }
-    }
-
-    // 結帳時，若客人已綁定 LINE 且尚未邀評過，自動發送 Google 評論邀請
-    if (patch.status === "completed") {
-      try {
-        const { data: r } = await supabaseAdmin()
-          .from("reservations")
-          .select(`
-            line_user_id,
-            customer_name,
-            review_invited_at,
-            room_with_branch:rooms(branch:branches(name, display_name, google_review_url))
-          `)
-          .eq("id", id)
-          .single();
-
-        if (r?.line_user_id && !r.review_invited_at) {
-          // PostgREST returns many-to-one embeds as objects; tolerate arrays too.
-          const roomRaw = r.room_with_branch as unknown as RoomWithBranch[number] | RoomWithBranch | null;
-          const roomInfo = Array.isArray(roomRaw) ? roomRaw[0] : roomRaw;
-          const branchRaw = roomInfo?.branch as RoomWithBranch[number]["branch"] | RoomWithBranch[number]["branch"][number] | undefined;
-          const branch = Array.isArray(branchRaw) ? branchRaw[0] : branchRaw;
-          const settings = await fetchSettings();
-          const { google_review_url: reviewUrl } = resolveBranchGuestSettings(branch, settings);
-          if (reviewUrl) {
-            const branchName = branch?.display_name || branch?.name || "";
-            const flex = buildReviewInviteFlex({
-              customerName: r.customer_name,
-              branchName,
-              reviewUrl,
-            });
-            await sendLineFlexMessage(r.line_user_id, "感謝光臨昇昇咖啡", flex, { reservationId: id });
-            await updateReservationAdmin(id, { review_invited_at: new Date().toISOString() });
-          }
-        }
-      } catch (err) {
-        console.error("[reservations/id] 評論邀請發送失敗:", err);
-      }
+      if (result === "error") console.error("[confirm] LINE 推播失敗:", detail);
     }
 
     return NextResponse.json({
@@ -363,6 +287,9 @@ export async function PATCH(
         : null,
     });
   } catch (err) {
+    if (isPostgresExclusionViolation(err)) {
+      return NextResponse.json({ error: "該時段已被預訂，無法還原" }, { status: 409 });
+    }
     const message = err instanceof Error ? err.message : "無法更新訂位";
     return NextResponse.json({ error: message }, { status: 500 });
   }

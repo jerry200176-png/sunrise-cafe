@@ -9,6 +9,7 @@ import {
   deleteReservationAdmin,
   fetchReservationBranchId,
 } from "@/lib/supabase-admin";
+import { transitionReservation } from "@/lib/reservation-lifecycle";
 import { PATCH, DELETE } from "./route";
 
 vi.mock("@/lib/supabase-admin", () => ({
@@ -28,6 +29,12 @@ vi.mock("@/lib/line", () => ({
 
 vi.mock("@/lib/payment-request-line", () => ({
   sendDepositPaymentRequest: vi.fn(async () => ({ result: "sent" })),
+}));
+
+vi.mock("@/lib/reservation-lifecycle", async (orig) => ({
+  ...(await orig<typeof import("@/lib/reservation-lifecycle")>()),
+  loadReservation: vi.fn(async () => ({ status: "pending" })),
+  transitionReservation: vi.fn(async () => ({ ok: true, status: "confirmed", lineResult: "sent" })),
 }));
 
 vi.mock("@/lib/waitlist", () => ({
@@ -122,7 +129,29 @@ describe("PATCH /api/reservations/[id]", () => {
     const token = await staffSession();
     const res = await PATCH(patchRequest({ status: "confirmed" }, token), { params });
     expect(res.status).toBe(200);
-    expect(updateReservationAdmin).toHaveBeenCalledWith("res-1", { status: "confirmed" });
+    expect(transitionReservation).toHaveBeenCalledWith("res-1", { type: "confirm" }, expect.objectContaining({ kind: "admin" }));
+    expect(updateReservationAdmin).not.toHaveBeenCalled();
+  });
+
+  it("refuses a status the transition table does not allow, writing nothing", async () => {
+    const token = await staffSession();
+    const res = await PATCH(patchRequest({ status: "reserved" }, token), { params });
+    expect(res.status).toBe(409);
+    expect(transitionReservation).not.toHaveBeenCalled();
+    expect(updateReservationAdmin).not.toHaveBeenCalled();
+  });
+
+  it("restore is an explicit intent", async () => {
+    const token = await managerSession();
+    const res = await PATCH(patchRequest({ intent: "restore" }, token), { params });
+    expect(res.status).toBe(200);
+    expect(transitionReservation).toHaveBeenCalledWith("res-1", { type: "restore" }, expect.anything());
+  });
+
+  it("staff without write permission cannot restore", async () => {
+    const token = await staffSession();
+    const res = await PATCH(patchRequest({ intent: "restore" }, token), { params });
+    expect(res.status).toBe(403);
   });
 
   it("allows branch_manager full patch", async () => {

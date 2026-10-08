@@ -93,6 +93,14 @@ export function assertReservationCancelAllowed(
   return null;
 }
 
+/** Un-cancelling a reservation re-takes its slot: same bar as editing it. */
+export function assertReservationRestoreAllowed(
+  ctx: AdminContext,
+  branchId: string
+): string | null {
+  return hasPermission(ctx, "reservations:write", branchId) ? null : "Forbidden";
+}
+
 export function assertReservationReadAllowed(
   ctx: AdminContext,
   branchId: string
