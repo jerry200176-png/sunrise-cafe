@@ -19,6 +19,7 @@ import {
   RESERVATION_MESSAGE_TEMPLATES,
   type ReservationMessageTemplateKey,
 } from "@/lib/reservation-message";
+import { preorderStatusLabel, reservationStatusLabel } from "@/lib/status-labels";
 import type { BatchReservationMessageItem } from "@/lib/reservation-message-batch";
 
 function getPricePerHour(room: Room, dateStr: string): number {
@@ -27,21 +28,12 @@ function getPricePerHour(room: Room, dateStr: string): number {
 
 const RESERVATIONS_API = "/api/reservations";
 
-const STATUS_LABELS: Record<string, string> = {
-  pending: "待確認",
-  confirmed: "已預約",
-  checked_in: "已報到",
-  cancelled: "已取消",
-  completed: "已結帳",
-  reserved: "已預約",
-  paid: "已結帳",
-};
 
 const STATUS_OPTIONS: { value: ReservationStatus; label: string }[] = [
   { value: "pending", label: "待確認" },
-  { value: "confirmed", label: "已預約" },
-  { value: "checked_in", label: "已報到" },
-  { value: "completed", label: "已結帳" },
+  { value: "confirmed", label: "已確認" },
+  { value: "checked_in", label: "已到店" },
+  { value: "completed", label: "已完成" },
   { value: "cancelled", label: "已取消" },
 ];
 
@@ -849,7 +841,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     className={`ml-auto shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLES[r.status] ?? "bg-gray-100 text-gray-700"
                       }`}
                   >
-                    {STATUS_LABELS[r.status] ?? r.status}
+                    {reservationStatusLabel(r.status)}
                   </span>
                 </div>
 
@@ -866,7 +858,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                   )}
                   {r.preorder && (
                     <div className={`mt-2 rounded-lg px-2.5 py-2 text-xs ${r.preorder.requires_reconfirmation ? "bg-red-50 text-red-800" : "bg-emerald-50 text-emerald-800"}`}>
-                      <span className="font-semibold">預製餐點：{r.preorder.requires_reconfirmation ? "需重新確認" : r.preorder.status.toUpperCase()}</span>
+                      <span className="font-semibold">訂位時先點的餐：{r.preorder.requires_reconfirmation ? "需重新確認" : preorderStatusLabel(r.preorder.status)}</span>
                       {r.preorder.item_summary && <span className="ml-2">{r.preorder.item_summary}</span>}
                       {r.preorder.guest_notes && <span className="block mt-0.5">備註：{r.preorder.guest_notes}</span>}
                     </div>
@@ -1061,7 +1053,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                         onClick={() => updateStatus(r.id, "checked_in")}
                         className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
                       >
-                        ✅ 已報到
+                        ✅ 已到店
                       </button>
                     )}
                     {r.status !== "completed" && (
@@ -1070,7 +1062,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                         onClick={() => updateStatus(r.id, "completed")}
                         className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
                       >
-                        💵 已結帳
+                        💵 已完成
                       </button>
                     )}
                     {isDepositRequired(reservationDateKey(r.start_time)) && r.total_price != null && !r.is_deposit_paid && (

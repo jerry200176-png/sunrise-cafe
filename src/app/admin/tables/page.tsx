@@ -68,7 +68,7 @@ export default function AdminTablesPage() {
       <html><body style="text-align:center;font-family:sans-serif;padding:40px">
         <h2>桌號 ${table.number}</h2>
         <img src="${entry.qr_data_url}" style="width:240px" alt="桌 ${table.number} QR"/>
-        <p style="font-size:12px;color:#666;word-break:break-all">${entry.order_url}</p>
+        <p style="font-size:14px;color:#666">用手機掃描點餐</p>
         <script>window.onload=()=>window.print()</script>
       </body></html>
     `);
@@ -119,7 +119,6 @@ export default function AdminTablesPage() {
                   <div className="flex items-center justify-between gap-2">
                     <div>
                       <p className="font-medium text-gray-900">桌號 {table.number}</p>
-                      <p className="text-xs text-gray-400 font-mono">{table.qr_token}</p>
                     </div>
                     <div className="flex gap-2">
                       <button type="button" onClick={() => loadQr(table)} className="inline-flex min-h-[44px] items-center gap-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
@@ -136,7 +135,7 @@ export default function AdminTablesPage() {
                     <div className="mt-3 flex items-center gap-4">
                       {/* eslint-disable-next-line @next/next/no-img-element -- data URL from QR API */}
                       <img src={qrMap[table.id].qr_data_url} alt={`桌 ${table.number} QR 碼`} className="h-24 w-24 rounded border border-gray-200" />
-                      <p className="text-xs text-gray-500 break-all">{qrMap[table.id].order_url}</p>
+                      <p className="text-xs text-gray-500">客人用手機掃描就能點餐</p>
                     </div>
                   )}
                 </div>

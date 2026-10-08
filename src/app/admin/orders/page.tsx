@@ -182,7 +182,7 @@ export default function AdminOrdersPage() {
             accentColor="green"
             orders={readyOrders}
             onAction={(id) => updateStatus(id, "completed")}
-            actionLabel="結帳完成"
+            actionLabel="已出餐"
             actionIcon={<CheckCircle className="h-4 w-4" />}
           />
         </div>
@@ -262,7 +262,6 @@ function OrderCard({
   actionIcon: React.ReactNode;
   btnColor: string;
 }) {
-  const shortId = order.id.slice(0, 8).toUpperCase();
   const timeStr = format(parseISO(order.created_at), "HH:mm", { locale: zhTW });
 
   return (
@@ -272,7 +271,6 @@ function OrderCard({
           <span className="font-bold text-gray-900">
             {order.reservation_id ? "包廂訂位" : `桌 ${order.table?.number ?? "—"}`}
           </span>
-          <span className="ml-2 text-xs text-gray-400">#{shortId}</span>
         </div>
         <span className="text-xs text-gray-500">{timeStr}</span>
       </div>

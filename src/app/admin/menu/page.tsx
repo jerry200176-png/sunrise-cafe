@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { ArrowLeft, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, LogOut } from "lucide-react";
 import type { Branch, MenuItem, MenuCategory } from "@/types";
+import { responseError, thrownMessage } from "@/lib/friendly-error";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 
@@ -141,8 +142,8 @@ export default function AdminMenuPage() {
         form.append("branch_id", branchId);
         form.append("photo", await shrinkPhoto(fImageFile));
         const upload = await fetch("/api/admin/menu-photos", { method: "POST", body: form });
+        if (!upload.ok) throw new Error(await responseError(upload));
         const result = await upload.json();
-        if (!upload.ok) throw new Error(result.error ?? "照片上傳失敗");
         imageUrl = result.url;
       }
       if (editing) {
@@ -160,7 +161,7 @@ export default function AdminMenuPage() {
             preorder_eligible: fPreorderEligible,
           }),
         });
-        if (!res.ok) throw new Error((await res.json()).error);
+        if (!res.ok) throw new Error(await responseError(res));
       } else {
         const res = await fetch("/api/admin/menu-items", {
           method: "POST",
@@ -177,12 +178,12 @@ export default function AdminMenuPage() {
             preorder_eligible: fPreorderEligible,
           }),
         });
-        if (!res.ok) throw new Error((await res.json()).error);
+        if (!res.ok) throw new Error(await responseError(res));
       }
       setFormOpen(false);
       loadData(branchId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "操作失敗");
+      setError(thrownMessage(err));
     } finally {
       setSaving(false);
     }
@@ -191,11 +192,11 @@ export default function AdminMenuPage() {
   const deleteItem = async (id: string) => {
     try {
       const res = await fetch(`/api/admin/menu-items/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error((await res.json()).error ?? "刪除失敗");
+      if (!res.ok) throw new Error(await responseError(res));
       loadData(branchId);
       showToast("已刪除餐點", "success");
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "刪除失敗";
+      const msg = thrownMessage(err, "刪除失敗，請稍後再試");
       setError(msg);
       showToast(msg, "error");
     }
@@ -226,7 +227,7 @@ export default function AdminMenuPage() {
       setCatFormOpen(false);
       loadData(branchId);
     } else {
-      setError((await res.json()).error ?? "分類儲存失敗");
+      setError(await responseError(res));
     }
   };
 
@@ -296,11 +297,11 @@ export default function AdminMenuPage() {
             <div className="flex flex-wrap gap-2">
               {categories.map((c) => (
                 <div key={c.id} className="inline-flex items-center gap-2 rounded-full bg-amber-100 px-3 py-1 text-sm text-amber-800">
-                  <span>{c.name}{!c.is_active ? "（隱藏）" : ""}</span>
+                  <span>{c.name}{!c.is_active ? "（客人看不到）" : ""}</span>
                   <button type="button" aria-label={`編輯${c.name}`} onClick={() => { setCatEditing(c); setCatName(c.name); setCatFormOpen(true); }}><Pencil className="h-3.5 w-3.5" /></button>
                   <button type="button" onClick={async () => {
                     const res = await fetch(`/api/admin/menu-categories/${c.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_active: !c.is_active }) });
-                    if (!res.ok) setError((await res.json()).error ?? "分類更新失敗"); else loadData(branchId);
+                    if (!res.ok) setError(await responseError(res)); else loadData(branchId);
                   }} className="text-xs underline">{c.is_active ? "隱藏" : "顯示"}</button>
                 </div>
               ))}
@@ -351,11 +352,11 @@ export default function AdminMenuPage() {
                       )}
                       {!item.is_available && (
                         <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-700">
-                          已下架
+                          已售完
                         </span>
                       )}
                       {item.preorder_eligible && (
-                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">可提前預製</span>
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">可在訂位時先點</span>
                       )}
                     </div>
                     <p className="text-sm text-amber-700 font-medium">${item.price}</p>
@@ -368,7 +369,7 @@ export default function AdminMenuPage() {
                       type="button"
                       onClick={() => toggleAvailable(item)}
                       className="text-gray-500 hover:text-gray-700"
-                      title={item.is_available ? "下架" : "上架"}
+                      title={item.is_available ? "供應中，點一下改成已售完" : "已售完，點一下改成供應中"}
                     >
                       {item.is_available ? (
                         <ToggleRight className="h-6 w-6 text-green-600" />
@@ -409,7 +410,7 @@ export default function AdminMenuPage() {
               <div>
                 <label className="flex items-center gap-2 text-sm text-gray-700">
                   <input type="checkbox" checked={fPreorderEligible} onChange={(e) => setFPreorderEligible(e.target.checked)} />
-                  開放訂位提前預製
+                  可在訂位時先點
                 </label>
               </div>
               <div>
@@ -464,7 +465,10 @@ export default function AdminMenuPage() {
                 <label htmlFor="menu-photo" className="block text-sm font-medium text-gray-700 mb-1">餐點照片</label>
                 <input id="menu-photo" type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => setFImageFile(e.target.files?.[0] ?? null)}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
-                {fImageUrl && !fImageFile && <p className="mt-1 truncate text-xs text-stone-500">目前照片：{fImageUrl}</p>}
+                {fImageUrl && !fImageFile && (
+                  // eslint-disable-next-line @next/next/no-img-element -- admin preview
+                  <img src={fImageUrl} alt="目前照片" className="mt-1 h-16 w-16 rounded-lg object-cover" />
+                )}
                 {fImageUrl && !fImageFile && <button type="button" onClick={() => setFImageUrl("")} className="mt-1 text-xs text-rose-700 underline">移除目前照片</button>}
               </div>
               <div className="border-t border-stone-200 pt-3">

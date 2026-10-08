@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { friendlyMessage, thrownMessage } from "@/lib/friendly-error";
 import { ArrowLeft, Download, TrendingUp, CalendarDays, XCircle, Wallet } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -71,10 +72,10 @@ export default function ReportsPage() {
     try {
       const res = await fetch(`/api/admin/reports?months=${period}`);
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
+      if (!res.ok) throw new Error(friendlyMessage(json.error, res.status));
       setData(json);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "載入失敗");
+      setError(thrownMessage(err, "報表暫時讀不到，請重試"));
     } finally {
       setLoading(false);
     }
