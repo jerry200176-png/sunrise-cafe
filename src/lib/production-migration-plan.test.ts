@@ -11,6 +11,7 @@ import { applyBookingMeals, migrationBody } from "../../scripts/apply-migration-
 import { applyPreorderMenuSeed, migrationBody as menuSeedBody } from "../../scripts/apply-migration-preorder-menu-seed.mjs";
 import { applyBranchGuestSettings, migrationBody as branchGuestSettingsBody } from "../../scripts/apply-migration-branch-guest-settings.mjs";
 import { applyBranchWeeklyHours, migrationBody as branchWeeklyHoursBody } from "../../scripts/apply-migration-branch-weekly-hours.mjs";
+import { applyLineDeliveries, migrationBody as lineDeliveriesBody } from "../../scripts/apply-migration-line-deliveries.mjs";
 import { applyDepositTransferInfo, migrationBody as depositTransferInfoBody } from "../../scripts/apply-migration-reservations-deposit-transfer-info.mjs";
 
 const root = process.cwd();
@@ -87,6 +88,7 @@ describe("explicit production migration plan", () => {
       "20260928-branch-guest-settings",
       "20260928-branch-weekly-hours",
       "20260929-reservations-deposit-transfer-info",
+      "20261008-line-deliveries",
     ]);
     expect(postdeployUnits.length).toBeLessThan(postdeployEntries.length);
     expect(postdeployUnits.every((entry) => entry.phase === "postdeploy")).toBe(true);
@@ -94,13 +96,14 @@ describe("explicit production migration plan", () => {
 
   it("runs the preorder prerequisite before booking meals and rejects a missing prerequisite", async () => {
     const units = phaseExecutionUnits(plan, "predeploy") as typeof plan.entries;
-    expect(units.map((entry) => entry.runner).slice(-6)).toEqual([
+    expect(units.map((entry) => entry.runner).slice(-7)).toEqual([
       "scripts/apply-migration-reservation-preorder.mjs",
       "scripts/apply-migration-booking-meals.mjs",
       "scripts/apply-migration-preorder-menu-seed.mjs",
       "scripts/apply-migration-branch-guest-settings.mjs",
       "scripts/apply-migration-branch-weekly-hours.mjs",
       "scripts/apply-migration-reservations-deposit-transfer-info.mjs",
+      "scripts/apply-migration-line-deliveries.mjs",
     ]);
     let began = false;
     const sql = Object.assign(async () => [], { begin: async () => { began = true; } });
@@ -132,6 +135,15 @@ describe("explicit production migration plan", () => {
       { begin: async () => {} }
     );
     await expect(applyBranchGuestSettings(sql as never)).rejects.toThrow(/override columns missing/);
+  });
+
+  it("line_deliveries migration is additive, wrapped in a transaction, and verified after apply", async () => {
+    const source = readFileSync(join(root, "supabase/migration-line-deliveries.sql"), "utf8");
+    const body = lineDeliveriesBody(source);
+    expect(body).toContain("CREATE TABLE IF NOT EXISTS line_deliveries");
+    expect(body).not.toMatch(/DROP TABLE|DELETE FROM|TRUNCATE|ALTER TABLE (?!line_deliveries)/i);
+    const sql = Object.assign(async () => [], { begin: async () => {} });
+    await expect(applyLineDeliveries(sql as never)).rejects.toThrow(/missing from schema_migrations/);
   });
 
   it("adds only the nullable weekly_hours column and fails closed when it is missing", async () => {
@@ -198,6 +210,7 @@ describe("explicit production migration plan", () => {
       "scripts/apply-migration-branch-guest-settings.mjs",
       "scripts/apply-migration-branch-weekly-hours.mjs",
       "scripts/apply-migration-reservations-deposit-transfer-info.mjs",
+      "scripts/apply-migration-line-deliveries.mjs",
     ]);
   });
 
@@ -216,7 +229,7 @@ describe("explicit production migration plan", () => {
       return { status: "already_applied" };
     });
     expect(alreadyApplied.phase).toBe("predeploy");
-    expect(calls).toHaveLength(7);
+    expect(calls).toHaveLength(8);
 
     const emptyPlan = { schema_version: 2, entries: [] };
     const postdeploy = await executePhase(emptyPlan, "postdeploy", async () => {
