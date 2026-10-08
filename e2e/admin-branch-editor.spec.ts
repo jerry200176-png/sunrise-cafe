@@ -117,7 +117,7 @@ test("包廂照片：選檔案 → 儲存時先上傳，再把照片網址存進
   });
 
   await page.goto("/admin");
-  await page.locator("select", { has: page.locator("option", { hasText: "選擇分店" }) }).first().selectOption(branch.id);
+  await page.locator("section", { hasText: "包廂管理" }).locator("select").first().selectOption(branch.id);
   await page.getByText("E2E 包廂").waitFor();
   await page.locator("li, div", { hasText: "E2E 包廂" }).getByTitle("編輯").last().click();
   await page.getByLabel("包廂照片").setInputFiles({
