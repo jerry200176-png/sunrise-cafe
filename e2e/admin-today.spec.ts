@@ -156,7 +156,7 @@ test.describe("今日場控 /admin/today", () => {
       });
     });
     await page.getByLabel("重新整理").click();
-    await expect(page.getByText("Forbidden branch")).toBeVisible();
+    await expect(page.getByText("你的帳號不能操作這間分店")).toBeVisible();
     await expect(page.getByRole("button", { name: "重試" })).toBeVisible();
   });
 

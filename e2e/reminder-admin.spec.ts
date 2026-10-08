@@ -197,7 +197,7 @@ for (const vp of VIEWPORTS) {
       });
       await page.getByRole("button", { name: "明天" }).click();
       await nextDashboard;
-      await expect(page.getByText(tomorrow).first()).toBeVisible();
+      await expect(page.getByText(`到 ${tomorrow.slice(5).replace("-", "/")}`).first()).toBeVisible();
     });
   });
 }

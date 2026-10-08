@@ -11,14 +11,14 @@ const KNOWN: [RegExp, string][] = [
 
 export function friendlyMessage(raw: unknown, status?: number): string {
   if (status === 401) return "登入已過期，請重新登入";
-  if (status === 403) return "你的帳號沒有權限做這件事";
-  if (status === 404) return "找不到這筆資料，請重新整理";
-  if (status === 429) return "操作太頻繁，請稍等一下再試";
   if (typeof raw === "string") {
     // 已經是中文的訊息直接給店員看
     if (/[一-鿿]/.test(raw) && !/migration|SUPABASE|service_role/i.test(raw)) return raw;
     for (const [re, msg] of KNOWN) if (re.test(raw)) return msg;
   }
+  if (status === 403) return "你的帳號沒有權限做這件事";
+  if (status === 404) return "找不到這筆資料，請重新整理";
+  if (status === 429) return "操作太頻繁，請稍等一下再試";
   if (status && status >= 500) return "系統暫時有問題，請稍後再試";
   return "操作失敗，請稍後再試";
 }
