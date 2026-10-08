@@ -161,6 +161,16 @@ describe("PATCH /api/reservations/[id]", () => {
     expect(updateReservationAdmin).toHaveBeenCalledWith("res-1", { notes: "updated" });
   });
 
+  it("deposit_approved_* tracking columns are ignored by PATCH", async () => {
+    const token = await managerSession();
+    const res = await PATCH(
+      patchRequest({ deposit_approved_notified_at: "2026-01-01T00:00:00Z", deposit_approved_claim_at: null }, token),
+      { params }
+    );
+    expect(res.status).toBe(400);
+    expect(updateReservationAdmin).not.toHaveBeenCalled();
+  });
+
   it.each([
     [{ deposit_last_five: "1234a" }, "末五碼須為 5 位數字"],
     [{ deposit_last_five: "123456" }, "末五碼須為 5 位數字"],

@@ -2,8 +2,11 @@
  * payment_events 後台審核（#56）
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { logPayment, logDepositStatusChange } from "@/lib/payment-log";
+import { logPayment } from "@/lib/payment-log";
 import { taipeiDateString } from "@/lib/datetime";
+import { markDepositPaid } from "@/lib/deposit-paid";
+import { getDepositAmount } from "@/lib/booking-utils";
+import type { NotifyPaymentApprovedResult } from "@/lib/payment-notify";
 
 export type PaymentEventStatus = "pending_review" | "approved" | "rejected";
 
@@ -109,7 +112,7 @@ export async function fetchPendingPaymentEvents(): Promise<PendingPaymentEvent[]
       if (!r) return null;
       const total = r.total_price != null ? Number(r.total_price) : null;
       const deposit_amount =
-        total != null ? Math.ceil(total / 2) : null;
+        total != null ? getDepositAmount(total) : null;
       return {
         id: e.id,
         reservation_id: e.reservation_id,
@@ -138,7 +141,11 @@ export async function fetchPendingPaymentEvents(): Promise<PendingPaymentEvent[]
     .filter((x): x is PendingPaymentEvent => x != null);
 }
 
-export type ApprovePaymentResult = { already_processed: boolean };
+export type ApprovePaymentResult = {
+  already_processed: boolean;
+  /** Approval notification outcome (null when already processed) */
+  notification?: NotifyPaymentApprovedResult | null;
+};
 export type RejectPaymentResult = { already_processed: boolean };
 
 export async function approvePaymentEvent(
@@ -165,17 +172,22 @@ export async function approvePaymentEvent(
     const result = Array.isArray(data) ? data[0] : data;
     if (!result) throw new Error("找不到付款事件");
     if (result.outcome === "already_processed") return { already_processed: true };
-    // RPC 已驗過末五碼；寫回訂位的對帳欄位，與後台手動核准一致。回報時間當匯款日（客人通常匯完就回報）。
-    // 寫入失敗不回滾核准：資料仍在 payment_events。
+    // The RPC already set is_deposit_paid and verified the last five. markDepositPaid copies the
+    // reconciliation fields (report time = transfer date), audits and notifies like every other
+    // paid path. A failed info write must not roll back the approval (data stays in payment_events).
+    let notification: NotifyPaymentApprovedResult | null = null;
     try {
-      const { error: infoErr } = await admin()
-        .from("reservations")
-        .update({
-          deposit_last_five: event.reported_account_last_five,
-          deposit_paid_on: event.reported_at ? taipeiDateString(new Date(event.reported_at)) : null,
-        })
-        .eq("id", result.reservation_id);
-      if (infoErr) throw infoErr;
+      ({ notification } = await markDepositPaid(
+        result.reservation_id,
+        "payment_review",
+        {
+          lastFive: event.reported_account_last_five,
+          paidOn: event.reported_at ? taipeiDateString(new Date(event.reported_at)) : null,
+          reviewNote: reviewNote?.trim() || null,
+          paymentEventId: eventId,
+        },
+        actor
+      ));
     } catch (err) {
       console.error("[payment-events] deposit transfer info write failed:", err);
     }
@@ -185,12 +197,12 @@ export async function approvePaymentEvent(
       source: "bank_transfer",
       actor,
     });
-    return { already_processed: false };
+    return { already_processed: false, notification };
   }
 
   const { data: beforeRes, error: beforeErr } = await admin()
     .from("reservations")
-    .select("is_deposit_paid, deposit_payment_note, status, booking_code")
+    .select("id")
     .eq("id", event.reservation_id)
     .single();
   if (beforeErr || !beforeRes) throw new Error("找不到訂位");
@@ -215,41 +227,18 @@ export async function approvePaymentEvent(
   if (evErr) throw evErr;
   if (!updated) return { already_processed: true };
 
-  const { error: resErr } = await admin()
-    .from("reservations")
-    .update({
-      is_deposit_paid: true,
-      deposit_payment_note: note,
-    })
-    .eq("id", event.reservation_id);
-  if (resErr) throw resErr;
-
   logPayment("payment_event.approved", {
     event_id: eventId,
     reservation_id: event.reservation_id,
   });
 
-  if (!beforeRes.is_deposit_paid) {
-    logDepositStatusChange({
-      action: "deposit.marked_paid",
-      reservation_id: event.reservation_id,
-      booking_code: beforeRes.booking_code,
-      actor_type: "admin_payment_review",
-      payment_event_id: eventId,
-      before: {
-        is_deposit_paid: beforeRes.is_deposit_paid,
-        deposit_payment_note: beforeRes.deposit_payment_note,
-        status: beforeRes.status,
-      },
-      after: {
-        is_deposit_paid: true,
-        deposit_payment_note: note,
-        status: beforeRes.status,
-      },
-    });
-  }
-
-  return { already_processed: false };
+  const { notification } = await markDepositPaid(
+    event.reservation_id,
+    "payment_review",
+    { note, reviewNote: reviewNote?.trim() || null, paymentEventId: eventId },
+    actor
+  );
+  return { already_processed: false, notification };
 }
 
 export async function rejectPaymentEvent(

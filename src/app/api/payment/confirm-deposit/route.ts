@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe, isStripeEnabled } from "@/lib/stripe";
 import { createClient } from "@supabase/supabase-js";
+import { markDepositPaid } from "@/lib/deposit-paid";
 import { logOps } from "@/lib/ops-log";
 
 function supabaseAdmin() {
@@ -65,13 +66,7 @@ export async function POST(request: NextRequest) {
 
     // 若尚未被 webhook 標記，在此補標
     if (reservation.deposit_status !== "paid" || !reservation.is_deposit_paid) {
-      await supabaseAdmin()
-        .from("reservations")
-        .update({
-          deposit_status: "paid",
-          is_deposit_paid: true,
-        })
-        .eq("id", reservationId);
+      await markDepositPaid(reservationId, "stripe_confirm", {}, "stripe");
 
       await supabaseAdmin()
         .from("payment_intents")
