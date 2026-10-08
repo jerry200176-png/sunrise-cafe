@@ -213,7 +213,7 @@ export async function fetchTodayOpsBundle(
   }));
 
   const unpaid = todayRows
-    .filter((r) => !r.is_deposit_paid && ["pending", "confirmed", "reserved"].includes(r.status))
+    .filter((r) => !r.is_deposit_paid && ["pending", "confirmed"].includes(r.status))
     .map((r) => {
       const deadline = computeDepositDeadline(r.created_at, r.start_time);
       const hours = Math.round(((deadline.getTime() - now) / 3600_000) * 10) / 10;

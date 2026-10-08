@@ -48,6 +48,7 @@ interface BookingItem {
   confirm_attendance_url?: string | null;
   payment_review_status?: "pending_review" | "approved" | "rejected" | null;
   lookup_token?: string | null;
+  allowed_actions?: ('cancel' | 'reschedule')[];
 }
 
 interface AvailabilitySlot {
@@ -408,11 +409,8 @@ function BookQueryContent() {
 
   const CANCEL_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-  const canCancel = (item: BookingItem) => {
-    if (item.status === "cancelled") return false;
-    const start = new Date(item.start_time).getTime();
-    return Date.now() + CANCEL_WINDOW_MS <= start;
-  };
+  // The server decides (24h rule, deposit-paid rule, no cancel once checked in).
+  const canCancel = (item: BookingItem) => item.allowed_actions?.includes("cancel") ?? false;
 
   const cancelDeadline = (item: BookingItem) => {
     const d = new Date(new Date(item.start_time).getTime() - CANCEL_WINDOW_MS);
@@ -432,10 +430,7 @@ function BookQueryContent() {
     return getDepositUrgency(computeDepositDeadline(item.created_at, item.start_time));
   };
 
-  const canReschedule = (item: BookingItem) => {
-    if (!["pending", "confirmed"].includes(item.status)) return false;
-    return canCancel(item);
-  };
+  const canReschedule = (item: BookingItem) => item.allowed_actions?.includes("reschedule") ?? false;
 
   const durationHoursOf = (item: BookingItem) =>
     durationHoursBetween(item.start_time, item.end_time);
@@ -1104,12 +1099,14 @@ function BookQueryContent() {
                   </div>
                 )}
 
-                {canCancel(item) && (
+                {(canCancel(item) || canReschedule(item)) && (
                   <div className="mt-3 space-y-2">
-                    <p className="text-xs text-gray-400">
-                      {t("query.cancelDeadlineLabel", { deadline: cancelDeadline(item) })}
-                    </p>
-                    {confirmingCancelId === item.id && (
+                    {canCancel(item) && (
+                      <p className="text-xs text-gray-400">
+                        {t("query.cancelDeadlineLabel", { deadline: cancelDeadline(item) })}
+                      </p>
+                    )}
+                    {canCancel(item) && confirmingCancelId === item.id && (
                       <div
                         role="alertdialog"
                         aria-modal="true"
@@ -1153,7 +1150,7 @@ function BookQueryContent() {
                           {reschedulingItem?.id === item.id ? t("query.rescheduleCancelButton") : t("query.rescheduleButton")}
                         </button>
                       )}
-                      {confirmingCancelId !== item.id && (
+                      {canCancel(item) && confirmingCancelId !== item.id && (
                         <button
                           type="button"
                           disabled={cancellingId === item.id}
@@ -1166,9 +1163,11 @@ function BookQueryContent() {
                     </div>
                   </div>
                 )}
-                {item.status !== "cancelled" && !canCancel(item) && (
+                {["pending", "confirmed"].includes(item.status) && !canCancel(item) && (
                   <p className="mt-2 text-xs text-gray-500">
-                    {t("query.cancelExpired", { deadline: cancelDeadline(item) })}
+                    {item.is_deposit_paid
+                      ? t("query.cancelPaidContactStore")
+                      : t("query.cancelExpired", { deadline: cancelDeadline(item) })}
                   </p>
                 )}
 

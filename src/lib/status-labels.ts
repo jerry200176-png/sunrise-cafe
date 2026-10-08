@@ -2,12 +2,10 @@
 const RESERVATION_STATUS: Record<string, string> = {
   pending: "待確認",
   confirmed: "已確認",
-  reserved: "已確認",
   checked_in: "已到店",
   completed: "已完成",
   paid: "已完成",
   cancelled: "已取消",
-  rejected: "已拒絕",
   no_show: "未到店",
 };
 

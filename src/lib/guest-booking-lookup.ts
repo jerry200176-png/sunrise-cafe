@@ -22,6 +22,7 @@ import { signAttendanceToken } from "@/lib/attendance-token";
 import { signLookupToken, verifyLookupToken } from "@/lib/lookup-token";
 import { LINE_SITE_URL } from "@/lib/line-flex";
 import { isLinePayConfigured } from "@/lib/line-pay";
+import { guestAllowedActions, type GuestAction } from "@/lib/reservation-lifecycle";
 
 function db() {
   return createClient(
@@ -74,6 +75,8 @@ export type GuestBookingItem = {
   payment_review_status?: "pending_review" | "approved" | "rejected" | null;
   /** Signed opaque token for safe deep-link lookup & actions without exposing phone */
   lookup_token?: string | null;
+  /** What this guest may do now, decided server-side by the reservation lifecycle policy */
+  allowed_actions: GuestAction[];
 };
 
 type ReservationRow = {
@@ -129,6 +132,11 @@ async function toGuestBookingItem(r: ReservationRow): Promise<GuestBookingItem> 
       : null,
     payment_review_status: await fetchLatestPaymentReviewStatus(r.id),
     lookup_token: signLookupToken(r.id),
+    allowed_actions: guestAllowedActions({
+      status: r.status,
+      is_deposit_paid: !!r.is_deposit_paid,
+      start_time: r.start_time,
+    }),
   };
 }
 

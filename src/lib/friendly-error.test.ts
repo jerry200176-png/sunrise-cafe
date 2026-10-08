@@ -18,7 +18,7 @@ describe("friendlyMessage", () => {
 
 describe("labels", () => {
   it("covers every status without leaking raw values", () => {
-    expect(reservationStatusLabel("rejected")).toBe("已拒絕");
+    expect(reservationStatusLabel("rejected")).toBe("其他");
     expect(reservationStatusLabel("weird")).toBe("其他");
     expect(preorderStatusLabel("DRAFT")).toBe("客人尚未送出");
   });
