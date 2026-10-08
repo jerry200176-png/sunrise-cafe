@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { requirePermission } from "@/lib/admin-api-auth";
+import { setItemOptionSets, syncBranchOptions } from "@/lib/option-sets-db";
 
 function adminClient() {
   return createClient(
@@ -21,7 +22,7 @@ export async function PATCH(
   if (!found.data) return NextResponse.json({ error: "找不到餐點" }, { status: 404 });
   const denied = await requirePermission(request, "orders:write", found.data.branch_id);
   if (denied) return denied;
-  const { name, description, price, image_url, is_available, preorder_eligible, category_id, display_order, options } = body;
+  const { name, description, price, image_url, is_available, preorder_eligible, category_id, display_order, option_set_ids } = body;
   if (name !== undefined && (typeof name !== "string" || !name.trim())) return NextResponse.json({ error: "餐點名稱不可為空" }, { status: 400 });
   if (price !== undefined && (!Number.isFinite(Number(price)) || Number(price) < 0)) return NextResponse.json({ error: "價格格式不正確" }, { status: 400 });
   if (category_id) {
@@ -41,9 +42,15 @@ export async function PATCH(
 
   const { error } = await db.from("menu_items").update(updates).eq("id", id).eq("branch_id", found.data.branch_id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (options !== undefined) {
-    const result = await db.rpc("replace_menu_item_options", { p_item_id: id, p_options: options });
-    if (result.error) return NextResponse.json({ error: result.error.message }, { status: 400 });
+  try {
+    if (Array.isArray(option_set_ids)) {
+      await setItemOptionSets(db, found.data.branch_id, id, option_set_ids);
+    } else if (category_id !== undefined) {
+      // 換分類 → 分類上的選項組跟著換
+      await syncBranchOptions(db, found.data.branch_id);
+    }
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : "無法套用選項組" }, { status: 400 });
   }
   return NextResponse.json({ ok: true });
 }

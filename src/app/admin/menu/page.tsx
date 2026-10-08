@@ -6,6 +6,8 @@ import Image from "next/image";
 import { ArrowLeft, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, LogOut } from "lucide-react";
 import type { Branch, MenuItem, MenuCategory } from "@/types";
 import { responseError, thrownMessage } from "@/lib/friendly-error";
+import { OptionSetsPanel } from "@/components/admin/OptionSetsPanel";
+import type { OptionSetView } from "@/lib/option-sets-db";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 
@@ -30,6 +32,7 @@ async function shrinkPhoto(file: File): Promise<File> {
 
 interface MenuItemWithCategory extends MenuItem {
   category?: { name: string } | null;
+  option_set_ids?: string[];
 }
 
 export default function AdminMenuPage() {
@@ -51,7 +54,8 @@ export default function AdminMenuPage() {
   const [fCategoryId, setFCategoryId] = useState("");
   const [fImageUrl, setFImageUrl] = useState("");
   const [fImageFile, setFImageFile] = useState<File | null>(null);
-  const [fOptions, setFOptions] = useState<Array<{ option_group: string; option_name: string; price_delta: number }>>([]);
+  const [fSetIds, setFSetIds] = useState<string[]>([]);
+  const [optionSets, setOptionSets] = useState<OptionSetView[]>([]);
   const [fOrder, setFOrder] = useState("0");
   const [fPreorderEligible, setFPreorderEligible] = useState(false);
 
@@ -88,12 +92,15 @@ export default function AdminMenuPage() {
     setLoading(true);
     setError(null);
     try {
-      const [itemRes, catRes] = await Promise.all([
+      const [itemRes, catRes, setRes] = await Promise.all([
         fetch(`/api/admin/menu-items?branchId=${encodeURIComponent(bid)}`),
         fetch(`/api/admin/menu-categories?branchId=${encodeURIComponent(bid)}`),
+        fetch(`/api/admin/menu-option-sets?branchId=${encodeURIComponent(bid)}`),
       ]);
       const itemData = await itemRes.json();
       const catData = await catRes.json();
+      const setData = await setRes.json().catch(() => []);
+      setOptionSets(Array.isArray(setData) ? setData : []);
       setItems(Array.isArray(itemData) ? itemData : []);
       setCategories(Array.isArray(catData) ? catData : []);
     } catch {
@@ -112,7 +119,7 @@ export default function AdminMenuPage() {
     setFName(""); setFDesc(""); setFPrice("0");
     setFCategoryId(categories[0]?.id ?? "");
     setFImageUrl(""); setFOrder("0");
-    setFImageFile(null); setFOptions([]);
+    setFImageFile(null); setFSetIds([]);
     setFPreorderEligible(false);
     setModalError(null);
     setFormOpen(true);
@@ -126,7 +133,7 @@ export default function AdminMenuPage() {
     setFCategoryId(item.category_id ?? "");
     setFImageUrl(item.image_url ?? "");
     setFImageFile(null);
-    setFOptions((item.options ?? []).map((option) => ({ option_group: option.option_group, option_name: option.option_name, price_delta: Number(option.price_delta) })));
+    setFSetIds((item as MenuItemWithCategory).option_set_ids ?? []);
     setFOrder(String(item.display_order));
     setFPreorderEligible(Boolean(item.preorder_eligible));
     setModalError(null);
@@ -159,7 +166,7 @@ export default function AdminMenuPage() {
             price: Number(fPrice),
             category_id: fCategoryId || null,
             image_url: imageUrl,
-            options: fOptions,
+            option_set_ids: fSetIds,
             display_order: Number(fOrder),
             preorder_eligible: fPreorderEligible,
           }),
@@ -176,7 +183,7 @@ export default function AdminMenuPage() {
             price: Number(fPrice),
             category_id: fCategoryId || null,
             image_url: imageUrl,
-            options: fOptions,
+            option_set_ids: fSetIds,
             display_order: Number(fOrder),
             preorder_eligible: fPreorderEligible,
           }),
@@ -328,6 +335,15 @@ export default function AdminMenuPage() {
           )}
         </section>
 
+        <OptionSetsPanel
+          branchId={branchId}
+          sets={optionSets}
+          categories={categories}
+          items={items}
+          onChanged={() => loadData(branchId)}
+          notify={showToast}
+        />
+
         {/* 餐點列表 */}
         <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between mb-3">
@@ -381,6 +397,11 @@ export default function AdminMenuPage() {
                     <p className="text-sm text-amber-700 font-medium">${item.price}</p>
                     {item.description && (
                       <p className="text-xs text-gray-500 truncate">{item.description}</p>
+                    )}
+                    {(item.options ?? []).length > 0 && (
+                      <p className="text-xs text-gray-400 truncate">
+                        選項組：{[...new Set((item.options ?? []).map((o) => o.option_group))].join("、")}
+                      </p>
                     )}
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -494,21 +515,22 @@ export default function AdminMenuPage() {
                 )}
                 {fImageUrl && !fImageFile && <button type="button" onClick={() => setFImageUrl("")} className="mt-1 text-xs text-rose-700 underline">移除目前照片</button>}
               </div>
-              <div className="border-t border-stone-200 pt-3">
-                <div className="flex items-center justify-between"><p className="text-sm font-semibold">客製選項</p>
-                  <button type="button" onClick={() => setFOptions((old) => [...old, { option_group: "", option_name: "", price_delta: 0 }])}
-                    className="text-sm font-medium text-amber-800">＋ 新增選項</button></div>
-                <p className="mb-2 text-xs text-stone-500">同一群組如「甜度」，顧客可選其中一項。</p>
-                {fOptions.map((option, index) => <div key={index} className="mb-2 grid grid-cols-[1fr_1fr_5rem_auto] gap-2">
-                  <input aria-label={`選項${index + 1}群組`} placeholder="群組" value={option.option_group} onChange={(e) => setFOptions((old) => old.map((item, i) => i === index ? { ...item, option_group: e.target.value } : item))}
-                    className="min-w-0 rounded border border-stone-300 px-2 py-1.5 text-sm" />
-                  <input aria-label={`選項${index + 1}名稱`} placeholder="名稱" value={option.option_name} onChange={(e) => setFOptions((old) => old.map((item, i) => i === index ? { ...item, option_name: e.target.value } : item))}
-                    className="min-w-0 rounded border border-stone-300 px-2 py-1.5 text-sm" />
-                  <input aria-label={`選項${index + 1}加價`} type="number" value={option.price_delta} onChange={(e) => setFOptions((old) => old.map((item, i) => i === index ? { ...item, price_delta: Number(e.target.value) } : item))}
-                    className="min-w-0 rounded border border-stone-300 px-2 py-1.5 text-sm" />
-                  <button type="button" aria-label={`刪除選項${index + 1}`} onClick={() => setFOptions((old) => old.filter((_, i) => i !== index))} className="text-rose-700">×</button>
-                </div>)}
-              </div>
+              <fieldset className="border-t border-stone-200 pt-3">
+                <legend className="text-sm font-semibold">選項組</legend>
+                <p className="mb-1 text-xs text-stone-500">甜度、加料等客製選項。到下方「選項組」新增和修改內容。</p>
+                {optionSets.length === 0 && <p className="text-sm text-stone-400">還沒有選項組</p>}
+                {optionSets.map((set) => {
+                  const viaCategory = Boolean(fCategoryId) && set.category_ids.includes(fCategoryId);
+                  return (
+                    <label key={set.id} className="flex min-h-[44px] items-center gap-2 text-sm">
+                      <input type="checkbox" checked={viaCategory || fSetIds.includes(set.id)} disabled={viaCategory}
+                        onChange={() => setFSetIds((old) => (old.includes(set.id) ? old.filter((x) => x !== set.id) : [...old, set.id]))} />
+                      {set.name}
+                      {viaCategory && <span className="text-xs text-stone-400">（整個分類都有）</span>}
+                    </label>
+                  );
+                })}
+              </fieldset>
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"

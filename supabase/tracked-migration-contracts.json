@@ -432,5 +432,18 @@
         "note": "CHECK 5 digits — not visible via PostgREST"
       }
     ]
+  },
+  {
+    "version": "20261009-menu-option-sets",
+    "file": "migration-menu-option-sets.sql",
+    "critical": true,
+    "evidence": [
+      { "type": "table", "name": "menu_option_sets", "introspect": "rest" },
+      { "type": "table", "name": "menu_option_set_options", "introspect": "rest" },
+      { "type": "table", "name": "menu_option_set_items", "introspect": "rest" },
+      { "type": "table", "name": "menu_option_set_categories", "introspect": "rest" },
+      { "type": "column", "table": "menu_item_options", "name": "set_id", "introspect": "rest" },
+      { "type": "column", "table": "menu_item_options", "name": "set_option_id", "introspect": "rest" }
+    ]
   }
 ]
