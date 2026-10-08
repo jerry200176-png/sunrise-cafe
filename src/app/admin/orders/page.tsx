@@ -17,6 +17,9 @@ export default function AdminOrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [soundOn, setSoundOn] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const prevOrderIds = useRef<Set<string>>(new Set());
 
@@ -35,11 +38,22 @@ export default function AdminOrdersPage() {
     setLoading(true);
     try {
       const res = await fetch(`/api/admin/orders?branchId=${encodeURIComponent(bid)}`);
+      if (!res.ok) {
+        // 失敗時保留畫面上原本的單，並明說「沒更新」，不要假裝沒有訂單
+        setLoadError(await responseError(res));
+        return;
+      }
       const data = await res.json();
       const active = (Array.isArray(data) ? data : []).filter((o: Order) =>
         ACTIVE_STATUSES.includes(o.status)
       );
       setOrders(active);
+      setLoadError(null);
+      setLastUpdated(
+        new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: "Asia/Taipei" })
+      );
+    } catch (err) {
+      setLoadError(thrownMessage(err));
     } finally {
       setLoading(false);
     }
@@ -77,10 +91,10 @@ export default function AdminOrdersPage() {
     const currentIds = new Set(orders.map((o) => o.id));
     const isNewOrder = orders.some((o) => !prevOrderIds.current.has(o.id));
     if (isNewOrder && prevOrderIds.current.size > 0) {
-      audioRef.current?.play().catch(() => {});
+      if (soundOn) audioRef.current?.play().catch(() => {});
     }
     prevOrderIds.current = currentIds;
-  }, [orders]);
+  }, [orders, soundOn]);
 
   const updateStatus = async (id: string, status: OrderStatus) => {
     try {
@@ -111,8 +125,8 @@ export default function AdminOrdersPage() {
 
   return (
     <main className="min-h-screen bg-gray-50">
-      {/* 音效（使用 Web Audio API 合成嗶聲） */}
-      <audio ref={audioRef} preload="none" />
+      {/* 新訂單提示音；瀏覽器規定要先點一下才能出聲，所以有「開啟提示音」按鈕 */}
+      <audio ref={audioRef} src="/sounds/new-order.wav" preload="auto" />
 
       <header className="border-b border-gray-200 bg-white sticky top-0 z-10">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3">
@@ -142,8 +156,22 @@ export default function AdminOrdersPage() {
             </select>
             <button
               type="button"
+              onClick={() => {
+                const next = !soundOn;
+                setSoundOn(next);
+                if (next) audioRef.current?.play().catch(() => {});
+              }}
+              aria-pressed={soundOn}
+              className={`flex min-h-[44px] items-center gap-1.5 rounded-lg border px-3 text-sm ${soundOn ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-amber-300 bg-amber-50 text-amber-900"}`}
+            >
+              <Bell className="h-4 w-4" />
+              {soundOn ? "提示音已開" : "開啟提示音"}
+            </button>
+            <button
+              type="button"
               onClick={() => loadOrders(branchId)}
-              className="rounded-lg border border-gray-300 p-1.5 text-gray-600 hover:bg-gray-50"
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50"
+              aria-label="重新整理"
               title="重新整理"
             >
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
@@ -154,13 +182,21 @@ export default function AdminOrdersPage() {
                 await fetch("/api/admin/logout", { method: "POST" });
                 window.location.href = "/admin/login";
               }}
-              className="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+              className="flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-300 px-3 text-sm text-gray-700 hover:bg-gray-50"
             >
-              <LogOut className="h-4 w-4" />
+              <LogOut className="h-4 w-4" /> 登出
             </button>
           </div>
         </div>
       </header>
+      {loadError && (
+        <p role="alert" className="mx-auto max-w-7xl border-b border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          訂單沒有更新成功{lastUpdated ? `（畫面是 ${lastUpdated} 的資料）` : ""}：{loadError}
+        </p>
+      )}
+      {!loadError && lastUpdated && (
+        <p className="mx-auto max-w-7xl px-4 pt-2 text-xs text-gray-400">更新於 {lastUpdated}，每 15 秒自動更新</p>
+      )}
       {actionError && (
         <p role="alert" className="mx-auto max-w-7xl border-b border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{actionError}</p>
       )}
@@ -317,10 +353,10 @@ function OrderCard({
           ${order.total_amount}
         </span>
         {order.reservation_id ? <Link href={`/admin/reservation-orders/${order.reservation_id}`}
-          className="inline-flex items-center rounded-lg bg-amber-700 px-3 py-1.5 text-xs font-medium text-white">查看餐點與出餐</Link> : <button
+          className="inline-flex min-h-[44px] items-center rounded-lg bg-amber-700 px-4 text-sm font-medium text-white">查看餐點與出餐</Link> : <button
           type="button"
           onClick={() => onAction(order.id)}
-          className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-white ${btnColor}`}
+          className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-lg px-4 text-sm font-medium text-white ${btnColor}`}
         >
           {actionIcon}
           {actionLabel}
