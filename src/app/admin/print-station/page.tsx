@@ -26,7 +26,6 @@ const LINE = "==============================";
 const THIN = "------------------------------";
 
 function buildXml(order: Order): string {
-  const shortId = order.id.slice(0, 8).toUpperCase();
   const tableNum = order.table?.number ?? "—";
   const now = new Date(order.created_at).toLocaleTimeString("zh-TW", {
     hour: "2-digit",
@@ -39,7 +38,7 @@ function buildXml(order: Order): string {
     "         廚房工單",
     LINE,
     `桌號：${tableNum}`,
-    `時間：${now}  #${shortId}`,
+    `時間：${now}`,
     THIN,
   ];
 
@@ -84,7 +83,7 @@ async function sendToPrinter(xml: string): Promise<void> {
     headers: { "Content-Type": "application/xml; charset=utf-8" },
     body: xml,
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) throw new Error("印表機沒回應，請確認 Star App 已開啟且印表機已連線");
   const text = await res.text();
   // Star WebPRNT 回傳 XML，判斷是否成功
   if (text.includes("CompletionStatus") && text.includes("Failure")) {
@@ -124,7 +123,7 @@ export default function PrintStationPage() {
       addLog("印表機測試成功", true);
     } catch (err) {
       setPrinterOk(false);
-      addLog(`印表機測試失敗：${err instanceof Error ? err.message : String(err)}`, false);
+      addLog(`印表機測試失敗：${err instanceof Error ? err.message : "印表機沒回應"}`, false);
     }
   };
 
@@ -147,7 +146,7 @@ export default function PrintStationPage() {
 
       addLog(`桌 ${order.table?.number ?? "?"} 訂單列印成功`, true);
     } catch (err) {
-      addLog(`列印失敗：${err instanceof Error ? err.message : String(err)}`, false);
+      addLog(`列印失敗：${err instanceof Error ? err.message : "印表機沒回應"}`, false);
     }
   }, [branchId]);
 
@@ -163,7 +162,7 @@ export default function PrintStationPage() {
         async (payload) => {
           const orderId = payload.new?.id;
           if (!orderId) return;
-          addLog(`收到新訂單 #${orderId.slice(0, 8).toUpperCase()}`, true);
+          addLog(`收到新訂單`, true);
           await handleNewOrder(orderId);
         }
       )
@@ -173,7 +172,7 @@ export default function PrintStationPage() {
           addLog("已連線，等待新訂單…", true);
         } else if (status === "CLOSED" || status === "CHANNEL_ERROR") {
           setListening(false);
-          addLog(`連線中斷（${status}）`, false);
+          addLog(`與系統連線中斷`, false);
         }
       });
   };
@@ -184,7 +183,7 @@ export default function PrintStationPage() {
       channelRef.current = null;
     }
     setListening(false);
-    addLog("已停止監聽", false);
+    addLog("已停止監聽", true);
   };
 
   useEffect(() => {

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { friendlyMessage, thrownMessage } from "@/lib/friendly-error";
 import { MenuPicker } from "@/components/MenuPicker";
 import type { MenuItem, Order, OrderItem } from "@/types";
 import type { DraftItemInput } from "@/lib/reservation-preorder";
@@ -28,7 +29,7 @@ export default function ReservationOrderPage() {
   const load = useCallback(async () => {
     const response = await fetch(`/api/admin/reservation-orders/${encodeURIComponent(id)}`);
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error ?? "載入失敗");
+    if (!response.ok) throw new Error(friendlyMessage(data.error, response.status));
     const next = data as View;
     setView(next);
     setPreItems(next.preorder?.draft_items ?? []);
@@ -41,7 +42,7 @@ export default function ReservationOrderPage() {
     }
   }, [id]);
 
-  useEffect(() => { load().catch((cause) => setError(cause.message)); }, [load]);
+  useEffect(() => { load().catch((cause) => setError(thrownMessage(cause, "載入失敗，請重新整理"))); }, [load]);
 
   async function act(action: string, extra: Record<string, unknown> = {}) {
     setBusy(true); setError("");
@@ -50,10 +51,10 @@ export default function ReservationOrderPage() {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...extra }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "操作失敗");
+      if (!response.ok) throw new Error(friendlyMessage(data.error, response.status));
       await load();
       return true;
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "操作失敗"); return false; }
+    } catch (cause) { setError(thrownMessage(cause)); return false; }
     finally { setBusy(false); }
   }
 
@@ -67,13 +68,13 @@ export default function ReservationOrderPage() {
       <Link href="/admin" className="text-sm font-medium text-amber-800">← 返回訂位後台</Link>
       <header className="border-b border-stone-300 pb-4">
         <h1 className="text-2xl font-semibold">訂位餐點管理</h1>
-        {view && <p className="mt-2 text-sm text-stone-600">{view.reservation.customer_name} · {room?.name ?? "包廂"} · {view.reservation.booking_code} · {new Date(view.reservation.start_time).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}</p>}
+        {view && <p className="mt-2 text-sm text-stone-600">{view.reservation.customer_name} · {room?.name ?? "包廂"} · 代碼 {view.reservation.booking_code} · {new Date(view.reservation.start_time).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}</p>}
       </header>
       {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-rose-800">{error}</p>}
       {!view && !error && <p>載入中…</p>}
       {view && !view.order && <>
         <section className="rounded-xl border border-stone-200 bg-white p-4">
-          <h2 className="text-lg font-semibold">預點餐 <span className="text-sm font-normal text-stone-500">尚未進入備餐清單</span></h2>
+          <h2 className="text-lg font-semibold">訂位時先點的餐 <span className="text-sm font-normal text-stone-500">還沒送到廚房</span></h2>
           {view.preorder?.requires_reconfirmation && <p className="mt-2 text-sm text-rose-700">訂位內容曾變動，請確認餐點後儲存。</p>}
           {view.preorder?.reservation_preorder_items?.length ? <ul className="mt-3 space-y-1 text-sm">
             {view.preorder.reservation_preorder_items.map((item) => <li key={item.id}>{item.item_name_snapshot} ×{item.quantity}{item.selected_options_snapshot?.length ? `（${item.selected_options_snapshot.map((option) => option.name).join("、")}）` : ""}</li>)}

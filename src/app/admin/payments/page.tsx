@@ -6,6 +6,8 @@ import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { parseLineImageMessageId } from "@/lib/payment-event-payload";
 import type { AdminPaymentInteraction } from "@/lib/ops-log";
+import { friendlyMessage } from "@/lib/friendly-error";
+import { paymentSourceLabel, reservationStatusLabel } from "@/lib/status-labels";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 
@@ -80,12 +82,12 @@ export default function AdminPaymentsPage() {
 
       if (!status.payment_events_ready) {
         setItems([]);
-        setError(status.instructions ?? "請先執行 payment_events migration");
+        setError("付款審核功能尚未開通，請聯絡工程人員");
       } else if (pendingRes.ok) {
         setItems(await pendingRes.json());
       } else {
         const p = await pendingRes.json();
-        setError(p.error ?? "無法載入待審核列表");
+        setError(friendlyMessage(p.error, pendingRes.status));
       }
 
       if (riskRes.ok) {
@@ -93,7 +95,7 @@ export default function AdminPaymentsPage() {
         setRisk(r.items ?? []);
       }
     } catch {
-      setError("載入失敗");
+      setError("載入失敗，請按右上角重新整理");
     } finally {
       setLoading(false);
     }
@@ -127,8 +129,8 @@ export default function AdminPaymentsPage() {
       body: JSON.stringify({ interaction }),
     });
     if (!res.ok) {
-      const d = await res.json();
-      showToast(d.error ?? "核准失敗", "error");
+      const d = await res.json().catch(() => ({}));
+      showToast(friendlyMessage(d.error, res.status), "error");
       return;
     }
     const data = (await res.json().catch(() => ({}))) as {
@@ -136,7 +138,7 @@ export default function AdminPaymentsPage() {
     };
     if (data.notification && data.notification.status !== "accepted_by_platform") {
       showToast(
-        `付款已核准，但 LINE 通知未完成：${data.notification.error ?? data.notification.status}`,
+        "款項已確認，但沒能通知客人，請手動傳 LINE",
         "error"
       );
     } else {
@@ -156,8 +158,8 @@ export default function AdminPaymentsPage() {
       body: JSON.stringify({ review_note: rejectNote, interaction }),
     });
     if (!res.ok) {
-      const d = await res.json();
-      showToast(d.error ?? "駁回失敗", "error");
+      const d = await res.json().catch(() => ({}));
+      showToast(friendlyMessage(d.error, res.status), "error");
       return;
     }
     showToast("已駁回", "success");
@@ -233,9 +235,9 @@ export default function AdminPaymentsPage() {
     const form = new FormData();
     form.append("file", file);
     const res = await fetch("/api/admin/payments/reconcile", { method: "POST", body: form });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      showToast(data.error ?? "對帳失敗", "error");
+      showToast(friendlyMessage(data.error, res.status), "error");
       return;
     }
     setReconcileResult(data);
@@ -246,7 +248,7 @@ export default function AdminPaymentsPage() {
     <>
     <AdminShell
       title="付款審核"
-      subtitle={migrationOk === false ? "需先完成 migration" : `待審核 ${items.length} 筆`}
+      subtitle={migrationOk === false ? "功能尚未開通" : `待審核 ${items.length} 筆`}
       actions={
         <button
           type="button"
@@ -262,10 +264,10 @@ export default function AdminPaymentsPage() {
         {migrationOk === false && (
           <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
             <p className="font-semibold flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4" strokeWidth={1.5} /> 資料庫 migration 尚未完成
+              <AlertTriangle className="w-4 h-4" strokeWidth={1.5} /> 付款審核功能尚未開通
             </p>
             <p className="text-sm mt-2">
-              請至 Supabase SQL Editor 依序執行 <code className="bg-white px-1 rounded">supabase/migration-payment-events.sql</code> 與 <code className="bg-white px-1 rounded">supabase/migration-bank-transfer-reports.sql</code>
+              系統還沒準備好付款審核，請聯絡工程人員處理。
             </p>
           </div>
         )}
@@ -300,7 +302,7 @@ export default function AdminPaymentsPage() {
                       <div className="flex flex-wrap items-center gap-2 mb-1">
                         <p className="font-semibold text-stone-900">{item.customer_name}</p>
                         <span className={`rounded-full px-2 py-0.5 text-xs ${item.source === "bank_transfer" ? "bg-amber-100 text-amber-900" : "bg-stone-100 text-stone-600"}`}>
-                          {item.source === "bank_transfer" ? "銀行轉帳回報" : item.source === "line_image" ? "LINE 截圖" : item.source === "line_text" ? "LINE 文字" : item.source}
+                          {paymentSourceLabel(item.source)}
                         </span>
                       </div>
                       <p className="text-sm text-stone-600">
@@ -311,7 +313,7 @@ export default function AdminPaymentsPage() {
                         {item.deposit_amount != null && ` · 訂金 NT$${item.deposit_amount}`}
                       </p>
                       <p className="text-xs text-stone-500 mt-1">
-                        訂位狀態：{item.reservation_status ?? "—"} · 訂金狀態：{item.is_deposit_paid ? "已確認" : "待核對"}
+                        訂位狀態：{item.reservation_status ? reservationStatusLabel(item.reservation_status) : "—"} · 訂金狀態：{item.is_deposit_paid ? "已確認" : "待核對"}
                       </p>
                       <p className="text-xs text-stone-400 mt-1">
                         提交於 {format(parseISO(item.created_at), "MM/dd HH:mm", { locale: zhTW })}
@@ -350,7 +352,7 @@ export default function AdminPaymentsPage() {
                         onClick={() => approve(item.id)}
                         className="inline-flex items-center gap-1 rounded-xl bg-emerald-600 text-white px-3 py-1.5 text-sm font-medium transition-[background-color] duration-200 hover:bg-emerald-700"
                       >
-                        <Check className="w-4 h-4" strokeWidth={1.5} /> {item.source === "bank_transfer" ? "確認已收到款項" : "核准"}
+                        <Check className="w-4 h-4" strokeWidth={1.5} /> 確認已收款
                       </button>
                       <button
                         type="button"
@@ -384,7 +386,7 @@ export default function AdminPaymentsPage() {
             </ul>
           )}
           {items.length > 0 && (
-            <p className="mt-4 flex items-center gap-2 text-xs text-stone-500">
+            <p className="mt-4 hidden items-center gap-2 text-xs text-stone-500 md:flex">
               <Keyboard className="w-3.5 h-3.5 shrink-0" strokeWidth={1.5} />
               <span>
                 <kbd className="px-1 rounded bg-stone-100">↑</kbd>/<kbd className="px-1 rounded bg-stone-100">↓</kbd> 或{" "}
@@ -399,7 +401,7 @@ export default function AdminPaymentsPage() {
         <section className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
           <h2 className="mb-2 flex items-center gap-2 font-semibold text-stone-900">
             <AlertTriangle className="w-4 h-4 text-amber-600" strokeWidth={1.5} />
-            訂金逾期風險（不自動取消）
+            訂金快到期的訂位
           </h2>
           {risk.length === 0 ? (
             <p className="text-sm text-stone-500">無未付訂金訂位</p>
@@ -412,7 +414,7 @@ export default function AdminPaymentsPage() {
                 >
                   {r.booking_code} {r.customer_name} · 期限{" "}
                   {format(parseISO(r.deadline), "MM/dd HH:mm", { locale: zhTW })}
-                  {r.would_auto_release ? " · 下次 Cron 將自動釋放" : ""}
+                  {r.would_auto_release ? " · 今晚系統會自動取消" : ""}
                 </li>
               ))}
             </ul>
@@ -420,10 +422,10 @@ export default function AdminPaymentsPage() {
         </section>
 
         <section className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
-          <h2 className="mb-3 font-semibold text-stone-900">銀行 CSV 對帳（MVP）</h2>
+          <h2 className="mb-3 font-semibold text-stone-900">用銀行明細檔對帳</h2>
           <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-amber-800">
             <Upload className="w-4 h-4" strokeWidth={1.5} />
-            上傳 CSV
+            上傳銀行明細檔
             <input type="file" accept=".csv,text/csv" className="hidden" onChange={uploadCsv} />
           </label>
           {reconcileResult && (
@@ -431,12 +433,12 @@ export default function AdminPaymentsPage() {
               <p>共 {reconcileResult.bank_rows} 筆 · 建議配對 {reconcileResult.matches.length} 筆</p>
               {reconcileResult.matches.map((m, i) => (
                 <p key={i} className="text-emerald-700">
-                  {m.booking_code} {m.customer_name} · NT${m.bank_amount} ({m.confidence})
+                  {m.booking_code} {m.customer_name} · NT${m.bank_amount} （把握度：{({ high: "高", medium: "中", low: "低" } as Record<string, string>)[m.confidence] ?? "—"}）
                 </p>
               ))}
               {reconcileResult.unmatched.map((u, i) => (
                 <p key={i} className="text-stone-500">
-                  未配對 NT${u.amount}: {u.reason}
+                  對不上訂位 NT${u.amount}
                 </p>
               ))}
             </div>

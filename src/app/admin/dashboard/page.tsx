@@ -16,6 +16,8 @@ import {
 import { AdminShell } from "@/components/admin/AdminShell";
 import { AdminEmptyState } from "@/components/admin/AdminEmptyState";
 import { formatTaipeiTime } from "@/lib/datetime";
+import { friendlyMessage, thrownMessage } from "@/lib/friendly-error";
+import { reservationStatusLabel } from "@/lib/status-labels";
 import type { Branch } from "@/types";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 
@@ -106,15 +108,7 @@ function shiftDate(date: string, days: number) {
     .join("-");
 }
 
-function statusLabel(status: string) {
-  return {
-    pending: "待確認",
-    confirmed: "已確認",
-    checked_in: "使用中",
-    completed: "已完成",
-    cancelled: "已取消",
-  }[status] ?? status;
-}
+const statusLabel = reservationStatusLabel;
 
 function reservationTone(status: string) {
   return {
@@ -220,12 +214,12 @@ export default function AdminDashboardPage() {
       const res = await fetch("/api/admin/reminders");
       const data = await res.json();
       if (!res.ok) {
-        throw new Error((data as { error?: string })?.error ?? "無法載入提醒");
+        throw new Error(friendlyMessage((data as { error?: string })?.error, res.status));
       }
       setReminders(Array.isArray(data) ? (data as ReminderItem[]) : []);
     } catch (e) {
       setReminders([]);
-      setRemindersError(e instanceof Error ? e.message : "載入提醒失敗");
+      setRemindersError(thrownMessage(e, "提醒暫時讀不到，請重試"));
     } finally {
       setRemindersLoading(false);
     }
@@ -254,7 +248,7 @@ export default function AdminDashboardPage() {
     )
       .then((r) => r.json())
       .then((data) => {
-        if (data.error) throw new Error(data.error);
+        if (data.error) throw new Error(friendlyMessage(data.error));
         setStats(data.stats ?? null);
         setTimeline(data.timeline ?? null);
         const points = Array.isArray(data.trend?.points) ? data.trend.points : [];
@@ -267,7 +261,7 @@ export default function AdminDashboardPage() {
         );
       })
       .catch((e) => {
-        const msg = e instanceof Error ? e.message : "載入失敗";
+        const msg = thrownMessage(e, "載入失敗，請重新整理");
         setError(msg);
         setTrendError(msg);
         setStats(null);
@@ -392,7 +386,6 @@ export default function AdminDashboardPage() {
               明天
             </button>
           </div>
-          <p className="mt-2 text-xs text-stone-500">日期與訂位時間以台北時區顯示。</p>
         </div>
 
         {error && (
@@ -414,7 +407,6 @@ export default function AdminDashboardPage() {
                   <h2 id="dashboard-attention-heading" className="mt-1 text-lg font-semibold text-stone-900">
                     {attentionCount > 0 ? `${attentionCount} 個營運提醒` : "今天目前沒有待處理提醒"}
                   </h2>
-                  <p className="mt-1 text-sm text-stone-600">先看風險，再看趨勢與歷史數字。</p>
                 </div>
                 <ListChecks className="h-6 w-6 text-amber-700" strokeWidth={1.5} aria-hidden="true" />
               </div>
@@ -434,7 +426,7 @@ export default function AdminDashboardPage() {
               <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center gap-2 text-stone-500">
                   <Calendar className="h-5 w-5 text-amber-700" strokeWidth={1.5} />
-                  <span className="text-sm">{viewingToday ? "今日" : `${date.slice(5)} `}總訂位數</span>
+                  <span className="text-sm">{viewingToday ? "今日" : `${date.slice(5).replace("-", "/")} `}訂位數</span>
                 </div>
                 <p className="mt-2 text-2xl font-semibold tabular-nums text-stone-900">{stats.todayCount}</p>
               </div>
@@ -450,7 +442,7 @@ export default function AdminDashboardPage() {
               <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center gap-2 text-stone-500">
                   <DollarSign className="h-5 w-5 text-amber-700" strokeWidth={1.5} />
-                  <span className="text-sm">{viewingToday ? "今日" : `${date.slice(5)} `}預估營收</span>
+                  <span className="text-sm">{viewingToday ? "今日" : `${date.slice(5).replace("-", "/")} `}預估營收</span>
                 </div>
                 <p className="mt-2 text-2xl font-semibold tabular-nums text-stone-900">{formatTwd(stats.todayRevenue)}</p>
               </div>
@@ -459,7 +451,7 @@ export default function AdminDashboardPage() {
             <section className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-lg font-semibold text-gray-900">近 7 日概況</h2>
-                <span className="text-xs text-gray-500">結束日期：{date}</span>
+                <span className="text-xs text-gray-500">到 {date.slice(5).replace("-", "/")}</span>
               </div>
               {trendLoading ? (
                 <p className="text-sm text-gray-500">載入統計中…</p>

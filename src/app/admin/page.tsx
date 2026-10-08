@@ -14,6 +14,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 import { formatRentalNotesText, parseRentalNotesText } from "@/lib/branch-guest-settings";
 import { formRowsToWeekly, weeklyToFormRows, WEEKDAY_LABELS, type WeekdayFormRow } from "@/lib/branch-hours";
+import { responseError, thrownMessage } from "@/lib/friendly-error";
 
 export default function AdminBranchesRoomsPage() {
   const [focusBranchId, setFocusBranchId] = useState<string | null>(null);
@@ -119,7 +120,7 @@ export default function AdminBranchesRoomsPage() {
       try {
         await loadBranches();
       } catch (e) {
-        setError(e instanceof Error ? e.message : "載入失敗");
+        setError(thrownMessage(e, "載入失敗，請重新整理"));
       }
       setLoading(false);
     })();
@@ -232,7 +233,7 @@ export default function AdminBranchesRoomsPage() {
             rental_notes: parseRentalNotesText(branchRentalNotesText),
           }),
         });
-        if (!res.ok) throw new Error((await res.json()).error ?? "更新失敗");
+        if (!res.ok) throw new Error(await responseError(res));
       } else {
         const res = await fetch("/api/branches", {
           method: "POST",
@@ -253,25 +254,25 @@ export default function AdminBranchesRoomsPage() {
             rental_notes: parseRentalNotesText(branchRentalNotesText),
           }),
         });
-        if (!res.ok) throw new Error((await res.json()).error ?? "新增失敗");
+        if (!res.ok) throw new Error(await responseError(res));
       }
       setBranchFormOpen(false);
       loadBranches();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "操作失敗");
+      setError(thrownMessage(err, "操作失敗，請稍後再試"));
     }
   };
 
   const deleteBranch = async (id: string) => {
     try {
       const res = await fetch(`/api/branches/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error((await res.json()).error ?? "刪除失敗");
+      if (!res.ok) throw new Error(await responseError(res));
       if (selectedBranchId === id) setSelectedBranchId(null);
       loadBranches();
       showToast("已刪除分店", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "刪除失敗");
-      showToast(err instanceof Error ? err.message : "刪除失敗", "error");
+      setError(thrownMessage(err, "刪除失敗，請稍後再試"));
+      showToast(thrownMessage(err, "刪除失敗，請稍後再試"), "error");
     }
   };
 
@@ -313,8 +314,8 @@ export default function AdminBranchesRoomsPage() {
         form.append("branch_id", selectedBranchId);
         form.append("photo", roomImageFile);
         const upload = await fetch("/api/admin/menu-photos", { method: "POST", body: form });
+        if (!upload.ok) throw new Error(await responseError(upload));
         const result = await upload.json();
-        if (!upload.ok) throw new Error(result.error ?? "照片上傳失敗");
         imageUrl = result.url;
       }
       if (editingRoom) {
@@ -323,7 +324,7 @@ export default function AdminBranchesRoomsPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: roomName.trim(), type: roomType.trim() || null, min_capacity: roomMinCapacity, capacity: roomCapacity, price_weekday: roomPriceWeekday, price_weekend: roomPriceWeekend, image_url: imageUrl }),
         });
-        if (!res.ok) throw new Error((await res.json()).error ?? "更新失敗");
+        if (!res.ok) throw new Error(await responseError(res));
       } else {
         const res = await fetch("/api/rooms", {
           method: "POST",
@@ -339,24 +340,24 @@ export default function AdminBranchesRoomsPage() {
             image_url: imageUrl,
           }),
         });
-        if (!res.ok) throw new Error((await res.json()).error ?? "新增失敗");
+        if (!res.ok) throw new Error(await responseError(res));
       }
       setRoomFormOpen(false);
       loadRooms();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "操作失敗");
+      setError(thrownMessage(err, "操作失敗，請稍後再試"));
     }
   };
 
   const deleteRoom = async (id: string) => {
     try {
       const res = await fetch(`/api/rooms/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error((await res.json()).error ?? "刪除失敗");
+      if (!res.ok) throw new Error(await responseError(res));
       loadRooms();
       showToast("已刪除包廂", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "刪除失敗");
-      showToast(err instanceof Error ? err.message : "刪除失敗", "error");
+      setError(thrownMessage(err, "刪除失敗，請稍後再試"));
+      showToast(thrownMessage(err, "刪除失敗，請稍後再試"), "error");
     }
   };
 
@@ -371,11 +372,11 @@ export default function AdminBranchesRoomsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rental_notes: rentalNotes }),
       });
-      if (!res.ok) throw new Error((await res.json()).error ?? "儲存失敗");
+      if (!res.ok) throw new Error(await responseError(res));
       setNotesSaved(true);
       setTimeout(() => setNotesSaved(false), 2000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "儲存失敗");
+      setError(thrownMessage(err, "儲存失敗，請稍後再試"));
     } finally {
       setNotesSaving(false);
     }
@@ -426,12 +427,12 @@ export default function AdminBranchesRoomsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ closed_dates: closedDates }),
       });
-      if (!res.ok) throw new Error((await res.json()).error ?? "儲存失敗");
+      if (!res.ok) throw new Error(await responseError(res));
       await loadBranches();
       setClosedDatesSaved(true);
       setTimeout(() => setClosedDatesSaved(false), 2000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "儲存失敗");
+      setError(thrownMessage(err, "儲存失敗，請稍後再試"));
     } finally {
       setClosedDatesSaving(false);
     }
@@ -445,11 +446,11 @@ export default function AdminBranchesRoomsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ deposit_info: depositInfo || null }),
       });
-      if (!res.ok) throw new Error((await res.json()).error ?? "儲存失敗");
+      if (!res.ok) throw new Error(await responseError(res));
       setDepositInfoSaved(true);
       setTimeout(() => setDepositInfoSaved(false), 2000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "儲存失敗");
+      setError(thrownMessage(err, "儲存失敗，請稍後再試"));
     } finally {
       setDepositInfoSaving(false);
     }
@@ -463,11 +464,11 @@ export default function AdminBranchesRoomsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ google_review_url: googleReviewUrl || null }),
       });
-      if (!res.ok) throw new Error((await res.json()).error ?? "儲存失敗");
+      if (!res.ok) throw new Error(await responseError(res));
       setGoogleReviewUrlSaved(true);
       setTimeout(() => setGoogleReviewUrlSaved(false), 2000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "儲存失敗");
+      setError(thrownMessage(err, "儲存失敗，請稍後再試"));
     } finally {
       setGoogleReviewUrlSaving(false);
     }
@@ -490,11 +491,11 @@ export default function AdminBranchesRoomsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ payment_keywords: paymentKeywords }),
       });
-      if (!res.ok) throw new Error((await res.json()).error ?? "儲存失敗");
+      if (!res.ok) throw new Error(await responseError(res));
       setKeywordsSaved(true);
       setTimeout(() => setKeywordsSaved(false), 2000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "儲存失敗");
+      setError(thrownMessage(err, "儲存失敗，請稍後再試"));
     } finally {
       setKeywordsSaving(false);
     }
@@ -527,9 +528,9 @@ export default function AdminBranchesRoomsPage() {
             </p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {[
-                { href: "/admin/today", icon: CalendarDays, label: "今日場控", hint: "尖峰一屏", primary: true },
-                { href: "/admin/payments", icon: DollarSign, label: "付款審核", hint: "截圖核准" },
-                { href: "/admin/waitlist", icon: Clock, label: "等位清單", hint: "候補通知" },
+                { href: "/admin/today", icon: CalendarDays, label: "今日場控", hint: "今天的訂位與待辦", primary: true },
+                { href: "/admin/payments", icon: DollarSign, label: "付款審核", hint: "確認客人匯款" },
+                { href: "/admin/waitlist", icon: Clock, label: "等位清單", hint: "候位與通知" },
                 { href: "/admin/dashboard", icon: LayoutDashboard, label: "儀表板", hint: "訂位總覽" },
               ].map(({ href, icon: Icon, label, hint, primary }) => (
                 <Link
@@ -563,10 +564,10 @@ export default function AdminBranchesRoomsPage() {
               {[
                 { href: "/admin/orders", icon: ChefHat, label: "即時訂單" },
                 { href: "/admin/menu", icon: UtensilsCrossed, label: "菜單管理" },
-                { href: "/admin/tables", icon: QrCode, label: "桌位 QR" },
+                { href: "/admin/tables", icon: QrCode, label: "桌位與 QR 碼" },
                 { href: "/admin/print-station", icon: Printer, label: "列印站" },
                 { href: "/admin/reports", icon: BarChart2, label: "營收報表" },
-                { href: "/admin/executive", icon: Activity, label: "Executive" }, // 與 /admin/executive 頁面標題「Executive Dashboard」一致；暫不另造中文名
+                { href: "/admin/executive", icon: Activity, label: "經營總覽" },
               ].map(({ href, icon: Icon, label }) => (
                 <li key={href}>
                   <Link
@@ -814,7 +815,7 @@ export default function AdminBranchesRoomsPage() {
           </div>
           <div className="p-4">
             <p className="mb-2 text-xs text-stone-400">
-              設定後，當訂位在「訂位管理」標記為「已結帳」，且客人已綁定 LINE，會自動發送一則感謝訊息附上此連結，邀請客人留下 Google 評論。留空則不會發送。
+              設定後，當訂位在「訂位管理」標記為「已完成」，且客人已綁定 LINE，會自動發送一則感謝訊息附上此連結，邀請客人留下 Google 評論。留空則不會發送。
             </p>
             <input
               type="url"
@@ -1012,9 +1013,9 @@ export default function AdminBranchesRoomsPage() {
                 <input type="text" value={branchPhone} onChange={(e) => setBranchPhone(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" placeholder="例：05-1234567" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-stone-500 mb-1.5 uppercase tracking-wide">LINE 群組 ID</label>
-                <input type="text" value={branchLineGroupId} onChange={(e) => setBranchLineGroupId(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" placeholder="例：C6aa66403137e743c789ef1388..." />
-                <p className="mt-1 text-xs text-stone-400">設定後 Cron 自動推播明日提醒到此群組</p>
+                <label className="block text-xs font-medium text-stone-500 mb-1.5 uppercase tracking-wide">店員 LINE 群組</label>
+                <input type="text" value={branchLineGroupId} onChange={(e) => setBranchLineGroupId(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" placeholder="填入群組代碼（由工程人員提供）" />
+                <p className="mt-1 text-xs text-stone-400">設定後，每晚 8 點會自動把明天的訂位提醒傳到這個群組</p>
               </div>
               <div>
                 <label className="block text-xs font-medium text-stone-500 mb-1.5 uppercase tracking-wide">對客顯示店名</label>
@@ -1030,7 +1031,7 @@ export default function AdminBranchesRoomsPage() {
                 <label className="block text-xs font-medium text-stone-500 mb-1.5 uppercase tracking-wide">LINE Pay 連結</label>
                 <input type="text" value={branchLinePayUrl} onChange={(e) => setBranchLinePayUrl(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" placeholder="https://qrcodepay.line.me/..." />
               </div>
-              <p className="rounded-xl bg-stone-50 px-3 py-2 text-xs text-stone-500">以下三項留空＝沿用「設定」頁的全站共用內容；只有這間店不同時才需要填。</p>
+              <p className="rounded-xl bg-stone-50 px-3 py-2 text-xs text-stone-500">以下三項留空＝沿用本頁下方的全站設定；只有這間店不同時才需要填。</p>
               <div>
                 <label htmlFor="branch-review-url" className="block text-xs font-medium text-stone-500 mb-1.5 uppercase tracking-wide">此店 Google 評論連結</label>
                 <input id="branch-review-url" type="url" value={branchReviewUrl} onChange={(e) => setBranchReviewUrl(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" placeholder="https://g.page/r/..." />

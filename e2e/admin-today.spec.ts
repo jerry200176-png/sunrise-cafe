@@ -120,12 +120,9 @@ test.describe("今日場控 /admin/today", () => {
     await expect(page.getByRole("heading", { name: "今日場控" })).toBeVisible();
     await expect(page.getByText("王小明").first()).toBeVisible();
     await expect(page.getByText("未付訂金").first()).toBeVisible();
-    await expect(page.getByText("候補待處理")).toBeVisible();
+    await expect(page.getByText("等位待處理")).toBeVisible();
     await expect(page.getByText("需人工致電")).toBeVisible();
-    await expect(page.getByText(/高頻任務跳轉/)).toBeVisible();
-    await expect(page.getByText(/付款審核 4→1/)).toBeVisible();
-    await expect(page.getByText(/Asia\/Taipei/)).toBeVisible();
-    await expect(page.getByText("2026-07-15").first()).toBeVisible();
+    await expect(page.getByText("7/15（週三）").first()).toBeVisible();
   });
 
   test("分店隔離：staff 僅見允許分店選項", async ({ page, context }) => {
@@ -159,7 +156,7 @@ test.describe("今日場控 /admin/today", () => {
       });
     });
     await page.getByLabel("重新整理").click();
-    await expect(page.getByText("Forbidden branch")).toBeVisible();
+    await expect(page.getByText("你的帳號不能操作這間分店")).toBeVisible();
     await expect(page.getByRole("button", { name: "重試" })).toBeVisible();
   });
 
@@ -217,7 +214,7 @@ test.describe("今日場控 /admin/today", () => {
     await expect(page.getByLabel("載入今日場控")).toBeVisible();
     resolveToday?.(null);
     await expect(page.getByText("今日尚無訂位")).toBeVisible();
-    await expect(page.getByText("目前無候補")).toBeVisible();
+    await expect(page.getByText("目前沒有等位")).toBeVisible();
   });
 
   test("retry 在 total failure 後可恢復", async ({ page, context }) => {

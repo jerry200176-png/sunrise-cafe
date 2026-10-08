@@ -5,6 +5,7 @@ import Link from "next/link";
 import { RefreshCw, Clock, Bell, Trash2, Phone } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
+import { friendlyMessage } from "@/lib/friendly-error";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
@@ -65,7 +66,7 @@ export default function AdminWaitlistPage() {
       const res = await fetch("/api/admin/waitlist");
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "無法載入等位清單");
+        setError(friendlyMessage(data.error, res.status));
         setItems([]);
         setNeedsCallCount(0);
         return;
@@ -91,7 +92,7 @@ export default function AdminWaitlistPage() {
       const res = await fetch(`/api/admin/waitlist/${id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) {
-        showToast(data.error ?? "移除失敗", "error");
+        showToast(friendlyMessage(data.error, res.status), "error");
         return;
       }
       setItems((prev) => prev.filter((i) => i.id !== id));
@@ -112,7 +113,7 @@ export default function AdminWaitlistPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        showToast(data.error ?? "更新失敗", "error");
+        showToast(friendlyMessage(data.error, res.status), "error");
         return;
       }
       setItems((prev) => {
@@ -302,11 +303,11 @@ export default function AdminWaitlistPage() {
         </section>
 
         <p className="text-xs text-stone-500">
-          轉換率可於{" "}
+          等位成功率可在{" "}
           <Link href="/admin/executive" className="font-medium text-amber-800 hover:underline">
-            Executive
+            經營總覽
           </Link>{" "}
-          查看 <code className="rounded bg-stone-100 px-1">waitlist_conversion_pct</code>
+          看到
         </p>
       </div>
     </AdminShell>

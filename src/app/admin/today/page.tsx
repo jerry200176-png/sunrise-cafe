@@ -10,6 +10,8 @@ import {
   Users,
   AlertTriangle,
 } from "lucide-react";
+import { friendlyMessage } from "@/lib/friendly-error";
+import { waitlistStatusLabel } from "@/lib/status-labels";
 import { AdminShell } from "@/components/admin/AdminShell";
 
 type TodayBundle = {
@@ -79,6 +81,19 @@ function reservationManagementHref(branchId: string, reservationId: string) {
   return `/admin?branchId=${encodeURIComponent(branchId)}&reservation=${encodeURIComponent(reservationId)}`;
 }
 
+const PARTIAL_LABELS: Record<string, string> = {
+  payment_events: "付款審核資料暫時讀不到",
+  timeline: "今日行程暫時讀不到",
+  waitlist: "等位資料暫時讀不到",
+};
+
+function fmtDateLabel(ymd: string) {
+  const [y, m, d] = ymd.split("-").map(Number);
+  if (!y || !m || !d) return ymd;
+  const wd = "日一二三四五六"[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+  return `${m}/${d}（週${wd}）`;
+}
+
 function fmtTime(iso: string) {
   try {
     return new Intl.DateTimeFormat("zh-TW", {
@@ -121,10 +136,10 @@ export default function AdminTodayPage() {
           credentials: "include",
         });
         const json = await res.json();
-        if (!res.ok) throw new Error(json.error || "載入失敗");
+        if (!res.ok) throw new Error(friendlyMessage(json.error, res.status));
         setData(json as TodayBundle);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "載入失敗");
+        setError(e instanceof Error ? e.message : "載入失敗，請重試");
         setData(null);
       } finally {
         setLoading(false);
@@ -140,8 +155,8 @@ export default function AdminTodayPage() {
   const subtitle = loading && !data
     ? "載入中…"
     : data?.date
-      ? `${data.date} · 尖峰一屏完成`
-      : "尖峰一屏完成";
+      ? fmtDateLabel(data.date)
+      : "今天的訂位與待辦";
 
   return (
     <AdminShell
@@ -190,7 +205,7 @@ export default function AdminTodayPage() {
             部分資料暫時無法載入（其餘區塊仍可用）：
             <ul className="mt-1 list-disc pl-5">
               {data.partial_errors.map((e) => (
-                <li key={`${e.source}-${e.message}`}>{e.source}</li>
+                <li key={`${e.source}-${e.message}`}>{PARTIAL_LABELS[e.source] ?? "部分資料暫時讀不到"}</li>
               ))}
             </ul>
             <button type="button" className="mt-2 underline" onClick={load}>
@@ -238,7 +253,7 @@ export default function AdminTodayPage() {
             href="/admin/waitlist"
             className="rounded-full bg-stone-800 px-3 py-1.5 text-xs font-medium text-white transition-[background-color] duration-200 hover:bg-stone-700"
           >
-            候補 {s ? `(${s.waitlist_open})` : ""}
+            等位 {s ? `(${s.waitlist_open})` : ""}
           </Link>
           <Link
             href="/admin/tables"
@@ -247,15 +262,6 @@ export default function AdminTodayPage() {
             訂位列表
           </Link>
         </section>
-
-        {data?.task_hops && (
-          <p className="text-xs text-stone-500">
-            高頻任務跳轉：付款審核 {data.task_hops.review_payment.before}→{data.task_hops.review_payment.after} 步 ·
-            催未付 {data.task_hops.call_unpaid.before}→{data.task_hops.call_unpaid.after} ·
-            候補致電 {data.task_hops.call_waitlist.before}→{data.task_hops.call_waitlist.after}
-            {data.timezone ? ` · ${data.timezone}` : ""}
-          </p>
-        )}
 
         <section aria-label="即將到店" className="rounded-2xl bg-white p-3.5 shadow-sm ring-1 ring-stone-200/80">
           <h2 className="mb-2 text-sm font-semibold text-stone-800">即將到店 / 今日行程</h2>
@@ -272,13 +278,13 @@ export default function AdminTodayPage() {
                   <p className="truncate text-xs text-stone-600">
                     {r.customer_name}
                     {r.booking_code ? ` · ${r.booking_code}` : ""}
-                    {r.is_deposit_paid ? " · 已付" : " · 未付"}
+                    {r.is_deposit_paid ? " · 訂金已付" : " · 訂金未付"}
                     {r.guest_confirmed_at ? " · 已確認出席" : ""}
                   </p>
                   <p className="text-xs tabular-nums text-stone-400">
                     {r.hours_until_start >= 0
-                      ? `${r.hours_until_start}h 後`
-                      : `已過 ${Math.abs(r.hours_until_start)}h`}
+                      ? `${r.hours_until_start} 小時後`
+                      : `已過 ${Math.abs(r.hours_until_start)} 小時`}
                   </p>
                 </div>
                 <Link
@@ -292,7 +298,7 @@ export default function AdminTodayPage() {
                   className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-stone-100 px-2.5 py-2 text-xs font-medium transition-[background-color] duration-200 hover:bg-amber-50"
                 >
                   <Phone className="h-3.5 w-3.5" strokeWidth={1.5} />
-                  打
+                  撥打
                 </a>
               </li>
             ))}
@@ -329,17 +335,17 @@ export default function AdminTodayPage() {
                   管理
                 </Link>
                 <a href={telHref(r.phone)} className="rounded-xl bg-amber-50 px-2.5 py-2 text-xs text-amber-800 transition-[background-color] duration-200 hover:bg-amber-100">
-                  催繳
+                  電話催訂金
                 </a>
               </li>
             ))}
           </ul>
         </section>
 
-        <section aria-label="候補" className="rounded-2xl bg-white p-3.5 shadow-sm ring-1 ring-stone-200/80">
-          <h2 className="mb-2 text-sm font-semibold text-stone-800">候補待處理</h2>
+        <section aria-label="等位" className="rounded-2xl bg-white p-3.5 shadow-sm ring-1 ring-stone-200/80">
+          <h2 className="mb-2 text-sm font-semibold text-stone-800">等位待處理</h2>
           {!(data?.waitlist?.length) && !loading && (
-            <p className="text-sm text-stone-500">目前無候補</p>
+            <p className="text-sm text-stone-500">目前沒有等位</p>
           )}
           <ul className="divide-y divide-stone-100">
             {data?.waitlist.map((w) => (
@@ -347,7 +353,7 @@ export default function AdminTodayPage() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{w.customer_name}</p>
                   <p className="text-xs text-stone-600">
-                    {fmtTime(w.start_time)} · {w.status}
+                    {fmtTime(w.start_time)} · {waitlistStatusLabel(w.status)}
                     {!w.line_user_id ? " · 需人工致電" : " · 有 LINE"}
                   </p>
                 </div>

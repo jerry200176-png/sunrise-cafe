@@ -1,4 +1,4 @@
-e2e/admin-today.spec.ts(218,5): error TS2349: This expression is not callable.
+e2e/admin-today.spec.ts(215,5): error TS2349: This expression is not callable.
 src/lib/admin-api-auth.test.ts(23,15): error TS2540: Cannot assign to 'NODE_ENV' because it is a read-only property.
 src/lib/admin-api-auth.test.ts(116,17): error TS2540: Cannot assign to 'NODE_ENV' because it is a read-only property.
 src/lib/admin-api-auth.test.ts(122,17): error TS2540: Cannot assign to 'NODE_ENV' because it is a read-only property.
