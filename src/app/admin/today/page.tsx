@@ -299,13 +299,13 @@ export default function AdminTodayPage() {
                 </div>
                 <Link
                   href={reservationManagementHref(branchId, r.id)}
-                  className="inline-flex shrink-0 items-center rounded-xl border border-stone-300 bg-white px-2.5 py-2 text-xs font-medium text-stone-700 transition-[background-color] duration-200 hover:bg-amber-50"
+                  className="inline-flex shrink-0 items-center rounded-xl border border-stone-300 bg-white min-h-[44px] items-center px-3 py-2 text-xs font-medium text-stone-700 transition-[background-color] duration-200 hover:bg-amber-50"
                 >
                   管理
                 </Link>
                 <a
                   href={telHref(r.phone)}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-stone-100 px-2.5 py-2 text-xs font-medium transition-[background-color] duration-200 hover:bg-amber-50"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-stone-100 min-h-[44px] items-center px-3 py-2 text-xs font-medium transition-[background-color] duration-200 hover:bg-amber-50"
                 >
                   <Phone className="h-3.5 w-3.5" strokeWidth={1.5} />
                   撥打
@@ -340,11 +340,11 @@ export default function AdminTodayPage() {
                 </div>
                 <Link
                   href={reservationManagementHref(branchId, r.id)}
-                  className="rounded-xl border border-stone-300 bg-white px-2.5 py-2 text-xs font-medium text-stone-700 transition-[background-color] duration-200 hover:bg-amber-50"
+                  className="inline-flex rounded-xl border border-stone-300 bg-white min-h-[44px] items-center px-3 py-2 text-xs font-medium text-stone-700 transition-[background-color] duration-200 hover:bg-amber-50"
                 >
                   管理
                 </Link>
-                <a href={telHref(r.phone)} className="rounded-xl bg-amber-50 px-2.5 py-2 text-xs text-amber-800 transition-[background-color] duration-200 hover:bg-amber-100">
+                <a href={telHref(r.phone)} className="inline-flex rounded-xl bg-amber-50 min-h-[44px] items-center px-3 py-2 text-xs text-amber-800 transition-[background-color] duration-200 hover:bg-amber-100">
                   電話催訂金
                 </a>
               </li>
@@ -367,7 +367,7 @@ export default function AdminTodayPage() {
                     {!w.line_user_id ? " · 需人工致電" : " · 有 LINE"}
                   </p>
                 </div>
-                <a href={telHref(w.phone)} className="rounded-xl bg-stone-100 px-2.5 py-2 text-xs transition-[background-color] duration-200 hover:bg-stone-200">
+                <a href={telHref(w.phone)} className="rounded-xl bg-stone-100 min-h-[44px] items-center px-3 py-2 text-xs transition-[background-color] duration-200 hover:bg-stone-200">
                   <Phone className="h-3.5 w-3.5" strokeWidth={1.5} />
                 </a>
               </li>

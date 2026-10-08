@@ -8,7 +8,7 @@ import {
   CalendarDays,
   ClipboardList,
   DollarSign,
-  Home,
+  CalendarCheck,
   LayoutDashboard,
   LogOut,
 } from "lucide-react";
@@ -29,10 +29,10 @@ export type AdminShellProps = {
 
 const NAV = [
   { href: "/admin/today", label: "今日", icon: CalendarDays },
+  { href: "/admin", label: "訂位", icon: CalendarCheck, exact: true },
   { href: "/admin/payments", label: "付款", icon: DollarSign },
-  { href: "/admin", label: "首頁", icon: Home, exact: true },
   { href: "/admin/waitlist", label: "等位", icon: ClipboardList },
-  { href: "/admin/dashboard", label: "儀表", icon: LayoutDashboard },
+  { href: "/admin/dashboard", label: "儀表板", icon: LayoutDashboard },
 ] as const;
 
 const MAX_W = {
@@ -69,7 +69,7 @@ export function AdminShell({
           {backHref != null && (
             <Link
               href={backHref}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-stone-500 transition-[background-color,color] duration-200 hover:bg-stone-100 hover:text-stone-800"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-500 transition-[background-color,color] duration-200 hover:bg-stone-100 hover:text-stone-800"
               aria-label="返回"
             >
               <ArrowLeft className="h-5 w-5" strokeWidth={1.5} />
@@ -96,7 +96,7 @@ export function AdminShell({
               <button
                 type="button"
                 onClick={() => void logout()}
-                className="flex h-10 items-center gap-1.5 rounded-xl border border-stone-200 px-2.5 text-sm font-medium text-stone-600 transition-[background-color,border-color] duration-200 hover:border-stone-300 hover:bg-stone-50"
+                className="flex h-11 min-w-[44px] items-center justify-center gap-1.5 rounded-xl border border-stone-200 px-2.5 text-sm font-medium text-stone-600 transition-[background-color,border-color] duration-200 hover:border-stone-300 hover:bg-stone-50"
                 aria-label="登出"
               >
                 <LogOut className="h-4 w-4" strokeWidth={1.5} />
