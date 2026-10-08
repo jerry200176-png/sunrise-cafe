@@ -42,9 +42,9 @@ describe("AdminShell", () => {
     const cases: Array<{ path: string; active: string }> = [
       { path: "/admin/today", active: "今日" },
       { path: "/admin/payments", active: "付款" },
-      { path: "/admin", active: "首頁" },
+      { path: "/admin", active: "訂位" },
       { path: "/admin/waitlist", active: "等位" },
-      { path: "/admin/dashboard", active: "儀表" },
+      { path: "/admin/dashboard", active: "儀表板" },
     ];
     for (const { path, active } of cases) {
       pathnameRef.current = path;
@@ -61,14 +61,14 @@ describe("AdminShell", () => {
     }
   });
 
-  it("does not mark hub children as 首頁-active when exact", () => {
+  it("does not mark hub children as 訂位-active when exact", () => {
     pathnameRef.current = "/admin/menu";
     render(
       <AdminShell title="t">
         <p>x</p>
       </AdminShell>
     );
-    const home = screen.getByRole("link", { name: "首頁" });
+    const home = screen.getByRole("link", { name: "訂位" });
     expect(home.getAttribute("aria-current")).toBeNull();
   });
 

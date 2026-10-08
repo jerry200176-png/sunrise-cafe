@@ -732,7 +732,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
             : "bg-gray-100 text-gray-700 hover:bg-gray-200"
             }`}
         >
-          訂位管理
+          即將到來
         </button>
         <button
           type="button"

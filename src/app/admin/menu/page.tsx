@@ -387,7 +387,8 @@ export default function AdminMenuPage() {
                     <button
                       type="button"
                       onClick={() => toggleAvailable(item)}
-                      className="text-gray-500 hover:text-gray-700"
+                      aria-label={item.is_available ? `${item.name} 供應中，點一下改成已售完` : `${item.name} 已售完，點一下改成供應中`}
+                      className="flex h-11 w-11 items-center justify-center text-gray-500 hover:text-gray-700"
                       title={item.is_available ? "供應中，點一下改成已售完" : "已售完，點一下改成供應中"}
                     >
                       {item.is_available ? (
@@ -399,14 +400,16 @@ export default function AdminMenuPage() {
                     <button
                       type="button"
                       onClick={() => openEdit(item)}
-                      className="rounded border border-gray-300 p-1 text-gray-600 hover:bg-gray-50"
+                      aria-label={`編輯 ${item.name}`}
+                      className="flex h-11 w-11 items-center justify-center rounded border border-gray-300 text-gray-600 hover:bg-gray-50"
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
                     <button
                       type="button"
                       onClick={() => setConfirmDeleteItemId(item.id)}
-                      className="rounded border border-red-200 p-1 text-red-600 hover:bg-red-50"
+                      aria-label={`刪除 ${item.name}`}
+                      className="flex h-11 w-11 items-center justify-center rounded border border-red-200 text-red-600 hover:bg-red-50"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
