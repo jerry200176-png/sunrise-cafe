@@ -7,17 +7,13 @@ import {
   isAdminConfigured,
 } from "@/lib/supabase-admin";
 import { fetchSettings } from "@/lib/supabase-fetch";
-import { isDateClosed, resolveClosedDates } from "@/lib/branch-closed-dates";
+import { resolveDay } from "@/lib/bookable";
 import { buildHalfHourSlots } from "@/lib/slot-grid";
-import { hoursForDate, type WeeklyHours } from "@/lib/branch-hours";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 // Vercel Build Fix: Updated types
-const TAIWAN_OFFSET_HOURS = 8;
-const DEFAULT_OPEN = { h: 8, m: 0 };
-const DEFAULT_CLOSE = { h: 22, m: 0 };
 type BlockedSlot = { room_id: string; start_time: string; end_time: string };
 type RoomDetails = {
   id: string;
@@ -30,33 +26,14 @@ type RoomDetails = {
   image_url: string | null;
 };
 
-function parseTime(t: string | null, fallback: { h: number; m: number }): { h: number; m: number } {
-  if (!t) return fallback;
-  const [h, m] = String(t).split(":").map(Number);
-  return { h: Number.isFinite(h) ? h : fallback.h, m: Number.isFinite(m) ? m : fallback.m };
-}
-
-function slotRange(date: string, open: { h: number; m: number }, close: { h: number; m: number }) {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const openStr = `${pad(open.h)}:${pad(open.m)}:00`;
-  const closeStr = `${pad(close.h)}:${pad(close.m)}:00`;
-  const startLocal = new Date(`${date}T${openStr}+0${TAIWAN_OFFSET_HOURS}:00`);
-  const endLocal = new Date(`${date}T${closeStr}+0${TAIWAN_OFFSET_HOURS}:00`);
-  if (endLocal.getTime() <= startLocal.getTime()) endLocal.setDate(endLocal.getDate() + 1);
-  return { start: startLocal.toISOString(), end: endLocal.toISOString() };
-}
-
 function buildSlotsForRoom(
-  date: string,
-  open: { h: number; m: number },
-  close: { h: number; m: number },
+  day: { startIso: string; endIso: string },
   roomBlocked: { start_time: string; end_time: string }[],
   isToday: boolean
 ): { start: string; end: string; available: boolean }[] {
-  const { start: dayStart, end: dayEnd } = slotRange(date, open, close);
   return buildHalfHourSlots({
-    dayStartIso: dayStart,
-    dayEndIso: dayEnd,
+    dayStartIso: day.startIso,
+    dayEndIso: day.endIso,
     blocked: roomBlocked,
     isToday,
   });
@@ -100,18 +77,9 @@ export async function GET(request: NextRequest) {
       fetchSettings(),
       fetchBranch(branchId),
     ]);
-    const closedDates = resolveClosedDates(
-      (branchForClosed as { closed_dates?: string[] } | null)?.closed_dates,
-      settings.closed_dates
-    );
-    if (isDateClosed(date, closedDates)) {
-      return NextResponse.json({ closed: true });
-    }
-    // Weekly schedule: a weekday marked closed behaves like a closed date.
-    const dayHours = branchForClosed
-      ? hoursForDate(branchForClosed as { open_time?: string | null; close_time?: string | null; weekly_hours?: WeeklyHours | null }, date)
-      : undefined;
-    if (dayHours === null) {
+    // Same day rules (closed dates, weekly hours, window) as checkBookable.
+    const day = resolveDay(branchForClosed, settings.closed_dates, date);
+    if (day.closed) {
       return NextResponse.json({ closed: true });
     }
 
@@ -125,10 +93,8 @@ export async function GET(request: NextRequest) {
       if (!branch || !room || room.branch_id !== branchId) {
         return NextResponse.json({ error: "分店或包廂不存在" }, { status: 404 });
       }
-      const open = parseTime(dayHours?.open ?? branch.open_time, DEFAULT_OPEN);
-      const close = parseTime(dayHours?.close ?? branch.close_time, DEFAULT_CLOSE);
       const roomBlocked = blocked.filter((b) => b.room_id === roomId);
-      const slots = buildSlotsForRoom(date, open, close, roomBlocked, isToday);
+      const slots = buildSlotsForRoom(day, roomBlocked, isToday);
 
       return NextResponse.json({
         slots,
@@ -136,8 +102,8 @@ export async function GET(request: NextRequest) {
         roomType: room.type,
         min_capacity: room.min_capacity,
         branchName: branch.name,
-        openTime: dayHours?.open ?? branch.open_time,
-        closeTime: dayHours?.close ?? branch.close_time,
+        openTime: day.open,
+        closeTime: day.close,
         // ✅ 修正：現在 fetchRoom 已經有正確型別，不需要 as any
         image_url: room.image_url,
       }, { headers: { "Cache-Control": "no-store" } });
@@ -152,12 +118,10 @@ export async function GET(request: NextRequest) {
     if (!branch) {
       return NextResponse.json({ error: "分店不存在" }, { status: 404 });
     }
-    const open = parseTime(dayHours?.open ?? branch.open_time, DEFAULT_OPEN);
-    const close = parseTime(dayHours?.close ?? branch.close_time, DEFAULT_CLOSE);
 
     const roomList = rooms.map((room) => {
       const roomBlocked = blocked.filter((b) => b.room_id === room.id);
-      const slots = buildSlotsForRoom(date, open, close, roomBlocked, isToday);
+      const slots = buildSlotsForRoom(day, roomBlocked, isToday);
       return {
         roomId: room.id,
         roomName: room.name,

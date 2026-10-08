@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   updateReservationAdmin,
-  hasSlotConflict,
   isAdminConfigured,
   supabaseAdmin,
 } from "@/lib/supabase-admin";
+import { BOOKABLE_HTTP, checkBookable } from "@/lib/bookable";
 import { sendLineFlexToBranchGroup, buildRescheduleGroupFlex } from "@/lib/line-notify";
 import { sendLineFlexMessage } from "@/lib/line";
 import { buildGuestBookingRescheduledFlex } from "@/lib/line-cards";
@@ -81,14 +81,6 @@ export async function POST(request: NextRequest) {
     }
 
     const newStartMs = new Date(newStart).getTime();
-    const newEndMs = new Date(newEnd).getTime();
-    const durationHours = (newEndMs - newStartMs) / (60 * 60 * 1000);
-    if (durationHours <= 0) {
-      return NextResponse.json({ error: "結束時間必須晚於開始時間" }, { status: 400 });
-    }
-    if (durationHours < 2 || durationHours > 8) {
-      return NextResponse.json({ error: "預約時長須為 2～8 小時" }, { status: 400 });
-    }
     if (newStartMs - Date.now() < TWENTY_FOUR_HOURS_MS) {
       return NextResponse.json(
         { error: "新時段須在 24 小時後，請選擇更晚的時間" },
@@ -96,9 +88,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const conflict = await hasSlotConflict(match.room_id, newStart, newEnd, id);
-    if (conflict) {
-      return NextResponse.json({ error: "該時段已被預訂，請重新選擇" }, { status: 409 });
+    const bookable = await checkBookable(match.room_id, newStart, newEnd, {
+      actor: "guest",
+      excludeId: id,
+    });
+    if (!bookable.ok) {
+      const { status, error } = BOOKABLE_HTTP[bookable.reason];
+      return NextResponse.json({ error }, { status });
     }
 
     const requestedGuestCount = newGuestCount ?? match.guest_count;

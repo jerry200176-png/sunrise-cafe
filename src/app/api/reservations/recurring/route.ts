@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   insertReservationAdmin,
-  hasSlotConflict,
   fetchRoom,
   isAdminConfigured,
 } from "@/lib/supabase-admin";
+import { BOOKABLE_HTTP, checkBookable } from "@/lib/bookable";
 import { requireAdminApiAuth } from "@/lib/admin-api-auth";
 import { isWeekendDate } from "@/lib/booking-utils";
 
@@ -62,9 +62,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    if (!Number.isFinite(duration) || duration <= 0 || duration > 8) {
+    if (!Number.isFinite(duration) || duration < 2 || duration > 8) {
       return NextResponse.json(
-        { error: "時數須為 1–8 小時" },
+        { error: "時數須為 2–8 小時" },
         { status: 400 }
       );
     }
@@ -88,10 +88,10 @@ export async function POST(request: NextRequest) {
       const start_time = start.toISOString();
       const end_time = end.toISOString();
 
-      const conflict = await hasSlotConflict(roomId, start_time, end_time);
-      if (conflict) {
+      const bookable = await checkBookable(roomId, start_time, end_time, { actor: "admin" });
+      if (!bookable.ok) {
         skipped++;
-        details.push({ week: week + 1, date: dateStr, status: "skipped", error: "該時段已被預訂" });
+        details.push({ week: week + 1, date: dateStr, status: "skipped", error: BOOKABLE_HTTP[bookable.reason].error });
         continue;
       }
 
