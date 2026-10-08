@@ -88,3 +88,18 @@ describe("rbac", () => {
     expect(canAccessBranch(denied, "b1")).toBe(false);
   });
 });
+
+import { resolveBranchScope } from "./rbac";
+
+describe("resolveBranchScope", () => {
+  const mgr = { user_id: "u", role: "branch_manager" as const, branch_ids: ["b1"], legacy: false };
+  it("requested branch must be allowed", () => {
+    expect(resolveBranchScope(mgr, "b1")).toEqual({ ok: true, scope: ["b1"] });
+    expect(resolveBranchScope(mgr, "b2")).toEqual({ ok: false });
+  });
+  it("no request = allowed set; owner = unrestricted; denied = empty", () => {
+    expect(resolveBranchScope(mgr, null)).toEqual({ ok: true, scope: ["b1"] });
+    expect(resolveBranchScope({ ...mgr, role: "owner", branch_ids: null }, null)).toEqual({ ok: true, scope: null });
+    expect(resolveBranchScope({ ...mgr, role: "none", branch_ids: [] }, null)).toEqual({ ok: true, scope: [] });
+  });
+});
