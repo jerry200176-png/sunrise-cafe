@@ -8,6 +8,8 @@ import { parseLineImageMessageId } from "@/lib/payment-event-payload";
 import type { AdminPaymentInteraction } from "@/lib/ops-log";
 import { friendlyMessage } from "@/lib/friendly-error";
 import { paymentSourceLabel, reservationStatusLabel } from "@/lib/status-labels";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { isInteractiveTarget } from "@/lib/payment-shortcuts";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 
@@ -54,8 +56,15 @@ export default function AdminPaymentsPage() {
   const [rejectNote, setRejectNote] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [reconcileResult, setReconcileResult] = useState<ReconcileResult | null>(null);
+  const [confirmApproveId, setConfirmApproveId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  // 同步鎖：state 更新有延遲，連按時第二次請求會搶在 re-render 前送出
+  const inFlight = useRef(false);
+  const confirmVia = useRef<AdminPaymentInteraction>("click");
   const rejectInputRef = useRef<HTMLInputElement>(null);
   const itemRefs = useRef<(HTMLLIElement | null)[]>([]);
+  const itemsRef = useRef<PendingItem[]>([]);
+  itemsRef.current = items;
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const toastId = useRef(0);
 
@@ -123,28 +132,37 @@ export default function AdminPaymentsPage() {
   }, [rejectId]);
 
   const approve = useCallback(async (id: string, interaction: AdminPaymentInteraction = "click") => {
-    const res = await fetch(`/api/admin/payments/${id}/approve`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ interaction }),
-    });
-    if (!res.ok) {
-      const d = await res.json().catch(() => ({}));
-      showToast(friendlyMessage(d.error, res.status), "error");
-      return;
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusyId(id);
+    try {
+      const res = await fetch(`/api/admin/payments/${id}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ interaction }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        showToast(friendlyMessage(d.error, res.status), "error");
+        return;
+      }
+      const data = (await res.json().catch(() => ({}))) as {
+        notification?: { status?: string; error?: string } | null;
+      };
+      if (data.notification && data.notification.status !== "accepted_by_platform") {
+        showToast("款項已確認，但沒能通知客人，請手動傳 LINE", "error");
+      } else {
+        showToast("已確認收款", "success");
+      }
+      const approved = itemsRef.current.find((i) => i.id === id);
+      setItems((prev) => prev.filter((i) => i.id !== id));
+      if (approved) setRisk((prev) => prev.filter((r) => r.booking_code !== approved.booking_code));
+    } catch {
+      showToast("連不上系統，請確認網路後再試", "error");
+    } finally {
+      inFlight.current = false;
+      setBusyId(null);
     }
-    const data = (await res.json().catch(() => ({}))) as {
-      notification?: { status?: string; error?: string } | null;
-    };
-    if (data.notification && data.notification.status !== "accepted_by_platform") {
-      showToast(
-        "款項已確認，但沒能通知客人，請手動傳 LINE",
-        "error"
-      );
-    } else {
-      showToast("已核准付款", "success");
-    }
-    setItems((prev) => prev.filter((i) => i.id !== id));
   }, [showToast]);
 
   const reject = useCallback(async (id: string, interaction: AdminPaymentInteraction = "click") => {
@@ -152,20 +170,30 @@ export default function AdminPaymentsPage() {
       showToast("請填寫駁回原因", "error");
       return;
     }
-    const res = await fetch(`/api/admin/payments/${id}/reject`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ review_note: rejectNote, interaction }),
-    });
-    if (!res.ok) {
-      const d = await res.json().catch(() => ({}));
-      showToast(friendlyMessage(d.error, res.status), "error");
-      return;
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusyId(id);
+    try {
+      const res = await fetch(`/api/admin/payments/${id}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ review_note: rejectNote, interaction }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        showToast(friendlyMessage(d.error, res.status), "error");
+        return;
+      }
+      showToast("已駁回", "success");
+      setRejectId(null);
+      setRejectNote("");
+      setItems((prev) => prev.filter((i) => i.id !== id));
+    } catch {
+      showToast("連不上系統，請確認網路後再試", "error");
+    } finally {
+      inFlight.current = false;
+      setBusyId(null);
     }
-    showToast("已駁回", "success");
-    setRejectId(null);
-    setRejectNote("");
-    setItems((prev) => prev.filter((i) => i.id !== id));
   }, [rejectNote, showToast]);
 
   const openReject = useCallback((id: string) => {
@@ -181,6 +209,7 @@ export default function AdminPaymentsPage() {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (items.length === 0) return;
+      if (confirmApproveId) return; // 確認視窗開著時，快速鍵全部停用
       const target = e.target as HTMLElement;
       const inRejectInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA";
 
@@ -215,8 +244,11 @@ export default function AdminPaymentsPage() {
       if (!selected) return;
 
       if ((e.key === "a" || e.key === "Enter") && !rejectId) {
+        // 焦點在按鈕／連結上時，Enter 屬於那個按鈕（例如「駁回」），不能當成核准
+        if (isInteractiveTarget(e.target)) return;
         e.preventDefault();
-        void approve(selected.id, "keyboard");
+        confirmVia.current = "keyboard";
+        setConfirmApproveId(selected.id);
         return;
       }
       if (e.key === "r" && !rejectId) {
@@ -227,7 +259,7 @@ export default function AdminPaymentsPage() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [items, selectedIndex, rejectId, rejectNote, approve, reject, openReject, closeReject]);
+  }, [items, selectedIndex, rejectId, rejectNote, confirmApproveId, reject, openReject, closeReject]);
 
   const uploadCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -349,15 +381,16 @@ export default function AdminPaymentsPage() {
                     <div className="flex gap-2 items-start">
                       <button
                         type="button"
-                        onClick={() => approve(item.id)}
-                        className="inline-flex items-center gap-1 rounded-xl bg-emerald-600 text-white px-3 py-1.5 text-sm font-medium transition-[background-color] duration-200 hover:bg-emerald-700"
+                        onClick={() => { confirmVia.current = "click"; setConfirmApproveId(item.id); }}
+                        disabled={busyId !== null}
+                        className="inline-flex min-h-[44px] items-center gap-1 rounded-xl bg-emerald-600 text-white px-4 py-2 text-sm font-medium transition-[background-color] duration-200 hover:bg-emerald-700 disabled:opacity-60"
                       >
                         <Check className="w-4 h-4" strokeWidth={1.5} /> 確認已收款
                       </button>
                       <button
                         type="button"
                         onClick={() => setRejectId(item.id)}
-                        className="inline-flex items-center gap-1 rounded-xl border border-red-300 text-red-700 px-3 py-1.5 text-sm transition-[background-color] duration-200 hover:bg-red-50"
+                        className="inline-flex min-h-[44px] items-center gap-1 rounded-xl border border-red-300 text-red-700 px-4 py-2 text-sm transition-[background-color] duration-200 hover:bg-red-50"
                       >
                         <X className="w-4 h-4" strokeWidth={1.5} /> 駁回
                       </button>
@@ -375,7 +408,8 @@ export default function AdminPaymentsPage() {
                       <button
                         type="button"
                         onClick={() => reject(item.id)}
-                        className="rounded-xl bg-red-600 px-3 text-sm text-white transition-[background-color] duration-200 hover:bg-red-700"
+                        disabled={busyId !== null}
+                        className="min-h-[44px] rounded-xl bg-red-600 px-4 text-sm text-white disabled:opacity-60 transition-[background-color] duration-200 hover:bg-red-700"
                       >
                         確認駁回
                       </button>
@@ -446,6 +480,24 @@ export default function AdminPaymentsPage() {
         </section>
       </div>
     </AdminShell>
+      <ConfirmDialog
+        open={confirmApproveId !== null}
+        title="確認已收到這筆款項？"
+        message={(() => {
+          const it = items.find((i) => i.id === confirmApproveId);
+          return it
+            ? `${it.customer_name}${it.deposit_amount != null ? ` 的訂金 NT$${it.deposit_amount}` : ""}。按「確認已收款」後會標記為已付訂金，並用 LINE 通知客人。`
+            : "";
+        })()}
+        confirmLabel="確認已收款"
+        variant="default"
+        onConfirm={() => {
+          const id = confirmApproveId;
+          setConfirmApproveId(null);
+          if (id) void approve(id, confirmVia.current);
+        }}
+        onCancel={() => setConfirmApproveId(null)}
+      />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </>
   );
