@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   markDepositPaid,
+  verifyStripeIntentForReservation,
   markDepositUnpaid,
   updateDepositInfo,
   type DepositEffects,
@@ -105,5 +106,31 @@ describe("unpaid and info edits", () => {
     expect(w.audits).toEqual([]);
     await updateDepositInfo("r1", { lastFive: "22222" }, w.fx);
     expect(w.audits[0]).toMatchObject({ action: "deposit.note_updated" });
+  });
+});
+
+describe("verifyStripeIntentForReservation (binding + amount)", () => {
+  const fx = (boundTo: string | null, total: number | null) => ({
+    intentReservationId: async () => boundTo,
+    totalPrice: async () => total,
+  });
+  const pi = (over = {}) => ({ id: "pi_1", amount: 500, currency: "twd", metadata: { reservationId: "r1" }, ...over });
+  const check = (p: ReturnType<typeof pi>, f = fx("r1", 1000)) => verifyStripeIntentForReservation(p, "r1", f);
+
+  it("correct, sufficient intent is accepted", async () => {
+    expect(await check(pi())).toEqual({ ok: true });
+  });
+  it("intent created for another reservation is refused (metadata)", async () => {
+    expect(await check(pi({ metadata: { reservationId: "other" } }))).toMatchObject({ ok: false, status: 403 });
+  });
+  it("intent recorded against another reservation is refused (payment_intents row)", async () => {
+    expect(await check(pi(), fx("other", 1000))).toMatchObject({ ok: false, status: 403 });
+  });
+  it("intent without metadata is refused", async () => {
+    expect(await check(pi({ metadata: {} }))).toMatchObject({ ok: false, status: 403 });
+  });
+  it("underpaid and wrong-currency intents are refused", async () => {
+    expect(await check(pi({ amount: 100 }))).toMatchObject({ ok: false, status: 409 });
+    expect(await check(pi({ currency: "usd" }))).toMatchObject({ ok: false, status: 409 });
   });
 });

@@ -12,6 +12,7 @@
  * `getDepositAmount` (booking-utils).
  */
 import { createClient } from "@supabase/supabase-js";
+import { getDepositAmount } from "@/lib/booking-utils";
 import { logDepositStatusChange, type DepositAuditActor } from "@/lib/payment-log";
 import {
   notifyPaymentApproved,
@@ -203,4 +204,52 @@ export async function updateDepositInfo(
       after,
     });
   }
+}
+
+/* ------------------------------------------------ Stripe binding check */
+
+export type StripeIntentFacts = {
+  id: string;
+  amount: number;
+  currency: string;
+  metadata?: Record<string, string> | null;
+};
+
+export type StripeBindingEffects = {
+  /** reservation_id recorded for this PaymentIntent by create-intent, if any */
+  intentReservationId(piId: string): Promise<string | null>;
+  totalPrice(reservationId: string): Promise<number | null>;
+};
+
+const supabaseBindingEffects: StripeBindingEffects = {
+  async intentReservationId(piId) {
+    const { data } = await db().from("payment_intents").select("reservation_id").eq("stripe_pi_id", piId).maybeSingle();
+    return (data?.reservation_id as string | undefined) ?? null;
+  },
+  async totalPrice(id) {
+    const { data } = await db().from("reservations").select("total_price").eq("id", id).maybeSingle();
+    return data?.total_price == null ? null : Number(data.total_price);
+  },
+};
+
+/**
+ * A succeeded PaymentIntent may mark a reservation paid only if it was created
+ * for that reservation and covers its deposit. Without this, any succeeded PI
+ * could be replayed against someone else's reservation.
+ */
+export async function verifyStripeIntentForReservation(
+  pi: StripeIntentFacts,
+  reservationId: string,
+  fx: StripeBindingEffects = supabaseBindingEffects
+): Promise<{ ok: true } | { ok: false; status: 403 | 409; error: string }> {
+  const bound = await fx.intentReservationId(pi.id);
+  if (pi.metadata?.reservationId !== reservationId || (bound !== null && bound !== reservationId)) {
+    return { ok: false, status: 403, error: "付款與此預約不符" };
+  }
+  const total = await fx.totalPrice(reservationId);
+  const required = total == null ? 0 : getDepositAmount(total);
+  if (pi.currency.toLowerCase() !== "twd" || !(pi.amount > 0) || pi.amount < required) {
+    return { ok: false, status: 409, error: "付款金額不足" };
+  }
+  return { ok: true };
 }
