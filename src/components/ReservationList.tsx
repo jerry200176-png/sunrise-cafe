@@ -35,6 +35,7 @@ const STATUS_OPTIONS: { value: ReservationStatus; label: string }[] = [
   { value: "checked_in", label: "已到店" },
   { value: "completed", label: "已完成" },
   { value: "cancelled", label: "已取消" },
+  { value: "no_show", label: "沒來" },
 ];
 
 const STATUS_STYLES: Record<string, string> = {
@@ -43,6 +44,7 @@ const STATUS_STYLES: Record<string, string> = {
   checked_in: "bg-emerald-100 text-emerald-800",
   cancelled: "bg-gray-100 text-gray-600",
   completed: "bg-blue-100 text-blue-800",
+  no_show: "bg-rose-100 text-rose-800",
   paid: "bg-blue-100 text-blue-800",
 };
 
@@ -1081,7 +1083,16 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                         ✅ 已到店
                       </button>
                     )}
-                    {r.status !== "completed" && (
+                    {(r.status === "pending" || r.status === "confirmed") && new Date(r.start_time).getTime() <= Date.now() && (
+                      <button
+                        type="button"
+                        onClick={() => updateStatus(r.id, "no_show")}
+                        className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                      >
+                        🚫 沒來
+                      </button>
+                    )}
+                    {r.status !== "completed" && r.status !== "no_show" && (
                       <button
                         type="button"
                         onClick={() => updateStatus(r.id, "completed")}

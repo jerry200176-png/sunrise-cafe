@@ -58,9 +58,28 @@ export type Suggestion = {
   href: string;
 };
 
+/** 店員對某個建議按下的決定，連同當下的數字。 */
+export type Decision = {
+  suggestionId: string;
+  decision: "adopted" | "skipped";
+  decidedAt: string;
+  snapshot: { title: string; numbers: Suggestion["numbers"]; impactNt: number };
+};
+
+/** 已採用的建議：滿 4 週後給出前後對照；建議不再出現 = 已改善。 */
+export type AdoptedView = {
+  suggestionId: string;
+  title: string;
+  decidedAt: string;
+  before: Suggestion["numbers"];
+  /** 還不到 4 週為 null */
+  after: { resolved: boolean; numbers: Suggestion["numbers"] } | null;
+  daysLeft: number;
+};
+
 export type AdviceResult =
   | { enough: false; weeksToWait: number; bookings: number; weeksCovered: number }
-  | { enough: true; top: Suggestion[]; more: Suggestion[] };
+  | { enough: true; top: Suggestion[]; more: Suggestion[]; adopted?: AdoptedView[] };
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 const nt = (n: number) => `NT$${Math.round(n).toLocaleString("zh-TW")}`;
@@ -242,4 +261,29 @@ export function buildAdvice(input: AdviceInput, topN = 3): AdviceResult {
   all.push(...compareBranches(input.branches));
   all.sort((a, b) => b.impactNt - a.impactNt || a.id.localeCompare(b.id));
   return { enough: true, top: all.slice(0, topN), more: all.slice(topN) };
+}
+
+const OUTCOME_DAYS = 28;
+
+/** 把店員的採用／略過套上去：略過的不再出現；採用的移到「已採用」，滿 4 週給前後對照。 */
+export function applyDecisions(result: AdviceResult, decisions: Decision[], now = new Date(), topN = 3): AdviceResult {
+  if (!result.enough) return result;
+  const all = [...result.top, ...result.more];
+  const decided = new Map(decisions.map((d) => [d.suggestionId, d]));
+  const open = all.filter((s) => !decided.has(s.id));
+  const adopted: AdoptedView[] = decisions
+    .filter((d) => d.decision === "adopted")
+    .map((d) => {
+      const days = Math.floor((now.getTime() - new Date(d.decidedAt).getTime()) / 86_400_000);
+      const current = all.find((s) => s.id === d.suggestionId);
+      return {
+        suggestionId: d.suggestionId,
+        title: d.snapshot.title,
+        decidedAt: d.decidedAt,
+        before: d.snapshot.numbers,
+        after: days >= OUTCOME_DAYS ? { resolved: !current, numbers: current?.numbers ?? [] } : null,
+        daysLeft: Math.max(0, OUTCOME_DAYS - days),
+      };
+    });
+  return { enough: true, top: open.slice(0, topN), more: open.slice(topN), adopted };
 }

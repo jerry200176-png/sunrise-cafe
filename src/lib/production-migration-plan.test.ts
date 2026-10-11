@@ -11,6 +11,7 @@ import { applyBookingMeals, migrationBody } from "../../scripts/apply-migration-
 import { applyPreorderMenuSeed, migrationBody as menuSeedBody } from "../../scripts/apply-migration-preorder-menu-seed.mjs";
 import { applyBranchGuestSettings, migrationBody as branchGuestSettingsBody } from "../../scripts/apply-migration-branch-guest-settings.mjs";
 import { applyBranchWeeklyHours, migrationBody as branchWeeklyHoursBody } from "../../scripts/apply-migration-branch-weekly-hours.mjs";
+import { applyNoShowAdvice, migrationBody as noShowAdviceBody } from "../../scripts/apply-migration-no-show-advice.mjs";
 import { applyBranchesArchive, migrationBody as branchesArchiveBody } from "../../scripts/apply-migration-branches-archive.mjs";
 import { applyLineDeliveries, migrationBody as lineDeliveriesBody } from "../../scripts/apply-migration-line-deliveries.mjs";
 import { applyMenuOptionSets, migrationBody as menuOptionSetsBody } from "../../scripts/apply-migration-menu-option-sets.mjs";
@@ -93,6 +94,7 @@ describe("explicit production migration plan", () => {
       "20261008-branches-archive",
       "20261008-line-deliveries",
       "20261009-menu-option-sets",
+      "20261011-no-show-advice",
     ]);
     expect(postdeployUnits.length).toBeLessThan(postdeployEntries.length);
     expect(postdeployUnits.every((entry) => entry.phase === "postdeploy")).toBe(true);
@@ -100,7 +102,7 @@ describe("explicit production migration plan", () => {
 
   it("runs the preorder prerequisite before booking meals and rejects a missing prerequisite", async () => {
     const units = phaseExecutionUnits(plan, "predeploy") as typeof plan.entries;
-    expect(units.map((entry) => entry.runner).slice(-8)).toEqual([
+    expect(units.map((entry) => entry.runner).slice(-9)).toEqual([
       "scripts/apply-migration-booking-meals.mjs",
       "scripts/apply-migration-preorder-menu-seed.mjs",
       "scripts/apply-migration-branch-guest-settings.mjs",
@@ -109,6 +111,7 @@ describe("explicit production migration plan", () => {
       "scripts/apply-migration-branches-archive.mjs",
       "scripts/apply-migration-line-deliveries.mjs",
       "scripts/apply-migration-menu-option-sets.mjs",
+      "scripts/apply-migration-no-show-advice.mjs",
     ]);
     let began = false;
     const sql = Object.assign(async () => [], { begin: async () => { began = true; } });
@@ -184,6 +187,19 @@ describe("explicit production migration plan", () => {
     await expect(applyDepositTransferInfo(sql as never)).rejects.toThrow(/deposit transfer columns missing/);
   });
 
+  it("no-show advice: widens one CHECK, adds one table, deletes nothing, fails closed", async () => {
+    const body = noShowAdviceBody(readFileSync(join(root, "supabase/migration-no-show-advice.sql"), "utf8"));
+    expect(body).toContain("'no_show'");
+    expect(body).toContain("CREATE TABLE IF NOT EXISTS advice_decisions");
+    expect(body).toContain("TO service_role");
+    expect(body).not.toMatch(/\b(DELETE FROM|TRUNCATE|DROP TABLE|UPDATE)\b/i);
+    const sql = Object.assign(
+      async (strings: TemplateStringsArray) => (strings.join("").includes("schema_migrations") ? [{ "?column?": 1 }] : []),
+      { begin: async () => {} }
+    );
+    await expect(applyNoShowAdvice(sql as never)).rejects.toThrow(/advice_decisions table missing/);
+  });
+
   it("adds archived_at and a delete guard, touches no existing rows, and fails closed when missing", async () => {
     const body = branchesArchiveBody(readFileSync(join(root, "supabase/migration-branches-archive.sql"), "utf8"));
     expect(body).toContain("ADD COLUMN IF NOT EXISTS archived_at timestamptz;");
@@ -257,6 +273,7 @@ describe("explicit production migration plan", () => {
       "scripts/apply-migration-branches-archive.mjs",
       "scripts/apply-migration-line-deliveries.mjs",
       "scripts/apply-migration-menu-option-sets.mjs",
+      "scripts/apply-migration-no-show-advice.mjs",
     ]);
   });
 
@@ -276,7 +293,7 @@ describe("explicit production migration plan", () => {
     });
     expect(alreadyApplied.phase).toBe("predeploy");
     expect(calls).toHaveLength((phaseExecutionUnits(plan, "predeploy") as unknown[]).length);
-    expect(calls).toHaveLength(10);
+    expect(calls).toHaveLength(11);
 
     const emptyPlan = { schema_version: 2, entries: [] };
     const postdeploy = await executePhase(emptyPlan, "postdeploy", async () => {
