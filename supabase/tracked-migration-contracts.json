@@ -434,6 +434,20 @@
     ]
   },
   {
+    "version": "20261008-branches-archive",
+    "file": "migration-branches-archive.sql",
+    "critical": true,
+    "evidence": [
+      {
+        "type": "column",
+        "table": "branches",
+        "name": "archived_at",
+        "introspect": "catalog",
+        "note": "Nullable; set = branch archived (hidden, data kept). A BEFORE DELETE trigger also blocks deleting branches with reservations/orders"
+      }
+    ]
+  },
+  {
     "version": "20261008-line-deliveries",
     "file": "migration-line-deliveries.sql",
     "critical": true,

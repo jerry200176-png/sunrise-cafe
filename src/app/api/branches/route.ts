@@ -7,7 +7,9 @@ import { validateWeeklyHours, type WeeklyHours } from "@/lib/branch-hours";
 export async function GET(request: NextRequest) {
   try {
     // The admin branch editor round-trips LINE group / payment fields; guests only get the public subset.
-    const data = (await hasValidAdminSession(request)) ? await fetchBranches() : await fetchPublicBranches();
+    const isAdmin = await hasValidAdminSession(request);
+    const includeArchived = isAdmin && request.nextUrl.searchParams.get("include") === "archived";
+    const data = isAdmin ? await fetchBranches(includeArchived) : await fetchPublicBranches();
     return NextResponse.json(data ?? []);
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法載入分店";

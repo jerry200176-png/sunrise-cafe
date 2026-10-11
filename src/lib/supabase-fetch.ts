@@ -39,9 +39,10 @@ function adminHeaders(extra: HeadersInit = {}) {
   };
 }
 
-export async function fetchBranches(): Promise<unknown[]> {
+/** 預設不含已封存的分店；後台「已封存」清單用 includeArchived。 */
+export async function fetchBranches(includeArchived = false): Promise<unknown[]> {
   const { url: baseUrl } = base();
-  const res = await fetch(`${baseUrl}/rest/v1/branches?select=*&order=name.asc`, {
+  const res = await fetch(`${baseUrl}/rest/v1/branches?select=*&order=name.asc${includeArchived ? "" : "&archived_at=is.null"}`, {
     method: "GET",
     headers: headers(),
     cache: "no-store",
@@ -57,7 +58,7 @@ export async function fetchBranches(): Promise<unknown[]> {
 export async function fetchPublicBranches(): Promise<unknown[]> {
   const { url: baseUrl } = base();
   const res = await fetch(
-    `${baseUrl}/rest/v1/branches?select=id,name,address,phone,open_time,close_time,closed_dates,display_name,rental_notes,deposit_info&order=name.asc`,
+    `${baseUrl}/rest/v1/branches?select=id,name,address,phone,open_time,close_time,closed_dates,display_name,rental_notes,deposit_info&archived_at=is.null&order=name.asc`,
     { method: "GET", headers: headers(), cache: "no-store" }
   );
   if (!res.ok) {
@@ -96,7 +97,7 @@ export async function insertBranch(body: {
 
 export async function updateBranch(
   id: string,
-  body: Partial<{ name: string; address: string | null; phone: string | null; open_time: string | null; close_time: string | null; line_group_id: string | null; display_name: string | null; payment_info: string | null; line_pay_url: string | null; closed_dates: string[]; rental_notes: import("@/types").RentalNoteSection[] | null; deposit_info: string | null; google_review_url: string | null; weekly_hours: import("@/lib/branch-hours").WeeklyHours | null }>
+  body: Partial<{ name: string; address: string | null; phone: string | null; open_time: string | null; close_time: string | null; line_group_id: string | null; display_name: string | null; payment_info: string | null; line_pay_url: string | null; closed_dates: string[]; rental_notes: import("@/types").RentalNoteSection[] | null; deposit_info: string | null; google_review_url: string | null; weekly_hours: import("@/lib/branch-hours").WeeklyHours | null; archived_at: string | null }>
 ): Promise<void> {
   const { url: baseUrl } = base();
   const res = await fetch(`${baseUrl}/rest/v1/branches?id=eq.${encodeURIComponent(id)}`, {
@@ -110,16 +111,9 @@ export async function updateBranch(
   }
 }
 
-export async function deleteBranch(id: string): Promise<void> {
-  const { url: baseUrl } = base();
-  const res = await fetch(`${baseUrl}/rest/v1/branches?id=eq.${encodeURIComponent(id)}`, {
-    method: "DELETE",
-    headers: adminHeaders(),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Supabase branches delete: ${res.status} ${text || res.statusText}`);
-  }
+/** 封存（或還原）分店。不刪除任何資料：包廂、訂位、訂單都保留。 */
+export async function setBranchArchived(id: string, archived: boolean): Promise<void> {
+  await updateBranch(id, { archived_at: archived ? new Date().toISOString() : null });
 }
 
 export async function fetchSettings(): Promise<{ current_branch_id: string | null; rental_notes: import("@/types").RentalNoteSection[]; closed_dates: string[]; deposit_info: string | null; payment_keywords: string[]; google_review_url: string | null }> {
