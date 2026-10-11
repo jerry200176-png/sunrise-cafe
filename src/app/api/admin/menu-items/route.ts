@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { requirePermission } from "@/lib/admin-api-auth";
+import { setItemOptionSets } from "@/lib/option-sets-db";
 
 function adminClient() {
   return createClient(
@@ -24,12 +25,23 @@ export async function GET(request: NextRequest) {
     .order("display_order");
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json(data ?? []);
+  // 每個餐點「直接」套用的選項組（經由分類套用的不在內，表單另外標示）
+  const itemIds = (data ?? []).map((item) => item.id as string);
+  const links = itemIds.length
+    ? await adminClient().from("menu_option_set_items").select("set_id,item_id").in("item_id", itemIds)
+    : { data: [], error: null };
+  if (links.error) return NextResponse.json({ error: links.error.message }, { status: 500 });
+  return NextResponse.json(
+    (data ?? []).map((item) => ({
+      ...item,
+      option_set_ids: (links.data ?? []).filter((l) => l.item_id === item.id).map((l) => l.set_id),
+    }))
+  );
 }
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { branch_id, category_id, name, description, price, image_url, display_order, preorder_eligible, options } =
+  const { branch_id, category_id, name, description, price, image_url, display_order, preorder_eligible, option_set_ids } =
     body;
 
   if (typeof branch_id !== "string" || typeof name !== "string" || !name.trim() || price === undefined) {
@@ -37,8 +49,8 @@ export async function POST(request: NextRequest) {
   }
   const denied = await requirePermission(request, "orders:write", branch_id);
   if (denied) return denied;
-  if (!Number.isFinite(Number(price)) || Number(price) < 0 || !Array.isArray(options ?? [])) {
-    return NextResponse.json({ error: "價格或選項格式不正確" }, { status: 400 });
+  if (!Number.isFinite(Number(price)) || Number(price) < 0 || !Array.isArray(option_set_ids ?? [])) {
+    return NextResponse.json({ error: "價格或選項組格式不正確" }, { status: 400 });
   }
 
   const db = adminClient();
@@ -65,13 +77,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error?.message ?? "無法新增餐點" }, { status: 500 });
   }
 
-  // 新增選項
-  if (Array.isArray(options) && options.length > 0) {
-    const result = await db.rpc("replace_menu_item_options", { p_item_id: item.id, p_options: options });
-    if (result.error) {
-      await db.from("menu_items").delete().eq("id", item.id);
-      return NextResponse.json({ error: result.error.message }, { status: 400 });
-    }
+  // 套用選項組（分類上的選項組會在同步時一併帶入）
+  try {
+    await setItemOptionSets(db, branch_id, item.id, Array.isArray(option_set_ids) ? option_set_ids : []);
+  } catch (err) {
+    await db.from("menu_items").delete().eq("id", item.id);
+    return NextResponse.json({ error: err instanceof Error ? err.message : "無法套用選項組" }, { status: 400 });
   }
 
   return NextResponse.json({ ok: true, id: item.id });
