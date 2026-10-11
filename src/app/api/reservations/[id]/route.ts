@@ -8,9 +8,8 @@ import {
   assertReservationRestoreAllowed,
 } from "@/lib/reservation-access";
 import { fetchReservationBranchId, fetchRoom } from "@/lib/supabase-admin";
-import { logDepositStatusChange } from "@/lib/payment-log";
-import { createClient } from "@supabase/supabase-js";
-import { notifyPaymentApproved, paymentNotificationStatus, type NotifyPaymentApprovedResult } from "@/lib/payment-notify";
+import { markDepositPaid, markDepositUnpaid, updateDepositInfo } from "@/lib/deposit-paid";
+import { paymentNotificationStatus, type NotifyPaymentApprovedResult } from "@/lib/payment-notify";
 import { requirePreorderReconfirmation } from "@/lib/reservation-preorder";
 import {
   intentForStatusChange,
@@ -20,13 +19,6 @@ import {
   type Intent,
 } from "@/lib/reservation-lifecycle";
 import { isPostgresExclusionViolation } from "@/lib/slot-conflict";
-
-function supabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
-}
 
 export async function PATCH(
   request: NextRequest,
@@ -57,33 +49,32 @@ export async function PATCH(
     if (body.total_price !== undefined) patch.total_price = body.total_price == null ? null : Number(body.total_price);
     if (body.guest_count !== undefined) patch.guest_count = body.guest_count == null ? null : Number(body.guest_count);
     if (body.notes !== undefined) patch.notes = body.notes == null || body.notes === "" ? null : String(body.notes).trim();
-    if (body.is_deposit_paid !== undefined) patch.is_deposit_paid = Boolean(body.is_deposit_paid);
+    // Deposit state is owned by lib/deposit-paid; the tracking columns are not patchable.
+    const dep: { paid?: boolean; note?: string | null; paidOn?: string | null; lastFive?: string | null } = {};
+    if (body.is_deposit_paid !== undefined) dep.paid = Boolean(body.is_deposit_paid);
     if (body.deposit_payment_note !== undefined)
-      patch.deposit_payment_note = body.deposit_payment_note == null || body.deposit_payment_note === "" ? null : String(body.deposit_payment_note);
+      dep.note = body.deposit_payment_note == null || body.deposit_payment_note === "" ? null : String(body.deposit_payment_note);
     if (body.deposit_paid_on !== undefined) {
       const v = body.deposit_paid_on == null || body.deposit_paid_on === "" ? null : String(body.deposit_paid_on);
       if (v !== null && !/^\d{4}-\d{2}-\d{2}$/.test(v)) {
         return NextResponse.json({ error: "匯款日期格式錯誤" }, { status: 400 });
       }
-      patch.deposit_paid_on = v;
+      dep.paidOn = v;
     }
     if (body.deposit_last_five !== undefined) {
       const v = body.deposit_last_five == null || body.deposit_last_five === "" ? null : String(body.deposit_last_five).trim();
       if (v !== null && !/^\d{5}$/.test(v)) {
         return NextResponse.json({ error: "末五碼須為 5 位數字" }, { status: 400 });
       }
-      patch.deposit_last_five = v;
+      dep.lastFive = v;
     }
-    if (body.deposit_approved_notified_at !== undefined)
-      patch.deposit_approved_notified_at = body.deposit_approved_notified_at == null || body.deposit_approved_notified_at === "" ? null : String(body.deposit_approved_notified_at);
-    if (body.deposit_approved_claim_at !== undefined)
-      patch.deposit_approved_claim_at = body.deposit_approved_claim_at == null || body.deposit_approved_claim_at === "" ? null : String(body.deposit_approved_claim_at);
-    if (body.deposit_approved_retry_key !== undefined)
-      patch.deposit_approved_retry_key = body.deposit_approved_retry_key == null || body.deposit_approved_retry_key === "" ? null : String(body.deposit_approved_retry_key);
-    if (body.deposit_approved_guest_retry_key !== undefined)
-      patch.deposit_approved_guest_retry_key = body.deposit_approved_guest_retry_key == null || body.deposit_approved_guest_retry_key === "" ? null : String(body.deposit_approved_guest_retry_key);
-    if (body.deposit_approved_retry_key_created_at !== undefined)
-      patch.deposit_approved_retry_key_created_at = body.deposit_approved_retry_key_created_at == null || body.deposit_approved_retry_key_created_at === "" ? null : String(body.deposit_approved_retry_key_created_at);
+    const depKeys = {
+      ...(dep.paid !== undefined ? { is_deposit_paid: dep.paid } : {}),
+      ...(dep.note !== undefined ? { deposit_payment_note: dep.note } : {}),
+      ...(dep.paidOn !== undefined ? { deposit_paid_on: dep.paidOn } : {}),
+      ...(dep.lastFive !== undefined ? { deposit_last_five: dep.lastFive } : {}),
+    };
+    const touchesDeposit = Object.keys(depKeys).length > 0;
 
     const requestedStatus: string | undefined = typeof body.status === "string" ? body.status : undefined;
     const wantsRestore = body.intent === "restore";
@@ -93,7 +84,7 @@ export async function PATCH(
     if (body.intent !== undefined && !wantsRestore) {
       return NextResponse.json({ error: "不支援的操作" }, { status: 400 });
     }
-    if (Object.keys(patch).length === 0 && requestedStatus === undefined && !wantsRestore) {
+    if (Object.keys(patch).length === 0 && !touchesDeposit && requestedStatus === undefined && !wantsRestore) {
       return NextResponse.json({ error: "未提供可更新欄位" }, { status: 400 });
     }
 
@@ -109,8 +100,12 @@ export async function PATCH(
     }
     const ctx = await getAdminContext(request);
     const rbacDenied =
-      Object.keys(patch).length > 0 || requestedStatus !== undefined
-        ? assertReservationPatchAllowed(ctx, requestedStatus !== undefined ? { ...patch, status: requestedStatus } : patch, branchId)
+      Object.keys(patch).length > 0 || touchesDeposit || requestedStatus !== undefined
+        ? assertReservationPatchAllowed(
+            ctx,
+            { ...patch, ...depKeys, ...(requestedStatus !== undefined ? { status: requestedStatus } : {}) },
+            branchId
+          )
         : null;
     if (rbacDenied) {
       return NextResponse.json({ error: rbacDenied }, { status: 403 });
@@ -128,30 +123,6 @@ export async function PATCH(
       const planned = intentForStatusChange(current.status, requestedStatus);
       if ("error" in planned) return NextResponse.json({ error: planned.error }, { status: 409 });
       if ("intent" in planned) intent = planned.intent;
-    }
-
-    const touchesDepositInfo =
-      patch.deposit_payment_note !== undefined ||
-      patch.deposit_paid_on !== undefined ||
-      patch.deposit_last_five !== undefined;
-    const touchesDeposit = patch.is_deposit_paid !== undefined || touchesDepositInfo;
-    let beforeRow: {
-      is_deposit_paid: boolean;
-      deposit_payment_note: string | null;
-      deposit_paid_on: string | null;
-      deposit_last_five: string | null;
-      deposit_approved_notified_at?: string | null;
-      status: string;
-      booking_code: string;
-    } | null = null;
-
-    if (touchesDeposit) {
-      const { data } = await supabaseAdmin()
-        .from("reservations")
-        .select("is_deposit_paid, deposit_payment_note, deposit_paid_on, deposit_last_five, deposit_approved_notified_at, status, booking_code")
-        .eq("id", id)
-        .single();
-      if (data) beforeRow = data;
     }
 
     if (Object.keys(patch).length > 0) await updateReservationAdmin(id, patch);
@@ -175,93 +146,15 @@ export async function PATCH(
       lineResult = result.lineResult ?? null;
     }
 
-    if (beforeRow && touchesDeposit) {
-      const afterPaid =
-        patch.is_deposit_paid !== undefined
-          ? Boolean(patch.is_deposit_paid)
-          : beforeRow.is_deposit_paid;
-      const afterNote =
-        patch.deposit_payment_note !== undefined
-          ? patch.deposit_payment_note
-          : beforeRow.deposit_payment_note;
-      const afterPaidOn =
-        patch.deposit_paid_on !== undefined ? patch.deposit_paid_on : beforeRow.deposit_paid_on;
-      const afterLastFive =
-        patch.deposit_last_five !== undefined ? patch.deposit_last_five : beforeRow.deposit_last_five;
-
-      if (beforeRow.is_deposit_paid !== afterPaid) {
-        logDepositStatusChange({
-          action: afterPaid ? "deposit.marked_paid" : "deposit.marked_unpaid",
-          reservation_id: id,
-          booking_code: beforeRow.booking_code,
-          actor_type: "admin_session",
-          before: {
-            is_deposit_paid: beforeRow.is_deposit_paid,
-            deposit_payment_note: beforeRow.deposit_payment_note,
-            deposit_paid_on: beforeRow.deposit_paid_on,
-            deposit_last_five: beforeRow.deposit_last_five,
-            status: beforeRow.status,
-          },
-          after: {
-            is_deposit_paid: afterPaid,
-            deposit_payment_note: afterNote,
-            deposit_paid_on: afterPaidOn,
-            deposit_last_five: afterLastFive,
-            status: requestedStatus ?? beforeRow.status,
-          },
-        });
-        if (afterPaid) {
-          try {
-            paymentNotification = await notifyPaymentApproved(id, {
-              actor: "admin_session",
-              reviewNote: afterNote,
-              manualApproval: true,
-            });
-          } catch (err) {
-            console.error("[reservations/id] notifyPaymentApproved failed:", err);
-            paymentNotification = { ok: false, error: "notification_dispatch_failed" };
-          }
-        }
-      } else if (
-        afterPaid &&
-        patch.is_deposit_paid !== undefined &&
-        !beforeRow.deposit_approved_notified_at
-      ) {
-        // Retry path: already marked paid, but notification previously failed/timed out
-        try {
-          paymentNotification = await notifyPaymentApproved(id, {
-            actor: "admin_session",
-            reviewNote: afterNote,
-            manualApproval: true,
-          });
-        } catch (err) {
-          console.error("[reservations/id] notifyPaymentApproved retry failed:", err);
-          paymentNotification = { ok: false, error: "notification_dispatch_failed" };
-        }
-      } else if (
-        touchesDepositInfo &&
-        (beforeRow.deposit_payment_note !== afterNote ||
-          beforeRow.deposit_paid_on !== afterPaidOn ||
-          beforeRow.deposit_last_five !== afterLastFive)
-      ) {
-        logDepositStatusChange({
-          action: "deposit.note_updated",
-          reservation_id: id,
-          booking_code: beforeRow.booking_code,
-          actor_type: "admin_session",
-          before: {
-            is_deposit_paid: beforeRow.is_deposit_paid,
-            deposit_payment_note: beforeRow.deposit_payment_note,
-            deposit_paid_on: beforeRow.deposit_paid_on,
-            deposit_last_five: beforeRow.deposit_last_five,
-          },
-          after: {
-            is_deposit_paid: afterPaid,
-            deposit_payment_note: afterNote,
-            deposit_paid_on: afterPaidOn,
-            deposit_last_five: afterLastFive,
-          },
-        });
+    if (touchesDeposit) {
+      const evidence = { note: dep.note, paidOn: dep.paidOn, lastFive: dep.lastFive };
+      const actor = ctx.user_id ?? ctx.email ?? null;
+      if (dep.paid === true) {
+        ({ notification: paymentNotification } = await markDepositPaid(id, "admin_patch", evidence, actor));
+      } else if (dep.paid === false) {
+        await markDepositUnpaid(id, evidence);
+      } else {
+        await updateDepositInfo(id, evidence);
       }
     }
 

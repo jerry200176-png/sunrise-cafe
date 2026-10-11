@@ -21,11 +21,6 @@ const DEPOSIT_FIELDS = new Set([
   "deposit_payment_note",
   "deposit_paid_on",
   "deposit_last_five",
-  "deposit_approved_notified_at",
-  "deposit_approved_claim_at",
-  "deposit_approved_retry_key",
-  "deposit_approved_guest_retry_key",
-  "deposit_approved_retry_key_created_at",
 ]);
 
 export type ReservationPatch = Record<string, unknown>;

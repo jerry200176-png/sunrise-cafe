@@ -27,6 +27,8 @@ export type DepositAuditActor =
   | "line_webhook_text"
   | "line_webhook_image"
   | "admin_payment_review"
+  | "stripe_webhook"
+  | "stripe_confirm"
   | "cron_deposit_deadline"
   | "system";
 

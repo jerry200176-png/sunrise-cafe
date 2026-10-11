@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe, isStripeEnabled } from "@/lib/stripe";
 import { createClient } from "@supabase/supabase-js";
+import { markDepositPaid, verifyStripeIntentForReservation } from "@/lib/deposit-paid";
 import { logOps } from "@/lib/ops-log";
 
 function supabaseAdmin() {
@@ -63,15 +64,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "預約不存在" }, { status: 404 });
     }
 
+    // 付款必須屬於此預約且足額，否則任何成功的 PaymentIntent 都能替別人的預約標記已付
+    const binding = await verifyStripeIntentForReservation(paymentIntent, reservationId);
+    if (!binding.ok) {
+      return NextResponse.json({ error: binding.error }, { status: binding.status });
+    }
+
     // 若尚未被 webhook 標記，在此補標
     if (reservation.deposit_status !== "paid" || !reservation.is_deposit_paid) {
-      await supabaseAdmin()
-        .from("reservations")
-        .update({
-          deposit_status: "paid",
-          is_deposit_paid: true,
-        })
-        .eq("id", reservationId);
+      await markDepositPaid(reservationId, "stripe_confirm", {}, "stripe");
 
       await supabaseAdmin()
         .from("payment_intents")

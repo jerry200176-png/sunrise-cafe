@@ -1,3 +1,4 @@
+import { getDepositAmount } from "@/lib/booking-utils";
 import { Resend } from "resend";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -13,7 +14,7 @@ export async function sendBookingConfirmation(opts: {
   totalPrice: number | null;
 }): Promise<void> {
   const { to, customerName, bookingCode, roomName, dateLabel, startLabel, endLabel, totalPrice } = opts;
-  const deposit = totalPrice ? Math.ceil(totalPrice * 0.5) : null;
+  const deposit = totalPrice ? getDepositAmount(totalPrice) : null;
 
   const priceSection = totalPrice
     ? `<p>💰 <strong>總金額：</strong>NT$${totalPrice}</p>
