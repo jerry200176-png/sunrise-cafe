@@ -434,6 +434,33 @@
     ]
   },
   {
+    "version": "20261008-branches-archive",
+    "file": "migration-branches-archive.sql",
+    "critical": true,
+    "evidence": [
+      {
+        "type": "column",
+        "table": "branches",
+        "name": "archived_at",
+        "introspect": "catalog",
+        "note": "Nullable; set = branch archived (hidden, data kept). A BEFORE DELETE trigger also blocks deleting branches with reservations/orders"
+      }
+    ]
+  },
+  {
+    "version": "20261008-line-deliveries",
+    "file": "migration-line-deliveries.sql",
+    "critical": true,
+    "evidence": [
+      {
+        "type": "table",
+        "name": "line_deliveries",
+        "introspect": "rest",
+        "note": "deliverOnce ledger; unique (kind, reservation_id, recipient_id, event_key)"
+      }
+    ]
+  },
+  {
     "version": "20261009-menu-option-sets",
     "file": "migration-menu-option-sets.sql",
     "critical": true,

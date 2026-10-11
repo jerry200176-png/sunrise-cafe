@@ -26,6 +26,8 @@
     ,{ "version": "20260928-branch-guest-settings", "file": "migration-branch-guest-settings.sql", "runner": "scripts/apply-migration-branch-guest-settings.mjs", "phase": "predeploy" }
     ,{ "version": "20260928-branch-weekly-hours", "file": "migration-branch-weekly-hours.sql", "runner": "scripts/apply-migration-branch-weekly-hours.mjs", "phase": "predeploy" }
     ,{ "version": "20260929-reservations-deposit-transfer-info", "file": "migration-reservations-deposit-transfer-info.sql", "runner": "scripts/apply-migration-reservations-deposit-transfer-info.mjs", "phase": "predeploy" }
+    ,{ "version": "20261008-branches-archive", "file": "migration-branches-archive.sql", "runner": "scripts/apply-migration-branches-archive.mjs", "phase": "predeploy" }
+    ,{ "version": "20261008-line-deliveries", "file": "migration-line-deliveries.sql", "runner": "scripts/apply-migration-line-deliveries.mjs", "phase": "predeploy" }
     ,{ "version": "20261009-menu-option-sets", "file": "migration-menu-option-sets.sql", "runner": "scripts/apply-migration-menu-option-sets.mjs", "phase": "predeploy" }
   ]
 }

@@ -16,6 +16,8 @@ export interface Branch {
   google_review_url?: string | null;
   /** 每週營業時間；null = 每天用 open_time/close_time */
   weekly_hours?: import("@/lib/branch-hours").WeeklyHours | null;
+  /** 有值 = 已封存（隱藏但資料保留） */
+  archived_at?: string | null;
   created_at: string;
 }
 

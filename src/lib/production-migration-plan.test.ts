@@ -11,6 +11,8 @@ import { applyBookingMeals, migrationBody } from "../../scripts/apply-migration-
 import { applyPreorderMenuSeed, migrationBody as menuSeedBody } from "../../scripts/apply-migration-preorder-menu-seed.mjs";
 import { applyBranchGuestSettings, migrationBody as branchGuestSettingsBody } from "../../scripts/apply-migration-branch-guest-settings.mjs";
 import { applyBranchWeeklyHours, migrationBody as branchWeeklyHoursBody } from "../../scripts/apply-migration-branch-weekly-hours.mjs";
+import { applyBranchesArchive, migrationBody as branchesArchiveBody } from "../../scripts/apply-migration-branches-archive.mjs";
+import { applyLineDeliveries, migrationBody as lineDeliveriesBody } from "../../scripts/apply-migration-line-deliveries.mjs";
 import { applyMenuOptionSets, migrationBody as menuOptionSetsBody } from "../../scripts/apply-migration-menu-option-sets.mjs";
 import { applyDepositTransferInfo, migrationBody as depositTransferInfoBody } from "../../scripts/apply-migration-reservations-deposit-transfer-info.mjs";
 
@@ -88,6 +90,8 @@ describe("explicit production migration plan", () => {
       "20260928-branch-guest-settings",
       "20260928-branch-weekly-hours",
       "20260929-reservations-deposit-transfer-info",
+      "20261008-branches-archive",
+      "20261008-line-deliveries",
       "20261009-menu-option-sets",
     ]);
     expect(postdeployUnits.length).toBeLessThan(postdeployEntries.length);
@@ -96,13 +100,14 @@ describe("explicit production migration plan", () => {
 
   it("runs the preorder prerequisite before booking meals and rejects a missing prerequisite", async () => {
     const units = phaseExecutionUnits(plan, "predeploy") as typeof plan.entries;
-    expect(units.map((entry) => entry.runner).slice(-7)).toEqual([
-      "scripts/apply-migration-reservation-preorder.mjs",
+    expect(units.map((entry) => entry.runner).slice(-8)).toEqual([
       "scripts/apply-migration-booking-meals.mjs",
       "scripts/apply-migration-preorder-menu-seed.mjs",
       "scripts/apply-migration-branch-guest-settings.mjs",
       "scripts/apply-migration-branch-weekly-hours.mjs",
       "scripts/apply-migration-reservations-deposit-transfer-info.mjs",
+      "scripts/apply-migration-branches-archive.mjs",
+      "scripts/apply-migration-line-deliveries.mjs",
       "scripts/apply-migration-menu-option-sets.mjs",
     ]);
     let began = false;
@@ -137,6 +142,23 @@ describe("explicit production migration plan", () => {
     await expect(applyBranchGuestSettings(sql as never)).rejects.toThrow(/override columns missing/);
   });
 
+  it("line_deliveries migration is additive, wrapped in a transaction, and verified after apply", async () => {
+    const source = readFileSync(join(root, "supabase/migration-line-deliveries.sql"), "utf8");
+    const body = lineDeliveriesBody(source);
+    expect(body).toContain("CREATE TABLE IF NOT EXISTS line_deliveries");
+    // service-role only: RLS on, no policy for anon/authenticated, explicit revokes, pinned search_path
+    expect(body).toContain("ENABLE ROW LEVEL SECURITY");
+    expect(body).toMatch(/REVOKE ALL ON TABLE line_deliveries FROM PUBLIC, anon, authenticated/);
+    expect(body).toMatch(/REVOKE ALL ON FUNCTION claim_line_delivery\([^)]*\) FROM PUBLIC, anon, authenticated/);
+    expect(body).toContain("SET search_path = public, pg_temp");
+    const code = body.replace(/^--.*$/gm, "");
+    expect(code).not.toMatch(/\bGRANT [^;]*(anon|authenticated)/i);
+    expect(body).not.toMatch(/CREATE POLICY[^;]*(anon|authenticated|PUBLIC)/i);
+    expect(body).not.toMatch(/DROP TABLE|DELETE FROM|TRUNCATE|ALTER TABLE (?!line_deliveries)/i);
+    const sql = Object.assign(async () => [], { begin: async () => {} });
+    await expect(applyLineDeliveries(sql as never)).rejects.toThrow(/missing from schema_migrations/);
+  });
+
   it("adds only the nullable weekly_hours column and fails closed when it is missing", async () => {
     const body = branchWeeklyHoursBody(readFileSync(join(root, "supabase/migration-branch-weekly-hours.sql"), "utf8"));
     expect(body).toContain("ADD COLUMN IF NOT EXISTS weekly_hours jsonb;");
@@ -160,6 +182,20 @@ describe("explicit production migration plan", () => {
       { begin: async () => {} }
     );
     await expect(applyDepositTransferInfo(sql as never)).rejects.toThrow(/deposit transfer columns missing/);
+  });
+
+  it("adds archived_at and a delete guard, touches no existing rows, and fails closed when missing", async () => {
+    const body = branchesArchiveBody(readFileSync(join(root, "supabase/migration-branches-archive.sql"), "utf8"));
+    expect(body).toContain("ADD COLUMN IF NOT EXISTS archived_at timestamptz;");
+    expect(body).toContain("BEFORE DELETE ON branches");
+    expect(body).toContain("RAISE EXCEPTION");
+    expect(body).not.toMatch(/\b(UPDATE|NOT NULL|DEFAULT|TRUNCATE)\b/i);
+    expect(body).not.toMatch(/DELETE FROM/i);
+    const sql = Object.assign(
+      async (strings: TemplateStringsArray) => (strings.join("").includes("schema_migrations") ? [{ "?column?": 1 }] : []),
+      { begin: async () => {} }
+    );
+    await expect(applyBranchesArchive(sql as never)).rejects.toThrow(/archived_at column missing/);
   });
 
   it("option sets: needs the booking-meals prerequisite, never deletes data, fails closed", async () => {
@@ -218,6 +254,8 @@ describe("explicit production migration plan", () => {
       "scripts/apply-migration-branch-guest-settings.mjs",
       "scripts/apply-migration-branch-weekly-hours.mjs",
       "scripts/apply-migration-reservations-deposit-transfer-info.mjs",
+      "scripts/apply-migration-branches-archive.mjs",
+      "scripts/apply-migration-line-deliveries.mjs",
       "scripts/apply-migration-menu-option-sets.mjs",
     ]);
   });
@@ -238,6 +276,7 @@ describe("explicit production migration plan", () => {
     });
     expect(alreadyApplied.phase).toBe("predeploy");
     expect(calls).toHaveLength((phaseExecutionUnits(plan, "predeploy") as unknown[]).length);
+    expect(calls).toHaveLength(10);
 
     const emptyPlan = { schema_version: 2, entries: [] };
     const postdeploy = await executePhase(emptyPlan, "postdeploy", async () => {
