@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "session_id": "6f6c50a5d53f4b1c93c98daede74285e",
   "project": "sunrise",
-  "task_id": "SUNRISE-ADMIN-MIG-OPTION-SETS-A",
+  "task_id": "SUNRISE-OPTION-SETS-B",
   "repo_remote": "https://github.com/jerry200176-png/sunrise-cafe.git",
   "base_sha": "5efbe46ba7f518fc4d6c7f3a463da365eeb5bede",
   "branch": "chore/task-SUNRISE-OPTION-SETS-B",
