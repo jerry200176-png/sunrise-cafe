@@ -7,6 +7,7 @@ import Image from "next/image";
 import type { Branch, Room, RentalNoteSection, MenuItem } from "@/types";
 import type { DraftItemInput } from "@/lib/reservation-preorder";
 import { MenuPicker } from "@/components/MenuPicker";
+import { selectionProblem } from "@/lib/option-sets";
 import { getDurationOptions, getDepositAmount, isWeekendDate } from "@/lib/booking-utils";
 import { normalizePhone } from "@/lib/phone-utils";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
@@ -433,6 +434,8 @@ export default function BookPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedStart) return;
+    const mealProblem = selectionProblem(mealCatalog, mealItems);
+    if (mealProblem) { setError(mealProblem); return; }
 
     const nextFieldErrors: Record<string, string> = {};
     if (!name.trim()) {

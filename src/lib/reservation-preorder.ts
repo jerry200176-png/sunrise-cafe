@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { logOps } from "@/lib/ops-log";
+import { checkOptionSelection, type RuleOption } from "@/lib/option-sets";
 
 export type PreorderStatus = "draft" | "submitted" | "locked" | "cancelled";
 export type DraftItemInput = {
@@ -86,7 +87,7 @@ export async function getPreorderCatalog(reservationId: string) {
   if (!room?.branch_id) return { reservation, items: [] };
   const { data, error } = await supabaseAdmin()
     .from("menu_items")
-    .select("id,name,description,price,image_url,category_id,options:menu_item_options(id,option_group,option_name,price_delta)")
+    .select("id,name,description,price,image_url,category_id,options:menu_item_options(id,option_group,option_name,price_delta,set_id,set:menu_option_sets(min_select,max_select))")
     .eq("branch_id", room.branch_id)
     .eq("preorder_eligible", true)
     .eq("is_available", true)
@@ -97,13 +98,14 @@ export async function getPreorderCatalog(reservationId: string) {
 
 type CatalogItem = {
   id: string; name: string; price: number | string; branch_id: string; is_available: boolean;
-  options: Array<{ id: string; option_group: string; option_name: string; price_delta: number | string }>;
+  options: Array<RuleOption & { option_name: string; price_delta: number | string }>;
 };
 
 export async function validateAndSnapshotItems(
   reservation: { room?: { branch_id?: string } | { branch_id?: string }[] | null },
   rawItems: DraftItemInput[],
   preorderOnly = true,
+  enforceMin = true,
 ): Promise<PreorderItemSnapshot[]> {
   const items = canonicalDraftItems(rawItems);
   const room = Array.isArray(reservation.room) ? reservation.room[0] : reservation.room;
@@ -113,7 +115,7 @@ export async function validateAndSnapshotItems(
   if (ids.length === 0) return [];
   let query = supabaseAdmin()
     .from("menu_items")
-    .select("id,name,price,branch_id,is_available,options:menu_item_options(id,option_group,option_name,price_delta)")
+    .select("id,name,price,branch_id,is_available,options:menu_item_options(id,option_group,option_name,price_delta,set_id,set:menu_option_sets(min_select,max_select))")
     .in("id", ids)
     .eq("branch_id", branchId)
     .eq("is_available", true);
@@ -130,9 +132,8 @@ export async function validateAndSnapshotItems(
       if (!option) throw new Error("餐點選項已變更，請重新選擇");
       return { id, group: option.option_group, name: option.option_name, delta: Number(option.price_delta) };
     });
-    if (new Set(selected.map((option) => option.group)).size !== selected.length) {
-      throw new Error("每組餐點選項只能選一項");
-    }
+    const problem = checkOptionSelection(catalog.options ?? [], selected.map((option) => option.id), enforceMin);
+    if (problem) throw new Error(`${catalog.name}：${problem}`);
     return {
       source_menu_item_id: catalog.id,
       item_name_snapshot: catalog.name,
@@ -149,7 +150,7 @@ export async function savePreorderDraft(reservationId: string, items: DraftItemI
   if (!reservation) throw new Error("找不到訂位");
   if (["cancelled", "completed"].includes(reservation.status)) throw new Error("此訂位目前無法提前選餐");
   if (isPreorderCutoffPassed(reservation.start_time)) throw new Error("已超過提前選餐截止時間");
-  await validateAndSnapshotItems(reservation, items);
+  await validateAndSnapshotItems(reservation, items, true, false); // 草稿可以還沒選完必選項
   const existing = await getReservationPreorder(reservationId);
   if ((existing?.status === "submitted" || existing?.status === "locked") && !existing.requires_reconfirmation) {
     throw new Error("此訂位的預製餐點已送出");

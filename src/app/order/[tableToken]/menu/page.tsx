@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ShoppingCart, X, Plus, Minus } from "lucide-react";
 import type { MenuCategory, MenuItem, CartItem, SelectedOption } from "@/types";
+import { checkOptionSelection, optionGroupRules } from "@/lib/option-sets";
 import { BranchMenuBanner, MENU_PHOTO_NOTE, ZoomableImage } from "@/components/ZoomableImage";
 
 export default function MenuPage() {
@@ -65,13 +66,7 @@ export default function MenuPage() {
 
   const openSheet = (item: MenuItem) => {
     setSheetItem(item);
-    // 預設每個 group 選第一個選項
-    const grouped: Record<string, SelectedOption[]> = {};
-    (item.options ?? []).forEach(o => {
-      if (!grouped[o.option_group]) grouped[o.option_group] = [];
-      grouped[o.option_group].push({ group: o.option_group, name: o.option_name, delta: o.price_delta });
-    });
-    setSheetOptions(Object.values(grouped).map(g => g[0]));
+    setSheetOptions([]); // 必選的由顧客自己選，不預設
     setSheetQty(1);
     setSheetNotes("");
   };
@@ -92,22 +87,25 @@ export default function MenuPage() {
     setSheetItem(null);
   };
 
-  const setOptionChoice = (group: string, name: string, delta: number) => {
-    setSheetOptions(prev => {
-      const filtered = prev.filter(o => o.group !== group);
-      return [...filtered, { group, name, delta }];
+  const toggleOption = (item: MenuItem, groupKey: string, name: string, delta: number) => {
+    const group = optionGroupRules(item.options ?? []).find((g) => g.key === groupKey);
+    if (!group) return;
+    const label = group.label;
+    const inGroup = (o: SelectedOption) => o.group === label;
+    setSheetOptions((prev) => {
+      if (prev.some((o) => inGroup(o) && o.name === name)) return prev.filter((o) => !(inGroup(o) && o.name === name));
+      if (group.max === 1) return [...prev.filter((o) => !inGroup(o)), { group: label, name, delta }];
+      if (group.max != null && prev.filter(inGroup).length >= group.max) return prev;
+      return [...prev, { group: label, name, delta }];
     });
   };
 
-  // 按分類 groups
-  const optionGroups = (item: MenuItem) => {
-    const groups: Record<string, { name: string; delta: number }[]> = {};
-    (item.options ?? []).forEach(o => {
-      if (!groups[o.option_group]) groups[o.option_group] = [];
-      groups[o.option_group].push({ name: o.option_name, delta: o.price_delta });
-    });
-    return groups;
-  };
+  const sheetProblem = sheetItem
+    ? checkOptionSelection(
+        sheetItem.options ?? [],
+        sheetOptions.map((o) => (sheetItem.options ?? []).find((opt) => opt.option_group === o.group && opt.option_name === o.name)?.id ?? "?"),
+      )
+    : null;
 
   return (
     <main className="min-h-screen bg-gray-50 pb-28">
@@ -197,20 +195,26 @@ export default function MenuPage() {
             </div>
 
             {/* 選項群組 */}
-            {Object.entries(optionGroups(sheetItem)).map(([group, opts]) => (
-              <div key={group} className="mb-4">
-                <p className="text-sm font-medium text-gray-700 mb-2">{group}</p>
+            {optionGroupRules(sheetItem.options ?? []).map((group) => (
+              <div key={group.key} className="mb-4">
+                <p className="text-sm font-medium text-gray-700 mb-2">
+                  {group.label}
+                  <span className="ml-2 text-xs text-gray-500">
+                    {group.min >= 1 ? (group.max === 1 ? "必選一個" : `至少選 ${group.min} 項`) : group.max === 1 ? "可不選" : group.max ? `可多選，最多 ${group.max} 項` : "可多選"}
+                  </span>
+                </p>
                 <div className="flex flex-wrap gap-2">
-                  {opts.map(opt => {
-                    const selected = sheetOptions.some(o => o.group === group && o.name === opt.name);
+                  {(sheetItem.options ?? []).filter((o) => group.optionIds.includes(o.id)).map((opt) => {
+                    const selected = sheetOptions.some((o) => o.group === group.label && o.name === opt.option_name);
                     return (
                       <button
-                        key={opt.name}
+                        key={opt.id}
                         type="button"
-                        onClick={() => setOptionChoice(group, opt.name, opt.delta)}
+                        aria-pressed={selected}
+                        onClick={() => toggleOption(sheetItem, group.key, opt.option_name, Number(opt.price_delta))}
                         className={`rounded-full px-3 py-1.5 text-sm border ${selected ? "bg-amber-600 text-white border-amber-600" : "border-gray-300 text-gray-700"}`}
                       >
-                        {opt.name}{opt.delta > 0 ? ` +$${opt.delta}` : ""}
+                        {opt.option_name}{Number(opt.price_delta) > 0 ? ` +$${opt.price_delta}` : ""}
                       </button>
                     );
                   })}
@@ -244,9 +248,10 @@ export default function MenuPage() {
               <button
                 type="button"
                 onClick={addToCart}
-                className="flex-1 rounded-xl bg-amber-600 py-3 font-bold text-white"
+                disabled={Boolean(sheetProblem)}
+                className="flex-1 rounded-xl bg-amber-600 py-3 font-bold text-white disabled:opacity-50"
               >
-                加入購物車
+                {sheetProblem ?? "加入購物車"}
               </button>
             </div>
           </div>

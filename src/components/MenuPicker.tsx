@@ -1,14 +1,13 @@
 "use client";
 
-import type { MenuItem, MenuItemOption } from "@/types";
+import type { MenuItem } from "@/types";
 import { MENU_PHOTO_NOTE, ZoomableImage } from "@/components/ZoomableImage";
 import type { DraftItemInput } from "@/lib/reservation-preorder";
+import { optionGroupRules } from "@/lib/option-sets";
 
-function groupOptions(options: MenuItemOption[]): Record<string, MenuItemOption[]> {
-  return options.reduce((groups, option) => {
-    (groups[option.option_group] ??= []).push(option);
-    return groups;
-  }, {} as Record<string, MenuItemOption[]>);
+function ruleHint(min: number, max: number | null) {
+  if (min >= 1) return max === 1 ? "必選一個" : `至少選 ${min} 項`;
+  return max === 1 ? "可不選" : max ? `可多選，最多 ${max} 項` : "可多選";
 }
 
 export function MenuPicker({ items, value, onChange, disabled = false }: {
@@ -42,16 +41,27 @@ export function MenuPicker({ items, value, onChange, disabled = false }: {
                 className="ml-2 w-20 rounded border border-stone-300 bg-white px-2 py-1">
                 {Array.from({ length: 99 }, (_, index) => index + 1).map((amount) => <option key={amount} value={amount}>{amount}</option>)}
               </select></label>
-              {Object.entries(groupOptions(item.options ?? [])).map(([group, options]) =>
-                <fieldset key={group} className="text-sm"><legend className="font-medium text-stone-700">{group}</legend><div className="mt-1 flex flex-wrap gap-3">
-                  {(options ?? []).map((option) => <label key={option.id} className="inline-flex items-center gap-1">
-                    <input type="checkbox" disabled={disabled} checked={(row.option_ids ?? []).includes(option.id)}
-                      onChange={(event) => change(item.id, { option_ids: event.target.checked
-                        ? [...(row.option_ids ?? []).filter((id) => !options?.some((choice) => choice.id === id)), option.id]
-                        : (row.option_ids ?? []).filter((id) => id !== option.id) })} />
+              {optionGroupRules(item.options ?? []).map((group) => {
+                const picked = (row.option_ids ?? []).filter((id) => group.optionIds.includes(id));
+                const toggle = (id: string, on: boolean) => {
+                  const rest = (row.option_ids ?? []).filter((x) => x !== id);
+                  // 最多一項：換成新選的；多選：到上限就不再加
+                  if (!on) return change(item.id, { option_ids: rest });
+                  if (group.max === 1) return change(item.id, { option_ids: [...rest.filter((x) => !group.optionIds.includes(x)), id] });
+                  if (group.max != null && picked.length >= group.max) return;
+                  change(item.id, { option_ids: [...rest, id] });
+                };
+                return <fieldset key={group.key} className="text-sm"><legend className="font-medium text-stone-700">{group.label}
+                  <span className={`ml-2 text-xs ${group.min >= 1 && picked.length < group.min ? "text-rose-700" : "text-stone-500"}`}>{ruleHint(group.min, group.max)}</span></legend><div className="mt-1 flex flex-wrap gap-3">
+                  {(item.options ?? []).filter((option) => group.optionIds.includes(option.id)).map((option) => <label key={option.id} className="inline-flex items-center gap-1">
+                    <input type={group.max === 1 ? "radio" : "checkbox"} name={`${item.id}:${group.key}`} disabled={disabled || (group.max != null && group.max > 1 && picked.length >= group.max && !picked.includes(option.id))}
+                      checked={picked.includes(option.id)}
+                      onClick={group.max === 1 && group.min === 0 && picked.includes(option.id) ? () => toggle(option.id, false) : undefined}
+                      onChange={(event) => toggle(option.id, event.target.checked)} />
                     {option.option_name}{Number(option.price_delta) ? ` +${option.price_delta}` : ""}
                   </label>)}
-                </div></fieldset>)}
+                </div></fieldset>;
+              })}
               <input aria-label={`${item.name}備註`} value={row.special_notes ?? ""} maxLength={500} disabled={disabled}
                 onChange={(event) => change(item.id, { special_notes: event.target.value })}
                 placeholder="特殊需求（選填）" className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm" />
