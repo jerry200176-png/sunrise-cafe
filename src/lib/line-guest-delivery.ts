@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { deliverOnce } from "@/lib/deliver-once";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type LineGuestDeliveryClaim =
@@ -56,8 +57,8 @@ export async function claimLineGuestNotificationDelivery(input: {
   };
 }
 
-/** Deliver one automatic guest notification after its durable claim succeeds. */
-export async function deliverLineGuestNotification(input: {
+/** Deliver one automatic guest lifecycle notification at most once (see deliver-once.ts). */
+export function deliverLineGuestNotification(input: {
   notificationType: Exclude<LineGuestNotificationType, "deposit_request">;
   reservationId: string;
   recipientId: string;
@@ -65,49 +66,10 @@ export async function deliverLineGuestNotification(input: {
   send: () => Promise<void>;
   client?: SupabaseClient;
 }): Promise<"sent" | "skipped" | "error"> {
-  const claim = await claimLineGuestNotificationDelivery({
-    notificationType: input.notificationType,
-    reservationId: input.reservationId,
-    recipientId: input.recipientId,
+  return deliverOnce(input.notificationType, input.reservationId, input.recipientId, input.send, {
     eventKey: input.eventKey,
     client: input.client,
   });
-  if (claim.available && !claim.id) return "skipped";
-
-  try {
-    await input.send();
-    if (claim.id) {
-      try {
-        await markLineGuestNotificationDelivery(claim.id, { status: "sent" }, input.client);
-      } catch (error) {
-        console.warn(
-          "[line-guest-delivery] success state update failed:",
-          error instanceof Error ? error.message : String(error)
-        );
-      }
-    }
-    return "sent";
-  } catch (error) {
-    if (claim.id) {
-      try {
-        await markLineGuestNotificationDelivery(
-          claim.id,
-          { status: "failed", error: error instanceof Error ? error.message : String(error) },
-          input.client
-        );
-      } catch (markError) {
-        console.warn(
-          "[line-guest-delivery] failure state update failed:",
-          markError instanceof Error ? markError.message : String(markError)
-        );
-      }
-    }
-    console.error(
-      `[line-guest-delivery] ${input.notificationType} push failed:`,
-      error instanceof Error ? error.message : String(error)
-    );
-    return "error";
-  }
 }
 
 export async function markLineGuestNotificationDelivery(
