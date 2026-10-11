@@ -4,7 +4,7 @@ import { seedAdminSession } from "./helpers/admin-session";
 test.describe("後台首頁", () => {
   test("訂位列表在最上面，店務設定在下面；底部導覽有「訂位」", async ({ page, context }) => {
     await seedAdminSession(context);
-    await page.route("**/api/branches", (r) =>
+    await page.route(/\/api\/branches(\?.*)?$/, (r) =>
       r.fulfill({ json: [{ id: "b1", name: "E2E 店", closed_dates: [] }] })
     );
     await page.route("**/api/reservations**", (r) => r.fulfill({ json: [] }));

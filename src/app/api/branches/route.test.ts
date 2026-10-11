@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { GET } from "./route";
 import * as adminAuth from "@/lib/admin-api-auth";
+import * as fetchLib from "@/lib/supabase-fetch";
 
 const PUBLIC_ROW = { id: "b1", name: "昇咖啡 大安店", display_name: "昇昇咖啡 (大安店)" };
 const FULL_ROW = { ...PUBLIC_ROW, line_group_id: "Cgroup", payment_info: "銀行…", line_pay_url: "https://pay" };
@@ -30,5 +31,16 @@ describe("GET /api/branches", () => {
     vi.spyOn(adminAuth, "hasValidAdminSession").mockResolvedValue(true);
     const res = await GET(new NextRequest("https://test.local/api/branches"));
     expect(await res.json()).toEqual([FULL_ROW]);
+    expect(fetchLib.fetchBranches).toHaveBeenCalledWith(false);
+  });
+
+  it("only an admin can ask for archived branches", async () => {
+    vi.spyOn(adminAuth, "hasValidAdminSession").mockResolvedValue(true);
+    await GET(new NextRequest("https://test.local/api/branches?include=archived"));
+    expect(fetchLib.fetchBranches).toHaveBeenCalledWith(true);
+    vi.spyOn(adminAuth, "hasValidAdminSession").mockResolvedValue(false);
+    await GET(new NextRequest("https://test.local/api/branches?include=archived"));
+    expect(fetchLib.fetchPublicBranches).toHaveBeenCalled();
+    expect(fetchLib.fetchBranches).toHaveBeenCalledTimes(1);
   });
 });

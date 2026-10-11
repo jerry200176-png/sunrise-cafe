@@ -432,5 +432,19 @@
         "note": "CHECK 5 digits — not visible via PostgREST"
       }
     ]
+  },
+  {
+    "version": "20261008-branches-archive",
+    "file": "migration-branches-archive.sql",
+    "critical": true,
+    "evidence": [
+      {
+        "type": "column",
+        "table": "branches",
+        "name": "archived_at",
+        "introspect": "catalog",
+        "note": "Nullable; set = branch archived (hidden, data kept). A BEFORE DELETE trigger also blocks deleting branches with reservations/orders"
+      }
+    ]
   }
 ]
