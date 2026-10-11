@@ -1,0 +1,58 @@
+import { describe, expect, it } from "vitest";
+import { buildAdvice, type BranchMetrics } from "@/lib/business-advice";
+
+const hours = (m: Record<number, number>) => Array.from({ length: 24 }, (_, h) => m[h] ?? 0);
+const base = (over: Partial<BranchMetrics> = {}): BranchMetrics => ({
+  branchId: "b1", branchName: "A店", bookings: 40, cancelled: 2, cancelledUnpaid: 0, noShows: 0, depositPaid: 36, avgPrice: 1000,
+  hourBookings: hours({ 12: 10, 14: 10, 18: 10, 19: 10 }), rooms: [{ id: "r1", name: "包廂1", bookings: 20 }, { id: "r2", name: "包廂2", bookings: 20 }],
+  uniqueGuests: 30, repeatGuests: 12, preorderBookings: 20, ...over,
+});
+const ids = (r: ReturnType<typeof buildAdvice>) => (r.enough ? [...r.top, ...r.more].map((s) => s.id) : []);
+
+describe("buildAdvice", () => {
+  it.each([
+    ["under 4 weeks", { weeksCovered: 2, branches: [base()] }, 2],
+    ["under 20 bookings", { weeksCovered: 5, branches: [base({ bookings: 10 })] }, 5],
+  ])("not enough data: %s", (_n, input, wait) => {
+    const r = buildAdvice(input);
+    expect(r.enough).toBe(false);
+    if (!r.enough) expect(r.weeksToWait).toBe(wait);
+  });
+
+  it("healthy branch: no suggestions", () => {
+    const r = buildAdvice({ weeksCovered: 4, branches: [base()] });
+    expect(r).toEqual({ enough: true, top: [], more: [] });
+  });
+
+  it.each([
+    ["no-show", { noShows: 4 }, "no-show:b1"],
+    ["unpaid cancel", { cancelledUnpaid: 8, cancelled: 8 }, "unpaid-cancel:b1"],
+    ["deposit rate", { depositPaid: 20 }, "deposit-rate:b1"],
+    ["off peak", { hourBookings: hours({ 12: 12, 15: 2, 18: 10 }) }, "off-peak:b1"],
+    ["preorder", { preorderBookings: 2 }, "preorder:b1"],
+    ["room imbalance", { rooms: [{ id: "r1", name: "大包廂", bookings: 32 }, { id: "r2", name: "小包廂", bookings: 3 }] }, "room-imbalance:b1"],
+    ["repeat", { repeatGuests: 1 }, "repeat:b1"],
+  ])("fires %s", (_n, over, id) => {
+    expect(ids(buildAdvice({ weeksCovered: 4, branches: [base(over)] }))).toContain(id);
+  });
+
+  it("ranks by NT$ impact, top 3 then more, each with numbers and a link", () => {
+    const r = buildAdvice({ weeksCovered: 6, branches: [base({ noShows: 8, cancelledUnpaid: 6, depositPaid: 20, preorderBookings: 2, repeatGuests: 1 })] });
+    if (!r.enough) throw new Error("expected enough");
+    expect(r.top).toHaveLength(3);
+    const all = [...r.top, ...r.more];
+    expect(all.map((s) => s.impactNt)).toEqual([...all.map((s) => s.impactNt)].sort((a, b) => b - a));
+    expect(r.more.length).toBeGreaterThan(0);
+    for (const s of all) {
+      expect(s.numbers.length).toBeGreaterThan(0);
+      expect(s.href).toMatch(/^\/admin\//);
+    }
+  });
+
+  it("branch comparison only with 2+ branches and a real gap", () => {
+    const a = base();
+    const small = base({ branchId: "b2", branchName: "B店", bookings: 20, depositPaid: 18, preorderBookings: 10, uniqueGuests: 15, repeatGuests: 6, hourBookings: hours({ 12: 5, 18: 5 }), rooms: [] });
+    expect(ids(buildAdvice({ weeksCovered: 4, branches: [a, small] }))).toContain("branch-gap:b2");
+    expect(ids(buildAdvice({ weeksCovered: 4, branches: [a] })).some((i) => i.startsWith("branch-gap"))).toBe(false);
+  });
+});
