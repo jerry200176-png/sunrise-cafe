@@ -39,6 +39,7 @@ export type Intent =
   | { type: "confirm" }
   | { type: "check_in" }
   | { type: "complete" }
+  | { type: "no_show" }
   | { type: "cancel"; reason?: CancelReason }
   | { type: "restore" }
   | { type: "reschedule"; start: string; end: string; guestCount?: number | null };
@@ -84,18 +85,21 @@ export type Result =
 
 /** Admin transition table. `restore` (cancelled -> back) is the only way out of cancelled. */
 const ADMIN_TABLE: Record<string, Partial<Record<Intent["type"], ReservationStatus>>> = {
-  pending: { confirm: "confirmed", check_in: "checked_in", complete: "completed", cancel: "cancelled" },
-  confirmed: { check_in: "checked_in", complete: "completed", cancel: "cancelled" },
+  pending: { confirm: "confirmed", check_in: "checked_in", complete: "completed", cancel: "cancelled", no_show: "no_show" },
+  confirmed: { check_in: "checked_in", complete: "completed", cancel: "cancelled", no_show: "no_show" },
   checked_in: { complete: "completed", cancel: "cancelled" },
   completed: {},
   cancelled: { restore: "pending" },
+  // 沒來：店員標記，只有標記過的才算放鳥；標錯可以還原。
+  no_show: { restore: "pending" },
 };
 
-const STATUS_TO_INTENT: Record<string, "confirm" | "check_in" | "complete" | "cancel"> = {
+const STATUS_TO_INTENT: Record<string, "confirm" | "check_in" | "complete" | "cancel" | "no_show"> = {
   confirmed: "confirm",
   checked_in: "check_in",
   completed: "complete",
   cancelled: "cancel",
+  no_show: "no_show",
 };
 
 /**
@@ -199,6 +203,10 @@ export async function transitionReservation(
         ? "此訂位已取消，請使用「還原」"
         : `目前狀態無法執行此操作（${snap.status}）`;
     return fail("invalid_transition", msg, 409);
+  }
+
+  if (intent.type === "no_show" && new Date(snap.start_time).getTime() > now) {
+    return fail("invalid_transition", "還沒到訂位時間，不能標記沒來", 409);
   }
 
   if (intent.type === "restore") {

@@ -86,7 +86,8 @@ export type ReservationStatus =
   | "confirmed"
   | "checked_in"
   | "cancelled"
-  | "completed";
+  | "completed"
+  | "no_show";
 
 // 對應 Supabase 表 settings
 export interface Settings {

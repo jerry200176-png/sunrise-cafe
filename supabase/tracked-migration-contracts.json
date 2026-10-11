@@ -472,5 +472,20 @@
       { "type": "column", "table": "menu_item_options", "name": "set_id", "introspect": "rest" },
       { "type": "column", "table": "menu_item_options", "name": "set_option_id", "introspect": "rest" }
     ]
+  },
+  {
+    "version": "20261011-no-show-advice",
+    "file": "migration-no-show-advice.sql",
+    "critical": true,
+    "evidence": [
+      { "type": "table", "name": "advice_decisions", "introspect": "rest" },
+      {
+        "type": "constraint",
+        "name": "reservations_status_check",
+        "table": "reservations",
+        "introspect": "unsupported",
+        "note": "CHECK now includes no_show — not visible via PostgREST"
+      }
+    ]
   }
 ]

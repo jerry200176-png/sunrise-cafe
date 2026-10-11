@@ -119,6 +119,32 @@ describe("side effects per intent", () => {
   });
 });
 
+describe("no_show (沒來)", () => {
+  const past = { start_time: new Date(Date.now() - 3 * H).toISOString(), end_time: new Date(Date.now() - 1 * H).toISOString() };
+  it.each(["pending", "confirmed"])("%s after the start time -> no_show, audited", async (from) => {
+    const w = world({ status: from, ...past });
+    expect(await run(w, { type: "no_show" }, admin)).toMatchObject({ ok: true, status: "no_show" });
+    expect(w.audits[0]).toMatchObject({ intent: "no_show", from, to: "no_show" });
+  });
+  it("is refused before the booking time and writes nothing", async () => {
+    const w = world({ status: "confirmed" });
+    expect(await run(w, { type: "no_show" }, admin)).toMatchObject({ ok: false, httpStatus: 409 });
+    expect(w.calls).toEqual([]);
+  });
+  it.each(["checked_in", "completed", "cancelled"])("%s cannot become no_show", async (from) => {
+    const w = world({ status: from, ...past });
+    expect(await run(w, { type: "no_show" }, admin)).toMatchObject({ ok: false, code: "invalid_transition" });
+  });
+  it("can be restored when marked by mistake; guests cannot mark it", async () => {
+    const w = world({ status: "no_show", ...past });
+    expect(await run(w, { type: "restore" }, admin)).toMatchObject({ ok: true, status: "pending" });
+    expect(await run(world({ status: "confirmed", ...past }), { type: "no_show" }, guest)).toMatchObject({ ok: false });
+  });
+  it("PATCH status=no_show maps to the intent", () => {
+    expect(intentForStatusChange("confirmed", "no_show")).toEqual({ intent: { type: "no_show" } });
+  });
+});
+
 describe("restore (還原)", () => {
   it("returns to confirmed when the deposit is already paid", async () => {
     const w = world({ status: "cancelled", is_deposit_paid: true });
