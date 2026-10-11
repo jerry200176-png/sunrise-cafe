@@ -87,7 +87,7 @@
     "jsdom": "^29.1.1",
     "postcss": "^8.5.28",
     "postgres": "^3.4.9",
-    "tailwindcss": "^3.4.1",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5",
     "vitest": "^3.2.6"
   },
