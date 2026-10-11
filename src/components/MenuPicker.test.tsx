@@ -26,8 +26,8 @@ it("selects a meal and keeps only one choice from each option group", async () =
   }
   render(<Harness />);
   await user.click(screen.getByRole("checkbox", { name: "選擇拿鐵" }));
-  await user.click(screen.getByRole("checkbox", { name: "半糖" }));
-  await user.click(screen.getByRole("checkbox", { name: "無糖" }));
+  await user.click(screen.getByRole("radio", { name: "半糖" }));
+  await user.click(screen.getByRole("radio", { name: "無糖" }));
   await user.selectOptions(screen.getByRole("combobox", { name: "拿鐵數量" }), "2");
   expect(JSON.parse(screen.getByTestId("selected").textContent ?? "[]")).toEqual([expect.objectContaining({
     menu_item_id: latte.id, quantity: 2, option_ids: ["none"],
@@ -41,4 +41,24 @@ it("opens a full-screen photo on tap and closes it on tap", async () => {
   expect(screen.getByRole("img", { name: "拿鐵" })).toBeTruthy();
   await user.click(screen.getByRole("button", { name: "關閉大圖" }));
   expect(screen.queryByRole("img", { name: "拿鐵" })).toBeNull();
+});
+
+it("labels a required set and caps a multi set", async () => {
+  const user = userEvent.setup();
+  const item: MenuItem = { ...latte, options: [
+    { id: "r1", item_id: "i", option_group: "尺寸", option_name: "大", price_delta: 0, display_order: 0, set_id: "s1", set: { min_select: 1, max_select: 1 } },
+    { id: "m1", item_id: "i", option_group: "加料", option_name: "珍珠", price_delta: 10, display_order: 1, set_id: "s2", set: { min_select: 0, max_select: 2 } },
+    { id: "m2", item_id: "i", option_group: "加料", option_name: "奶蓋", price_delta: 10, display_order: 2, set_id: "s2", set: { min_select: 0, max_select: 2 } },
+    { id: "m3", item_id: "i", option_group: "加料", option_name: "布丁", price_delta: 10, display_order: 3, set_id: "s2", set: { min_select: 0, max_select: 2 } },
+  ] };
+  function Harness() {
+    const [value, setValue] = useState<DraftItemInput[]>([{ menu_item_id: item.id, quantity: 1, option_ids: [], special_notes: "" }]);
+    return <><MenuPicker items={[item]} value={value} onChange={setValue} /><output data-testid="selected">{JSON.stringify(value)}</output></>;
+  }
+  render(<Harness />);
+  expect(screen.getByText("必選一個")).toBeTruthy();
+  await user.click(screen.getByRole("checkbox", { name: "珍珠 +10" }));
+  await user.click(screen.getByRole("checkbox", { name: "奶蓋 +10" }));
+  expect((screen.getByRole("checkbox", { name: "布丁 +10" }) as HTMLInputElement).disabled).toBe(true);
+  expect(JSON.parse(screen.getByTestId("selected").textContent ?? "[]")[0].option_ids).toEqual(["m1", "m2"]);
 });

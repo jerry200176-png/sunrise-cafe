@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import type { CartItem } from "@/types";
+import { checkOptionSelection, type RuleOption } from "@/lib/option-sets";
 
 function adminClient() {
   return createClient(
@@ -35,6 +36,23 @@ export async function POST(request: NextRequest) {
   }
   if (!table.is_active) {
     return NextResponse.json({ error: "此桌位目前停用" }, { status: 403 });
+  }
+
+  // 伺服器端驗證選項：必選的要選、不能超過上限（選項以 組名+名稱 對回這間分店該餐點的選項列）
+  const { data: catalog, error: catErr } = await db
+    .from("menu_items")
+    .select("id,name,is_available,options:menu_item_options(id,option_group,option_name,set_id,set:menu_option_sets(min_select,max_select))")
+    .in("id", items.map((ci) => ci.menuItem.id))
+    .eq("branch_id", table.branch_id);
+  if (catErr) return NextResponse.json({ error: catErr.message }, { status: 500 });
+  type CatalogRow = { id: string; name: string; is_available: boolean; options: Array<RuleOption & { option_name: string }> };
+  const byId = new Map(((catalog ?? []) as unknown as CatalogRow[]).map((row) => [row.id, row]));
+  for (const ci of items) {
+    const row = byId.get(ci.menuItem.id);
+    if (!row || !row.is_available) return NextResponse.json({ error: "部分餐點目前無法點餐" }, { status: 400 });
+    const picked = (ci.selectedOptions ?? []).map((o) => row.options.find((opt) => opt.option_group === o.group && opt.option_name === o.name)?.id ?? "?");
+    const problem = checkOptionSelection(row.options, picked);
+    if (problem) return NextResponse.json({ error: `${row.name}：${problem}` }, { status: 400 });
   }
 
   // 計算總金額

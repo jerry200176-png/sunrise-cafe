@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { friendlyMessage, thrownMessage } from "@/lib/friendly-error";
 import { MenuPicker } from "@/components/MenuPicker";
+import { selectionProblem } from "@/lib/option-sets";
 import type { MenuItem, Order, OrderItem } from "@/types";
 import type { DraftItemInput } from "@/lib/reservation-preorder";
 
@@ -83,7 +84,8 @@ export default function ReservationOrderPage() {
             <MenuPicker items={menu.filter((item) => item.preorder_eligible)} value={preItems} onChange={setPreItems} disabled={busy} />
             <textarea aria-label="預點餐備註" value={preNotes} onChange={(event) => setPreNotes(event.target.value)} maxLength={1000}
               className="mt-3 min-h-20 w-full rounded-lg border border-stone-300 p-2" placeholder="餐點備註" />
-            <button disabled={busy} onClick={() => act("save_preorder", { items: preItems, notes: preNotes })}
+            {selectionProblem(menu, preItems) && <p role="alert" className="mt-2 text-sm text-rose-700">{selectionProblem(menu, preItems)}</p>}
+            <button disabled={busy || Boolean(selectionProblem(menu, preItems))} onClick={() => act("save_preorder", { items: preItems, notes: preNotes })}
               className="mt-3 rounded-lg border border-amber-700 px-4 py-2 font-medium text-amber-900 disabled:opacity-50">儲存餐點調整</button>
           </div>
         </section>
@@ -121,7 +123,7 @@ export default function ReservationOrderPage() {
               </div>}
               {editingItem === item.id && item.menu_item_id && <div className="mt-3 rounded-lg bg-stone-50 p-3">
                 <MenuPicker items={menu.filter((choice) => choice.id === item.menu_item_id)} value={editItems} onChange={setEditItems} disabled={busy} />
-                <div className="mt-3 flex gap-2"><button disabled={busy || editItems.length !== 1} onClick={async () => {
+                <div className="mt-3 flex gap-2"><button disabled={busy || editItems.length !== 1 || Boolean(selectionProblem(menu, editItems))} onClick={async () => {
                   if (await act("replace_item", { item_id: item.id, item: editItems[0] })) setEditingItem(null);
                 }} className="rounded bg-amber-700 px-3 py-1.5 text-sm text-white disabled:opacity-50">儲存修改</button>
                   <button onClick={() => setEditingItem(null)} className="rounded border border-stone-300 px-3 py-1.5 text-sm">取消</button></div>
@@ -137,7 +139,8 @@ export default function ReservationOrderPage() {
         </section>
         {!view.order.paid_at && <section className="rounded-xl border border-stone-200 bg-white p-4"><h2 className="mb-3 text-lg font-semibold">現場追加餐點</h2>
           <MenuPicker items={menu} value={newItems} onChange={setNewItems} disabled={busy} />
-          <button disabled={busy || newItems.length === 0} onClick={addSelected}
+          {selectionProblem(menu, newItems) && <p role="alert" className="mt-2 text-sm text-rose-700">{selectionProblem(menu, newItems)}</p>}
+          <button disabled={busy || newItems.length === 0 || Boolean(selectionProblem(menu, newItems))} onClick={addSelected}
             className="mt-4 rounded-lg bg-amber-700 px-4 py-2 font-semibold text-white disabled:opacity-50">加入訂單</button>
         </section>}
       </>}

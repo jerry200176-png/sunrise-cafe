@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
       .order("display_order"),
     db
       .from("menu_items")
-      .select("*, options:menu_item_options(*)")
+      .select("*, options:menu_item_options(*, set:menu_option_sets(min_select,max_select))")
       .eq("branch_id", branchId)
       .order("display_order"),
   ]);

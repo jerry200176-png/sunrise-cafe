@@ -145,6 +145,9 @@ export interface MenuItemOption {
   option_name: string;
   price_delta: number;
   display_order: number;
+  /** 選項組（部分 2）：沒有 set_id 的是舊特例列，視為可不選、最多一項 */
+  set_id?: string | null;
+  set?: { min_select: number; max_select: number | null } | null;
 }
 
 export interface SelectedOption {

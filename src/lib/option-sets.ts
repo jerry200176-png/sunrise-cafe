@@ -134,3 +134,56 @@ export function planOptionSync(existing: ExistingOptionRow[], desired: SyncRow[]
   for (const [k, row] of have) if (!want.has(k)) plan.remove.push(row.id);
   return plan;
 }
+
+// ── 顧客端／伺服器共用的「選了什麼」檢查（和資料庫的 assert_menu_item_option_selection 同一套規則）──
+
+/** menu_item_options 的列，加上嵌入的選項組（PostgREST: set:menu_option_sets(min_select,max_select)）。 */
+export type RuleOption = {
+  id: string;
+  option_group: string;
+  set_id?: string | null;
+  set?: { min_select: number; max_select: number | null } | null;
+};
+
+export type OptionGroupRule = { key: string; label: string; min: number; max: number | null; optionIds: string[] };
+
+/** 沒有選項組的舊特例列：同組名最多一項、可不選（和資料庫一致）。 */
+export function optionGroupRules(options: RuleOption[]): OptionGroupRule[] {
+  const groups = new Map<string, OptionGroupRule>();
+  for (const o of options) {
+    const key = o.set_id ?? `g:${o.option_group}`;
+    const g = groups.get(key) ?? { key, label: o.option_group, min: o.set?.min_select ?? 0, max: o.set_id ? (o.set?.max_select ?? null) : 1, optionIds: [] };
+    g.optionIds.push(o.id);
+    groups.set(key, g);
+  }
+  return [...groups.values()];
+}
+
+/** 回傳中文錯誤；沒問題回 null。enforceMin=false 給「存草稿」用（還沒選完也能存）。 */
+export function checkOptionSelection(options: RuleOption[], pickedIds: string[], enforceMin = true): string | null {
+  const picked = new Set(pickedIds);
+  if (picked.size !== pickedIds.length) return "餐點選項重複";
+  const known = new Set(options.map((o) => o.id));
+  if ([...picked].some((id) => !known.has(id))) return "餐點選項已變更，請重新選擇";
+  for (const g of optionGroupRules(options)) {
+    const n = g.optionIds.filter((id) => picked.has(id)).length;
+    if (enforceMin && n < g.min) return `請選擇「${g.label}」`;
+    if (g.max != null && n > g.max) return g.max === 1 ? `「${g.label}」只能選一項` : `「${g.label}」最多選 ${g.max} 項`;
+  }
+  return null;
+}
+
+/** 一整張清單（購物車／預點）有沒有哪個餐點還沒選完。 */
+export function selectionProblem(
+  items: Array<{ id: string; name: string; options?: RuleOption[] }>,
+  rows: Array<{ menu_item_id: string; option_ids?: string[] }>,
+  enforceMin = true,
+): string | null {
+  for (const row of rows) {
+    const item = items.find((i) => i.id === row.menu_item_id);
+    if (!item) continue;
+    const problem = checkOptionSelection(item.options ?? [], row.option_ids ?? [], enforceMin);
+    if (problem) return `${item.name}：${problem}`;
+  }
+  return null;
+}
