@@ -9,7 +9,7 @@ import {
 type Page<T> = PromiseLike<{ data: T[] | null; error: { message: string } | null }>;
 
 /** PostgREST 單次最多回 1000 筆，分頁取完，避免月底數字被悄悄截斷。 */
-async function fetchAll<T>(page: (from: number, to: number) => Page<T>) {
+export async function fetchAll<T>(page: (from: number, to: number) => Page<T>) {
   const out: T[] = [];
   for (let from = 0; ; from += 1000) {
     const { data, error } = await page(from, from + 999);

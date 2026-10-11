@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AdminShell } from "@/components/admin/AdminShell";
+import { AdvicePanel } from "@/components/admin/AdvicePanel";
 import { responseError, thrownMessage } from "@/lib/friendly-error";
 import type { Branch } from "@/types";
 import type { BusinessSummary } from "@/lib/business-metrics";
@@ -82,6 +83,8 @@ export default function ExecutivePage() {
         </select>
       }
     >
+      <div className="mb-5"><AdvicePanel branchId={branchId} /></div>
+
       {error && (
         <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           {error}。下面的數字可能不是最新的，不代表沒有生意。
