@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   claimLineReminderDelivery,
   claimFailedLineReminderDelivery,
+  hasDepositReleaseHold,
+  holdDepositRelease,
   markLineReminderDelivery,
   safeLineDeliveryError,
 } from "./line-delivery";
@@ -149,5 +151,63 @@ describe("line reminder delivery ledger", () => {
     expect(safeLineDeliveryError(new Error("fail U1234567890abcdef1234567890abcdef"))).toContain(
       "[redacted_line_user]"
     );
+  });
+});
+
+describe("deposit release hold (#437)", () => {
+  /** Ledger fake: rows filtered by the reminder_type the code asks for. */
+  function ledger(rows: { reminder_type: string; status: string }[], upsertError: { message: string } | null = null, persist = true) {
+    const store = [...rows];
+    const upsert = vi.fn(async (row: { reminder_type: string; status: string }) => {
+      if (!upsertError && persist) store.push(row);
+      return { error: upsertError };
+    });
+    const from = vi.fn(() => ({
+      upsert,
+      select: () => {
+        const f: { types?: string[] } = {};
+        const q = {
+          eq: (col: string, v: string) => { if (col === "reminder_type") f.types = [v]; return q; },
+          in: (_c: string, v: string[]) => { f.types = v; return q; },
+          limit: async () => ({ data: store.filter((r) => !f.types || f.types.includes(r.reminder_type)).map(() => ({ id: "x" })), error: null }),
+        };
+        return q;
+      },
+    }));
+    return { from, upsert };
+  }
+
+  it("a release-message delivery row (sending/failed/sent) is NOT a hold", async () => {
+    for (const t of ["deposit_release_guest", "deposit_release_group"]) {
+      for (const status of ["sending", "failed", "sent"]) {
+        vi.mocked(supabaseAdmin).mockReturnValue(ledger([{ reminder_type: t, status }]) as never);
+        await expect(hasDepositReleaseHold("r1")).resolves.toBe(false);
+      }
+    }
+  });
+
+  it("only the explicit restore hold counts", async () => {
+    vi.mocked(supabaseAdmin).mockReturnValue(ledger([{ reminder_type: "deposit_restore_hold", status: "sent" }]) as never);
+    await expect(hasDepositReleaseHold("r1")).resolves.toBe(true);
+  });
+
+  it("holdDepositRelease upserts the restore hold on the Taipei start date (no status dependency) and verifies it", async () => {
+    const c = ledger([]);
+    vi.mocked(supabaseAdmin).mockReturnValue(c as never);
+    await holdDepositRelease("r1", "2026-10-11T18:00:00Z");
+    expect(c.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ reminder_type: "deposit_restore_hold", reminder_date: "2026-10-12", reservation_id: "r1", status: "sent" }),
+      expect.objectContaining({ ignoreDuplicates: true })
+    );
+  });
+
+  it("an empty/unpersisted write is never treated as success", async () => {
+    vi.mocked(supabaseAdmin).mockReturnValue(ledger([], null, false) as never);
+    await expect(holdDepositRelease("r1", "2026-10-11T18:00:00Z")).rejects.toThrow(/not persisted/);
+  });
+
+  it("a write error propagates", async () => {
+    vi.mocked(supabaseAdmin).mockReturnValue(ledger([], { message: "boom" }) as never);
+    await expect(holdDepositRelease("r1", "2026-10-11T18:00:00Z")).rejects.toBeTruthy();
   });
 });

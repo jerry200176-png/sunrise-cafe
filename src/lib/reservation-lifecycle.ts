@@ -19,7 +19,8 @@ import { BOOKABLE_HTTP, checkBookable, type BookableReason } from "@/lib/bookabl
 import { logOps } from "@/lib/ops-log";
 import { updateReservationAdmin } from "@/lib/supabase-admin";
 import { cancelReservationPreorder, lockReservationPreorder, requirePreorderReconfirmation } from "@/lib/reservation-preorder";
-import { resetLineReminderDeliveries } from "@/lib/line-delivery";
+import { resetLineReminderDeliveries, holdDepositRelease, hasDepositReleaseHold } from "@/lib/line-delivery";
+import { computeDepositDeadline, shouldAutoRelease } from "@/lib/deposit-deadline";
 import { notifyWaitlist } from "@/lib/waitlist";
 import { deliverLineGuestNotification } from "@/lib/line-guest-delivery";
 import { sendLineFlexMessage, buildReviewInviteFlex } from "@/lib/line";
@@ -53,6 +54,7 @@ export type Actor =
 export type Snapshot = {
   id: string;
   status: string;
+  created_at?: string | null;
   room_id: string;
   start_time: string;
   end_time: string;
@@ -73,7 +75,8 @@ export type Failure = {
     | "invalid_transition"
     | "cancel_blocked"
     | "too_soon"
-    | "not_bookable";
+    | "not_bookable"
+    | "restore_hold_failed";
   message: string;
   httpStatus: number;
   eligibility?: string;
@@ -142,6 +145,11 @@ export function guestAllowedActions(
 export type Effects = {
   load(id: string): Promise<Snapshot | null>;
   update(id: string, patch: Record<string, unknown>): Promise<void>;
+  /** Compare-and-set the status; false when someone else changed it first. */
+  setStatusIf(id: string, from: string, to: string): Promise<boolean>;
+  /** Keep the deposit-deadline cron from re-releasing a restored unpaid booking. */
+  holdDepositRelease(s: Snapshot): Promise<void>;
+  depositHeld(id: string): Promise<boolean>;
   cancelPreorder(id: string, reason: string): Promise<void>;
   lockPreorder(id: string): Promise<void>;
   requirePreorderReconfirmation(id: string, reason: string, actor: string): Promise<void>;
@@ -220,7 +228,35 @@ export async function transitionReservation(
 
   const restoredStatus: ReservationStatus = snap.is_deposit_paid ? "confirmed" : "pending";
   const nextStatus = intent.type === "restore" ? restoredStatus : target;
-  await effects.update(id, { status: nextStatus });
+  if (intent.type === "cancel" && intent.reason === "deposit_deadline" && (await effects.depositHeld(id))) {
+    // Restored by staff while this cron run was in flight: the hold wins.
+    return fail("invalid_transition", "訂金期限已由店家保留（已還原），不自動釋放", 409);
+  }
+  if (intent.type === "restore") {
+    // Unpaid and already past the deposit deadline: write the hold FIRST (while still
+    // cancelled) so the cron can never see a restored-but-unheld booking. A failed hold
+    // refuses the restore with nothing changed.
+    const deadline = snap.created_at ? computeDepositDeadline(snap.created_at, snap.start_time) : null;
+    if (!snap.is_deposit_paid && (!deadline || shouldAutoRelease(deadline, new Date(now)))) {
+      try {
+        await effects.holdDepositRelease(snap);
+      } catch (err) {
+        console.error("[lifecycle] restore hold failed, restore refused:", err);
+        return fail("restore_hold_failed", "還原失敗（無法保留訂金期限），請稍後再試", 500);
+      }
+    }
+    // Compare-and-set: a concurrent restore (double click, two staff) loses instead of re-applying.
+    if (!(await effects.setStatusIf(id, snap.status, nextStatus))) {
+      return fail("invalid_transition", "此訂位已被還原或狀態已變更，請重新整理", 409);
+    }
+    // Never report success for a booking that is no longer in the restored state.
+    const after = await effects.load(id);
+    if (after?.status !== nextStatus) {
+      return fail("invalid_transition", `還原後訂位狀態已被其他操作改變（${after?.status ?? "不存在"}），請重新整理`, 409);
+    }
+  } else {
+    await effects.update(id, { status: nextStatus });
+  }
   effects.audit({
     reservation_id: id,
     booking_code: snap.booking_code,
@@ -377,7 +413,7 @@ export const supabaseEffects: Effects = {
     const { data } = await db()
       .from("reservations")
       .select(
-        "id, status, room_id, start_time, end_time, guest_count, is_deposit_paid, booking_code, customer_name, phone, line_user_id, review_invited_at, room:rooms(branch:branches(name))"
+        "id, status, created_at, room_id, start_time, end_time, guest_count, is_deposit_paid, booking_code, customer_name, phone, line_user_id, review_invited_at, room:rooms(branch:branches(name))"
       )
       .eq("id", id)
       .maybeSingle();
@@ -388,6 +424,17 @@ export const supabaseEffects: Effects = {
   },
   async update(id, patch) {
     await updateReservationAdmin(id, patch);
+  },
+  async setStatusIf(id, from, to) {
+    const { data, error } = await db().from("reservations").update({ status: to }).eq("id", id).eq("status", from).select("id");
+    if (error) throw error;
+    return (data?.length ?? 0) > 0;
+  },
+  async holdDepositRelease(s) {
+    await holdDepositRelease(s.id, s.start_time);
+  },
+  async depositHeld(id) {
+    return hasDepositReleaseHold(id);
   },
   async cancelPreorder(id, reason) {
     await cancelReservationPreorder(id, reason);
