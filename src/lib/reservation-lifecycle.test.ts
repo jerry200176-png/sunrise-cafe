@@ -17,7 +17,7 @@ const guest: Actor = { kind: "guest" };
 function world(
   over: Partial<Snapshot> = {},
   bookable: { ok: true } | { ok: false; reason: "conflict" } = { ok: true },
-  opts: { casLost?: boolean; holdFails?: boolean } = {}
+  opts: { casLost?: boolean; holdFails?: boolean; cronSlipsInAfterCas?: boolean } = {}
 ) {
   const row: Snapshot = {
     id: "r1", status: "pending", room_id: "room", booking_code: "ABC123",
@@ -27,6 +27,7 @@ function world(
     line_user_id: "U1", review_invited_at: null, branch_name: "大安", ...over,
   };
   const calls: string[] = [];
+  let held = false;
   const audits: Record<string, unknown>[] = [];
   const fx: Effects = {
     load: async (id) => (id === row.id ? { ...row } : null),
@@ -35,12 +36,15 @@ function world(
       calls.push(`cas:${from}>${to}`);
       if (opts.casLost || row.status !== from) return false;
       row.status = to;
+      if (opts.cronSlipsInAfterCas) row.status = "cancelled"; // simulated unheld cancel racing the restore
       return true;
     },
     holdDepositRelease: async () => {
       calls.push("holdDepositRelease");
       if (opts.holdFails) throw new Error("ledger down");
+      held = true;
     },
+    depositHeld: async () => held,
     cancelPreorder: async (_i, reason) => { calls.push(`cancelPreorder:${reason}`); },
     lockPreorder: async () => { calls.push("lockPreorder"); },
     requirePreorderReconfirmation: async (_i, reason) => { calls.push(`reconfirm:${reason}`); },
@@ -197,20 +201,42 @@ describe("restore after deposit release (#437)", () => {
     expect(await run(w, { type: "restore" }, admin)).toMatchObject({ ok: true, status: "pending" });
     expect(w.calls).toContain("holdDepositRelease");
   });
-  it("concurrent restore loses the compare-and-set: refused, no hold, no audit", async () => {
+  it("concurrent restore loses the compare-and-set: refused, no audit, status untouched", async () => {
     const w = world({ status: "cancelled", created_at: longAgo }, { ok: true }, { casLost: true });
     expect(await run(w, { type: "restore" }, admin)).toMatchObject({ ok: false, code: "invalid_transition", httpStatus: 409 });
-    expect(w.calls).not.toContain("holdDepositRelease");
     expect(w.audits).toEqual([]);
+    expect(w.row.status).toBe("cancelled");
   });
   it("slot taken: refused before any write", async () => {
     const w = world({ status: "cancelled", created_at: longAgo }, { ok: false, reason: "conflict" });
     expect(await run(w, { type: "restore" }, admin)).toMatchObject({ ok: false, code: "not_bookable" });
     expect(w.calls).toEqual([]);
   });
-  it("hold failure reverts the status instead of leaving a booking the cron will cancel", async () => {
+  it("hold failure refuses the restore BEFORE the status flips (nothing to revert)", async () => {
     const w = world({ status: "cancelled", created_at: longAgo, ...pastSlot }, { ok: true }, { holdFails: true });
     expect(await run(w, { type: "restore" }, admin)).toMatchObject({ ok: false, code: "restore_hold_failed" });
+    expect(w.row.status).toBe("cancelled");
+    expect(w.calls.some((c) => c.startsWith("cas:"))).toBe(false);
+    expect(w.audits).toEqual([]);
+  });
+  it("the hold is written before the status flips", async () => {
+    const w = world({ status: "cancelled", created_at: longAgo, ...pastSlot });
+    await run(w, { type: "restore" }, admin);
+    expect(w.calls.indexOf("holdDepositRelease")).toBeLessThan(w.calls.findIndex((c) => c.startsWith("cas:")));
+  });
+  it("restore <-> cron: cron after restore is refused; final state pending AND restore reported ok", async () => {
+    const w = world({ status: "cancelled", created_at: longAgo, ...pastSlot });
+    const restored = await run(w, { type: "restore" }, admin);
+    const cron = await run(w, { type: "cancel", reason: "deposit_deadline" }, { kind: "system", job: "deposit_deadline" });
+    expect(restored).toMatchObject({ ok: true, status: "pending" });
+    expect(cron).toMatchObject({ ok: false, code: "invalid_transition" });
+    expect(w.row.status).toBe("pending");
+    expect(w.calls).not.toContain("guestCancelledCard");
+  });
+  it("restore <-> cron: if an unheld cancel slips in right after the flip, the API does NOT claim success", async () => {
+    const w = world({ status: "cancelled", created_at: longAgo, ...pastSlot }, { ok: true }, { cronSlipsInAfterCas: true });
+    const restored = await run(w, { type: "restore" }, admin);
+    expect(restored).toMatchObject({ ok: false, code: "invalid_transition", httpStatus: 409 });
     expect(w.row.status).toBe("cancelled");
     expect(w.audits).toEqual([]);
   });

@@ -117,29 +117,44 @@ export async function resetLineReminderDeliveries(reservationId: string): Promis
   }
 }
 
+const RESTORE_HOLD = "deposit_restore_hold";
+
 /**
  * Staff restored an unpaid booking after its deposit deadline (#437). The ledger
  * row is the marker (no schema change): the deposit-deadline cron must not
  * re-release it until staff decide (mark paid / cancel / no-show).
+ *
+ * Written directly (not via claim_line_reminder_delivery, which only inserts for
+ * pending/confirmed rows and returns empty otherwise) so it can be written while
+ * the booking is still cancelled, BEFORE the status flips. Verified by reading
+ * back; an empty/failed write throws and the restore is refused.
  */
 export async function holdDepositRelease(reservationId: string, startTime: string): Promise<void> {
-  const claim = await claimLineReminderDelivery({
-    reminderType: "deposit_restore_hold",
-    reminderDate: new Date(new Date(startTime).getTime() + 8 * 3_600_000).toISOString().slice(0, 10),
-    reservationId,
-    recipientType: "group",
-    recipientId: "restore-hold",
-  });
-  if (claim.id) await markLineReminderDelivery(claim.id, { status: "sent" });
+  const { error } = await supabaseAdmin()
+    .from("line_reminder_deliveries")
+    .upsert(
+      {
+        reminder_type: RESTORE_HOLD,
+        reminder_date: new Date(new Date(startTime).getTime() + 8 * 3_600_000).toISOString().slice(0, 10),
+        reservation_id: reservationId,
+        recipient_type: "group",
+        recipient_id: "restore-hold",
+        status: "sent",
+        sent_at: new Date().toISOString(),
+      },
+      { onConflict: "reminder_type,reminder_date,reservation_id,recipient_type,recipient_id", ignoreDuplicates: true }
+    );
+  if (error) throw error;
+  if (!(await hasDepositReleaseHold(reservationId))) throw new Error("deposit restore hold not persisted");
 }
 
-/** True when this reservation was already released once or restored-and-held. */
+/** True only for the explicit restore hold; release-message delivery rows are NOT a hold. */
 export async function hasDepositReleaseHold(reservationId: string): Promise<boolean> {
   const { data, error } = await supabaseAdmin()
     .from("line_reminder_deliveries")
     .select("id")
     .eq("reservation_id", reservationId)
-    .in("reminder_type", ["deposit_restore_hold", "deposit_release_guest", "deposit_release_group"])
+    .eq("reminder_type", RESTORE_HOLD)
     .limit(1);
   if (error) {
     if (isLedgerUnavailable(error) && process.env.VERCEL_ENV !== "production") return false;

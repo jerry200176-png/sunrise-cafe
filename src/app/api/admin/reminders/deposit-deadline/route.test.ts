@@ -68,4 +68,20 @@ describe("deposit-deadline cron after a restore (#437)", () => {
     expect(mocks.claim).not.toHaveBeenCalled();
     expect(body).toMatchObject({ released: 0, held: 1, errors: 0 });
   });
+
+  it("partial claim failure (guest claim ok, group claim throws) does not stick: next run retries and cancels", async () => {
+    mocks.hasHold.mockResolvedValue(false); // release-message rows are not a hold
+    mocks.rows = [{ ...overdue, line_user_id: "U1" }];
+    mocks.claim
+      .mockResolvedValueOnce({ available: true, id: "guest-claim" })
+      .mockRejectedValueOnce(new Error("group claim failed"));
+    const first = await (await POST()).json();
+    expect(mocks.transition).not.toHaveBeenCalled();
+    expect(first).toMatchObject({ released: 0, errors: 1 });
+
+    mocks.claim.mockReset().mockResolvedValue({ available: true, id: "claim-2" });
+    const second = await (await POST()).json();
+    expect(mocks.transition).toHaveBeenCalledTimes(1);
+    expect(second).toMatchObject({ released: 1 });
+  });
 });

@@ -155,34 +155,59 @@ describe("line reminder delivery ledger", () => {
 });
 
 describe("deposit release hold (#437)", () => {
-  function selectClient(result: { data?: unknown[]; error?: { code?: string; message?: string } | null }) {
-    const limit = vi.fn().mockResolvedValue({ data: result.data ?? [], error: result.error ?? null });
-    const inFn = vi.fn(() => ({ limit }));
-    const eq = vi.fn(() => ({ in: inFn }));
-    const select = vi.fn(() => ({ eq }));
-    return { from: vi.fn(() => ({ select })), inFn, eq };
+  /** Ledger fake: rows filtered by the reminder_type the code asks for. */
+  function ledger(rows: { reminder_type: string; status: string }[], upsertError: { message: string } | null = null, persist = true) {
+    const store = [...rows];
+    const upsert = vi.fn(async (row: { reminder_type: string; status: string }) => {
+      if (!upsertError && persist) store.push(row);
+      return { error: upsertError };
+    });
+    const from = vi.fn(() => ({
+      upsert,
+      select: () => {
+        const f: { types?: string[] } = {};
+        const q = {
+          eq: (col: string, v: string) => { if (col === "reminder_type") f.types = [v]; return q; },
+          in: (_c: string, v: string[]) => { f.types = v; return q; },
+          limit: async () => ({ data: store.filter((r) => !f.types || f.types.includes(r.reminder_type)).map(() => ({ id: "x" })), error: null }),
+        };
+        return q;
+      },
+    }));
+    return { from, upsert };
   }
 
-  it("is held when a release or restore-hold ledger row exists", async () => {
-    const c = selectClient({ data: [{ id: "d1" }] });
-    vi.mocked(supabaseAdmin).mockReturnValue(c as never);
+  it("a release-message delivery row (sending/failed/sent) is NOT a hold", async () => {
+    for (const t of ["deposit_release_guest", "deposit_release_group"]) {
+      for (const status of ["sending", "failed", "sent"]) {
+        vi.mocked(supabaseAdmin).mockReturnValue(ledger([{ reminder_type: t, status }]) as never);
+        await expect(hasDepositReleaseHold("r1")).resolves.toBe(false);
+      }
+    }
+  });
+
+  it("only the explicit restore hold counts", async () => {
+    vi.mocked(supabaseAdmin).mockReturnValue(ledger([{ reminder_type: "deposit_restore_hold", status: "sent" }]) as never);
     await expect(hasDepositReleaseHold("r1")).resolves.toBe(true);
-    expect(c.eq).toHaveBeenCalledWith("reservation_id", "r1");
-    expect(c.inFn).toHaveBeenCalledWith("reminder_type", ["deposit_restore_hold", "deposit_release_guest", "deposit_release_group"]);
   });
 
-  it("is not held without a row", async () => {
-    vi.mocked(supabaseAdmin).mockReturnValue(selectClient({ data: [] }) as never);
-    await expect(hasDepositReleaseHold("r1")).resolves.toBe(false);
-  });
-
-  it("holdDepositRelease claims a restore-hold row on the Taipei start date and marks it sent", async () => {
-    const c = mockClient({ claim: { delivery_id: "hold-1" } });
+  it("holdDepositRelease upserts the restore hold on the Taipei start date (no status dependency) and verifies it", async () => {
+    const c = ledger([]);
     vi.mocked(supabaseAdmin).mockReturnValue(c as never);
     await holdDepositRelease("r1", "2026-10-11T18:00:00Z");
-    expect(c.rpc).toHaveBeenCalledWith("claim_line_reminder_delivery", expect.objectContaining({
-      p_reminder_type: "deposit_restore_hold", p_reminder_date: "2026-10-12", p_reservation_id: "r1",
-    }));
-    expect(c.update).toHaveBeenCalledWith(expect.objectContaining({ status: "sent" }));
+    expect(c.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ reminder_type: "deposit_restore_hold", reminder_date: "2026-10-12", reservation_id: "r1", status: "sent" }),
+      expect.objectContaining({ ignoreDuplicates: true })
+    );
+  });
+
+  it("an empty/unpersisted write is never treated as success", async () => {
+    vi.mocked(supabaseAdmin).mockReturnValue(ledger([], null, false) as never);
+    await expect(holdDepositRelease("r1", "2026-10-11T18:00:00Z")).rejects.toThrow(/not persisted/);
+  });
+
+  it("a write error propagates", async () => {
+    vi.mocked(supabaseAdmin).mockReturnValue(ledger([], { message: "boom" }) as never);
+    await expect(holdDepositRelease("r1", "2026-10-11T18:00:00Z")).rejects.toBeTruthy();
   });
 });
