@@ -3,6 +3,7 @@ import {
   assertReservationPatchAllowed,
   assertReservationCancelAllowed,
   assertReservationReadAllowed,
+  assertReservationRestoreAllowed,
 } from "./reservation-access";
 import type { AdminContext } from "./rbac";
 
@@ -38,6 +39,13 @@ describe("reservation-access", () => {
       "Forbidden"
     );
     expect(assertReservationCancelAllowed(staff, "b1")).toBe("Forbidden");
+  });
+
+  it("restore (#437): branch_manager yes, staff/finance no, other branch no", () => {
+    expect(assertReservationRestoreAllowed(manager, "b1")).toBeNull();
+    expect(assertReservationRestoreAllowed(manager, "b2")).toBe("Forbidden");
+    expect(assertReservationRestoreAllowed(staff, "b1")).toBe("Forbidden");
+    expect(assertReservationRestoreAllowed(finance, "b1")).toBe("Forbidden");
   });
 
   it("branch_manager can write on assigned branch", () => {

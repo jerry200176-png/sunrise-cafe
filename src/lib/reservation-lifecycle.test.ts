@@ -14,7 +14,11 @@ const admin: Actor = { kind: "admin", userId: "u1" };
 const guest: Actor = { kind: "guest" };
 
 /** In-memory adapter at the Effects seam; records what happened. */
-function world(over: Partial<Snapshot> = {}, bookable: { ok: true } | { ok: false; reason: "conflict" } = { ok: true }) {
+function world(
+  over: Partial<Snapshot> = {},
+  bookable: { ok: true } | { ok: false; reason: "conflict" } = { ok: true },
+  opts: { casLost?: boolean; holdFails?: boolean } = {}
+) {
   const row: Snapshot = {
     id: "r1", status: "pending", room_id: "room", booking_code: "ABC123",
     start_time: new Date(Date.now() + 72 * H).toISOString(),
@@ -27,6 +31,16 @@ function world(over: Partial<Snapshot> = {}, bookable: { ok: true } | { ok: fals
   const fx: Effects = {
     load: async (id) => (id === row.id ? { ...row } : null),
     update: async (_id, patch) => { calls.push("update"); Object.assign(row, patch); },
+    setStatusIf: async (_id, from, to) => {
+      calls.push(`cas:${from}>${to}`);
+      if (opts.casLost || row.status !== from) return false;
+      row.status = to;
+      return true;
+    },
+    holdDepositRelease: async () => {
+      calls.push("holdDepositRelease");
+      if (opts.holdFails) throw new Error("ledger down");
+    },
     cancelPreorder: async (_i, reason) => { calls.push(`cancelPreorder:${reason}`); },
     lockPreorder: async () => { calls.push("lockPreorder"); },
     requirePreorderReconfirmation: async (_i, reason) => { calls.push(`reconfirm:${reason}`); },
@@ -154,6 +168,56 @@ describe("restore (還原)", () => {
     const w = world({ status: "cancelled" }, { ok: false, reason: "conflict" });
     expect(await run(w, { type: "restore" }, admin)).toMatchObject({ ok: false, code: "not_bookable", httpStatus: 409 });
     expect(w.row.status).toBe("cancelled");
+  });
+});
+
+describe("restore after deposit release (#437)", () => {
+  const longAgo = new Date(Date.now() - 10 * 24 * H).toISOString();
+  const pastSlot = { start_time: new Date(Date.now() - 2 * H).toISOString(), end_time: new Date(Date.now() + 1 * H).toISOString() };
+
+  it("unpaid + deadline already passed: restored to pending with a cron hold, payment untouched", async () => {
+    const w = world({ status: "cancelled", created_at: longAgo, ...pastSlot });
+    expect(await run(w, { type: "restore" }, admin)).toMatchObject({ ok: true, status: "pending" });
+    expect(w.calls).toContain("holdDepositRelease");
+    expect(w.row.is_deposit_paid).toBe(false);
+    expect(w.audits[0]).toMatchObject({ intent: "restore", from: "cancelled", to: "pending" });
+  });
+  it("unpaid but deadline still ahead: no hold needed", async () => {
+    const w = world({ status: "cancelled", created_at: new Date().toISOString() });
+    expect(await run(w, { type: "restore" }, admin)).toMatchObject({ ok: true, status: "pending" });
+    expect(w.calls).not.toContain("holdDepositRelease");
+  });
+  it("paid: back to confirmed, no hold", async () => {
+    const w = world({ status: "cancelled", is_deposit_paid: true, created_at: longAgo, ...pastSlot });
+    expect(await run(w, { type: "restore" }, admin)).toMatchObject({ ok: true, status: "confirmed" });
+    expect(w.calls).not.toContain("holdDepositRelease");
+  });
+  it("no_show restored with the same rules", async () => {
+    const w = world({ status: "no_show", created_at: longAgo, ...pastSlot });
+    expect(await run(w, { type: "restore" }, admin)).toMatchObject({ ok: true, status: "pending" });
+    expect(w.calls).toContain("holdDepositRelease");
+  });
+  it("concurrent restore loses the compare-and-set: refused, no hold, no audit", async () => {
+    const w = world({ status: "cancelled", created_at: longAgo }, { ok: true }, { casLost: true });
+    expect(await run(w, { type: "restore" }, admin)).toMatchObject({ ok: false, code: "invalid_transition", httpStatus: 409 });
+    expect(w.calls).not.toContain("holdDepositRelease");
+    expect(w.audits).toEqual([]);
+  });
+  it("slot taken: refused before any write", async () => {
+    const w = world({ status: "cancelled", created_at: longAgo }, { ok: false, reason: "conflict" });
+    expect(await run(w, { type: "restore" }, admin)).toMatchObject({ ok: false, code: "not_bookable" });
+    expect(w.calls).toEqual([]);
+  });
+  it("hold failure reverts the status instead of leaving a booking the cron will cancel", async () => {
+    const w = world({ status: "cancelled", created_at: longAgo, ...pastSlot }, { ok: true }, { holdFails: true });
+    expect(await run(w, { type: "restore" }, admin)).toMatchObject({ ok: false, code: "restore_hold_failed" });
+    expect(w.row.status).toBe("cancelled");
+    expect(w.audits).toEqual([]);
+  });
+  it("never resumes a cancelled preorder", async () => {
+    const w = world({ status: "cancelled", created_at: longAgo });
+    await run(w, { type: "restore" }, admin);
+    expect(w.calls.filter((c) => /Preorder|reconfirm/.test(c))).toEqual([]);
   });
 });
 

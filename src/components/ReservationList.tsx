@@ -89,6 +89,8 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     "time_asc"
   );
   const [sendingLine, setSendingLine] = useState(false);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const restoreInFlight = useRef<string | null>(null);
   const [sendingLinePaymentTo, setSendingLinePaymentTo] = useState<string | null>(null);
   const [branchConfig, setBranchConfig] = useState<BranchPaymentConfig | null>(null);
   const [messageWorkbench, setMessageWorkbench] = useState<Reservation | null>(null);
@@ -460,21 +462,38 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     }
   };
 
-  const restoreReservation = async (id: string) => {
-    const ok = await openConfirm("還原訂位", "確定要還原這筆已取消的訂位嗎？原時段若已被訂走將無法還原。");
-    if (!ok) return;
-    const res = await fetch(`${RESERVATIONS_API}/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ intent: "restore" }),
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      showToast(data.error ?? "還原失敗，請重新整理後再試", "error");
-      return;
+  const restoreReservation = async (r: Reservation) => {
+    if (restoreInFlight.current) return;
+    restoreInFlight.current = r.id;
+    setRestoringId(r.id);
+    try {
+      const notes = [
+        "原訂位編號、付款狀態與紀錄都會保留；原時段若已被訂走將無法還原，請改選其他時段。",
+        r.is_deposit_paid ? "訂金已付，還原後為「已確認」。" : "訂金未付，還原後為「待審核」；客人到店不代表已付訂金，請另行確認收款。",
+        r.preorder && r.preorder.status === "cancelled"
+          ? "此訂位的預點餐已取消，還原後不會自動恢復備餐，需請客人重新確認。"
+          : "",
+      ].filter(Boolean).join("\n\n");
+      const ok = await openConfirm(r.status === "no_show" ? "還原「沒來」" : "還原訂位", notes);
+      if (!ok) return;
+      const res = await fetch(`${RESERVATIONS_API}/${r.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ intent: "restore" }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        showToast(data.error ?? "還原失敗，請重新整理後再試", "error");
+        return;
+      }
+      showToast("已還原訂位", "success");
+      await fetchReservations(false);
+    } catch {
+      showToast("連線失敗，還原未完成", "error");
+    } finally {
+      restoreInFlight.current = null;
+      setRestoringId(null);
     }
-    showToast("已還原訂位", "success");
-    fetchReservations(false);
   };
 
   const updateStatus = async (id: string, status: ReservationStatus) => {
@@ -646,7 +665,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     ["confirmed", "paid", "checked_in"].includes(r.status)
   );
   const historyList = reservations.filter((r) =>
-    ["cancelled", "completed"].includes(r.status)
+    ["cancelled", "completed", "no_show"].includes(r.status)
   );
   const pendingCount = pendingList.length;
 
@@ -1055,15 +1074,6 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                         {sendingLinePaymentTo === r.id ? "傳送中…" : "💬 重送 LINE 繳費"}
                       </button>
                     )}
-                    {r.status === "cancelled" && (
-                      <button
-                        type="button"
-                        onClick={() => restoreReservation(r.id)}
-                        className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100"
-                      >
-                        ↩️ 還原
-                      </button>
-                    )}
                   </div>
                 ) : activeTab === "upcoming" ? (
                   <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -1175,6 +1185,16 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                   </div>
                 ) : (
                   <div className="flex flex-wrap items-center gap-2 pt-1">
+                    {(r.status === "cancelled" || r.status === "no_show") && (
+                      <button
+                        type="button"
+                        disabled={restoringId === r.id}
+                        onClick={() => restoreReservation(r)}
+                        className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                      >
+                        {restoringId === r.id ? "還原中…" : "↩️ 還原"}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => openEdit(r)}

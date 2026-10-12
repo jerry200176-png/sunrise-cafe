@@ -7,7 +7,8 @@ export type LineReminderDeliveryType =
   | "deposit_initial"
   | "deposit_urgent"
   | "deposit_release_guest"
-  | "deposit_release_group";
+  | "deposit_release_group"
+  | "deposit_restore_hold";
 
 export type LineDeliveryClaim =
   | { available: true; id: string }
@@ -114,6 +115,37 @@ export async function resetLineReminderDeliveries(reservationId: string): Promis
     if (isLedgerUnavailable(error) && process.env.VERCEL_ENV !== "production") return;
     throw error;
   }
+}
+
+/**
+ * Staff restored an unpaid booking after its deposit deadline (#437). The ledger
+ * row is the marker (no schema change): the deposit-deadline cron must not
+ * re-release it until staff decide (mark paid / cancel / no-show).
+ */
+export async function holdDepositRelease(reservationId: string, startTime: string): Promise<void> {
+  const claim = await claimLineReminderDelivery({
+    reminderType: "deposit_restore_hold",
+    reminderDate: new Date(new Date(startTime).getTime() + 8 * 3_600_000).toISOString().slice(0, 10),
+    reservationId,
+    recipientType: "group",
+    recipientId: "restore-hold",
+  });
+  if (claim.id) await markLineReminderDelivery(claim.id, { status: "sent" });
+}
+
+/** True when this reservation was already released once or restored-and-held. */
+export async function hasDepositReleaseHold(reservationId: string): Promise<boolean> {
+  const { data, error } = await supabaseAdmin()
+    .from("line_reminder_deliveries")
+    .select("id")
+    .eq("reservation_id", reservationId)
+    .in("reminder_type", ["deposit_restore_hold", "deposit_release_guest", "deposit_release_group"])
+    .limit(1);
+  if (error) {
+    if (isLedgerUnavailable(error) && process.env.VERCEL_ENV !== "production") return false;
+    throw error;
+  }
+  return (data?.length ?? 0) > 0;
 }
 
 export function safeLineDeliveryError(error: unknown): string {

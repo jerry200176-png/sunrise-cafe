@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   claimLineReminderDelivery,
   claimFailedLineReminderDelivery,
+  hasDepositReleaseHold,
+  holdDepositRelease,
   markLineReminderDelivery,
   safeLineDeliveryError,
 } from "./line-delivery";
@@ -149,5 +151,38 @@ describe("line reminder delivery ledger", () => {
     expect(safeLineDeliveryError(new Error("fail U1234567890abcdef1234567890abcdef"))).toContain(
       "[redacted_line_user]"
     );
+  });
+});
+
+describe("deposit release hold (#437)", () => {
+  function selectClient(result: { data?: unknown[]; error?: { code?: string; message?: string } | null }) {
+    const limit = vi.fn().mockResolvedValue({ data: result.data ?? [], error: result.error ?? null });
+    const inFn = vi.fn(() => ({ limit }));
+    const eq = vi.fn(() => ({ in: inFn }));
+    const select = vi.fn(() => ({ eq }));
+    return { from: vi.fn(() => ({ select })), inFn, eq };
+  }
+
+  it("is held when a release or restore-hold ledger row exists", async () => {
+    const c = selectClient({ data: [{ id: "d1" }] });
+    vi.mocked(supabaseAdmin).mockReturnValue(c as never);
+    await expect(hasDepositReleaseHold("r1")).resolves.toBe(true);
+    expect(c.eq).toHaveBeenCalledWith("reservation_id", "r1");
+    expect(c.inFn).toHaveBeenCalledWith("reminder_type", ["deposit_restore_hold", "deposit_release_guest", "deposit_release_group"]);
+  });
+
+  it("is not held without a row", async () => {
+    vi.mocked(supabaseAdmin).mockReturnValue(selectClient({ data: [] }) as never);
+    await expect(hasDepositReleaseHold("r1")).resolves.toBe(false);
+  });
+
+  it("holdDepositRelease claims a restore-hold row on the Taipei start date and marks it sent", async () => {
+    const c = mockClient({ claim: { delivery_id: "hold-1" } });
+    vi.mocked(supabaseAdmin).mockReturnValue(c as never);
+    await holdDepositRelease("r1", "2026-10-11T18:00:00Z");
+    expect(c.rpc).toHaveBeenCalledWith("claim_line_reminder_delivery", expect.objectContaining({
+      p_reminder_type: "deposit_restore_hold", p_reminder_date: "2026-10-12", p_reservation_id: "r1",
+    }));
+    expect(c.update).toHaveBeenCalledWith(expect.objectContaining({ status: "sent" }));
   });
 });

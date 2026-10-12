@@ -39,6 +39,7 @@ import { runBootstrapMigrations } from "@/lib/bootstrap-migrations";
 import {
   claimLineReminderDelivery,
   claimFailedLineReminderDelivery,
+  hasDepositReleaseHold,
   markLineReminderDelivery,
   safeLineDeliveryError,
 } from "@/lib/line-delivery";
@@ -109,6 +110,7 @@ async function handleRun() {
   const rows = (await fetchUnpaidDepositDueReservations()) as unknown as Row[];
   const now = new Date();
   let released = 0;
+  let held = 0;
   let reminded = 0;
   let urgentReminded = 0;
   let errors = 0;
@@ -145,6 +147,11 @@ async function handleRun() {
 
     if (shouldAutoRelease(deadline, now)) {
       try {
+        // Restored after release/deadline (#437): staff decide; never auto-cancel again.
+        if (await hasDepositReleaseHold(r.id)) {
+          held++;
+          continue;
+        }
         const guestClaim = r.line_user_id
           ? await claimLineReminderDelivery({
               reminderType: "deposit_release_guest",
@@ -397,6 +404,7 @@ async function handleRun() {
     accepted_count: messageCount,
     rejected_count: errors,
     released,
+    held,
     reminded,
     urgentReminded,
     errors,
