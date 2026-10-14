@@ -3,6 +3,7 @@ import { stripe, isStripeEnabled } from "@/lib/stripe";
 import { createClient } from "@supabase/supabase-js";
 import { markDepositPaid, verifyStripeIntentForReservation } from "@/lib/deposit-paid";
 import { logOps } from "@/lib/ops-log";
+import { isDepositFullyRefunded, syncStripeRefund, type StripeRefundLike } from "@/lib/refund-ledger";
 
 /**
  * Stripe webhook 需要 raw body 以驗證簽章。
@@ -23,8 +24,42 @@ function supabaseAdmin() {
  * 接收 Stripe 事件通知，處理：
  * - payment_intent.succeeded  → 標記 reservation deposit_status = 'paid'
  * - payment_intent.payment_failed → 更新 payment_intents.status = 'failed'
- * - charge.refunded           → 標記 reservation deposit_status = 'refunded'
+ * - charge.refunded / refund.created / refund.updated / refund.failed / charge.refund.updated
+ *     → 退款結果寫進退款帳本（#444）。只有 Stripe 回報 succeeded 才算已退；
+ *       全額真的退掉時，SQL 才把 deposit_status 改成 refunded（部分退款、處理中、失敗都不會）。
  */
+/**
+ * 退款同步到帳本。帳本表還不存在（migration 尚未套用）時退回舊做法，但只在「整筆都退掉」時才標 refunded，
+ * 部分退款不再把整筆訂金當成退掉。
+ */
+async function syncRefunds(
+  refunds: StripeRefundLike[],
+  paymentIntentId: string | null,
+  charge: { amount: number; amount_refunded: number } | null
+) {
+  let fullyRefunded = false;
+  let schemaMissing = false;
+  for (const refund of refunds) {
+    const result = await syncStripeRefund(supabaseAdmin(), refund);
+    if (result && "schemaMissing" in result) { schemaMissing = true; break; }
+    if (result) fullyRefunded = isDepositFullyRefunded(result);
+  }
+  if (!paymentIntentId) return;
+  if (schemaMissing) {
+    if (!charge || charge.amount_refunded < charge.amount) return;
+    fullyRefunded = true;
+    const { data: pi } = await supabaseAdmin().from("payment_intents").select("reservation_id")
+      .eq("stripe_pi_id", paymentIntentId).maybeSingle();
+    if (pi?.reservation_id) {
+      await supabaseAdmin().from("reservations").update({ deposit_status: "refunded" }).eq("id", pi.reservation_id);
+    }
+  }
+  if (fullyRefunded) {
+    await supabaseAdmin().from("payment_intents").update({ status: "refunded", updated_at: new Date().toISOString() })
+      .eq("stripe_pi_id", paymentIntentId);
+  }
+}
+
 export async function POST(request: NextRequest) {
   if (!isStripeEnabled()) {
     return NextResponse.json(
@@ -108,29 +143,26 @@ export async function POST(request: NextRequest) {
             : null;
 
         if (paymentIntentId) {
-          await supabaseAdmin()
-            .from("payment_intents")
-            .update({ status: "refunded", updated_at: new Date().toISOString() })
-            .eq("stripe_pi_id", paymentIntentId);
-
-          const { data: pi } = await supabaseAdmin()
-            .from("payment_intents")
-            .select("reservation_id")
-            .eq("stripe_pi_id", paymentIntentId)
-            .single();
-
-          if (pi?.reservation_id) {
-            await supabaseAdmin()
-              .from("reservations")
-              .update({ deposit_status: "refunded" })
-              .eq("id", pi.reservation_id);
-          }
+          // charge 物件不一定附上 refunds：直接向 Stripe 列出這筆付款的所有退款，一筆一筆同步
+          const refunds = await stripe!.refunds.list({ payment_intent: paymentIntentId, limit: 100 });
+          await syncRefunds(refunds.data, paymentIntentId, charge);
         }
 
         logOps("webhook", "stripe.charge_refunded", {
           charge_id: charge.id,
           stripe_pi_id: paymentIntentId,
         });
+        break;
+      }
+
+      case "refund.created":
+      case "refund.updated":
+      case "refund.failed":
+      case "charge.refund.updated": {
+        const refund = event.data.object as StripeRefundLike;
+        const paymentIntentId = typeof refund.payment_intent === "string" ? refund.payment_intent : refund.payment_intent?.id ?? null;
+        await syncRefunds([refund], paymentIntentId, null);
+        logOps("webhook", "stripe.refund_synced", { refund_id: refund.id, status: refund.status ?? null, stripe_pi_id: paymentIntentId });
         break;
       }
 

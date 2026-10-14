@@ -108,6 +108,8 @@ export function computeCheckoutBill(input: {
   foodSettled?: boolean;
   /** 延長紀錄加總（#444）。有給就照「預約總價＋延長差額」算，和 settle_reservation_checkout 一致 */
   extensions?: { minutes: number; fee: number } | null;
+  /** 訂金「真的已退」的金額（退款帳本 succeeded；Infinity = 全額）。只扣這麼多，部分退款不會把整筆訂金拿掉 */
+  depositRefunded?: number;
 }): CheckoutBill {
   const isWeekend = isWeekendDate(taipeiDay(input.startTime));
   const hourlyRate = Number(isWeekend ? input.room.price_weekend : input.room.price_weekday) || 0;
@@ -120,7 +122,8 @@ export function computeCheckoutBill(input: {
   const foodTotal = Math.round(Number(input.foodTotal) || 0);
   // 沒有訂位總價的舊資料：有延長紀錄時用原訂時段的包廂費（不含延長），和 settle_reservation_checkout 一致
   const depositBase = input.bookedTotal ?? bookedRoomFee ?? roomFee;
-  const depositCredit = input.isDepositPaid && depositBase > 0 ? getDepositAmount(depositBase) : 0;
+  const refunded = Math.max(0, Number(input.depositRefunded ?? 0) || 0);
+  const depositCredit = input.isDepositPaid && depositBase > 0 ? Math.max(0, getDepositAmount(depositBase) - refunded) : 0;
   const foodSettled = Boolean(input.foodSettled);
   const balance = roomFee + (foodSettled ? 0 : foodTotal) - depositCredit;
   return {
