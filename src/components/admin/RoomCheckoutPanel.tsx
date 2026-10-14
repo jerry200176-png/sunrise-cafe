@@ -8,7 +8,7 @@ import { MenuPicker } from "@/components/MenuPicker";
 import { selectionProblem } from "@/lib/option-sets";
 import type { DraftItemInput } from "@/lib/reservation-preorder";
 import type { MenuCategory, MenuItem, Order, OrderItem } from "@/types";
-import { EXTEND_STEPS_MINUTES, addMinutes, newEndProblem, overtimeSettledEnd, type CheckoutBill } from "@/lib/room-checkout";
+import { EXTEND_STEPS_MINUTES, addMinutes, newEndProblem, overtimeSettledEnd, resolveClockNear, type CheckoutBill } from "@/lib/room-checkout";
 import { fmtClock, minutesText } from "@/components/admin/RoomFloor3D";
 
 type View = {
@@ -26,7 +26,6 @@ const durationText = (hours: number) => {
   const m = minutes % 60;
   return h && m ? `${h} 小時 ${m} 分` : h ? `${h} 小時` : `${m} 分`;
 };
-const taipeiDate = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(new Date(iso));
 
 /** 現場結帳面板：調整結束時間、快速點餐、包廂費＋餐費−訂金＝應收。 */
 export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, onClose, onChanged }: {
@@ -104,8 +103,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
     void act("extend", { end_time: candidate });
   }
   function customEndIso() {
-    if (!billing || !/^\d{2}:\d{2}$/.test(customEnd)) return null;
-    return new Date(`${taipeiDate(billing.end_time)}T${customEnd}:00+08:00`).toISOString();
+    return billing ? resolveClockNear(customEnd, billing.end_time) : null;
   }
 
   function tapItem(item: MenuItem) {
@@ -157,11 +155,12 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
           </> : <p className="mt-3 text-sm text-ink-soft">{billing.status === "completed" ? "這組已經結帳了。" : "客人到了以後，才能點餐、延長時間和結帳。"}</p>}
         </section>}
 
-        {view && !order && billing && ["pending", "confirmed"].includes(billing.status) && <section className="rounded-2xl border border-caramel/30 bg-caramel-glow/15 p-4">
-          <p className="text-sm text-ink-soft">{view.preorder?.requires_reconfirmation ? "這組的預約改過，請先打開「看預點的餐」確認一下餐點。" : "客人到了嗎？按下去之後，他們先點好的餐會通知廚房準備。"}</p>
+        {view && !order && billing && ["pending", "confirmed", "checked_in"].includes(billing.status) && <section className="rounded-2xl border border-caramel/30 bg-caramel-glow/15 p-4">
+          <p className="text-sm text-ink-soft">{view.preorder?.requires_reconfirmation ? "這組的預約改過，請先打開「看預點的餐」確認一下餐點。"
+            : checkedIn ? "這組已經報到，但還沒開點餐單。按下去就可以開始點餐、結帳。" : "客人到了嗎？按下去之後，他們先點好的餐會通知廚房準備。"}</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <button type="button" disabled={busy || Boolean(view.preorder?.requires_reconfirmation)} onClick={() => act("check_in")}
-              className="h-11 rounded-xl bg-gradient-to-br from-[#b5742c] to-[#9d6519] px-5 font-semibold text-white shadow-[0_10px_30px_-12px_rgba(157,101,25,0.45)] disabled:opacity-50">客人到了</button>
+              className="h-11 rounded-xl bg-gradient-to-br from-[#b5742c] to-[#9d6519] px-5 font-semibold text-white shadow-[0_10px_30px_-12px_rgba(157,101,25,0.45)] disabled:opacity-50">{checkedIn ? "開始點餐" : "客人到了"}</button>
             <Link href={`/admin/reservation-orders/${encodeURIComponent(reservationId)}`} className="flex h-11 items-center rounded-xl border border-ink/15 px-4 text-sm">看預點的餐</Link>
           </div>
         </section>}
@@ -223,7 +222,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
       {bill && order && <footer className="sticky-bottom-safe border-t border-ink/10 bg-white/90 px-5 py-4 backdrop-blur">
         <dl className="space-y-1 text-sm">
           <Row label={`包廂費（${bill.isWeekend ? "假日" : "平日"}每小時 ${money(bill.hourlyRate)}，用了 ${durationText(bill.hours)}）`} value={money(bill.roomFee)} />
-          <Row label="餐費" value={money(bill.foodTotal)} />
+          <Row label={bill.foodSettled ? "餐費（之前已經收過）" : "餐費"} value={bill.foodSettled ? `${money(bill.foodTotal)} ✓` : money(bill.foodTotal)} />
           {bill.depositCredit > 0 && <Row label="已付訂金" value={`− ${money(bill.depositCredit)}`} />}
         </dl>
         <div className="mt-2 flex items-end justify-between border-t border-dashed border-ink/15 pt-2">

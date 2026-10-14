@@ -158,7 +158,7 @@ function RoomMesh({ plan, slot, tile, selected, onSelect }: {
 
 function LandmarkMesh({ plan, landmark }: { plan: FloorPlan; landmark: Landmark }) {
   const { x, z, width, depth } = planToScene(plan, landmark.rect);
-  const color = { counter: "#c9a27a", zone: "#f3e7d3", service: "#ece6da", balcony: "#e9eee2", entrance: "#f0c27a" }[landmark.kind];
+  const color = { counter: "#c9a27a", zone: "#f3e7d3", service: "#ece6da", entrance: "#f0c27a" }[landmark.kind];
   const height = landmark.height / 100;
   return (
     <group position={[x, 0, z]}>

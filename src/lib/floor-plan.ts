@@ -3,7 +3,7 @@
  *
  * 座標：u = 沿靠窗外牆的距離（從教室1 那端起算），v = 離窗的深度（往店內）。
  * 數字來源：平面圖標註尺寸（202／211／218／226／434 cm）與面積反推深度
- * （例：教室1 5.89㎡ ÷ 2.02m = 2.92m）；櫃台／茶水區／廁所／辦公室位置
+ * （例：教室1 5.89㎡ ÷ 2.02m = 2.92m）；櫃台／茶水區／廁所／辦公室位置（大概位置即可）
  * 取自 OpenCV 在平面圖照片上偵測到的牆線，依比例換算。
  */
 export type Rect = { u: number; v: number; w: number; d: number };
@@ -23,7 +23,7 @@ export type Landmark = {
   id: string;
   label: string;
   rect: Rect;
-  kind: "counter" | "zone" | "service" | "balcony" | "entrance";
+  kind: "counter" | "zone" | "service" | "entrance";
   /** 立體高度（公分），0 = 平面 */
   height: number;
 };
@@ -47,14 +47,13 @@ export const DAAN_FLOOR_PLAN: FloorPlan = {
   size: { u: 1291, v: 903 },
   viewFrom: "counter",
   rooms: [
-    { slot: "room1", planName: "教室1", names: [], rect: R(0, 0, 202, 292) },
-    { slot: "room2", planName: "教室2", names: [], rect: R(202, 0, 211, 292) },
-    { slot: "room3", planName: "教室3", names: [], rect: R(413, 113, 218, 179) },
-    { slot: "room4", planName: "教室4", names: [], rect: R(631, 113, 226, 179) },
-    { slot: "room5", planName: "會議室", names: [], rect: R(857, 0, 434, 331), meeting: true },
+    { slot: "room1", planName: "教室1", names: ["包廂1"], rect: R(0, 0, 202, 292) },
+    { slot: "room2", planName: "教室2", names: ["包廂2"], rect: R(202, 0, 211, 292) },
+    { slot: "room3", planName: "教室3", names: ["包廂3"], rect: R(413, 113, 218, 179) },
+    { slot: "room4", planName: "教室4", names: ["包廂4"], rect: R(631, 113, 226, 179) },
+    { slot: "room5", planName: "會議室", names: ["會議室"], rect: R(857, 0, 434, 331), meeting: true },
   ],
   landmarks: [
-    { id: "balcony", label: "陽台", kind: "balcony", rect: R(413, 0, 444, 113), height: 0 },
     { id: "rest", label: "休息區", kind: "zone", rect: R(0, 300, 220, 380), height: 0 },
     { id: "counter", label: "櫃台", kind: "counter", rect: R(404, 589, 291, 100), height: 95 },
     { id: "tea", label: "茶水區", kind: "zone", rect: R(351, 700, 520, 203), height: 0 },
@@ -69,6 +68,13 @@ export const FLOOR_PLANS: FloorPlan[] = [DAAN_FLOOR_PLAN];
 export function floorPlanForBranch(branchName: string | null | undefined, plans: FloorPlan[] = FLOOR_PLANS): FloorPlan | null {
   if (!branchName) return null;
   return plans.find((plan) => plan.branchKeywords.some((keyword) => branchName.includes(keyword))) ?? null;
+}
+
+const CN_DIGITS: Record<string, string> = { 〇: "0", 零: "0", 一: "1", 二: "2", 三: "3", 四: "4", 五: "5", 六: "6", 七: "7", 八: "8", 九: "9" };
+
+/** 名稱比對前先統一：去掉空白、全形數字與國字數字轉成半形數字。「包廂 1」「包廂１」「包廂一」都算「包廂1」。 */
+export function normalizeRoomName(name: string): string {
+  return name.normalize("NFKC").replace(/\s+/g, "").replace(/[〇零一二三四五六七八九]/g, (c) => CN_DIGITS[c]);
 }
 
 /**
@@ -86,7 +92,8 @@ export function assignRoomsToPlan<T extends { id: string; name: string; capacity
   const take = (slot: PlanRoom) => freeSlots.splice(freeSlots.indexOf(slot), 1);
 
   for (const room of rooms) {
-    const slot = freeSlots.find((candidate) => candidate.names.includes(room.name));
+    const name = normalizeRoomName(room.name);
+    const slot = freeSlots.find((candidate) => candidate.names.some((n) => normalizeRoomName(n) === name));
     if (slot) { result.set(room.id, slot); take(slot); }
   }
   const rest = rooms.filter((room) => !result.has(room.id)).sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"));

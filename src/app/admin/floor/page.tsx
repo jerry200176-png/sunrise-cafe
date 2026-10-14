@@ -40,6 +40,7 @@ export default function FloorConsolePage() {
   const [view, setView] = useState<"3d" | "list">("3d");
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
   const [webgl, setWebgl] = useState(false);
+  const [branchesLoaded, setBranchesLoaded] = useState(false);
   const currentBranch = useRef("");
 
   useEffect(() => {
@@ -49,15 +50,28 @@ export default function FloorConsolePage() {
       if (saved === "3d" || saved === "list") setView(saved);
       else if (window.matchMedia("(max-width: 640px)").matches) setView("list");
     } catch { /* storage unavailable */ }
-    fetch("/api/branches", { credentials: "include" })
-      .then((response) => response.json())
-      .then((rows: Branch[]) => {
-        const list = Array.isArray(rows) ? rows : [];
-        setBranches(list);
-        if (list[0]) setBranchId(list[0].id);
-      })
-      .catch(() => setError("無法載入分店，請重新整理"));
+    void loadBranches();
   }, []);
+
+  // 只列出這個帳號能管的分店（店長／店員可能只負責一間）
+  async function loadBranches() {
+    try {
+      const [branchRes, meRes] = await Promise.all([
+        fetch("/api/branches", { credentials: "include" }),
+        fetch("/api/admin/me", { credentials: "include" }),
+      ]);
+      if (!branchRes.ok) throw new Error(friendlyMessage((await branchRes.json().catch(() => ({}))).error, branchRes.status));
+      const rows = (await branchRes.json()) as Branch[];
+      const me = meRes.ok ? ((await meRes.json()) as { branch_ids: string[] | null }) : { branch_ids: null };
+      const list = (Array.isArray(rows) ? rows : []).filter((branch) => me.branch_ids === null || me.branch_ids.includes(branch.id));
+      setBranches(list);
+      setBranchesLoaded(true);
+      if (list[0]) setBranchId(list[0].id);
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error && /[一-鿿]/.test(cause.message) ? cause.message : "無法載入分店，請按右上角重新整理");
+    }
+  }
 
   const load = useCallback(async () => {
     if (!branchId) return;
@@ -125,7 +139,7 @@ export default function FloorConsolePage() {
       title="包廂現況"
       subtitle={`現在 ${fmtClock(new Date(now).toISOString())} · 點一間包廂就能點餐、延長、結帳`}
       maxWidth="5xl"
-      actions={<button type="button" onClick={() => void load()} disabled={loading} aria-label="重新整理"
+      actions={<button type="button" onClick={() => void (branchId ? load() : loadBranches())} disabled={loading} aria-label="重新整理"
         className="flex h-10 w-10 items-center justify-center rounded-xl text-stone-500 hover:bg-stone-100 disabled:opacity-50">
         <RefreshCw className={`h-5 w-5 ${loading ? "animate-spin" : ""}`} strokeWidth={1.5} />
       </button>}
@@ -156,7 +170,8 @@ export default function FloorConsolePage() {
         </div>
 
         {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>}
-        {!data && !error && <p className="py-10 text-center text-sm text-stone-500">載入中…</p>}
+        {branchesLoaded && branches.length === 0 && <p className="py-10 text-center text-sm text-stone-500">你的帳號目前沒有負責的分店，請找老闆設定。</p>}
+        {!data && !error && !(branchesLoaded && branches.length === 0) && <p className="py-10 text-center text-sm text-stone-500">載入中…</p>}
         {data && tiles.length === 0 && <p className="py-10 text-center text-sm text-stone-500">此分店尚未建立包廂。</p>}
 
         {tiles.length > 0 && (view === "3d"

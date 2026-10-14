@@ -8,6 +8,7 @@ import {
   newEndProblem,
   nextBlockingStart,
   overtimeSettledEnd,
+  resolveClockNear,
   roomFloorState,
   type FloorReservation,
 } from "@/lib/room-checkout";
@@ -132,5 +133,24 @@ describe("overtimeSettledEnd", () => {
     expect(overtimeSettledEnd(at("16:00"), Date.parse(at("16:31")))).toBe(addMinutes(at("16:00"), (2 * SLOT_STEP_MS) / 60_000));
     expect(overtimeSettledEnd(at("16:00"), Date.parse(at("16:01")), 15)).toBe(at("16:15"));
     expect(overtimeSettledEnd(at("16:00"), Date.parse(at("16:01")), 60)).toBe(at("17:00"));
+  });
+});
+
+describe("resolveClockNear", () => {
+  it("picks the day closest to the current end, across midnight", () => {
+    expect(resolveClockNear("16:30", at("16:00"))).toBe(at("16:30"));
+    expect(resolveClockNear("00:30", at("23:30"))).toBe(at("00:30", "2026-10-15"));
+    expect(resolveClockNear("23:30", at("00:30", "2026-10-15"))).toBe(at("23:30"));
+    expect(resolveClockNear("9:3", at("16:00"))).toBeNull();
+  });
+});
+
+describe("computeCheckoutBill — food already settled", () => {
+  it("shows the food total but does not charge it again", () => {
+    const base = { room: { price_weekday: 200, price_weekend: 300 }, startTime: at("14:00"), endTime: at("16:00"),
+      bookedTotal: null, isDepositPaid: false, foodTotal: 360 };
+    expect(computeCheckoutBill(base).due).toBe(760);
+    const settled = computeCheckoutBill({ ...base, foodSettled: true });
+    expect(settled).toMatchObject({ foodTotal: 360, foodSettled: true, due: 400 });
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DAAN_FLOOR_PLAN, assignRoomsToPlan, floorPlanForBranch, planToScene, type FloorPlan } from "@/lib/floor-plan";
+import { DAAN_FLOOR_PLAN, assignRoomsToPlan, floorPlanForBranch, normalizeRoomName, planToScene, type FloorPlan } from "@/lib/floor-plan";
 
 const rooms = [
   { id: "a", name: "A 小包廂", capacity: 4 },
@@ -71,5 +71,20 @@ describe("planToScene (view from the counter)", () => {
     const counter = DAAN_FLOOR_PLAN.landmarks.find((l) => l.id === "counter")!;
     expect(planToScene(DAAN_FLOOR_PLAN, counter.rect).z).toBeGreaterThan(a.z);
     expect(a.width).toBeCloseTo(room1.rect.w / 100);
+  });
+});
+
+describe("store's real room names", () => {
+  it("maps 包廂1–4 and 會議室 to the drawing, tolerating spacing and numerals", () => {
+    const real = [
+      { id: "m", name: "會議室", capacity: 12 },
+      { id: "4", name: "包廂四", capacity: 3 },
+      { id: "1", name: "包廂 1", capacity: 4 },
+      { id: "3", name: "包廂３", capacity: 3 },
+      { id: "2", name: "包廂2", capacity: 5 },
+    ];
+    const map = assignRoomsToPlan(DAAN_FLOOR_PLAN, real)!;
+    expect(["1", "2", "3", "4", "m"].map((id) => map.get(id)?.planName)).toEqual(["教室1", "教室2", "教室3", "教室4", "會議室"]);
+    expect(normalizeRoomName(" 包廂 一 ")).toBe("包廂1");
   });
 });

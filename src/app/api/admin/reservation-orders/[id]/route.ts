@@ -34,6 +34,7 @@ async function load(id: string) {
     room: billing.room, startTime: billing.reservation.start_time, endTime: billing.reservation.end_time,
     bookedTotal: billing.reservation.total_price, isDepositPaid: Boolean(billing.reservation.is_deposit_paid),
     foodTotal: Number(orderResult.data?.total_amount) || 0,
+    foodSettled: Boolean(orderResult.data?.paid_at) && billing.reservation.status !== "completed",
   }) : null;
   return { preorder, order: orderResult.data, billing: { ...billing.reservation, next_start: billing.nextStart, bill } };
 }
@@ -130,7 +131,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (body.action === "checkout") {
       // 結帳並完成。店員確認的金額必須等於伺服器現在算出的金額（別台剛加餐或延長就擋下）。
       const due = current.bill?.due ?? null;
-      if (!order.paid_at && (typeof body.expected_due !== "number" || body.expected_due !== due)) {
+      if (auth.reservation!.status !== "completed" && (typeof body.expected_due !== "number" || body.expected_due !== due)) {
         return NextResponse.json({ error: `金額剛剛有變動（現在要收 NT$ ${(due ?? 0).toLocaleString()}），請再確認一次`, billing: current }, { status: 409 });
       }
       const ctx = await getAdminContext(request);

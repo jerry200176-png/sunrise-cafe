@@ -78,6 +78,8 @@ export type CheckoutBill = {
   isWeekend: boolean;
   roomFee: number;
   foodTotal: number;
+  /** 餐費之前已經結過（舊點餐頁「記錄現場已結帳」），這次不再收 */
+  foodSettled: boolean;
   depositCredit: number;
   due: number;
 };
@@ -93,6 +95,7 @@ export function computeCheckoutBill(input: {
   bookedTotal: number | null;
   isDepositPaid: boolean;
   foodTotal: number;
+  foodSettled?: boolean;
 }): CheckoutBill {
   const isWeekend = isWeekendDate(input.startTime.slice(0, 10));
   const hourlyRate = Number(isWeekend ? input.room.price_weekend : input.room.price_weekday) || 0;
@@ -101,14 +104,16 @@ export function computeCheckoutBill(input: {
   const foodTotal = Math.round(Number(input.foodTotal) || 0);
   const depositBase = input.bookedTotal ?? roomFee;
   const depositCredit = input.isDepositPaid && depositBase > 0 ? getDepositAmount(depositBase) : 0;
+  const foodSettled = Boolean(input.foodSettled);
   return {
     hours: Math.round(hours * 100) / 100,
     hourlyRate,
     isWeekend,
     roomFee,
     foodTotal,
+    foodSettled,
     depositCredit,
-    due: Math.max(0, roomFee + foodTotal - depositCredit),
+    due: Math.max(0, roomFee + (foodSettled ? 0 : foodTotal) - depositCredit),
   };
 }
 
@@ -149,4 +154,19 @@ export function overtimeSettledEnd(endTime: string, nowMs: number, stepMinutes =
   if (over <= 0) return null;
   const stepMs = stepMinutes * 60_000;
   return new Date(ms(endTime) + Math.ceil(over / stepMs) * stepMs).toISOString();
+}
+
+/**
+ * 店員只選「幾點幾分」時，換成最接近原本結束時間的那一天（前後 12 小時內），
+ * 跨午夜的延長或提早結束才不會差一天。
+ */
+export function resolveClockNear(hhmm: string, referenceIso: string): string | null {
+  const match = /^(\d{2}):(\d{2})$/.exec(hhmm);
+  if (!match) return null;
+  const reference = ms(referenceIso);
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(new Date(reference));
+  const base = new Date(`${day}T${match[1]}:${match[2]}:00+08:00`).getTime();
+  const candidates = [base - 86_400_000, base, base + 86_400_000];
+  const best = candidates.reduce((a, b) => (Math.abs(b - reference) < Math.abs(a - reference) ? b : a));
+  return new Date(best).toISOString();
 }

@@ -148,6 +148,16 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
     expect((await post({ action: "checkout" })).status).toBe(409);
   });
 
+  it("checkout does not charge food again when the order was already settled", async () => {
+    order.paid_at = at("15:00");
+    const stale = await post({ action: "checkout", expected_due: DUE });
+    expect(stale.status).toBe(409);
+    const response = await post({ action: "checkout", expected_due: DUE - 360 });
+    expect(response.status).toBe(200);
+    expect(paidUpdate()).toBeUndefined();
+    expect(mocks.transitionReservation).toHaveBeenCalledTimes(1);
+  });
+
   it("checkout surfaces a lifecycle refusal without marking the order paid", async () => {
     mocks.transitionReservation.mockResolvedValue({ ok: false, code: "invalid_transition", message: "x", httpStatus: 409 });
     expect((await post({ action: "checkout", expected_due: DUE })).status).toBe(409);
