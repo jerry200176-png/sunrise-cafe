@@ -158,6 +158,14 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
     expect(mocks.transitionReservation).toHaveBeenCalledTimes(1);
   });
 
+  it("does not credit a refunded deposit", async () => {
+    const base = mocks.respond;
+    mocks.respond = (call) => call.table === "reservations" && !hasOp(call, "update") && !hasOp(call, "limit")
+      ? { data: { ...reservationRow, deposit_status: "refunded" }, error: null } : base(call);
+    const response = await post({ action: "checkout", expected_due: DUE + 200 });
+    expect(response.status).toBe(200);
+  });
+
   it("checkout undoes payment when items changed between the amount check and the payment write", async () => {
     const base = mocks.respond;
     mocks.respond = (call) => call.table === "orders" && call.ops.some(([op, args]) => op === "select" && args[0] === "total_amount")

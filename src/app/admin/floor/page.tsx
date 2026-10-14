@@ -135,7 +135,12 @@ export default function FloorConsolePage() {
   const slots = useMemo(() => (plan && data ? assignRoomsToPlan(plan, data.rooms) : null), [plan, data]);
 
   const selected = tiles.find((t) => t.id === selectedRoom) ?? null;
-  const selectedReservation = selected?.state.current ?? selected?.state.next ?? null;
+  // 包廂沒人時，若有已結帳但還沒送完的餐，打開那一組，才按得到「送了」
+  const withUnserved = selected && !selected.state.current
+    ? (data?.reservations ?? []).find((r) => r.room_id === selected.id
+      && (data?.orders ?? []).some((o) => o.reservation_id === r.id && o.unserved_count > 0)) ?? null
+    : null;
+  const selectedReservation = selected?.state.current ?? withUnserved ?? selected?.state.next ?? null;
   const sortedTiles = [...tiles].sort((a, b) => ATTENTION.indexOf(a.state.status) - ATTENTION.indexOf(b.state.status));
 
   return (

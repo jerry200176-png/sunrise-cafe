@@ -43,7 +43,7 @@ async function load(id: string) {
 async function loadBilling(id: string) {
   const db = supabaseAdmin();
   const { data, error } = await db.from("reservations")
-    .select("id,room_id,start_time,end_time,status,total_price,is_deposit_paid,room:rooms(price_weekday,price_weekend)")
+    .select("id,room_id,start_time,end_time,status,total_price,is_deposit_paid,deposit_status,room:rooms(price_weekday,price_weekend)")
     .eq("id", id).single();
   if (error) throw error;
   const room = Array.isArray(data.room) ? data.room[0] : data.room;
@@ -54,7 +54,9 @@ async function loadBilling(id: string) {
   return {
     reservation: { id: data.id as string, room_id: data.room_id as string, start_time: data.start_time as string,
       end_time: data.end_time as string, status: data.status as string,
-      total_price: data.total_price == null ? null : Number(data.total_price), is_deposit_paid: Boolean(data.is_deposit_paid) },
+      total_price: data.total_price == null ? null : Number(data.total_price),
+      // 退過款的訂金（Stripe 退款只改 deposit_status，is_deposit_paid 仍為 true）不能再扣
+      is_deposit_paid: Boolean(data.is_deposit_paid) && data.deposit_status !== "refunded" },
     room: (room ?? null) as { price_weekday: number; price_weekend: number } | null,
     nextStart: nextBlockingStart(data, sameRoom ?? []),
   };
