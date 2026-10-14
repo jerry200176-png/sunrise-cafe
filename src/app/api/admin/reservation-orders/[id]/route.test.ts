@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   logOps: vi.fn(),
   afterSettledComplete: vi.fn(),
   rpc: vi.fn(),
+  billingState: vi.fn(),
   calls: [] as Call[],
   respond: (() => ({ data: null, error: null })) as (call: Call) => Reply,
 }));
@@ -31,7 +32,9 @@ function builder(table: string) {
 }
 
 vi.mock("@/lib/admin-api-auth", () => ({ requirePermission: mocks.requirePermission, getAdminContext: mocks.getAdminContext }));
-vi.mock("@/lib/supabase-admin", () => ({ supabaseAdmin: () => ({ from: builder, rpc: mocks.rpc }) }));
+// 讀取用的 reservation_billing_state 另外 mock，mocks.rpc 只記會寫入的 RPC（結帳、延長）
+vi.mock("@/lib/supabase-admin", () => ({ supabaseAdmin: () => ({ from: builder,
+  rpc: (name: string, args: unknown) => name === "reservation_billing_state" ? mocks.billingState(args) : mocks.rpc(name, args) }) }));
 vi.mock("@/lib/reservation-preorder", () => ({
   getReservationForPreorder: mocks.getReservationForPreorder,
   getReservationPreorder: mocks.getReservationPreorder,
@@ -78,10 +81,12 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
       if (call.table === "reservations" && hasOp(call, "update")) return { data: [{ id: "res-1" }], error: null };
       if (call.table === "reservations" && hasOp(call, "limit")) return { data: nextGroups, error: null };
       if (call.table === "reservations") return { data: reservationRow, error: null };
-      // migration 尚未套用：延長紀錄表不存在 → 舊流程
-      if (call.table === "reservation_extensions") return { data: null, error: { code: "PGRST205", message: "missing" } };
+      // migration 尚未套用：退款帳本表也不存在
+      if (call.table === "reservation_refund_current") return { data: null, error: { code: "PGRST205", message: "missing" } };
       return { data: null, error: null };
     };
+    // migration 尚未套用：reservation_billing_state 函式不存在 → 舊流程
+    mocks.billingState.mockResolvedValue({ data: null, error: { code: "PGRST202", message: "missing" } });
   });
 
   it("extends the end time within the next group's start and returns the recomputed bill", async () => {
@@ -260,7 +265,45 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
     // 14:00–14:30 at 200/h = 100, deposit 200 → refund 100
     expect((await post({ action: "checkout", expected_due: 0, expected_refund: 50 })).status).toBe(409);
     expect(mocks.calls.some(writesPaidAt)).toBe(false);
+    mocks.getAdminContext.mockResolvedValue({ user_id: "own-1", role: "owner", branch_ids: null, legacy: false });
     expect((await post({ action: "checkout", expected_due: 0, expected_refund: 100 })).status).toBe(200);
+  });
+
+  it("old path (no migration) also refuses a refund from staff or another branch's manager — role from the session", async () => {
+    mocks.respond = ((base) => (call: Call) => call.table === "reservations" && !hasOp(call, "update") && !hasOp(call, "limit")
+      ? { data: { ...reservationRow, end_time: at("14:30") }, error: null } : base(call))(mocks.respond);
+    order.total_amount = 0;
+    for (const ctx of [
+      { user_id: "staff-1", role: "staff", branch_ids: ["b1"], legacy: false },
+      { user_id: "mgr-2", role: "branch_manager", branch_ids: ["b2"], legacy: false },
+      { user_id: "mgr-x", role: "branch_manager", branch_ids: null, legacy: false },
+    ]) {
+      mocks.getAdminContext.mockResolvedValue(ctx);
+      const response = await post({ action: "checkout", expected_due: 0, expected_refund: 100, role: "owner" });
+      expect(response.status, ctx.user_id).toBe(403);
+    }
+    expect(mocks.calls.some(writesPaidAt)).toBe(false);
+    expect(mocks.transitionReservation).not.toHaveBeenCalled();
+    mocks.getAdminContext.mockResolvedValue({ user_id: "mgr-1", role: "branch_manager", branch_ids: ["b1"], legacy: false });
+    expect((await post({ action: "checkout", expected_due: 0, expected_refund: 100 })).status).toBe(200);
+  });
+
+  it("old path after a functions-only rollback still reads the kept refund ledger (partial refund, in-flight)", async () => {
+    // 函式拿掉、表留著：照帳本只扣實際退的 80 → 訂金折抵 120 → 400 + 360 − 120 = 640
+    mocks.respond = ((base) => (call: Call) => call.table === "reservation_refund_current"
+      ? { data: [{ kind: "deposit", amount: 80, status: "succeeded" }, { kind: "deposit", amount: 50, status: "failed" }], error: null }
+      : base(call))(mocks.respond);
+    expect((await post({ action: "checkout", expected_due: DUE })).status).toBe(409);
+    expect((await post({ action: "checkout", expected_due: DUE + 80 })).status).toBe(200);
+  });
+
+  it("old path after rollback blocks checkout while a deposit refund is still pending", async () => {
+    mocks.respond = ((base) => (call: Call) => call.table === "reservation_refund_current"
+      ? { data: [{ kind: "deposit", amount: 200, status: "pending" }], error: null } : base(call))(mocks.respond);
+    const response = await post({ action: "checkout", expected_due: DUE });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatch(/退款還在處理中/);
+    expect(mocks.calls.some(writesPaidAt)).toBe(false);
   });
   it("refuses to mark dishes served before a restored group checks in", async () => {
     mocks.getReservationForPreorder.mockResolvedValue({ id: "res-1", status: "confirmed", room: { name: "A", branch_id: "b1" } });
@@ -271,11 +314,15 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
 
 describe("POST /api/admin/reservation-orders/[id] — settlement RPCs (#444 migration applied)", () => {
   let extensions: Array<{ minutes: number; fee: number }>;
+  let depositRefunded: number;
+  let refundInFlight: boolean;
   let status: string;
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.calls.length = 0;
     extensions = [];
+    depositRefunded = 0;
+    refundInFlight = false;
     status = "checked_in";
     order = { id: "ord-1", paid_at: null, total_amount: 360, order_items: [] };
     nextGroups = [{ id: "res-2", room_id: "room-a", start_time: at("17:00"), status: "confirmed" }];
@@ -284,8 +331,12 @@ describe("POST /api/admin/reservation-orders/[id] — settlement RPCs (#444 migr
     mocks.getReservationPreorder.mockResolvedValue(null);
     mocks.getReservationForPreorder.mockImplementation(async () => ({ id: "res-1", status, room: { name: "A", branch_id: "b1" } }));
     mocks.rpc.mockResolvedValue({ data: { id: "set-1" }, error: null });
+    mocks.billingState.mockImplementation(async () => ({ data: {
+      extension_minutes: extensions.reduce((sum, row) => sum + row.minutes, 0),
+      extension_fee: extensions.reduce((sum, row) => sum + row.fee, 0),
+      deposit_gross: 200, deposit_refunded: depositRefunded, deposit_refund_in_flight: refundInFlight,
+    }, error: null }));
     mocks.respond = (call) => {
-      if (call.table === "reservation_extensions") return { data: extensions, error: null };
       if (call.table === "orders" && hasOp(call, "update")) return { data: [{ id: "ord-1" }], error: null };
       if (call.table === "orders") return { data: order, error: null };
       if (call.table === "reservations" && hasOp(call, "limit")) return { data: nextGroups, error: null };
@@ -340,6 +391,53 @@ describe("POST /api/admin/reservation-orders/[id] — settlement RPCs (#444 migr
     mocks.getAdminContext.mockResolvedValue({ user_id: "own-1", role: "owner", branch_ids: null, legacy: false });
     expect((await post(refundAt)).status).toBe(200);
     expect(mocks.rpc).toHaveBeenCalledWith("settle_reservation_checkout", expect.objectContaining({ p_expected_refund: 150, p_actor_role: "owner" }));
+  });
+
+  it("passes the session's branch list to the RPC so SQL can re-check the branch, ignoring body fields", async () => {
+    mocks.getAdminContext.mockResolvedValue({ user_id: "mgr-1", role: "branch_manager", branch_ids: ["b1"], legacy: false });
+    await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "cash",
+      p_actor_role: "owner", p_actor_branch_ids: null });
+    expect(mocks.rpc).toHaveBeenCalledWith("settle_reservation_checkout", expect.objectContaining({
+      p_actor: "mgr-1", p_actor_role: "branch_manager", p_actor_branch_ids: ["b1"],
+    }));
+  });
+
+  it("refuses a refund from a branch manager whose session has no branch list", async () => {
+    mocks.getAdminContext.mockResolvedValue({ user_id: "mgr-x", role: "branch_manager", branch_ids: null, legacy: false });
+    extensions = [{ minutes: -90, fee: -350 }];
+    order = { ...order, total_amount: 0 };
+    expect((await post({ action: "checkout", expected_due: 0, expected_refund: 150, payment_method: "cash" })).status).toBe(403);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("credits only the deposit actually refunded (partial refund)", async () => {
+    // 訂金 200，已實際退 80 → 只折抵 120：400 + 360 − 120 = 640
+    depositRefunded = 80;
+    expect((await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "cash" })).status).toBe(409);
+    const response = await post({ action: "checkout", expected_due: 640, expected_refund: 0, payment_method: "cash" });
+    expect(response.status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith("settle_reservation_checkout", expect.objectContaining({ p_expected_before_discount: 640 }));
+  });
+
+  it("never credits a fully refunded deposit again", async () => {
+    depositRefunded = 200;
+    expect((await post({ action: "checkout", expected_due: 760, expected_refund: 0, payment_method: "cash" })).status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith("settle_reservation_checkout", expect.objectContaining({ p_expected_before_discount: 760 }));
+  });
+
+  it("blocks checkout while a deposit refund is pending — it is neither refunded nor creditable", async () => {
+    refundInFlight = true;
+    const response = await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "cash" });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatch(/退款還在處理中/);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("maps the RPC's refund_in_flight (a refund started between load and checkout) to 409", async () => {
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: "P0001", message: "refund_in_flight" } });
+    const response = await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "cash" });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatch(/退款/);
   });
 
   it("requires a payment method when money changes hands", async () => {

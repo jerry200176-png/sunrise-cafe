@@ -19,7 +19,9 @@ type View = {
   /** 結帳紀錄（#444）已上線：結帳要選付款方式，可打折 */
   settlementsReady?: boolean;
   billing: { start_time: string; end_time: string; status: string; total_price: number | null; is_deposit_paid: boolean;
-    next_start: string | null; bill: CheckoutBill | null };
+    next_start: string | null; bill: CheckoutBill | null;
+    /** 有一筆訂金退款還在處理中（#444）：結果未定，先不能結帳 */
+    deposit_refund_in_flight?: boolean };
 };
 
 const money = (n: number) => `NT$ ${Math.round(n).toLocaleString()}`;
@@ -267,6 +269,8 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
         </div>
         {bill.refund > 0 && !stayCancelled && !roomSettled && <p className="mt-2 rounded-xl border border-sky-300 bg-sky-50 p-2 text-sm text-sky-900">
           時間縮短了，訂金比要收的多：結帳時要退客人 <strong className="tabular-nums">{money(bill.refund)}</strong>。</p>}
+        {billing?.deposit_refund_in_flight && !roomSettled && !stayCancelled && <p className="mt-2 rounded-xl border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">
+          這組有一筆訂金退款還在處理中，訂金先不折抵；等退款結果出來再結帳。</p>}
         {billing?.total_price != null && billing.total_price !== bill.roomFee && <p className="mt-1 text-[11px] text-ink-faint">預約時是 {money(billing.total_price)}，多出來的是延長的時間</p>}
         {(roomSettled || stayCancelled) && !paid && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
           {stayCancelled ? "這組已經取消" : "這組已經結束"}，但餐費 {money(bill.foodTotal)} 還沒記收款。
@@ -293,9 +297,11 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
                 ...(discountAmount > 0 ? { discount_amount: discountAmount, discount_reason: discountReason.trim() } : {}) });
               if (ok) setConfirmCheckout(false); else void load().catch(() => undefined);
             }}
-              className="h-12 rounded-xl bg-ink font-semibold text-paper disabled:opacity-50">{bill.refund > 0 ? `已退客人 ${money(bill.refund)}，結帳` : `確定收到 ${money(collect)}`}</button>
+              className="h-12 rounded-xl bg-ink font-semibold text-paper disabled:opacity-50">{bill.refund > 0
+                ? (ready && method !== "cash" ? `結帳，退客人 ${money(bill.refund)}（退款待確認）` : `已退客人 ${money(bill.refund)}，結帳`)
+                : `確定收到 ${money(collect)}`}</button>
           </div>
-        </div> : <button type="button" disabled={busy || !checkedIn} onClick={() => setConfirmCheckout(true)}
+        </div> : <button type="button" disabled={busy || !checkedIn || Boolean(billing?.deposit_refund_in_flight)} onClick={() => setConfirmCheckout(true)}
           className="mt-3 h-12 w-full rounded-[1.25rem] bg-gradient-to-br from-[#b5742c] to-[#9d6519] font-semibold text-white shadow-[0_10px_30px_-12px_rgba(157,101,25,0.45)] transition-transform duration-150 active:scale-[0.985] disabled:opacity-50">
           收好錢了，結帳
         </button>)}

@@ -224,3 +224,25 @@ describe("overdue waiting reservations", () => {
     expect(state.current?.status).toBe("confirmed");
   });
 });
+
+describe("computeCheckoutBill — refunded deposit (refund principles 1 & 3)", () => {
+  const base = {
+    room: { price_weekday: 200, price_weekend: 300 },
+    startTime: "2026-10-14T06:00:00.000Z", endTime: "2026-10-14T08:00:00.000Z",
+    bookedTotal: 400, isDepositPaid: true, foodTotal: 0, extensions: { minutes: 0, fee: 0 },
+  };
+  it("deducts only what was actually refunded from the deposit credit", () => {
+    expect(computeCheckoutBill({ ...base }).depositCredit).toBe(200);
+    expect(computeCheckoutBill({ ...base, depositRefunded: 80 })).toMatchObject({ depositCredit: 120, due: 280 });
+  });
+  it("never credits a fully refunded deposit, even when the refund exceeds it", () => {
+    expect(computeCheckoutBill({ ...base, depositRefunded: 200 })).toMatchObject({ depositCredit: 0, due: 400 });
+    expect(computeCheckoutBill({ ...base, depositRefunded: Number.POSITIVE_INFINITY })).toMatchObject({ depositCredit: 0, due: 400 });
+  });
+  it("does not turn a refunded deposit into a refund owed at checkout", () => {
+    // 提早離開：包廂費 100；訂金已全退 → 不欠客人錢
+    expect(computeCheckoutBill({ ...base, endTime: "2026-10-14T06:30:00.000Z", extensions: { minutes: -90, fee: -300 },
+      depositRefunded: 200 })).toMatchObject({ depositCredit: 0, refund: 0, due: 100 });
+  });
+});
+
