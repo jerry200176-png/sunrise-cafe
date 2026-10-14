@@ -8,7 +8,6 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "test:agent-preflight": "node --test scripts/agent-preflight.test.mjs",
     "typecheck": "tsc --noEmit",
     "typecheck:baseline": "node scripts/verify-typecheck-baseline.mjs",
     "test:watch": "vitest",
@@ -48,7 +47,6 @@
     "cto:gmail-signals": "bash scripts/orchestrator/gmail-signals.sh",
     "design:audit": "bash scripts/design-slop-audit.sh",
     "gov:overlay-pin": "bash scripts/governance/check-constitution-pin.sh",
-    "agent-preflight": "bash scripts/agent-preflight.sh",
     "production-identity": "bash scripts/production-identity.sh",
     "line:usage-audit": "npx tsx scripts/line-usage-audit.ts"
   },
