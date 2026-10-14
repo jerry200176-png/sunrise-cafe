@@ -186,8 +186,14 @@ export async function POST(request: NextRequest, { params }: Params) {
         try {
           transition = await transitionReservation(id, { type: "complete" }, { kind: "admin", userId: ctx.user_id, label: ctx.role });
         } catch (error) {
-          await undoPaid();
-          throw error;
+          // 狀態可能已寫成 completed、只是後續附帶動作失敗：那就已經結帳了，不能把收款撤掉
+          const now = await db.from("reservations").select("status").eq("id", id).maybeSingle();
+          if (now.data?.status !== "completed") {
+            await undoPaid();
+            throw error;
+          }
+          logOps("admin", "admin.room_checkout_side_effect_failed", { reservation_id: id, error: error instanceof Error ? error.message : String(error) });
+          transition = { ok: true } as Awaited<ReturnType<typeof transitionReservation>>;
         }
         if (!transition.ok) {
           await undoPaid();

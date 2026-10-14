@@ -204,6 +204,14 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
     expect((await post({ action: "checkout", expected_due: DUE })).status).toBe(500);
     expect(undoWrites()).toHaveLength(1);
   });
+
+  it("checkout keeps the payment when the lifecycle throws after already completing the stay", async () => {
+    mocks.transitionReservation.mockRejectedValue(new Error("side effect failed"));
+    mocks.respond = ((base) => (call: Call) => call.table === "reservations" && call.ops.some(([op, args]) => op === "select" && args[0] === "status")
+      ? { data: { status: "completed" }, error: null } : base(call))(mocks.respond);
+    expect((await post({ action: "checkout", expected_due: DUE })).status).toBe(200);
+    expect(undoWrites()).toHaveLength(0);
+  });
   it("blocks adding or changing dishes after the stay is completed, but still allows marking served", async () => {
     mocks.getReservationForPreorder.mockResolvedValue({ id: "res-1", status: "completed", room: { name: "A", branch_id: "b1" } });
     for (const body of [

@@ -40,6 +40,7 @@ export type OpsLogAction =
   | "admin.waitlist_staff_called"
   | "admin.reservation_extended"
   | "admin.room_checked_out"
+  | "admin.room_checkout_side_effect_failed"
   | "payment.intent_created"
   | "payment.deposit_confirmed"
   | "payment.approved_notified"

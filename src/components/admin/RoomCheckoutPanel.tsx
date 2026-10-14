@@ -111,7 +111,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   const canEditTime = checkedIn && !busy;
   const roomSettled = billing?.status === "completed";
   // 報到後被取消的組：不收包廂費，只剩餐費要補記
-  const stayCancelled = billing?.status === "cancelled";
+  const stayCancelled = billing?.status === "cancelled" || billing?.status === "no_show";
   const minutesLeft = billing ? Math.floor((new Date(billing.end_time).getTime() - nowMs) / 60_000) : null;
   const settleEnd = billing && checkedIn ? overtimeSettledEnd(billing.end_time, nowMs) : null;
 
