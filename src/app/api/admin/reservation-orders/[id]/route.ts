@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission } from "@/lib/admin-api-auth";
+import { getAdminContext, requirePermission } from "@/lib/admin-api-auth";
 import { getReservationForPreorder, getReservationPreorder, validateAndSnapshotItems, canonicalDraftItems, type DraftItemInput } from "@/lib/reservation-preorder";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { computeCheckoutBill, newEndProblem, nextBlockingStart } from "@/lib/room-checkout";
+import { isPostgresExclusionViolation } from "@/lib/slot-conflict";
+import { transitionHttp, transitionReservation } from "@/lib/reservation-lifecycle";
+import { logOps } from "@/lib/ops-log";
 
 type Params = { params: Promise<{ id: string }> };
-type Action = "check_in" | "save_preorder" | "add_items" | "replace_item" | "update_quantity" | "remove_item" | "serve_item" | "settle";
+type Action = "check_in" | "save_preorder" | "add_items" | "replace_item" | "update_quantity" | "remove_item" | "serve_item" | "settle"
+  | "extend" | "checkout";
 
 async function authorized(request: NextRequest, id: string, write: boolean) {
   const denied = await requirePermission(request, write ? "orders:write" : "orders:read");
@@ -19,12 +24,39 @@ async function authorized(request: NextRequest, id: string, write: boolean) {
 
 async function load(id: string) {
   const db = supabaseAdmin();
-  const [preorder, orderResult] = await Promise.all([
+  const [preorder, orderResult, billing] = await Promise.all([
     getReservationPreorder(id),
     db.from("orders").select("*, order_items(*)").eq("reservation_id", id).maybeSingle(),
+    loadBilling(id),
   ]);
   if (orderResult.error) throw orderResult.error;
-  return { preorder, order: orderResult.data };
+  const bill = billing.room ? computeCheckoutBill({
+    room: billing.room, startTime: billing.reservation.start_time, endTime: billing.reservation.end_time,
+    bookedTotal: billing.reservation.total_price, isDepositPaid: Boolean(billing.reservation.is_deposit_paid),
+    foodTotal: Number(orderResult.data?.total_amount) || 0,
+  }) : null;
+  return { preorder, order: orderResult.data, billing: { ...billing.reservation, next_start: billing.nextStart, bill } };
+}
+
+/** 現場結帳需要的包廂費率、訂位金額與同包廂下一組開始時間（延時上限）。 */
+async function loadBilling(id: string) {
+  const db = supabaseAdmin();
+  const { data, error } = await db.from("reservations")
+    .select("id,room_id,start_time,end_time,status,total_price,is_deposit_paid,room:rooms(price_weekday,price_weekend)")
+    .eq("id", id).single();
+  if (error) throw error;
+  const room = Array.isArray(data.room) ? data.room[0] : data.room;
+  const { data: sameRoom, error: sameRoomError } = await db.from("reservations")
+    .select("id,room_id,start_time,status").eq("room_id", data.room_id)
+    .gte("start_time", data.start_time).neq("status", "cancelled").neq("id", id).order("start_time").limit(5);
+  if (sameRoomError) throw sameRoomError;
+  return {
+    reservation: { id: data.id as string, room_id: data.room_id as string, start_time: data.start_time as string,
+      end_time: data.end_time as string, status: data.status as string,
+      total_price: data.total_price == null ? null : Number(data.total_price), is_deposit_paid: Boolean(data.is_deposit_paid) },
+    room: (room ?? null) as { price_weekday: number; price_weekend: number } | null,
+    nextStart: nextBlockingStart(data, sameRoom ?? []),
+  };
 }
 
 async function updateStatus(orderId: string) {
@@ -57,7 +89,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (auth.denied) return auth.denied;
     const body = await request.json() as {
       action: Action; item?: DraftItemInput; items?: DraftItemInput[];
-      item_id?: string; notes?: string | null; quantity?: number;
+      item_id?: string; notes?: string | null; quantity?: number; end_time?: string;
     };
     const db = supabaseAdmin();
     const { order } = await load(id);
@@ -75,6 +107,45 @@ export async function POST(request: NextRequest, { params }: Params) {
       return NextResponse.json({ ok: true, ...(await load(id)) });
     }
     if (!order) return NextResponse.json({ error: "請先確認客人到店" }, { status: 409 });
+    if (body.action === "extend") {
+      // 只給已報到、尚未結帳的組調整結束時間（店員現場延時／提早離開）；不改 total_price，不推 LINE。
+      if (auth.reservation!.status !== "checked_in") return NextResponse.json({ error: "客人報到後才能調整結束時間" }, { status: 409 });
+      if (order.paid_at) return NextResponse.json({ error: "已結帳，不能再調整時間" }, { status: 409 });
+      const endTime = typeof body.end_time === "string" ? new Date(body.end_time) : null;
+      if (!endTime || Number.isNaN(endTime.getTime())) return NextResponse.json({ error: "結束時間格式錯誤" }, { status: 400 });
+      const { reservation, nextStart } = await loadBilling(id);
+      const problem = newEndProblem(reservation.start_time, endTime.toISOString(), nextStart);
+      if (problem) return NextResponse.json({ error: problem }, { status: 409 });
+      const result = await db.from("reservations").update({ end_time: endTime.toISOString() })
+        .eq("id", id).eq("status", "checked_in").select("id");
+      if (result.error) {
+        if (isPostgresExclusionViolation(result.error)) return NextResponse.json({ error: "會壓到同包廂其他訂位，請改包廂或先確認" }, { status: 409 });
+        throw result.error;
+      }
+      if (!result.data.length) return NextResponse.json({ error: "訂位狀態已變更，請重新整理" }, { status: 409 });
+      const ctx = await getAdminContext(request);
+      logOps("admin", "admin.reservation_extended", { reservation_id: id, from: reservation.end_time, to: endTime.toISOString(), actor: ctx.user_id ?? ctx.role });
+      return NextResponse.json({ ok: true, ...(await load(id)) });
+    }
+    if (body.action === "checkout") {
+      // 結帳並完成：記錄現場已收（含包廂費）→ 訂位轉「已完成」，包廂空出。
+      if (!order.paid_at) {
+        const result = await db.from("orders").update({ paid_at: new Date().toISOString() }).eq("id", order.id).is("paid_at", null);
+        if (result.error) throw result.error;
+      }
+      await updateStatus(order.id);
+      const ctx = await getAdminContext(request);
+      const { billing } = await load(id);
+      if (auth.reservation!.status !== "completed") {
+        const transition = await transitionReservation(id, { type: "complete" }, { kind: "admin", userId: ctx.user_id, label: ctx.role });
+        if (!transition.ok) {
+          const { status, body: failure } = transitionHttp(transition);
+          return NextResponse.json(failure, { status });
+        }
+      }
+      logOps("admin", "admin.room_checked_out", { reservation_id: id, due: billing.bill?.due ?? null, actor: ctx.user_id ?? ctx.role });
+      return NextResponse.json({ ok: true, ...(await load(id)) });
+    }
     if (body.action === "settle") {
       if (!order.paid_at) {
         const result = await db.from("orders").update({ paid_at: new Date().toISOString() }).eq("id", order.id).is("paid_at", null);

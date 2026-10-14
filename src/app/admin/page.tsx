@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Archive, Plus, Pencil, Trash2, MapPin, ChefHat, UtensilsCrossed, QrCode, Printer, Building2, LayoutGrid, ClipboardList, CalendarDays, CalendarX, BarChart2, Star, DollarSign, Activity, Clock, AlertTriangle, LayoutDashboard } from "lucide-react";
+import { Archive, Plus, Pencil, Trash2, MapPin, ChefHat, UtensilsCrossed, QrCode, Printer, Building2, LayoutGrid, ClipboardList, CalendarDays, CalendarX, BarChart2, Star, DollarSign, Activity, Clock, AlertTriangle, LayoutDashboard, Box } from "lucide-react";
 import type { Branch, Room, RentalNoteSection } from "@/types";
 import { BranchSwitcher } from "@/components/BranchSwitcher";
 import { ReservationList } from "@/components/ReservationList";
@@ -590,6 +590,7 @@ export default function AdminBranchesRoomsPage() {
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {[
                 { href: "/admin/today", icon: CalendarDays, label: "今日場控", hint: "今天的訂位與待辦", primary: true },
+                { href: "/admin/floor", icon: Box, label: "包廂場控", hint: "點餐・延時・結帳" },
                 { href: "/admin/payments", icon: DollarSign, label: "付款審核", hint: "確認客人匯款" },
                 { href: "/admin/waitlist", icon: Clock, label: "等位清單", hint: "候位與通知" },
                 { href: "/admin/dashboard", icon: LayoutDashboard, label: "儀表板", hint: "訂位總覽" },

@@ -1,0 +1,136 @@
+import { describe, expect, it } from "vitest";
+import { getDepositAmount } from "@/lib/booking-utils";
+import { SLOT_STEP_MS } from "@/lib/slot-grid";
+import {
+  EXTEND_STEPS_MINUTES,
+  addMinutes,
+  computeCheckoutBill,
+  newEndProblem,
+  nextBlockingStart,
+  overtimeSettledEnd,
+  roomFloorState,
+  type FloorReservation,
+} from "@/lib/room-checkout";
+
+// 2026-10-14 is a Wednesday (weekday); 2026-10-17 is a Saturday.
+const at = (hhmm: string, day = "2026-10-14") => new Date(`${day}T${hhmm}:00+08:00`).toISOString();
+
+function res(partial: Partial<FloorReservation>): FloorReservation {
+  return {
+    id: "r1", room_id: "room-a", customer_name: "王小明", booking_code: "AB12",
+    start_time: at("14:00"), end_time: at("16:00"), status: "confirmed",
+    guest_count: 3, total_price: 400, is_deposit_paid: false, ...partial,
+  };
+}
+
+describe("roomFloorState", () => {
+  it("is idle with no reservations", () => {
+    expect(roomFloorState([], Date.parse(at("12:00"))).status).toBe("idle");
+  });
+
+  it("flags upcoming within the window and follows the configured window", () => {
+    const list = [res({ start_time: at("14:00") })];
+    expect(roomFloorState(list, Date.parse(at("13:30"))).status).toBe("upcoming");
+    expect(roomFloorState(list, Date.parse(at("13:30")), { upcomingMinutes: 20 }).status).toBe("idle");
+    expect(roomFloorState(list, Date.parse(at("13:30")), { upcomingMinutes: 45 }).status).toBe("upcoming");
+  });
+
+  it("shows awaiting when the slot started but guest not checked in", () => {
+    const state = roomFloorState([res({})], Date.parse(at("14:10")));
+    expect(state.status).toBe("awaiting");
+    expect(state.current?.id).toBe("r1");
+  });
+
+  it("checked-in guest: in_use → ending_soon (configurable) → overtime", () => {
+    const list = [res({ status: "checked_in" })];
+    expect(roomFloorState(list, Date.parse(at("15:00"))).status).toBe("in_use");
+    expect(roomFloorState(list, Date.parse(at("15:50"))).status).toBe("ending_soon");
+    expect(roomFloorState(list, Date.parse(at("15:30")), { endingSoonMinutes: 40 }).status).toBe("ending_soon");
+    const over = roomFloorState(list, Date.parse(at("16:20")));
+    expect(over.status).toBe("overtime");
+    expect(over.minutesLeft).toBe(-20);
+  });
+
+  it("reports the next group separately from the current one", () => {
+    const list = [res({ status: "checked_in" }), res({ id: "r2", start_time: at("16:00"), end_time: at("18:00") })];
+    const state = roomFloorState(list, Date.parse(at("15:00")));
+    expect(state.current?.id).toBe("r1");
+    expect(state.next?.id).toBe("r2");
+  });
+});
+
+describe("computeCheckoutBill", () => {
+  it("bills the room from the current times and follows the room rates", () => {
+    const base = { startTime: at("14:00"), endTime: at("17:00"), bookedTotal: null, isDepositPaid: false, foodTotal: 360 };
+    const a = computeCheckoutBill({ ...base, room: { price_weekday: 200, price_weekend: 300 } });
+    expect(a).toMatchObject({ hours: 3, hourlyRate: 200, isWeekend: false, roomFee: 600, foodTotal: 360, due: 960 });
+    const b = computeCheckoutBill({ ...base, room: { price_weekday: 250, price_weekend: 300 } });
+    expect(b.roomFee).toBe(750);
+  });
+
+  it("uses the weekend rate on weekends", () => {
+    const bill = computeCheckoutBill({
+      room: { price_weekday: 200, price_weekend: 340 }, startTime: at("14:00", "2026-10-17"), endTime: at("16:00", "2026-10-17"),
+      bookedTotal: null, isDepositPaid: false, foodTotal: 0,
+    });
+    expect(bill).toMatchObject({ isWeekend: true, hourlyRate: 340, roomFee: 680 });
+  });
+
+  it("credits the deposit from the booked total, not the extended fee", () => {
+    const bill = computeCheckoutBill({
+      room: { price_weekday: 200, price_weekend: 300 }, startTime: at("14:00"), endTime: at("17:30"),
+      bookedTotal: 400, isDepositPaid: true, foodTotal: 120,
+    });
+    expect(bill.roomFee).toBe(700);
+    expect(bill.depositCredit).toBe(getDepositAmount(400));
+    expect(bill.due).toBe(700 + 120 - getDepositAmount(400));
+  });
+
+  it("never goes negative and ignores deposit when unpaid", () => {
+    const bill = computeCheckoutBill({
+      room: { price_weekday: 0, price_weekend: 0 }, startTime: at("14:00"), endTime: at("15:00"),
+      bookedTotal: 5000, isDepositPaid: true, foodTotal: 0,
+    });
+    expect(bill.due).toBe(0);
+    expect(computeCheckoutBill({ room: { price_weekday: 100, price_weekend: 100 }, startTime: at("14:00"), endTime: at("15:00"),
+      bookedTotal: 100, isDepositPaid: false, foodTotal: 0 }).depositCredit).toBe(0);
+  });
+});
+
+describe("extension", () => {
+  it("quick steps follow the booking slot grid", () => {
+    expect(EXTEND_STEPS_MINUTES).toEqual([SLOT_STEP_MS / 60_000, (2 * SLOT_STEP_MS) / 60_000]);
+  });
+
+  it("finds the next blocking start in the same room, ignoring cancelled and other rooms", () => {
+    const current = res({ status: "checked_in" });
+    const others = [
+      res({ id: "x", room_id: "room-b", start_time: at("16:00") }),
+      res({ id: "c", status: "cancelled", start_time: at("16:00") }),
+      res({ id: "n2", start_time: at("19:00") }),
+      res({ id: "n1", start_time: at("17:00") }),
+    ];
+    expect(nextBlockingStart(current, others)).toBe(at("17:00"));
+    expect(nextBlockingStart(current, [])).toBeNull();
+  });
+
+  it("validates a new end time", () => {
+    const start = at("14:00");
+    expect(newEndProblem(start, addMinutes(at("16:00"), 30), at("17:00"))).toBeNull();
+    expect(newEndProblem(start, at("17:00"), at("17:00"))).toBeNull();
+    expect(newEndProblem(start, at("17:30"), at("17:00"))).toMatch(/下一組（17:00/);
+    expect(newEndProblem(start, at("13:00"), null)).toMatch(/晚於開始/);
+    expect(newEndProblem(start, "nope", null)).toMatch(/格式/);
+    expect(newEndProblem(start, at("15:30"), null)).toBeNull(); // 提早結束
+  });
+});
+
+describe("overtimeSettledEnd", () => {
+  it("rounds overtime up to the billing step and follows the configured step", () => {
+    expect(overtimeSettledEnd(at("16:00"), Date.parse(at("15:59")))).toBeNull();
+    expect(overtimeSettledEnd(at("16:00"), Date.parse(at("16:01")))).toBe(addMinutes(at("16:00"), SLOT_STEP_MS / 60_000));
+    expect(overtimeSettledEnd(at("16:00"), Date.parse(at("16:31")))).toBe(addMinutes(at("16:00"), (2 * SLOT_STEP_MS) / 60_000));
+    expect(overtimeSettledEnd(at("16:00"), Date.parse(at("16:01")), 15)).toBe(at("16:15"));
+    expect(overtimeSettledEnd(at("16:00"), Date.parse(at("16:01")), 60)).toBe(at("17:00"));
+  });
+});

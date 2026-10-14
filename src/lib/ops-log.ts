@@ -38,6 +38,8 @@ export type OpsLogAction =
   | "admin.payment_rejected"
   | "admin.waitlist_expired"
   | "admin.waitlist_staff_called"
+  | "admin.reservation_extended"
+  | "admin.room_checked_out"
   | "payment.intent_created"
   | "payment.deposit_confirmed"
   | "payment.approved_notified"

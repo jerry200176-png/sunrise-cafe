@@ -11,6 +11,7 @@ import {
   CalendarCheck,
   LayoutDashboard,
   LogOut,
+  Box,
 } from "lucide-react";
 
 export type AdminShellProps = {
@@ -29,6 +30,7 @@ export type AdminShellProps = {
 
 const NAV = [
   { href: "/admin/today", label: "今日", icon: CalendarDays },
+  { href: "/admin/floor", label: "場控", icon: Box },
   { href: "/admin", label: "訂位", icon: CalendarCheck, exact: true },
   { href: "/admin/payments", label: "付款", icon: DollarSign },
   { href: "/admin/waitlist", label: "等位", icon: ClipboardList },
@@ -119,7 +121,7 @@ export function AdminShell({
           className="fixed inset-x-0 bottom-0 z-30 border-t border-stone-200/90 bg-white/95 backdrop-blur-md sticky-bottom-safe md:static md:z-auto md:border-t-0 md:bg-transparent md:backdrop-blur-none"
           aria-label="後台導覽"
         >
-          <ul className={`mx-auto grid ${width} grid-cols-5 gap-0.5 px-1 pt-1.5`}>
+          <ul className={`mx-auto grid ${width} grid-cols-6 gap-0.5 px-1 pt-1.5`}>
             {NAV.map(({ href, label, icon: Icon, ...rest }) => {
               const exact = "exact" in rest && rest.exact;
               const active = exact
