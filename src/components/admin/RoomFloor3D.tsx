@@ -126,7 +126,8 @@ export function RoomLabelCard({ tile, selected, compact = false }: { tile: Floor
       </span>
       {!compact && tile.state.current && <span className="block truncate text-[11px] text-ink-soft">{tile.state.current.customer_name}{tile.state.current.guest_count ? ` · ${tile.state.current.guest_count} 人` : ""}</span>}
       <span className={`block whitespace-nowrap text-[11px] font-medium ${tile.state.status === "overtime" ? "text-rose-700" : "text-ink-soft"}`}>{tileHeadline(tile)}</span>
-      {!compact && tile.foodTotal > 0 && <span className="block whitespace-nowrap text-[10px] text-caramel-deep">餐費 NT$ {tile.foodTotal.toLocaleString()}{tile.unserved > 0 ? ` · 還有 ${tile.unserved} 份沒送` : ""}</span>}
+      {!compact && tile.foodTotal > 0 && <span className="block whitespace-nowrap text-[10px] text-caramel-deep">餐費 NT$ {tile.foodTotal.toLocaleString()}</span>}
+      {tile.unserved > 0 && <span className="block whitespace-nowrap text-[10px] font-medium text-emerald-800">還有 {tile.unserved} 份沒送</span>}
     </span>
   );
 }

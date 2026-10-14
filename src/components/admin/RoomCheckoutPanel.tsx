@@ -233,7 +233,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
         {billing?.total_price != null && billing.total_price !== bill.roomFee && <p className="mt-1 text-[11px] text-ink-faint">預約時是 {money(billing.total_price)}，多出來的是延長的時間</p>}
         {billing?.status !== "completed" && (confirmCheckout ? <div className="mt-3 grid grid-cols-2 gap-2">
           <button type="button" onClick={() => setConfirmCheckout(false)} className="h-12 rounded-xl border border-ink/15 font-medium">再等等</button>
-          <button type="button" disabled={busy} onClick={async () => { if (await act("checkout")) setConfirmCheckout(false); }}
+          <button type="button" disabled={busy} onClick={async () => { if (await act("checkout", { expected_due: bill.due })) setConfirmCheckout(false); else void load().catch(() => undefined); }}
             className="h-12 rounded-xl bg-ink font-semibold text-paper disabled:opacity-50">確定收到 {money(bill.due)}</button>
         </div> : <button type="button" disabled={busy || !checkedIn} onClick={() => setConfirmCheckout(true)}
           className="mt-3 h-12 w-full rounded-[1.25rem] bg-gradient-to-br from-[#b5742c] to-[#9d6519] font-semibold text-white shadow-[0_10px_30px_-12px_rgba(157,101,25,0.45)] transition-transform duration-150 active:scale-[0.985] disabled:opacity-50">

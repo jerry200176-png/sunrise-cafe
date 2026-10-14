@@ -52,15 +52,20 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ date, generated_at: new Date().toISOString(), rooms, reservations: [], orders: [] } satisfies FloorBundle);
     }
 
-    const resResult = await db.from("reservations")
-      .select("id,room_id,customer_name,booking_code,start_time,end_time,status,guest_count,total_price,is_deposit_paid")
-      .in("room_id", rooms.map((room) => room.id))
-      .lt("start_time", window.endIso)
-      .gt("end_time", window.startIso)
-      .not("status", "in", "(cancelled,no_show)")
-      .order("start_time");
+    const columns = "id,room_id,customer_name,booking_code,start_time,end_time,status,guest_count,total_price,is_deposit_paid";
+    const roomIds = rooms.map((room) => room.id);
+    const [resResult, inRoomResult] = await Promise.all([
+      db.from("reservations").select(columns).in("room_id", roomIds)
+        .lt("start_time", window.endIso).gt("end_time", window.startIso)
+        .not("status", "in", "(cancelled,no_show)").order("start_time"),
+      // 已報到還沒結帳的客人不管預約時段（例如超時過了午夜）都還在包廂裡
+      db.from("reservations").select(columns).in("room_id", roomIds).eq("status", "checked_in").limit(50),
+    ]);
     if (resResult.error) throw resResult.error;
-    const reservations = (resResult.data ?? []) as FloorReservation[];
+    if (inRoomResult.error) throw inRoomResult.error;
+    const byId = new Map<string, FloorReservation>();
+    for (const row of [...(resResult.data ?? []), ...(inRoomResult.data ?? [])] as FloorReservation[]) byId.set(row.id, row);
+    const reservations = [...byId.values()].sort((a, b) => a.start_time.localeCompare(b.start_time));
 
     let orders: FloorOrderSummary[] = [];
     if (reservations.length > 0) {

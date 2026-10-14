@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Box, LayoutList, RefreshCw } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
@@ -40,6 +40,7 @@ export default function FloorConsolePage() {
   const [view, setView] = useState<"3d" | "list">("3d");
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
   const [webgl, setWebgl] = useState(false);
+  const currentBranch = useRef("");
 
   useEffect(() => {
     setWebgl(supportsWebGL());
@@ -60,19 +61,27 @@ export default function FloorConsolePage() {
 
   const load = useCallback(async () => {
     if (!branchId) return;
+    const requested = branchId;
     setLoading(true);
     try {
-      const response = await fetch(`/api/admin/floor?branchId=${encodeURIComponent(branchId)}`, { credentials: "include" });
+      const response = await fetch(`/api/admin/floor?branchId=${encodeURIComponent(requested)}`, { credentials: "include" });
       const json = await response.json();
+      // 切換分店後，舊分店晚回來的資料直接丟掉，避免在 B 店畫面操作到 A 店的客人
+      if (currentBranch.current !== requested) return;
       if (!response.ok) throw new Error(friendlyMessage(json.error, response.status));
       setData(json as FloorBundle);
       setError(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "載入失敗，請重試");
+      if (currentBranch.current === requested) setError(cause instanceof Error ? cause.message : "載入失敗，請重試");
     } finally {
-      setLoading(false);
-      setNow(Date.now());
+      if (currentBranch.current === requested) { setLoading(false); setNow(Date.now()); }
     }
+  }, [branchId]);
+
+  useEffect(() => {
+    currentBranch.current = branchId;
+    setData(null);
+    setSelectedRoom(null);
   }, [branchId]);
 
   useEffect(() => {
@@ -169,6 +178,7 @@ export default function FloorConsolePage() {
                   <span className="text-right text-sm">
                     <span className={`block font-medium ${tile.state.status === "overtime" ? "text-rose-700" : ""}`}>{tileHeadline(tile)}</span>
                     {tile.foodTotal > 0 && <span className="block text-xs text-caramel-deep">餐費 NT$ {tile.foodTotal.toLocaleString()}</span>}
+                    {tile.unserved > 0 && <span className="block text-xs text-emerald-800">還有 {tile.unserved} 份沒送</span>}
                   </span>
                 </button>
               </li>;

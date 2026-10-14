@@ -89,10 +89,10 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (auth.denied) return auth.denied;
     const body = await request.json() as {
       action: Action; item?: DraftItemInput; items?: DraftItemInput[];
-      item_id?: string; notes?: string | null; quantity?: number; end_time?: string;
+      item_id?: string; notes?: string | null; quantity?: number; end_time?: string; expected_due?: number;
     };
     const db = supabaseAdmin();
-    const { order } = await load(id);
+    const { order, billing: current } = await load(id);
     if (body.action === "check_in") {
       const result = await db.rpc("activate_reservation_order", { p_reservation_id: id });
       if (result.error) throw result.error;
@@ -128,14 +128,14 @@ export async function POST(request: NextRequest, { params }: Params) {
       return NextResponse.json({ ok: true, ...(await load(id)) });
     }
     if (body.action === "checkout") {
-      // 結帳並完成：記錄現場已收（含包廂費）→ 訂位轉「已完成」，包廂空出。
-      if (!order.paid_at) {
-        const result = await db.from("orders").update({ paid_at: new Date().toISOString() }).eq("id", order.id).is("paid_at", null);
-        if (result.error) throw result.error;
+      // 結帳並完成。店員確認的金額必須等於伺服器現在算出的金額（別台剛加餐或延長就擋下）。
+      const due = current.bill?.due ?? null;
+      if (!order.paid_at && (typeof body.expected_due !== "number" || body.expected_due !== due)) {
+        return NextResponse.json({ error: `金額剛剛有變動（現在要收 NT$ ${(due ?? 0).toLocaleString()}），請再確認一次`, billing: current }, { status: 409 });
       }
-      await updateStatus(order.id);
       const ctx = await getAdminContext(request);
-      const { billing } = await load(id);
+      // 先轉「已完成」：被拒絕（例如剛被取消）就什麼都不寫；成功後才記已收。
+      // 若記已收失敗，重按結帳會略過已完成的轉換、只補記已收。
       if (auth.reservation!.status !== "completed") {
         const transition = await transitionReservation(id, { type: "complete" }, { kind: "admin", userId: ctx.user_id, label: ctx.role });
         if (!transition.ok) {
@@ -143,7 +143,12 @@ export async function POST(request: NextRequest, { params }: Params) {
           return NextResponse.json(failure, { status });
         }
       }
-      logOps("admin", "admin.room_checked_out", { reservation_id: id, due: billing.bill?.due ?? null, actor: ctx.user_id ?? ctx.role });
+      if (!order.paid_at) {
+        const result = await db.from("orders").update({ paid_at: new Date().toISOString() }).eq("id", order.id).is("paid_at", null);
+        if (result.error) throw result.error;
+      }
+      await updateStatus(order.id);
+      logOps("admin", "admin.room_checked_out", { reservation_id: id, due, actor: ctx.user_id ?? ctx.role });
       return NextResponse.json({ ok: true, ...(await load(id)) });
     }
     if (body.action === "settle") {

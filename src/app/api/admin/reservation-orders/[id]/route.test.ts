@@ -121,16 +121,36 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
     expect((await post({ action: "extend", end_time: at("16:30") })).status).toBe(409);
   });
 
-  it("checkout records payment and completes the reservation via the lifecycle", async () => {
-    const response = await post({ action: "checkout" });
+  // 14:00–16:00 weekday at 200/h = 400, food 360, paid deposit 50% of 400 = 200 → due 560
+  const DUE = 560;
+  const writesPaidAt = (call: Call) => call.table === "orders"
+    && call.ops.some(([op, args]) => op === "update" && "paid_at" in (args[0] as object));
+  const paidUpdate = () => mocks.calls.find(writesPaidAt);
+
+  it("checkout completes the reservation first, then records payment", async () => {
+    const order: string[] = [];
+    mocks.transitionReservation.mockImplementation(async () => { order.push("complete"); return { ok: true, status: "completed" }; });
+    const base = mocks.respond;
+    mocks.respond = (call) => { if (writesPaidAt(call)) order.push("paid"); return base(call); };
+    const response = await post({ action: "checkout", expected_due: DUE });
     expect(response.status).toBe(200);
-    expect(mocks.calls.some((c) => c.table === "orders" && hasOp(c, "update"))).toBe(true);
+    expect(order).toEqual(["complete", "paid"]);
     expect(mocks.transitionReservation).toHaveBeenCalledWith("res-1", { type: "complete" }, expect.objectContaining({ kind: "admin" }));
-    expect(mocks.logOps).toHaveBeenCalledWith("admin", "admin.room_checked_out", expect.objectContaining({ reservation_id: "res-1" }));
+    expect(mocks.logOps).toHaveBeenCalledWith("admin", "admin.room_checked_out", expect.objectContaining({ reservation_id: "res-1", due: DUE }));
   });
 
-  it("checkout surfaces a lifecycle refusal", async () => {
-    mocks.transitionReservation.mockResolvedValue({ ok: false, code: "invalid_transition", message: "x", httpStatus: 409 });
+  it("checkout refuses when the confirmed amount no longer matches, and writes nothing", async () => {
+    const response = await post({ action: "checkout", expected_due: DUE - 100 });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatch(/金額剛剛有變動/);
+    expect(mocks.transitionReservation).not.toHaveBeenCalled();
+    expect(paidUpdate()).toBeUndefined();
     expect((await post({ action: "checkout" })).status).toBe(409);
+  });
+
+  it("checkout surfaces a lifecycle refusal without marking the order paid", async () => {
+    mocks.transitionReservation.mockResolvedValue({ ok: false, code: "invalid_transition", message: "x", httpStatus: 409 });
+    expect((await post({ action: "checkout", expected_due: DUE })).status).toBe(409);
+    expect(paidUpdate()).toBeUndefined();
   });
 });
