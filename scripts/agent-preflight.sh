@@ -81,6 +81,10 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 echo "$BRANCH" | grep -qE '^(feat|fix|hotfix|chore|exp|perf|test|refactor|docs|build|ci)/.+' || fail "branch needs type/slug: $BRANCH"
 MB="$(git merge-base HEAD origin/main)"
 [[ "$MB" == "$ORIGIN_MAIN" ]] || fail "stale base — recreate via agent-start"
+# Checks that need no writes run before the classifier, which may bootstrap the cloud manifest.
+GIT_DIR="$(git rev-parse --git-dir)"
+[[ ! -d "$GIT_DIR/rebase-merge" && ! -d "$GIT_DIR/rebase-apply" && ! -f "$GIT_DIR/MERGE_HEAD" ]] || fail "merge/rebase in progress"
+[[ "${SUNRISE_PRODUCTION_MUTATION:-0}" == "0" ]] || fail "SUNRISE_PRODUCTION_MUTATION must be 0"
 CLASSIFIER_ARGS=(--root "$TARGET" --branch "$BRANCH")
 if [[ "$CLOUD" == "1" ]]; then
   CLASSIFIER_ARGS+=(--cloud)
@@ -88,9 +92,6 @@ if [[ "$CLOUD" == "1" ]]; then
   [[ "${AGENT_PREFLIGHT_BOOTSTRAP_MANIFEST:-0}" == "1" ]] && CLASSIFIER_ARGS+=(--bootstrap-manifest)
 fi
 node "$SCRIPT_DIR/agent-preflight-worktree.mjs" "${CLASSIFIER_ARGS[@]}" || exit 1
-GIT_DIR="$(git rev-parse --git-dir)"
-[[ ! -d "$GIT_DIR/rebase-merge" && ! -d "$GIT_DIR/rebase-apply" && ! -f "$GIT_DIR/MERGE_HEAD" ]] || fail "merge/rebase in progress"
-[[ "${SUNRISE_PRODUCTION_MUTATION:-0}" == "0" ]] || fail "SUNRISE_PRODUCTION_MUTATION must be 0"
 if [[ "$CLOUD" == "0" ]]; then
   command -v gh >/dev/null || fail "gh missing"
   gh auth status >/dev/null 2>&1 || fail "gh not authenticated"

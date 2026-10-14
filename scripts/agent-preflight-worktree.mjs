@@ -362,6 +362,12 @@ function main() {
 
   if (args.cloud) {
     if (args.bootstrapManifest) {
+      // The bootstrap is a write: classify every other dirty path first, so a preflight that fails never
+      // touches provenance.
+      for (const path of changedPaths) {
+        if (path === ".agent-session/manifest.json" || metadataAllowed.has(path)) continue;
+        fail(`uncommitted path is not valid owned task metadata: ${path}`, "resolve it before bootstrapping the cloud manifest");
+      }
       bootstrapCloudManifest(root, branch);
       metadataAllowed.add(".agent-session/manifest.json");
     }

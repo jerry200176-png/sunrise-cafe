@@ -340,3 +340,14 @@ test("cloud bootstrap requires the live Exo lease, cloud mode and a task branch"
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /does not name a task/);
 });
+
+test("cloud bootstrap refuses to write when a product path is dirty", () => {
+  const fixture = createFixture();
+  execFileSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD"], { cwd: fixture.root });
+  writeFileSync(path.join(fixture.root, "README.md"), "dirty product source\n");
+  const before = readFileSync(path.join(fixture.root, ".agent-session", "manifest.json"), "utf8");
+  const result = runClassifier(fixture, ["--cloud", "--bootstrap-manifest"], { CLAUDE_CODE_REMOTE_SESSION_ID: CLOUD_SESSION });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /README\.md/);
+  assert.equal(readFileSync(path.join(fixture.root, ".agent-session", "manifest.json"), "utf8"), before);
+});
