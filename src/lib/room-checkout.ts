@@ -87,6 +87,7 @@ export type CheckoutBill = {
   foodSettled: boolean;
   depositCredit: number;
   due: number;
+  refund: number;
 };
 
 /**
@@ -110,6 +111,7 @@ export function computeCheckoutBill(input: {
   const depositBase = input.bookedTotal ?? roomFee;
   const depositCredit = input.isDepositPaid && depositBase > 0 ? getDepositAmount(depositBase) : 0;
   const foodSettled = Boolean(input.foodSettled);
+  const balance = roomFee + (foodSettled ? 0 : foodTotal) - depositCredit;
   return {
     hours: Math.round(hours * 100) / 100,
     hourlyRate,
@@ -118,7 +120,9 @@ export function computeCheckoutBill(input: {
     foodTotal,
     foodSettled,
     depositCredit,
-    due: Math.max(0, roomFee + (foodSettled ? 0 : foodTotal) - depositCredit),
+    due: Math.max(0, balance),
+    // 縮短時間後訂金比要收的還多：差額要退給客人（不能悄悄吃掉）
+    refund: Math.max(0, -balance),
   };
 }
 

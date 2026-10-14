@@ -226,4 +226,18 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
     expect(mocks.transitionReservation).toHaveBeenCalledWith("res-1", { type: "check_in" }, expect.objectContaining({ kind: "admin" }));
     expect(mocks.calls.some((call) => call.table === "orders" && hasOp(call, "insert"))).toBe(false);
   });
+  it("extend is conditional on the end time it read, so a concurrent extension gets 409", async () => {
+    await post({ action: "extend", end_time: at("16:30") });
+    const update = mocks.calls.find((call) => call.table === "reservations" && hasOp(call, "update"))!;
+    expect(update.ops).toContainEqual(["eq", ["end_time", reservationRow.end_time]]);
+    mocks.respond = ((base) => (call: Call) => call.table === "reservations" && hasOp(call, "update") ? { data: [], error: null } : base(call))(mocks.respond);
+    expect((await post({ action: "extend", end_time: at("16:30") })).status).toBe(409);
+  });
+
+  it("refuses room checkout before the group has checked in", async () => {
+    mocks.getReservationForPreorder.mockResolvedValue({ id: "res-1", status: "confirmed", room: { name: "A", branch_id: "b1" } });
+    expect((await post({ action: "checkout", expected_due: DUE })).status).toBe(409);
+    expect(mocks.calls.some(writesPaidAt)).toBe(false);
+    expect(mocks.transitionReservation).not.toHaveBeenCalled();
+  });
 });

@@ -178,4 +178,13 @@ describe("two checked-in groups in one room", () => {
     const list = [res({ status: "checked_in", end_time: at("16:00") }), res({ id: "r2", status: "checked_in", start_time: at("16:00"), end_time: at("18:00") })];
     expect(roomFloorState(list, Date.parse(at("16:30"))).current?.id).toBe("r2");
   });
+
+  it("reports the deposit surplus as a refund instead of hiding it when the stay is shortened", () => {
+    const bill = computeCheckoutBill({ room: { price_weekday: 200, price_weekend: 300 },
+      startTime: "2026-10-14T06:00:00.000Z", endTime: "2026-10-14T06:30:00.000Z",
+      bookedTotal: 400, isDepositPaid: true, foodTotal: 0 });
+    expect(bill.due).toBe(0);
+    expect(bill.refund).toBe(bill.depositCredit - bill.roomFee);
+    expect(bill.refund).toBeGreaterThan(0);
+  });
 });

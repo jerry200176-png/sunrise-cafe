@@ -42,6 +42,7 @@ export default function FloorConsolePage() {
   const [webgl, setWebgl] = useState(false);
   const [branchesLoaded, setBranchesLoaded] = useState(false);
   const currentBranch = useRef("");
+  const loadSeq = useRef(0);
 
   useEffect(() => {
     setWebgl(supportsWebGL());
@@ -78,17 +79,19 @@ export default function FloorConsolePage() {
   const load = useCallback(async () => {
     if (!branchId) return;
     const requested = branchId;
+    // 同一分店的請求也可能交錯（30 秒輪詢 vs. 操作後重新整理）：只套用最新發出的那一次
+    const seq = ++loadSeq.current;
     setLoading(true);
     try {
       const response = await fetch(`/api/admin/floor?branchId=${encodeURIComponent(requested)}`, { credentials: "include" });
       const json = await response.json();
       // 切換分店後，舊分店晚回來的資料直接丟掉，避免在 B 店畫面操作到 A 店的客人
-      if (currentBranch.current !== requested) return;
+      if (currentBranch.current !== requested || seq !== loadSeq.current) return;
       if (!response.ok) throw new Error(friendlyMessage(json.error, response.status));
       setData(json as FloorBundle);
       setError(null);
     } catch (cause) {
-      if (currentBranch.current === requested) setError(cause instanceof Error ? cause.message : "載入失敗，請重試");
+      if (currentBranch.current === requested && seq === loadSeq.current) setError(cause instanceof Error ? cause.message : "載入失敗，請重試");
     } finally {
       if (currentBranch.current === requested) { setLoading(false); setNow(Date.now()); }
     }

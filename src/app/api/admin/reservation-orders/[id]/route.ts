@@ -128,8 +128,9 @@ export async function POST(request: NextRequest, { params }: Params) {
       const { reservation, nextStart } = await loadBilling(id);
       const problem = newEndProblem(reservation.start_time, endTime.toISOString(), nextStart);
       if (problem) return NextResponse.json({ error: problem }, { status: 409 });
+      // 帶上剛讀到的結束時間：兩台同時延長時，後到的那台會 409，不會蓋掉前一台
       const result = await db.from("reservations").update({ end_time: endTime.toISOString() })
-        .eq("id", id).eq("status", "checked_in").select("id");
+        .eq("id", id).eq("status", "checked_in").eq("end_time", reservation.end_time).select("id");
       if (result.error) {
         if (isPostgresExclusionViolation(result.error)) return NextResponse.json({ error: "會跟這間的其他客人時間重疊，請換包廂或先問問對方" }, { status: 409 });
         throw result.error;
@@ -142,6 +143,10 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (body.action === "checkout") {
       // 結帳並完成。店員確認的金額必須等於伺服器現在算出的金額（別台剛加餐或延長就擋下）。
       const due = current.bill?.due ?? null;
+      // 只有在包廂裡的客人能結帳；已完成的組只走補記餐費（還沒到的組不能先被標成已完成）
+      if (!["checked_in", "completed"].includes(auth.reservation!.status)) {
+        return NextResponse.json({ error: "客人到了以後才能結帳" }, { status: 409 });
+      }
       if (auth.reservation!.status !== "completed" && (typeof body.expected_due !== "number" || body.expected_due !== due)) {
         return NextResponse.json({ error: `金額剛剛有變動（現在要收 NT$ ${(due ?? 0).toLocaleString()}），請再確認一次`, billing: current }, { status: 409 });
       }

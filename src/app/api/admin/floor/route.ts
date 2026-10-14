@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
 
     const columns = "id,room_id,customer_name,booking_code,start_time,end_time,status,guest_count,total_price,is_deposit_paid";
     const roomIds = rooms.map((room) => room.id);
-    const [resResult, inRoomResult, recentResult, unpaidResult] = await Promise.all([
+    const [resResult, inRoomResult, recentResult, unpaidResult, cancelledResult] = await Promise.all([
       db.from("reservations").select(columns).in("room_id", roomIds)
         // 往後多抓「即將到店」的時間，午夜前也看得到 00:xx 進場的下一組
         .lt("start_time", new Date(window.endMs + UPCOMING_MINUTES * 60_000).toISOString()).gt("end_time", window.startIso)
@@ -73,12 +73,16 @@ export async function GET(request: NextRequest) {
       db.from("reservations").select(`${columns},orders!inner(paid_at)`).in("room_id", roomIds).in("status", ["completed", "cancelled"])
         .is("orders.paid_at", null)
         .gt("end_time", new Date(window.startMs - UNPAID_LOOKBACK_DAYS * 86_400_000).toISOString()).limit(50),
+      // 報到後被取消、但還有現場訂單的組（可能餐費已收但還有餐沒送）；畫面只顯示還沒處理完的
+      db.from("reservations").select(`${columns},orders!inner(id)`).in("room_id", roomIds).eq("status", "cancelled")
+        .gt("end_time", new Date(window.startMs - UNPAID_LOOKBACK_DAYS * 86_400_000).toISOString()).limit(50),
     ]);
     if (resResult.error) throw resResult.error;
     if (inRoomResult.error) throw inRoomResult.error;
     if (recentResult.error) throw recentResult.error;
     if (unpaidResult.error) throw unpaidResult.error;
-    const unpaidRows = ((unpaidResult.data ?? []) as Array<FloorReservation & { orders?: unknown }>)
+    if (cancelledResult.error) throw cancelledResult.error;
+    const unpaidRows = ([...(unpaidResult.data ?? []), ...(cancelledResult.data ?? [])] as Array<FloorReservation & { orders?: unknown }>)
       .map((row) => { const copy = { ...row }; delete copy.orders; return copy as FloorReservation; });
     const byId = new Map<string, FloorReservation>();
     for (const row of [...(resResult.data ?? []), ...(inRoomResult.data ?? []), ...(recentResult.data ?? []), ...unpaidRows] as FloorReservation[]) {

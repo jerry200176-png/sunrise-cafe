@@ -246,6 +246,8 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
           <span className="flex items-center gap-1.5 font-serif"><Receipt className="h-4 w-4 text-caramel-deep" strokeWidth={1.5} />{roomSettled && paid ? "已經收了" : roomSettled ? "包廂已結帳" : stayCancelled ? "已取消，只收餐費" : "這組要收"}</span>
           <strong className="text-3xl tabular-nums">{money(stayCancelled ? (paid ? 0 : bill.foodTotal) : bill.due)}</strong>
         </div>
+        {bill.refund > 0 && !stayCancelled && <p className="mt-2 rounded-xl border border-sky-300 bg-sky-50 p-2 text-sm text-sky-900">
+          時間縮短了，訂金比要收的多：結帳時要退客人 <strong className="tabular-nums">{money(bill.refund)}</strong>。</p>}
         {billing?.total_price != null && billing.total_price !== bill.roomFee && <p className="mt-1 text-[11px] text-ink-faint">預約時是 {money(billing.total_price)}，多出來的是延長的時間</p>}
         {(roomSettled || stayCancelled) && !paid && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
           {stayCancelled ? "這組已經取消" : "這組已經結束"}，但餐費 {money(bill.foodTotal)} 還沒記收款。
@@ -255,7 +257,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
         {!roomSettled && !stayCancelled && (confirmCheckout ? <div className="mt-3 grid grid-cols-2 gap-2">
           <button type="button" onClick={() => setConfirmCheckout(false)} className="h-12 rounded-xl border border-ink/15 font-medium">再等等</button>
           <button type="button" disabled={busy} onClick={async () => { if (await act("checkout", { expected_due: bill.due })) setConfirmCheckout(false); else void load().catch(() => undefined); }}
-            className="h-12 rounded-xl bg-ink font-semibold text-paper disabled:opacity-50">確定收到 {money(bill.due)}</button>
+            className="h-12 rounded-xl bg-ink font-semibold text-paper disabled:opacity-50">{bill.refund > 0 ? `已退客人 ${money(bill.refund)}，結帳` : `確定收到 ${money(bill.due)}`}</button>
         </div> : <button type="button" disabled={busy || !checkedIn} onClick={() => setConfirmCheckout(true)}
           className="mt-3 h-12 w-full rounded-[1.25rem] bg-gradient-to-br from-[#b5742c] to-[#9d6519] font-semibold text-white shadow-[0_10px_30px_-12px_rgba(157,101,25,0.45)] transition-transform duration-150 active:scale-[0.985] disabled:opacity-50">
           收好錢了，結帳
