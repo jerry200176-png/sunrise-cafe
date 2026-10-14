@@ -154,3 +154,21 @@ describe("computeCheckoutBill — food already settled", () => {
     expect(settled).toMatchObject({ foodTotal: 360, foodSettled: true, due: 400 });
   });
 });
+
+describe("review fixes", () => {
+  it("uses the Taipei calendar day for the weekend rate (UTC date differs before 08:00)", () => {
+    // Saturday 2026-10-17 07:00 Taipei = Friday 23:00 UTC
+    const start = new Date("2026-10-17T07:00:00+08:00").toISOString();
+    expect(start.slice(0, 10)).toBe("2026-10-16");
+    const bill = computeCheckoutBill({ room: { price_weekday: 200, price_weekend: 300 }, startTime: start,
+      endTime: addMinutes(start, 120), bookedTotal: null, isDepositPaid: false, foodTotal: 0 });
+    expect(bill).toMatchObject({ isWeekend: true, roomFee: 600 });
+  });
+
+  it("keeps the next group visible when it has already started during an overtime", () => {
+    const list = [res({ status: "checked_in", end_time: at("16:00") }), res({ id: "r2", start_time: at("16:00"), end_time: at("18:00") })];
+    const state = roomFloorState(list, Date.parse(at("16:20")));
+    expect(state.status).toBe("overtime");
+    expect(state.next?.id).toBe("r2");
+  });
+});

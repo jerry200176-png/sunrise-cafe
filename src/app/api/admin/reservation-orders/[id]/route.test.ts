@@ -70,7 +70,7 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
     mocks.getReservationForPreorder.mockResolvedValue({ id: "res-1", status: "checked_in", room: { name: "A", branch_id: "b1" } });
     mocks.transitionReservation.mockResolvedValue({ ok: true, status: "completed" });
     mocks.respond = (call) => {
-      if (call.table === "orders" && hasOp(call, "update")) return { data: null, error: null };
+      if (call.table === "orders" && hasOp(call, "update")) return { data: [{ id: "ord-1" }], error: null };
       if (call.table === "orders") return { data: order, error: null };
       if (call.table === "reservations" && hasOp(call, "update")) return { data: [{ id: "res-1" }], error: null };
       if (call.table === "reservations" && hasOp(call, "limit")) return { data: nextGroups, error: null };
@@ -127,14 +127,14 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
     && call.ops.some(([op, args]) => op === "update" && "paid_at" in (args[0] as object));
   const paidUpdate = () => mocks.calls.find(writesPaidAt);
 
-  it("checkout completes the reservation first, then records payment", async () => {
+  it("checkout records payment, then completes the reservation", async () => {
     const order: string[] = [];
     mocks.transitionReservation.mockImplementation(async () => { order.push("complete"); return { ok: true, status: "completed" }; });
     const base = mocks.respond;
     mocks.respond = (call) => { if (writesPaidAt(call)) order.push("paid"); return base(call); };
     const response = await post({ action: "checkout", expected_due: DUE });
     expect(response.status).toBe(200);
-    expect(order).toEqual(["complete", "paid"]);
+    expect(order).toEqual(["paid", "complete"]);
     expect(mocks.transitionReservation).toHaveBeenCalledWith("res-1", { type: "complete" }, expect.objectContaining({ kind: "admin" }));
     expect(mocks.logOps).toHaveBeenCalledWith("admin", "admin.room_checked_out", expect.objectContaining({ reservation_id: "res-1", due: DUE }));
   });
@@ -158,9 +158,21 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
     expect(mocks.transitionReservation).toHaveBeenCalledTimes(1);
   });
 
-  it("checkout surfaces a lifecycle refusal without marking the order paid", async () => {
+  const undoWrites = () => mocks.calls.filter((c) => c.table === "orders"
+    && c.ops.some(([op, args]) => op === "update" && (args[0] as { paid_at?: unknown }).paid_at === null));
+
+  it("checkout undoes its own payment write when the lifecycle refuses completion", async () => {
     mocks.transitionReservation.mockResolvedValue({ ok: false, code: "invalid_transition", message: "x", httpStatus: 409 });
     expect((await post({ action: "checkout", expected_due: DUE })).status).toBe(409);
-    expect(paidUpdate()).toBeUndefined();
+    const written = (paidUpdate()!.ops.find(([op]) => op === "update")![1][0] as { paid_at: string }).paid_at;
+    const undo = undoWrites();
+    expect(undo).toHaveLength(1);
+    expect(undo[0].ops).toContainEqual(["eq", ["paid_at", written]]);
+  });
+
+  it("checkout undoes its payment write when the lifecycle throws", async () => {
+    mocks.transitionReservation.mockRejectedValue(new Error("boom"));
+    expect((await post({ action: "checkout", expected_due: DUE })).status).toBe(500);
+    expect(undoWrites()).toHaveLength(1);
   });
 });

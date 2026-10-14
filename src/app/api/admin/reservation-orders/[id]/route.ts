@@ -135,18 +135,34 @@ export async function POST(request: NextRequest, { params }: Params) {
         return NextResponse.json({ error: `金額剛剛有變動（現在要收 NT$ ${(due ?? 0).toLocaleString()}），請再確認一次`, billing: current }, { status: 409 });
       }
       const ctx = await getAdminContext(request);
-      // 先轉「已完成」：被拒絕（例如剛被取消）就什麼都不寫；成功後才記已收。
-      // 若記已收失敗，重按結帳會略過已完成的轉換、只補記已收。
+      // 沒有資料庫交易可用：先記已收，再轉「已完成」；轉換被拒絕或出錯就把剛記的已收撤回
+      // （只撤回自己寫的那一筆）。萬一撤回也失敗，留下的是「已收但仍在包廂內」，
+      // 場控圖上看得到、重按結帳會略過記帳只補轉換，不會卡住。
+      const paidAt = new Date().toISOString();
+      let wrotePaid = false;
+      if (!order.paid_at) {
+        const result = await db.from("orders").update({ paid_at: paidAt }).eq("id", order.id).is("paid_at", null).select("id");
+        if (result.error) throw result.error;
+        wrotePaid = result.data.length > 0;
+      }
+      const undoPaid = async () => {
+        if (!wrotePaid) return;
+        const undo = await db.from("orders").update({ paid_at: null }).eq("id", order.id).eq("paid_at", paidAt);
+        if (undo.error) console.error("[checkout] 撤回已收失敗", order.id, undo.error.message);
+      };
       if (auth.reservation!.status !== "completed") {
-        const transition = await transitionReservation(id, { type: "complete" }, { kind: "admin", userId: ctx.user_id, label: ctx.role });
+        let transition: Awaited<ReturnType<typeof transitionReservation>>;
+        try {
+          transition = await transitionReservation(id, { type: "complete" }, { kind: "admin", userId: ctx.user_id, label: ctx.role });
+        } catch (error) {
+          await undoPaid();
+          throw error;
+        }
         if (!transition.ok) {
+          await undoPaid();
           const { status, body: failure } = transitionHttp(transition);
           return NextResponse.json(failure, { status });
         }
-      }
-      if (!order.paid_at) {
-        const result = await db.from("orders").update({ paid_at: new Date().toISOString() }).eq("id", order.id).is("paid_at", null);
-        if (result.error) throw result.error;
       }
       await updateStatus(order.id);
       logOps("admin", "admin.room_checked_out", { reservation_id: id, due, actor: ctx.user_id ?? ctx.role });

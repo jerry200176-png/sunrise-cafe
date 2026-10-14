@@ -5,7 +5,7 @@
  * - 結帳：包廂費（依目前起訖時間，含延時）＋ 餐費 − 已付訂金 = 現場應收。
  * - 延時：新結束時間不得早於開始、不得壓到同包廂下一組（DB exclusion constraint 仍是最後防線）。
  */
-import { computeReservationTotalPrice, getDepositAmount, isWeekendDate } from "@/lib/booking-utils";
+import { getDepositAmount, isWeekendDate } from "@/lib/booking-utils";
 import { SLOT_STEP_MS } from "@/lib/slot-grid";
 
 /** 快到時間提醒（分鐘） */
@@ -42,6 +42,8 @@ export type RoomFloorState = {
 
 const WAITING = new Set(["pending", "confirmed"]);
 const ms = (iso: string) => new Date(iso).getTime();
+/** 台北日曆日（YYYY-MM-DD）。DB 回 UTC 時間，台北 08:00 前用 slice 會差一天。 */
+const taipeiDay = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(new Date(iso));
 
 export function roomFloorState(
   reservations: FloorReservation[],
@@ -56,7 +58,9 @@ export function roomFloorState(
   const checkedIn = sorted.find((r) => r.status === "checked_in") ?? null;
   const started = sorted.find((r) => WAITING.has(r.status) && ms(r.start_time) <= nowMs && nowMs < ms(r.end_time)) ?? null;
   const current = checkedIn ?? started;
-  const next = sorted.find((r) => WAITING.has(r.status) && ms(r.start_time) > nowMs && r.id !== current?.id) ?? null;
+  // 下一組：排在目前這組之後的第一組（目前這組超時時，下一組可能已經到了，也要顯示）
+  const next = sorted.find((r) => WAITING.has(r.status) && r.id !== current?.id
+    && (current ? ms(r.start_time) >= ms(current.start_time) : ms(r.start_time) > nowMs)) ?? null;
   const minutesLeft = current ? Math.floor((ms(current.end_time) - nowMs) / 60_000) : null;
 
   let status: RoomFloorStatus = "idle";
@@ -97,10 +101,10 @@ export function computeCheckoutBill(input: {
   foodTotal: number;
   foodSettled?: boolean;
 }): CheckoutBill {
-  const isWeekend = isWeekendDate(input.startTime.slice(0, 10));
+  const isWeekend = isWeekendDate(taipeiDay(input.startTime));
   const hourlyRate = Number(isWeekend ? input.room.price_weekend : input.room.price_weekday) || 0;
   const hours = Math.max(0, (ms(input.endTime) - ms(input.startTime)) / 3_600_000);
-  const roomFee = computeReservationTotalPrice(input.room, input.startTime, input.endTime);
+  const roomFee = Math.round(hourlyRate * hours);
   const foodTotal = Math.round(Number(input.foodTotal) || 0);
   const depositBase = input.bookedTotal ?? roomFee;
   const depositCredit = input.isDepositPaid && depositBase > 0 ? getDepositAmount(depositBase) : 0;
