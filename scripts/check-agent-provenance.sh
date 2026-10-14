@@ -52,6 +52,61 @@ if ptype=="human-authored":
     print('human-authored-ok')
     raise SystemExit(0)
 
+if ptype=="agent-session-cloud":
+    # Cloud agent sessions (Claude Code on the web/mobile) have no /home/jerry worktree.
+    # Provenance is bound to the session identity carried by every commit instead of a path:
+    # each non-merge commit in the PR must end with a `Claude-Session: <url>` trailer listed here.
+    required=["schema_version","session_id","session_urls","project","task_id","repo_remote","base_sha",
+              "branch","started_at","production_mutation","preflight_result","preflight_mode","runner"]
+    for k in required:
+        if k not in m: raise SystemExit(f'cloud manifest missing {k}')
+    if m["schema_version"]!="1.0": raise SystemExit('bad schema')
+    if m["project"]!="sunrise": raise SystemExit('project must be sunrise')
+    if m["runner"]!="claude-code-remote": raise SystemExit('runner must be claude-code-remote')
+    if m["preflight_mode"]!="cloud" or m["preflight_result"]!="pass": raise SystemExit('cloud preflight must pass')
+    if m["production_mutation"] is not False: raise SystemExit('production_mutation must be false')
+    if not re.match(r'^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$', m["task_id"]): raise SystemExit('bad task_id')
+    if not re.match(r'^[0-9a-f]{40}$', m["base_sha"]): raise SystemExit('bad base_sha')
+    if not re.search(r'github\.com[:/]jerry200176-png/sunrise-cafe(\.git)?$', m["repo_remote"]): raise SystemExit('bad repo_remote')
+    urls=m["session_urls"]
+    if not isinstance(urls,list) or not urls: raise SystemExit('session_urls must be a non-empty list')
+    for u in urls:
+        if not isinstance(u,str) or not re.match(r'^https://claude\.ai/code/session_[A-Za-z0-9]{8,}$', u):
+            raise SystemExit(f'bad session url: {u!r}')
+    sid=m["session_id"]
+    if not isinstance(sid,str) or not re.match(r'^cse_[A-Za-z0-9]{8,}$', sid):
+        raise SystemExit('session_id must be the remote session id (cse_...)')
+    if not any(u.rsplit("session_",1)[1]==sid[len("cse_"):] for u in urls):
+        raise SystemExit('session_id does not match any session url')
+    branch=m["branch"]
+    if m["task_id"] not in branch: raise SystemExit(f'task_id {m["task_id"]} not in manifest branch {branch}')
+    ci_branch=os.environ.get("GITHUB_HEAD_REF")
+    local_branch=subprocess.check_output(["git","rev-parse","--abbrev-ref","HEAD"], text=True).strip()
+    if ci_branch:
+        if branch!=ci_branch: raise SystemExit(f'manifest branch {branch} != GitHub PR branch {ci_branch}')
+    elif branch!=local_branch:
+        raise SystemExit(f'manifest branch {branch} != git branch {local_branch}')
+    head=subprocess.check_output(["git","rev-parse","HEAD"], text=True).strip()
+    if subprocess.call(["git","merge-base","--is-ancestor", m["base_sha"], head])!=0:
+        raise SystemExit('base_sha not ancestor of HEAD')
+    base_ref=os.environ.get("GITHUB_BASE_REF") or "main"
+    range_start=subprocess.run(["git","merge-base",f"origin/{base_ref}",head],capture_output=True,text=True).stdout.strip() or m["base_sha"]
+    log=subprocess.check_output(["git","log","--no-merges","--format=%H%x1f%(trailers:key=Claude-Session,valueonly,separator=%x1e)%x1d",
+                                 f"{range_start}..{head}"], text=True)
+    commits=[c.strip() for c in log.split("\x1d") if c.strip()]
+    if not commits: raise SystemExit('no commits to attribute')
+    allowed=set(urls)
+    for c in commits:
+        sha,_,trailers=c.partition("\x1f")
+        values={v.strip() for v in trailers.split("\x1e") if v.strip()}
+        if not values & allowed:
+            raise SystemExit(f'commit {sha[:12]} has no Claude-Session trailer from session_urls')
+    blob=json.dumps(m)
+    if re.search(r'(api[_-]?key|token|password|secret|BEGIN PRIVATE)', blob, re.I):
+        raise SystemExit('sensitive data in cloud manifest')
+    print(f'agent-session-cloud-ok commits={len(commits)}')
+    raise SystemExit(0)
+
 if ptype!="agent-session":
     raise SystemExit('bad provenance_type')
 required=["schema_version","session_id","project","task_id","repo_remote","base_sha",
