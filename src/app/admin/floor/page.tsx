@@ -149,6 +149,11 @@ export default function FloorConsolePage() {
   useEffect(() => { setOpenReservationId(null); }, [selectedRoom]);
   const defaultReservation = selected?.state.current ?? leftovers[0] ?? selected?.state.next ?? null;
   const selectedReservation = (openReservationId && (data?.reservations ?? []).find((r) => r.id === openReservationId)) || defaultReservation;
+  // 可切換的其他組：沒處理完的舊單，加上下一組（包廂還有舊單時，預設會打開舊單，下一組也要點得到）
+  const nextGroup = selected && !selected.state.current ? selected.state.next : null;
+  const switchable = selectedReservation
+    ? [...leftovers, ...(nextGroup && !leftovers.some((r) => r.id === nextGroup.id) ? [nextGroup] : [])].filter((r) => r.id !== selectedReservation.id)
+    : [];
   const sortedTiles = [...tiles].sort((a, b) => ATTENTION.indexOf(a.state.status) - ATTENTION.indexOf(b.state.status));
 
   return (
@@ -221,10 +226,10 @@ export default function FloorConsolePage() {
       {selected && <div className="fixed inset-0 z-40 flex justify-end" role="dialog" aria-modal="true" aria-label={`${selected.name} 結帳`}>
         <button type="button" aria-label="關閉面板" className="absolute inset-0 bg-ink/30 backdrop-blur-[2px]" onClick={() => setSelectedRoom(null)} />
         <div className="relative flex h-full w-full max-w-lg flex-col shadow-2xl sm:rounded-l-[1.5rem] sm:overflow-hidden">
-          {selectedReservation && (openReservationId || leftovers.some((r) => r.id !== selectedReservation.id)) && <div className="flex flex-wrap gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm">
+          {selectedReservation && (openReservationId || switchable.length > 0) && <div className="flex flex-wrap gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm">
             {leftovers.some((r) => r.id !== selectedReservation.id) && <span className="text-amber-900">這間還有別組的單沒處理完：</span>}
-            {leftovers.filter((r) => r.id !== selectedReservation.id).map((r) => <button key={r.id} type="button" onClick={() => setOpenReservationId(r.id)}
-              className="rounded-full border border-amber-300 bg-white px-3 py-0.5 text-amber-900">{r.customer_name}</button>)}
+            {switchable.map((r) => <button key={r.id} type="button" onClick={() => setOpenReservationId(r.id)}
+              className="rounded-full border border-amber-300 bg-white px-3 py-0.5 text-amber-900">{r.customer_name}{r.id === nextGroup?.id ? "（下一組）" : ""}</button>)}
             {openReservationId && <button type="button" onClick={() => setOpenReservationId(null)} className="rounded-full px-3 py-0.5 text-ink-soft underline">回到目前這組</button>}
           </div>}
           <div className="min-h-0 flex-1">
