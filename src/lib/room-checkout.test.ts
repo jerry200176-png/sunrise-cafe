@@ -172,3 +172,10 @@ describe("review fixes", () => {
     expect(state.next?.id).toBe("r2");
   });
 });
+
+describe("two checked-in groups in one room", () => {
+  it("treats the latest checked-in group as current", () => {
+    const list = [res({ status: "checked_in", end_time: at("16:00") }), res({ id: "r2", status: "checked_in", start_time: at("16:00"), end_time: at("18:00") })];
+    expect(roomFloorState(list, Date.parse(at("16:30"))).current?.id).toBe("r2");
+  });
+});

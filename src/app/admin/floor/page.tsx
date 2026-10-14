@@ -62,7 +62,9 @@ export default function FloorConsolePage() {
       ]);
       if (!branchRes.ok) throw new Error(friendlyMessage((await branchRes.json().catch(() => ({}))).error, branchRes.status));
       const rows = (await branchRes.json()) as Branch[];
-      const me = meRes.ok ? ((await meRes.json()) as { branch_ids: string[] | null }) : { branch_ids: null };
+      // 查不到權限範圍就不顯示任何分店（不可當成「全部分店」）
+      if (!meRes.ok) throw new Error(friendlyMessage((await meRes.json().catch(() => ({}))).error, meRes.status));
+      const me = (await meRes.json()) as { branch_ids: string[] | null };
       const list = (Array.isArray(rows) ? rows : []).filter((branch) => me.branch_ids === null || me.branch_ids.includes(branch.id));
       setBranches(list);
       setBranchesLoaded(true);
