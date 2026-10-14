@@ -118,9 +118,9 @@ describe("extension", () => {
     const start = at("14:00");
     expect(newEndProblem(start, addMinutes(at("16:00"), 30), at("17:00"))).toBeNull();
     expect(newEndProblem(start, at("17:00"), at("17:00"))).toBeNull();
-    expect(newEndProblem(start, at("17:30"), at("17:00"))).toMatch(/下一組（17:00/);
-    expect(newEndProblem(start, at("13:00"), null)).toMatch(/晚於開始/);
-    expect(newEndProblem(start, "nope", null)).toMatch(/格式/);
+    expect(newEndProblem(start, at("17:30"), at("17:00"))).toMatch(/下一組客人（17:00/);
+    expect(newEndProblem(start, at("13:00"), null)).toMatch(/比開始時間晚/);
+    expect(newEndProblem(start, "nope", null)).toMatch(/沒填好/);
     expect(newEndProblem(start, at("15:30"), null)).toBeNull(); // 提早結束
   });
 });

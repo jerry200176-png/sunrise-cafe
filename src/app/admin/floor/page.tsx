@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { Box, LayoutList, RefreshCw } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { RoomCheckoutPanel } from "@/components/admin/RoomCheckoutPanel";
@@ -8,6 +9,22 @@ import { RoomFloor3D, STATUS_STYLE, fmtClock, tileHeadline, type FloorTile } fro
 import { friendlyMessage } from "@/lib/friendly-error";
 import { roomFloorState, type RoomFloorStatus } from "@/lib/room-checkout";
 import type { FloorBundle } from "@/app/api/admin/floor/route";
+import { assignRoomsToPlan, floorPlanForBranch } from "@/lib/floor-plan";
+
+// three.js 只在這頁、只在瀏覽器載入（不影響其他頁的載入速度）
+const RoomFloorScene = dynamic(() => import("@/components/admin/RoomFloorScene"), {
+  ssr: false,
+  loading: () => <div className="flex h-[460px] items-center justify-center rounded-[1.5rem] border border-ink/10 bg-paper text-sm text-ink-faint sm:h-[540px]">立體圖載入中…</div>,
+});
+
+function supportsWebGL() {
+  try {
+    const canvas = document.createElement("canvas");
+    return Boolean(canvas.getContext("webgl2") || canvas.getContext("webgl"));
+  } catch {
+    return false;
+  }
+}
 
 type Branch = { id: string; name: string };
 const VIEW_KEY = "sunrise.floor.view";
@@ -22,8 +39,10 @@ export default function FloorConsolePage() {
   const [now, setNow] = useState(() => Date.now());
   const [view, setView] = useState<"3d" | "list">("3d");
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
+  const [webgl, setWebgl] = useState(false);
 
   useEffect(() => {
+    setWebgl(supportsWebGL());
     try {
       const saved = window.localStorage.getItem(VIEW_KEY);
       if (saved === "3d" || saved === "list") setView(saved);
@@ -84,14 +103,18 @@ export default function FloorConsolePage() {
       idle: by("idle"), food: tiles.reduce((sum, t) => sum + t.foodTotal, 0) };
   }, [tiles]);
 
+  const branchName = branches.find((branch) => branch.id === branchId)?.name ?? null;
+  const plan = useMemo(() => floorPlanForBranch(branchName), [branchName]);
+  const slots = useMemo(() => (plan && data ? assignRoomsToPlan(plan, data.rooms) : null), [plan, data]);
+
   const selected = tiles.find((t) => t.id === selectedRoom) ?? null;
   const selectedReservation = selected?.state.current ?? selected?.state.next ?? null;
   const sortedTiles = [...tiles].sort((a, b) => ATTENTION.indexOf(a.state.status) - ATTENTION.indexOf(b.state.status));
 
   return (
     <AdminShell
-      title="包廂場控"
-      subtitle={`${fmtClock(new Date(now).toISOString())} · 點包廂即可點餐、延時、結帳`}
+      title="包廂現況"
+      subtitle={`現在 ${fmtClock(new Date(now).toISOString())} · 點一間包廂就能點餐、延長、結帳`}
       maxWidth="5xl"
       actions={<button type="button" onClick={() => void load()} disabled={loading} aria-label="重新整理"
         className="flex h-10 w-10 items-center justify-center rounded-xl text-stone-500 hover:bg-stone-100 disabled:opacity-50">
@@ -106,9 +129,9 @@ export default function FloorConsolePage() {
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
           <Kpi label="使用中" value={counts.inUse} />
           <Kpi label="超時" value={counts.overtime} tone={counts.overtime ? "alert" : undefined} />
-          <Kpi label="即將/應到" value={counts.arriving} />
+          <Kpi label="等客人到" value={counts.arriving} />
           <Kpi label="空房" value={counts.idle} />
-          <Kpi label="未結餐費" value={`NT$ ${counts.food.toLocaleString()}`} wide />
+          <Kpi label="還沒收的餐費" value={`NT$ ${counts.food.toLocaleString()}`} wide />
         </div>
 
         <div className="flex items-center justify-between gap-2">
@@ -118,8 +141,8 @@ export default function FloorConsolePage() {
             </li>)}
           </ul>
           <div className="flex shrink-0 rounded-xl border border-ink/10 bg-white p-0.5" role="group" aria-label="顯示方式">
-            <ViewButton active={view === "3d"} onClick={() => chooseView("3d")} label="3D"><Box className="h-4 w-4" strokeWidth={1.5} /></ViewButton>
-            <ViewButton active={view === "list"} onClick={() => chooseView("list")} label="列表"><LayoutList className="h-4 w-4" strokeWidth={1.5} /></ViewButton>
+            <ViewButton active={view === "3d"} onClick={() => chooseView("3d")} label="立體圖"><Box className="h-4 w-4" strokeWidth={1.5} /></ViewButton>
+            <ViewButton active={view === "list"} onClick={() => chooseView("list")} label="清單"><LayoutList className="h-4 w-4" strokeWidth={1.5} /></ViewButton>
           </div>
         </div>
 
@@ -128,7 +151,9 @@ export default function FloorConsolePage() {
         {data && tiles.length === 0 && <p className="py-10 text-center text-sm text-stone-500">此分店尚未建立包廂。</p>}
 
         {tiles.length > 0 && (view === "3d"
-          ? <RoomFloor3D tiles={tiles} selectedId={selectedRoom} onSelect={setSelectedRoom} />
+          ? plan && slots && webgl
+            ? <RoomFloorScene plan={plan} tiles={tiles} slots={slots} selectedId={selectedRoom} onSelect={setSelectedRoom} />
+            : <RoomFloor3D tiles={tiles} selectedId={selectedRoom} onSelect={setSelectedRoom} />
           : <ul className="grid gap-2 sm:grid-cols-2">
             {sortedTiles.map((tile) => {
               const style = STATUS_STYLE[tile.state.status];
@@ -139,11 +164,11 @@ export default function FloorConsolePage() {
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-2"><strong className="font-serif">{tile.name}</strong>
                       <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${style.chip}`}>{style.label}</span></span>
-                    <span className="block truncate text-sm text-ink-soft">{tile.state.current?.customer_name ?? (tile.state.next ? `下一組：${tile.state.next.customer_name}` : "—")}</span>
+                    <span className="block truncate text-sm text-ink-soft">{tile.state.current?.customer_name ?? (tile.state.next ? `下一組：${tile.state.next.customer_name}` : "今天沒有客人")}</span>
                   </span>
                   <span className="text-right text-sm">
                     <span className={`block font-medium ${tile.state.status === "overtime" ? "text-rose-700" : ""}`}>{tileHeadline(tile)}</span>
-                    {tile.foodTotal > 0 && <span className="block text-xs text-caramel-deep">餐 NT$ {tile.foodTotal.toLocaleString()}</span>}
+                    {tile.foodTotal > 0 && <span className="block text-xs text-caramel-deep">餐費 NT$ {tile.foodTotal.toLocaleString()}</span>}
                   </span>
                 </button>
               </li>;
@@ -159,9 +184,9 @@ export default function FloorConsolePage() {
               onClose={() => setSelectedRoom(null)} onChanged={() => void load()} />
             : <div className="flex h-full flex-col items-center justify-center gap-3 bg-paper p-8 text-center">
               <p className="font-serif text-xl">{selected.name}</p>
-              <p className="text-sm text-ink-soft">今天目前沒有訂位。現場客人請先到「訂位」新增。</p>
+              <p className="text-sm text-ink-soft">這間今天沒有預約。現場來的客人，請先到「訂位」幫他登記。</p>
               <div className="flex gap-2">
-                <a href="/admin" className="flex h-11 items-center rounded-xl bg-ink px-4 text-sm font-semibold text-paper">新增訂位</a>
+                <a href="/admin" className="flex h-11 items-center rounded-xl bg-ink px-4 text-sm font-semibold text-paper">去登記客人</a>
                 <button type="button" onClick={() => setSelectedRoom(null)} className="h-11 rounded-xl border border-ink/15 px-4 text-sm">關閉</button>
               </div>
             </div>}

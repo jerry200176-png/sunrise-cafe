@@ -53,6 +53,8 @@
     "line:usage-audit": "npx tsx scripts/line-usage-audit.ts"
   },
   "dependencies": {
+    "@react-three/drei": "10.7.9",
+    "@react-three/fiber": "9.8.1",
     "@sentry/nextjs": "^10.76.0",
     "@stripe/react-stripe-js": "^3.11.0",
     "@stripe/stripe-js": "^5.5.0",
@@ -69,6 +71,7 @@
     "recharts": "^3.10.1",
     "resend": "^6.32.0",
     "stripe": "^22.3.2",
+    "three": "0.185.1",
     "ws": "^8.22.0"
   },
   "devDependencies": {
@@ -79,6 +82,7 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/three": "0.185.0",
     "cross-env": "^7.0.3",
     "dotenv": "^16.4.5",
     "eslint": "^9",

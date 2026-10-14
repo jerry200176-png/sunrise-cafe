@@ -16,8 +16,8 @@ export type FloorTile = {
 /** 暖色系、低彩度（DESIGN.md）：top / front / side 三面由亮到暗。 */
 export const STATUS_STYLE: Record<RoomFloorStatus, { label: string; top: string; front: string; side: string; height: number; chip: string }> = {
   idle: { label: "空房", top: "#f1e9da", front: "#e3d5bd", side: "#d6c6aa", height: 10, chip: "bg-stone-100 text-stone-600" },
-  upcoming: { label: "即將到店", top: "#f6e2bd", front: "#ebcd96", side: "#ddba7c", height: 16, chip: "bg-amber-50 text-amber-800" },
-  awaiting: { label: "應到未報到", top: "#f0c27a", front: "#dcaa5e", side: "#c9964a", height: 22, chip: "bg-amber-100 text-amber-900" },
+  upcoming: { label: "快到了", top: "#f6e2bd", front: "#ebcd96", side: "#ddba7c", height: 16, chip: "bg-amber-50 text-amber-800" },
+  awaiting: { label: "客人還沒到", top: "#f0c27a", front: "#dcaa5e", side: "#c9964a", height: 22, chip: "bg-amber-100 text-amber-900" },
   in_use: { label: "使用中", top: "#d3dec7", front: "#b9caa9", side: "#a5b894", height: 34, chip: "bg-emerald-50 text-emerald-800" },
   ending_soon: { label: "快到時間", top: "#e8b267", front: "#d39a4c", side: "#c0832f", height: 34, chip: "bg-orange-100 text-orange-900" },
   overtime: { label: "超時", top: "#ebb3a6", front: "#d99282", side: "#c77a69", height: 40, chip: "bg-rose-100 text-rose-800" },
@@ -38,11 +38,11 @@ export function tileHeadline(tile: FloorTile): string {
   if (state.current && state.minutesLeft !== null && state.status !== "awaiting") return minutesText(state.minutesLeft);
   if (state.current) return `${fmtClock(state.current.start_time)} 應到`;
   if (state.next) return `下一組 ${fmtClock(state.next.start_time)}`;
-  return "今日無訂位";
+  return "今天沒有客人";
 }
 
 /**
- * 等角 3D 包廂平面圖（純 CSS 3D，無 WebGL 依賴）。
+ * 等角 3D 包廂圖（純 CSS 3D）：沒有平面圖設定或瀏覽器不支援 WebGL 時使用。
  * 方塊高度＝忙碌程度；標籤在平面覆蓋層，依方塊頂面投影位置定位。
  */
 export function RoomFloor3D({ tiles, selectedId, onSelect }: {
@@ -100,7 +100,6 @@ export function RoomFloor3D({ tiles, selectedId, onSelect }: {
 }
 
 function RoomLabel({ tile, selected, at, onSelect }: { tile: FloorTile; selected: boolean; at: { x: number; y: number }; onSelect: () => void }) {
-  const style = STATUS_STYLE[tile.state.status];
   return (
     <button
       type="button"
@@ -110,17 +109,25 @@ function RoomLabel({ tile, selected, at, onSelect }: { tile: FloorTile; selected
       className="absolute z-10 -translate-x-1/2 -translate-y-full pb-1 text-left"
       style={{ left: at.x, top: at.y }}
     >
-      <span className={`block w-max max-w-[11rem] rounded-xl border bg-white/95 px-2.5 py-1.5 shadow-[0_10px_24px_-14px_rgba(43,32,24,0.55)] ${selected ? "border-caramel" : "border-ink/10"}`}>
-        <span className="flex items-center gap-1.5 whitespace-nowrap">
-          <strong className="font-serif text-[13px] text-ink">{tile.name}</strong>
-          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${style.chip}`}>{style.label}</span>
-        </span>
-        {tile.state.current && <span className="block truncate text-[11px] text-ink-soft">{tile.state.current.customer_name}{tile.state.current.guest_count ? ` · ${tile.state.current.guest_count} 人` : ""}</span>}
-        <span className={`block whitespace-nowrap text-[11px] font-medium ${tile.state.status === "overtime" ? "text-rose-700" : "text-ink-soft"}`}>{tileHeadline(tile)}</span>
-        {tile.foodTotal > 0 && <span className="block whitespace-nowrap text-[10px] text-caramel-deep">餐 NT$ {tile.foodTotal.toLocaleString()}{tile.unserved > 0 ? ` · 待出 ${tile.unserved}` : ""}</span>}
-      </span>
+      <RoomLabelCard tile={tile} selected={selected} />
       <span className="mx-auto block h-2.5 w-px bg-ink/40" />
     </button>
+  );
+}
+
+/** 包廂浮動標籤（CSS 立體圖與 three.js 立體圖共用） */
+export function RoomLabelCard({ tile, selected, compact = false }: { tile: FloorTile; selected: boolean; compact?: boolean }) {
+  const style = STATUS_STYLE[tile.state.status];
+  return (
+    <span className={`block w-max max-w-[11rem] rounded-xl border bg-white/95 px-2.5 py-1.5 text-left shadow-[0_10px_24px_-14px_rgba(43,32,24,0.55)] ${selected ? "border-caramel" : "border-ink/10"}`}>
+      <span className="flex items-center gap-1.5 whitespace-nowrap">
+        <strong className="font-serif text-[13px] text-ink">{tile.name}</strong>
+        <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${style.chip}`}>{style.label}</span>
+      </span>
+      {!compact && tile.state.current && <span className="block truncate text-[11px] text-ink-soft">{tile.state.current.customer_name}{tile.state.current.guest_count ? ` · ${tile.state.current.guest_count} 人` : ""}</span>}
+      <span className={`block whitespace-nowrap text-[11px] font-medium ${tile.state.status === "overtime" ? "text-rose-700" : "text-ink-soft"}`}>{tileHeadline(tile)}</span>
+      {!compact && tile.foodTotal > 0 && <span className="block whitespace-nowrap text-[10px] text-caramel-deep">餐費 NT$ {tile.foodTotal.toLocaleString()}{tile.unserved > 0 ? ` · 還有 ${tile.unserved} 份沒送` : ""}</span>}
+    </span>
   );
 }
 

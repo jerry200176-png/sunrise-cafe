@@ -590,7 +590,7 @@ export default function AdminBranchesRoomsPage() {
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {[
                 { href: "/admin/today", icon: CalendarDays, label: "今日場控", hint: "今天的訂位與待辦", primary: true },
-                { href: "/admin/floor", icon: Box, label: "包廂場控", hint: "點餐・延時・結帳" },
+                { href: "/admin/floor", icon: Box, label: "包廂現況", hint: "點餐・延長・結帳" },
                 { href: "/admin/payments", icon: DollarSign, label: "付款審核", hint: "確認客人匯款" },
                 { href: "/admin/waitlist", icon: Clock, label: "等位清單", hint: "候位與通知" },
                 { href: "/admin/dashboard", icon: LayoutDashboard, label: "儀表板", hint: "訂位總覽" },

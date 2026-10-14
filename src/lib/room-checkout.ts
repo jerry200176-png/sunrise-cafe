@@ -132,13 +132,13 @@ export function nextBlockingStart(
 /** 回傳中文錯誤；可調整則回 null。允許提早結束（客人先走），不允許壓到下一組。 */
 export function newEndProblem(startTime: string, newEnd: string, nextStart: string | null): string | null {
   const end = ms(newEnd);
-  if (!Number.isFinite(end)) return "結束時間格式錯誤";
-  if (end <= ms(startTime)) return "結束時間必須晚於開始時間";
-  if (end % 60_000 !== 0) return "結束時間請以分鐘為單位";
+  if (!Number.isFinite(end)) return "時間沒填好，請重新選一次";
+  if (end <= ms(startTime)) return "結束時間要比開始時間晚";
+  if (end % 60_000 !== 0) return "時間請選到整分鐘";
   if (nextStart && end > ms(nextStart)) {
     const hhmm = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hour12: false })
       .format(new Date(nextStart));
-    return `會壓到同包廂下一組（${hhmm} 開始），請改包廂或先與下一組確認`;
+    return `會跟下一組客人（${hhmm} 進場）的時間重疊，請換包廂或先問問下一組`;
   }
   return null;
 }

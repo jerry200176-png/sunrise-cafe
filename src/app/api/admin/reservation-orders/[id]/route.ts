@@ -109,20 +109,20 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (!order) return NextResponse.json({ error: "請先確認客人到店" }, { status: 409 });
     if (body.action === "extend") {
       // 只給已報到、尚未結帳的組調整結束時間（店員現場延時／提早離開）；不改 total_price，不推 LINE。
-      if (auth.reservation!.status !== "checked_in") return NextResponse.json({ error: "客人報到後才能調整結束時間" }, { status: 409 });
-      if (order.paid_at) return NextResponse.json({ error: "已結帳，不能再調整時間" }, { status: 409 });
+      if (auth.reservation!.status !== "checked_in") return NextResponse.json({ error: "客人到了以後才能改時間" }, { status: 409 });
+      if (order.paid_at) return NextResponse.json({ error: "這組已經結帳，不能再改時間" }, { status: 409 });
       const endTime = typeof body.end_time === "string" ? new Date(body.end_time) : null;
-      if (!endTime || Number.isNaN(endTime.getTime())) return NextResponse.json({ error: "結束時間格式錯誤" }, { status: 400 });
+      if (!endTime || Number.isNaN(endTime.getTime())) return NextResponse.json({ error: "時間沒填好，請重新選一次" }, { status: 400 });
       const { reservation, nextStart } = await loadBilling(id);
       const problem = newEndProblem(reservation.start_time, endTime.toISOString(), nextStart);
       if (problem) return NextResponse.json({ error: problem }, { status: 409 });
       const result = await db.from("reservations").update({ end_time: endTime.toISOString() })
         .eq("id", id).eq("status", "checked_in").select("id");
       if (result.error) {
-        if (isPostgresExclusionViolation(result.error)) return NextResponse.json({ error: "會壓到同包廂其他訂位，請改包廂或先確認" }, { status: 409 });
+        if (isPostgresExclusionViolation(result.error)) return NextResponse.json({ error: "會跟這間的其他客人時間重疊，請換包廂或先問問對方" }, { status: 409 });
         throw result.error;
       }
-      if (!result.data.length) return NextResponse.json({ error: "訂位狀態已變更，請重新整理" }, { status: 409 });
+      if (!result.data.length) return NextResponse.json({ error: "這組剛剛被別人改過，請重新整理再試一次" }, { status: 409 });
       const ctx = await getAdminContext(request);
       logOps("admin", "admin.reservation_extended", { reservation_id: id, from: reservation.end_time, to: endTime.toISOString(), actor: ctx.user_id ?? ctx.role });
       return NextResponse.json({ ok: true, ...(await load(id)) });

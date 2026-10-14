@@ -30,7 +30,7 @@ export type AdminShellProps = {
 
 const NAV = [
   { href: "/admin/today", label: "今日", icon: CalendarDays },
-  { href: "/admin/floor", label: "場控", icon: Box },
+  { href: "/admin/floor", label: "包廂", icon: Box },
   { href: "/admin", label: "訂位", icon: CalendarCheck, exact: true },
   { href: "/admin/payments", label: "付款", icon: DollarSign },
   { href: "/admin/waitlist", label: "等位", icon: ClipboardList },

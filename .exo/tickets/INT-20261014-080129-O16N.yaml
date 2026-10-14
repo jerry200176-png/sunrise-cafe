@@ -1,0 +1,43 @@
+id: INT-20261014-080129-O16N
+title: 'Floor console: real floor plan in three.js + plain-language wording'
+intent: 'Floor console: real floor plan in three.js + plain-language wording'
+kind: intent
+brain_dump: "\u5E73\u9762\u5716\u7528\u958B\u6E90\u5DE5\u5177\u770B\u61C2\u8B933D\u63A5\
+  \u8FD1\u771F\u5BE6\uFF1B\u71DF\u904B\u53F0\u6E1B\u5C11\u6280\u8853\u8A9E\u8A00\u65B9\
+  \u4FBF\u8001\u95C6\u5E97\u54E1"
+boundary: "No DB migration; layout in code config for \u5927\u5B89 only; other branches\
+  \ keep auto grid"
+success_condition: 'three.js scene matches drawing dims; tests/lint/build pass; pushed
+  to PR #439'
+risk: low
+priority: 3
+labels: []
+scope:
+  allow:
+  - src/**
+  - docs/**
+  - .exo/**
+  - CHANGELOG.md
+  - package.json
+  - package-lock.json
+  - .exo/cache/**
+  - .exo/memory/**
+  - .exo/locks/**
+  - .exo/tickets/**
+  - .exo/logs/**
+  deny: []
+budgets:
+  max_files_changed: 14
+  max_loc_changed: 900
+checks:
+- npm test
+- npm run lint
+type: feature
+status: review
+parent_id: null
+spec_ref: null
+notes: []
+blockers: []
+created_at: '2026-10-14T08:01:29+00:00'
+children: []
+resource_profile: default
