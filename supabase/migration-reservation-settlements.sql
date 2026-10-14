@@ -239,8 +239,10 @@ BEGIN
       floor(v_rate * (extract(epoch FROM (v_res.end_time - v_res.start_time)) / 60 - v_ext_minutes) / 60.0 + 0.5)::integer
     );
     v_room := GREATEST(0, v_booked + v_ext_fee);
-    -- 訂金 = 訂位總價的一半（無條件進位），和 getDepositAmount 一致；延長不影響訂金基礎
-    IF v_res.is_deposit_paid AND COALESCE(v_res.total_price, v_room) > 0 THEN
+    -- 訂金 = 訂位總價的一半（無條件進位），和 getDepositAmount 一致；延長不影響訂金基礎。
+    -- 已退款的訂金（Stripe 退款只改 deposit_status，is_deposit_paid 仍為 true）不能再扣，和 API 一致
+    IF v_res.is_deposit_paid AND v_res.deposit_status IS DISTINCT FROM 'refunded'
+       AND COALESCE(v_res.total_price, v_room) > 0 THEN
       v_deposit := ceil(COALESCE(v_res.total_price, v_room) * 0.5)::integer;
     END IF;
   END IF;
