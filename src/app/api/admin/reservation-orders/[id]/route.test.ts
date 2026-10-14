@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   getReservationPreorder: vi.fn(),
   transitionReservation: vi.fn(),
   logOps: vi.fn(),
+  afterSettledComplete: vi.fn(),
+  rpc: vi.fn(),
   calls: [] as Call[],
   respond: (() => ({ data: null, error: null })) as (call: Call) => Reply,
 }));
@@ -29,7 +31,7 @@ function builder(table: string) {
 }
 
 vi.mock("@/lib/admin-api-auth", () => ({ requirePermission: mocks.requirePermission, getAdminContext: mocks.getAdminContext }));
-vi.mock("@/lib/supabase-admin", () => ({ supabaseAdmin: () => ({ from: builder, rpc: vi.fn() }) }));
+vi.mock("@/lib/supabase-admin", () => ({ supabaseAdmin: () => ({ from: builder, rpc: mocks.rpc }) }));
 vi.mock("@/lib/reservation-preorder", () => ({
   getReservationForPreorder: mocks.getReservationForPreorder,
   getReservationPreorder: mocks.getReservationPreorder,
@@ -38,6 +40,7 @@ vi.mock("@/lib/reservation-preorder", () => ({
 }));
 vi.mock("@/lib/reservation-lifecycle", () => ({
   transitionReservation: mocks.transitionReservation,
+  afterSettledComplete: mocks.afterSettledComplete,
   transitionHttp: () => ({ status: 409, body: { error: "blocked" } }),
 }));
 vi.mock("@/lib/ops-log", () => ({ logOps: mocks.logOps }));
@@ -75,6 +78,8 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
       if (call.table === "reservations" && hasOp(call, "update")) return { data: [{ id: "res-1" }], error: null };
       if (call.table === "reservations" && hasOp(call, "limit")) return { data: nextGroups, error: null };
       if (call.table === "reservations") return { data: reservationRow, error: null };
+      // migration 尚未套用：延長紀錄表不存在 → 舊流程
+      if (call.table === "reservation_extensions") return { data: null, error: { code: "PGRST205", message: "missing" } };
       return { data: null, error: null };
     };
   });
@@ -261,5 +266,118 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
     mocks.getReservationForPreorder.mockResolvedValue({ id: "res-1", status: "confirmed", room: { name: "A", branch_id: "b1" } });
     expect((await post({ action: "serve_item", item_id: "i1" })).status).toBe(409);
     expect(mocks.calls.some((call) => call.table === "order_items")).toBe(false);
+  });
+});
+
+describe("POST /api/admin/reservation-orders/[id] — settlement RPCs (#444 migration applied)", () => {
+  let extensions: Array<{ minutes: number; fee: number }>;
+  let status: string;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.calls.length = 0;
+    extensions = [];
+    status = "checked_in";
+    order = { id: "ord-1", paid_at: null, total_amount: 360, order_items: [] };
+    nextGroups = [{ id: "res-2", room_id: "room-a", start_time: at("17:00"), status: "confirmed" }];
+    mocks.requirePermission.mockResolvedValue(null);
+    mocks.getAdminContext.mockResolvedValue({ user_id: "staff-1", role: "staff" });
+    mocks.getReservationPreorder.mockResolvedValue(null);
+    mocks.getReservationForPreorder.mockImplementation(async () => ({ id: "res-1", status, room: { name: "A", branch_id: "b1" } }));
+    mocks.rpc.mockResolvedValue({ data: { id: "set-1" }, error: null });
+    mocks.respond = (call) => {
+      if (call.table === "reservation_extensions") return { data: extensions, error: null };
+      if (call.table === "orders" && hasOp(call, "update")) return { data: [{ id: "ord-1" }], error: null };
+      if (call.table === "orders") return { data: order, error: null };
+      if (call.table === "reservations" && hasOp(call, "limit")) return { data: nextGroups, error: null };
+      if (call.table === "reservations") return { data: { ...reservationRow, status }, error: null };
+      return { data: null, error: null };
+    };
+  });
+
+  it("bills the booked price plus recorded extension fees, not the current hourly rate", async () => {
+    // 預約 400，延長紀錄 +150（當時費率）；目前房價 200/hr 不影響
+    extensions = [{ minutes: 30, fee: 150 }];
+    const checkout = await post({ action: "checkout", expected_due: 400 + 150 + 360 - 200, expected_refund: 0, payment_method: "cash" });
+    expect(checkout.status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith("settle_reservation_checkout", expect.objectContaining({
+      p_reservation_id: "res-1", p_expected_before_discount: 710, p_expected_refund: 0, p_payment_method: "cash", p_amount_collected: 710,
+      p_discount_amount: 0, p_actor_role: "staff",
+    }));
+    // 不再自己寫 paid_at 或走狀態轉換：都在 RPC 的 transaction 裡
+    expect(mocks.calls.some((c) => c.table === "orders" && hasOp(c, "update") && JSON.stringify(c.ops).includes("paid_at"))).toBe(false);
+    expect(mocks.transitionReservation).not.toHaveBeenCalled();
+    expect(mocks.afterSettledComplete).toHaveBeenCalledWith("res-1", expect.objectContaining({ kind: "admin" }), "checked_in");
+  });
+
+  it("passes a manager discount through and charges the discounted amount", async () => {
+    mocks.getAdminContext.mockResolvedValue({ user_id: "mgr-1", role: "branch_manager" });
+    const response = await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "card",
+      discount_amount: 60, discount_reason: "熟客" });
+    expect(response.status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith("settle_reservation_checkout", expect.objectContaining({
+      p_expected_before_discount: 560, p_amount_collected: 500, p_discount_amount: 60, p_discount_reason: "熟客", p_actor_role: "branch_manager",
+    }));
+  });
+
+  it("requires a payment method when money changes hands", async () => {
+    const response = await post({ action: "checkout", expected_due: 560, expected_refund: 0 });
+    expect(response.status).toBe(400);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["amount_changed", 409], ["already_settled", 409], ["discount_not_allowed", 409], ["discount_reason_required", 409],
+  ])("maps the RPC's %s to a readable %i", async (code, httpStatus) => {
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: "P0001", message: code } });
+    const response = await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "cash" });
+    expect(response.status).toBe(httpStatus);
+    expect((await response.json()).error).not.toBe(code);
+    expect(mocks.afterSettledComplete).not.toHaveBeenCalled();
+  });
+
+  it("still returns success when the follow-up effects fail after the RPC committed", async () => {
+    mocks.afterSettledComplete.mockRejectedValue(new Error("line down"));
+    const response = await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "cash" });
+    expect(response.status).toBe(200);
+    expect(mocks.logOps).toHaveBeenCalledWith("admin", "admin.room_checkout_side_effect_failed", expect.anything());
+  });
+
+  it("extends through extend_reservation_stay with the end time it read", async () => {
+    const response = await post({ action: "extend", end_time: at("16:30") });
+    expect(response.status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith("extend_reservation_stay", expect.objectContaining({
+      p_reservation_id: "res-1", p_expected_end: at("16:00"), p_new_end: at("16:30"),
+    }));
+    expect(mocks.calls.some((c) => c.table === "reservations" && hasOp(c, "update"))).toBe(false);
+  });
+
+  it("maps a concurrent extension and a slot conflict to 409", async () => {
+    mocks.rpc.mockResolvedValueOnce({ data: null, error: { code: "P0001", message: "stale_end_time" } });
+    expect((await post({ action: "extend", end_time: at("16:30") })).status).toBe(409);
+    mocks.rpc.mockResolvedValueOnce({ data: null, error: { code: "23P01", message: "conflicting key value" } });
+    expect((await post({ action: "extend", end_time: at("16:30") })).status).toBe(409);
+  });
+
+  it("lets a stay extend past a group that was marked no_show", async () => {
+    nextGroups = [{ id: "res-2", room_id: "room-a", start_time: at("16:30"), status: "no_show" }];
+    const response = await post({ action: "extend", end_time: at("17:30") });
+    expect(response.status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith("extend_reservation_stay", expect.anything());
+  });
+
+  it("settles leftover food on a cancelled stay as a food-only settlement", async () => {
+    status = "cancelled";
+    const response = await post({ action: "settle", payment_method: "line_pay" });
+    expect(response.status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith("settle_reservation_checkout", expect.objectContaining({
+      p_expected_before_discount: 360, p_expected_refund: 0, p_payment_method: "line_pay", p_amount_collected: 360,
+    }));
+  });
+
+  it("keeps the in-room food-only payment on the old path so room checkout can follow", async () => {
+    const response = await post({ action: "settle" });
+    expect(response.status).toBe(200);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(mocks.calls.some((c) => c.table === "orders" && hasOp(c, "update") && hasOp(c, "is"))).toBe(true);
   });
 });

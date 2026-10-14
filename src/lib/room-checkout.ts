@@ -89,6 +89,9 @@ export type CheckoutBill = {
   depositCredit: number;
   due: number;
   refund: number;
+  /** 有延長紀錄表（#444）時：預約時段的包廂費與延長／縮短的差額；舊算法為 null */
+  bookedRoomFee: number | null;
+  extensionFee: number | null;
 };
 
 /**
@@ -103,11 +106,17 @@ export function computeCheckoutBill(input: {
   isDepositPaid: boolean;
   foodTotal: number;
   foodSettled?: boolean;
+  /** 延長紀錄加總（#444）。有給就照「預約總價＋延長差額」算，和 settle_reservation_checkout 一致 */
+  extensions?: { minutes: number; fee: number } | null;
 }): CheckoutBill {
   const isWeekend = isWeekendDate(taipeiDay(input.startTime));
   const hourlyRate = Number(isWeekend ? input.room.price_weekend : input.room.price_weekday) || 0;
   const hours = Math.max(0, (ms(input.endTime) - ms(input.startTime)) / 3_600_000);
-  const roomFee = Math.round(hourlyRate * hours);
+  const ext = input.extensions ?? null;
+  // 預約時段照訂位當時的總價；舊資料沒有總價才用目前房價算原訂時數（扣掉延長的分鐘）
+  const bookedRoomFee = ext ? (input.bookedTotal != null ? Math.round(input.bookedTotal)
+    : Math.round((hourlyRate * (hours * 60 - ext.minutes)) / 60)) : null;
+  const roomFee = ext ? Math.max(0, bookedRoomFee! + ext.fee) : Math.round(hourlyRate * hours);
   const foodTotal = Math.round(Number(input.foodTotal) || 0);
   const depositBase = input.bookedTotal ?? roomFee;
   const depositCredit = input.isDepositPaid && depositBase > 0 ? getDepositAmount(depositBase) : 0;
@@ -124,6 +133,8 @@ export function computeCheckoutBill(input: {
     due: Math.max(0, balance),
     // 縮短時間後訂金比要收的還多：差額要退給客人（不能悄悄吃掉）
     refund: Math.max(0, -balance),
+    bookedRoomFee,
+    extensionFee: ext ? ext.fee : null,
   };
 }
 
@@ -131,13 +142,14 @@ export function addMinutes(iso: string, minutes: number): string {
   return new Date(ms(iso) + minutes * 60_000).toISOString();
 }
 
-/** 同包廂、在 current 之後開始、未取消的第一組 —— 延時上限。 */
+/** 同包廂、在 current 之後開始、還佔著時段的第一組 —— 延時上限。released：不佔時段的狀態（#444 後含 no_show）。 */
 export function nextBlockingStart(
   current: Pick<FloorReservation, "id" | "room_id" | "end_time" | "start_time">,
-  sameRoom: Array<Pick<FloorReservation, "id" | "room_id" | "start_time" | "status">>
+  sameRoom: Array<Pick<FloorReservation, "id" | "room_id" | "start_time" | "status">>,
+  released: readonly string[] = ["cancelled"]
 ): string | null {
   const starts = sameRoom
-    .filter((r) => r.id !== current.id && r.room_id === current.room_id && r.status !== "cancelled")
+    .filter((r) => r.id !== current.id && r.room_id === current.room_id && !released.includes(r.status))
     .filter((r) => ms(r.start_time) >= ms(current.start_time))
     .map((r) => ms(r.start_time))
     .sort((a, b) => a - b);
