@@ -246,3 +246,32 @@ test("a cloud manifest is not accepted outside cloud mode", () => {
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /agent-session manifest does not match this task worktree/);
 });
+
+test("cloud mode requires an active Exo session", () => {
+  const fixture = createFixture();
+  writeCloudManifest(fixture);
+  rmSync(path.join(fixture.root, ".exo", "cache", "sessions"), { recursive: true, force: true });
+  const result = runClassifier(fixture, ["--cloud"], { CLAUDE_CODE_REMOTE_SESSION_ID: CLOUD_SESSION });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /cloud mode requires an active Exo session/);
+});
+
+test("cloud mode binds the Exo session to the calling agent instead of a PID", () => {
+  const fixture = createFixture();
+  writeCloudManifest(fixture);
+  const other = runClassifier(fixture, ["--cloud"], { CLAUDE_CODE_REMOTE_SESSION_ID: CLOUD_SESSION, AGENT_ACTOR: "agent:someone-else" });
+  assert.notEqual(other.status, 0);
+  assert.match(other.stderr, /does not belong to this caller|actor does not match/);
+});
+
+test("cloud mode validates a manifest that is already committed", () => {
+  const fixture = createFixture();
+  writeCloudManifest(fixture);
+  execFileSync("git", ["add", ".agent-session/manifest.json"], { cwd: fixture.root });
+  execFileSync("git", ["commit", "--quiet", "-m", "manifest"], { cwd: fixture.root });
+  const ok = runClassifier(fixture, ["--cloud"], { CLAUDE_CODE_REMOTE_SESSION_ID: CLOUD_SESSION });
+  assert.equal(ok.status, 0, ok.stderr || ok.stdout);
+  const forged = runClassifier(fixture, ["--cloud"], { CLAUDE_CODE_REMOTE_SESSION_ID: "cse_01SOMEONEELSE" });
+  assert.notEqual(forged.status, 0);
+  assert.match(forged.stderr, /does not match this cloud session/);
+});

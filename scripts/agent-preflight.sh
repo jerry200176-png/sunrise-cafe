@@ -39,9 +39,17 @@ PWD_R="$(resolve "${PWD:-.}")"
 # Cloud agent sessions (Claude Code on the web/mobile) run in a fresh, isolated clone with no
 # /home/jerry workspace and no gh CLI. They are identified by the runner's own environment and
 # prove provenance through the agent-session-cloud manifest + Claude-Session commit trailers.
+# Environment variables alone are self-assertable, so cloud mode also requires runner-provided evidence:
+# the managed container's agent proxy status endpoint must answer. This is an integrity guard, not an
+# authentication boundary (a determined local operator can fake anything this script checks); the
+# enforced boundary is CI provenance (Claude-Session trailers on every commit) plus review.
 CLOUD=0
 if [[ "$MODE" == "agent" && "${CLAUDE_CODE_REMOTE:-}" == "true" && "${CLAUDE_CODE_REMOTE_SESSION_ID:-}" =~ ^cse_[A-Za-z0-9]{8,}$ ]]; then
-  CLOUD=1
+  if [[ -n "${HTTPS_PROXY:-}" ]] && curl -fsS --max-time 5 -o /dev/null "${HTTPS_PROXY%/}/__agentproxy/status" 2>/dev/null; then
+    CLOUD=1
+  else
+    fail "cloud markers set but the Claude Code cloud runner could not be verified (agent proxy unreachable)"
+  fi
 fi
 if [[ "$CLOUD" == "0" ]]; then
   case "$TARGET" in

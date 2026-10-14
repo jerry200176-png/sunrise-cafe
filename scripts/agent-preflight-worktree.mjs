@@ -179,7 +179,7 @@ function spawnGitAncestor(root, sha) {
   }
 }
 
-function validateExoSession(root, branch, sessionPath, sessions) {
+function validateExoSession(root, branch, sessionPath, sessions, cloud = false) {
   if (sessions.length !== 1) {
     fail("multiple active Exo sessions exist in this worktree", "use the owning session's worktree; do not release another agent's lock");
   }
@@ -193,7 +193,14 @@ function validateExoSession(root, branch, sessionPath, sessions) {
   if (session.git_branch !== branch || (actor && session.actor !== actor)) {
     fail("active Exo session does not belong to this caller and branch", "continue only from the recorded owner session or use a separate agent-start worktree");
   }
-  if (!isOwnerAncestor(session.pid)) {
+  if (cloud) {
+    // A cloud container hosts exactly one agent session, and each tool call runs in a fresh shell, so the
+    // short-lived Exo CLI PID is never an ancestor. Ownership is the actor identity instead; lock, lease,
+    // fencing, ticket and branch checks below still apply unchanged.
+    if (!actor || session.actor !== actor) {
+      fail("cloud mode: active Exo session actor does not match this agent", "start the Exo session as this agent (EXO_ACTOR) in this container");
+    }
+  } else if (!isOwnerAncestor(session.pid)) {
     fail(`active Exo owner PID ${session.pid} is not the caller's process ancestor`, "run preflight from the owning agent session; do not take over its worktree");
   }
   if (typeof session.git_head_sha !== "string" || !spawnGitAncestor(root, session.git_head_sha)) {
@@ -217,9 +224,17 @@ function validateExoSession(root, branch, sessionPath, sessions) {
   if (!Number.isFinite(expiry) || expiry <= Date.now()) {
     fail(`Exo ticket lock expired at ${lock.lease_expires_at || lock.expires_at || "an invalid time"}`, "confirm the owner process has stopped, then run `exo session-scan` and `exo session-cleanup`; never delete the lock manually");
   }
-  const fencing = readJson(fencingPath, "Exo fencing record");
-  if (fencing.last_fencing_token !== lock.fencing_token) {
-    fail("Exo fencing token is stale or inconsistent", "reacquire through the owning Exo session lifecycle after resolving the current lease");
+  if (cloud) {
+    // fencing.json is maintained by the local agent-start gateway, not by ExoProtocol itself, so in a cloud
+    // container it only holds main's committed value. Require a valid token on the live lock instead.
+    if (!Number.isInteger(lock.fencing_token) || lock.fencing_token < 1) {
+      fail("cloud mode: Exo ticket lock has no valid fencing token", "reacquire the lock through the Exo session lifecycle");
+    }
+  } else {
+    const fencing = readJson(fencingPath, "Exo fencing record");
+    if (fencing.last_fencing_token !== lock.fencing_token) {
+      fail("Exo fencing token is stale or inconsistent", "reacquire through the owning Exo session lifecycle after resolving the current lease");
+    }
   }
 
   const ticketPath = join(root, ".exo", "tickets", `${session.ticket_id}.yaml`);
@@ -270,13 +285,20 @@ function main() {
     if (sessions.some((session) => session.git_branch !== branch)) {
       fail("an active Exo session in this worktree names a different branch", "preserve the active session and recover using its owner; do not reuse this worktree");
     }
-    metadataAllowed = validateExoSession(root, branch, sessionPaths[0], sessions);
+    metadataAllowed = validateExoSession(root, branch, sessionPaths[0], sessions, Boolean(args.cloud));
+  } else if (args.cloud) {
+    // Cloud work bypasses the agent-start gateway, so it must carry its own live Exo ticket lease.
+    fail("cloud mode requires an active Exo session in this worktree", "run `EXO_ACTOR=agent:claude python3 -m exo.cli session-start --ticket-id <ticket> --acquire-lock` first");
   } else if (changedPaths.some((path) => path.startsWith(".exo/"))) {
     fail("Exo metadata changed without a live, matching owner session", "recreate or recover the task through agent-start and the Exo session lifecycle; do not ignore .exo changes");
   }
 
-  if (changedPaths.includes(".agent-session/manifest.json")) {
-    validateManifest(root, branch, Boolean(args.cloud));
+  if (args.cloud) {
+    // Validate the cloud manifest even when it is already committed (a fresh cloud checkout is clean).
+    validateManifest(root, branch, true);
+    if (changedPaths.includes(".agent-session/manifest.json")) metadataAllowed.add(".agent-session/manifest.json");
+  } else if (changedPaths.includes(".agent-session/manifest.json")) {
+    validateManifest(root, branch, false);
     metadataAllowed.add(".agent-session/manifest.json");
   }
 
