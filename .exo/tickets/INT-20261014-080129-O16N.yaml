@@ -1,0 +1,58 @@
+id: INT-20261014-080129-O16N
+title: 'Floor console: real floor plan in three.js + plain-language wording'
+intent: 'Floor console: real floor plan in three.js + plain-language wording'
+kind: intent
+brain_dump: "\u5E73\u9762\u5716\u7528\u958B\u6E90\u5DE5\u5177\u770B\u61C2\u8B933D\u63A5\
+  \u8FD1\u771F\u5BE6\uFF1B\u71DF\u904B\u53F0\u6E1B\u5C11\u6280\u8853\u8A9E\u8A00\u65B9\
+  \u4FBF\u8001\u95C6\u5E97\u54E1"
+boundary: "No DB migration; layout in code config for \u5927\u5B89 only; other branches\
+  \ keep auto grid"
+success_condition: 'three.js scene matches drawing dims; tests/lint/build pass; pushed
+  to PR #439'
+risk: low
+priority: 3
+labels: []
+scope:
+  allow:
+  - src/**
+  - docs/**
+  - .exo/**
+  - CHANGELOG.md
+  - package.json
+  - package-lock.json
+  - .exo/cache/**
+  - .exo/memory/**
+  - .exo/locks/**
+  - .exo/tickets/**
+  - .exo/logs/**
+  deny: []
+budgets:
+  max_files_changed: 14
+  max_loc_changed: 900
+checks:
+- npm test
+- npm run lint
+type: feature
+status: review
+parent_id: null
+spec_ref: null
+notes: []
+blockers: []
+created_at: '2026-10-14T08:01:29+00:00'
+children: []
+resource_profile: default
+commits:
+- 91077ce042368595ce4e3692f59c7866a82f5c76
+- 39783d428e98a2eafff3562884279ab3c929adb4
+- 727937a1a99e8dd32a9ea8141de0e5a91ced9164
+- 79e80caee3e2736af483e7f0eb023fa6a3d9c546
+- 108160e40c293bc6f84fe24a65bfb2af87f15009
+- dd1ce6a595be488474956c07d93afd66dcbb3823
+- 2f99a8fe66874a4768a23e4a3815666336f15ec2
+- b93f16fa988677caaf682706e121b2e35c41c83c
+- b08ad2a036200200cf05ca87bebd2f5dc295229c
+- 8aeba15d04a88ca58ba1e0a4d9182fa3b66cc604
+- b76684bb21bb35ca1e770a8d4f3bec534426cc09
+- 32822d366537ba634be78506c8a3b94737c9ab11
+- b2a69a2a3959c10e20573f1ec2504b7a7360ee58
+- 8fedc790c9affa26570ce8e23aae29eb91406dd6

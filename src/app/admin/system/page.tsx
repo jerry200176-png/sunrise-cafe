@@ -15,6 +15,7 @@ import {
   Headphones,
   ListTodo,
   GitBranch,
+  type LucideIcon,
 } from "lucide-react";
 
 type OutcomeSnapshot = {
@@ -105,7 +106,7 @@ function Metric({
   alert,
   href,
 }: {
-  icon: React.ElementType;
+  icon: LucideIcon;
   label: string;
   value: string;
   sub?: string;

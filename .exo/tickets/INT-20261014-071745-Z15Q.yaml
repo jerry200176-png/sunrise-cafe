@@ -1,0 +1,43 @@
+id: INT-20261014-071745-Z15Q
+title: 'Room checkout console: floor view + bill + extend'
+intent: 'Room checkout console: floor view + bill + extend'
+kind: intent
+brain_dump: "\u5E97\u54E1\u5E6B\u5BA2\u4EBA\u9EDE\u9910\u7B97\u91D1\u984D\u8981\u65B9\
+  \u4FBF\uFF1A\u9EDE\u9019\u7D44\u5BA2\u4EBA\u9EDE\u4E86\u54EA\u4E9B\u9910+\u5305\u5EC2\
+  \u8CBB\uFF1B\u5BA2\u4EBA\u5E38\u5EF6\u6642\u9700\u65B9\u4FBF\u8ABF\u6574\u7D50\u675F\
+  \u6642\u9593\uFF1B\u7BA1\u7406\u5F8C\u53F0\u505A\u6210\u660E\u77AD3D\u7BA1\u7406\
+  \u4ECB\u9762"
+boundary: No DB migration; no LINE push on extend; do not change booking flow or RBAC
+  roles
+success_condition: Floor console page + bill API live; npm test and lint pass; PR
+  merged
+risk: medium
+priority: 3
+labels: []
+scope:
+  allow:
+  - src/**
+  - docs/**
+  - .exo/**
+  - .exo/cache/**
+  - .exo/memory/**
+  - .exo/locks/**
+  - .exo/tickets/**
+  - .exo/logs/**
+  - CHANGELOG.md
+  deny: []
+budgets:
+  max_files_changed: 14
+  max_loc_changed: 1100
+checks:
+- npm test
+- npm run lint
+type: feature
+status: review
+parent_id: null
+spec_ref: null
+notes: []
+blockers: []
+created_at: '2026-10-14T07:17:45+00:00'
+children: []
+resource_profile: default

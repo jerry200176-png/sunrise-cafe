@@ -5,7 +5,7 @@ import Link from "next/link";
 import { responseError, thrownMessage } from "@/lib/friendly-error";
 import { csvRow } from "@/lib/csv";
 import type { Branch } from "@/types";
-import { ArrowLeft, Download, TrendingUp, CalendarDays, XCircle, Wallet } from "lucide-react";
+import { ArrowLeft, Download, TrendingUp, CalendarDays, XCircle, Wallet, type LucideIcon } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
@@ -33,7 +33,7 @@ const PERIODS = [
 ];
 
 function MetricCard({ icon: Icon, label, value, sub, color }: {
-  icon: React.ElementType; label: string; value: string; sub?: string; color: string;
+  icon: LucideIcon; label: string; value: string; sub?: string; color: string;
 }) {
   return (
     <div className="rounded-2xl bg-white p-5 shadow-sm">
