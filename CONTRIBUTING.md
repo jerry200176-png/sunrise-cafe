@@ -5,8 +5,8 @@
 1. Read `AGENTS.md` and `docs/governance/OVERLAY.md`.
 2. Open or select a GitHub issue with priority, owner area, acceptance
    evidence, and rollback expectations.
-3. Run `agent-start sunrise <task-id>` and work only in the generated
-   worktree.
+3. Work in a Claude cloud session (Founder 2026-10-14): clone fresh, branch
+   from `origin/main`, open a PR. `agent-start` is retired.
 
 ## Pull requests
 

@@ -10,9 +10,8 @@ minimum that travels with each governed repository.
 - Treat Cursor, Codex, Claude Code, and Cubelv as untrusted writers.
 - Before writing, identify the repository, branch/worktree, task scope, risk,
   and verification plan. Never work directly on the default branch.
-- Read this repository's committed instructions and ExoProtocol's `.exo/`
-  constitution/lock when present. Do not edit governance files to make a task
-  pass or to bypass a lock, ticket, session, CI check, or review.
+- Read this repository's committed instructions. Do not edit governance files
+  to make a task pass or to bypass a CI check or review.
 - Every change goes through a pull request. Required GitHub checks and
   independent evidence review must pass; a human click is not a release gate.
   Branch prefixes and self-authored provenance files never grant a bypass.
