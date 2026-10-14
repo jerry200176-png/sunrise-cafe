@@ -6,7 +6,7 @@ import { UPCOMING_MINUTES, type FloorReservation } from "@/lib/room-checkout";
 
 /** 回看多久內結帳完的組（跨午夜時仍顯示還沒送的餐／沒收的餐費） */
 const RECENT_COMPLETED_HOURS = 6;
-/** 已結帳但餐費還沒收的組，不論預約時段多早結束都留在場控上（訂位沒有結帳時間欄位，只能用時段回看） */
+/** 已結帳或報到後取消、但餐費還沒收的組，不論預約時段多早結束都留在場控上（訂位沒有結帳時間欄位，只能用時段回看） */
 const UNPAID_LOOKBACK_DAYS = 7;
 
 export type FloorRoom = {
@@ -69,8 +69,8 @@ export async function GET(request: NextRequest) {
       // 剛結帳完（可能跨午夜）的組，可能還有沒送的餐或沒收的餐費
       db.from("reservations").select(columns).in("room_id", roomIds).eq("status", "completed")
         .gt("end_time", new Date(window.startMs - RECENT_COMPLETED_HOURS * 3_600_000).toISOString()).limit(50),
-      // 超時很久才結帳（預約時段早已結束）但餐費還沒收的組
-      db.from("reservations").select(`${columns},orders!inner(paid_at)`).in("room_id", roomIds).eq("status", "completed")
+      // 餐費還沒收的組：超時很久才結帳（預約時段早已結束），或報到後被取消（訂單還在）
+      db.from("reservations").select(`${columns},orders!inner(paid_at)`).in("room_id", roomIds).in("status", ["completed", "cancelled"])
         .is("orders.paid_at", null)
         .gt("end_time", new Date(window.startMs - UNPAID_LOOKBACK_DAYS * 86_400_000).toISOString()).limit(50),
     ]);

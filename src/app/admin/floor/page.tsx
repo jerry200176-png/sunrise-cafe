@@ -135,10 +135,12 @@ export default function FloorConsolePage() {
   const slots = useMemo(() => (plan && data ? assignRoomsToPlan(plan, data.rooms) : null), [plan, data]);
 
   const selected = tiles.find((t) => t.id === selectedRoom) ?? null;
-  // 這間包廂裡「不是目前這組」但還有沒送完的餐或沒收餐費的單（上一組、或用舊按鈕完成的組）
+  // 這間包廂裡「不是目前這組」但還沒處理完的：還在包廂裡（已報到）的上一組一定要能結帳，
+  // 其他（結帳完、報到後取消、用舊按鈕完成的）則看是否還有沒送完的餐或沒收的餐費
   const leftovers = selected
     ? (data?.reservations ?? []).filter((r) => r.room_id === selected.id && r.id !== selected.state.current?.id
-      && (data?.orders ?? []).some((o) => o.reservation_id === r.id && (o.unserved_count > 0 || !o.paid_at)))
+      && (r.status === "checked_in"
+        || (data?.orders ?? []).some((o) => o.reservation_id === r.id && (o.unserved_count > 0 || !o.paid_at))))
     : [];
   const [openReservationId, setOpenReservationId] = useState<string | null>(null);
   useEffect(() => { setOpenReservationId(null); }, [selectedRoom]);

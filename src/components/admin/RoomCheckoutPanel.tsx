@@ -106,6 +106,8 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   // 延長只看客人是否還在包廂（餐費先結過也能延長，伺服器同樣只檢查 checked_in）
   const canEditTime = checkedIn && !busy;
   const roomSettled = billing?.status === "completed";
+  // 報到後被取消的組：不收包廂費，只剩餐費要補記
+  const stayCancelled = billing?.status === "cancelled";
   const minutesLeft = billing ? Math.floor((new Date(billing.end_time).getTime() - nowMs) / 60_000) : null;
   const settleEnd = billing && checkedIn ? overtimeSettledEnd(billing.end_time, nowMs) : null;
 
@@ -241,16 +243,16 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
           {bill.depositCredit > 0 && <Row label="已付訂金" value={`− ${money(bill.depositCredit)}`} />}
         </dl>
         <div className="mt-2 flex items-end justify-between border-t border-dashed border-ink/15 pt-2">
-          <span className="flex items-center gap-1.5 font-serif"><Receipt className="h-4 w-4 text-caramel-deep" strokeWidth={1.5} />{roomSettled && paid ? "已經收了" : roomSettled ? "包廂已結帳" : "這組要收"}</span>
-          <strong className="text-3xl tabular-nums">{money(bill.due)}</strong>
+          <span className="flex items-center gap-1.5 font-serif"><Receipt className="h-4 w-4 text-caramel-deep" strokeWidth={1.5} />{roomSettled && paid ? "已經收了" : roomSettled ? "包廂已結帳" : stayCancelled ? "已取消，只收餐費" : "這組要收"}</span>
+          <strong className="text-3xl tabular-nums">{money(stayCancelled ? (paid ? 0 : bill.foodTotal) : bill.due)}</strong>
         </div>
         {billing?.total_price != null && billing.total_price !== bill.roomFee && <p className="mt-1 text-[11px] text-ink-faint">預約時是 {money(billing.total_price)}，多出來的是延長的時間</p>}
-        {roomSettled && !paid && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-          這組已經結束，但餐費 {money(bill.foodTotal)} 還沒記收款。
+        {(roomSettled || stayCancelled) && !paid && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          {stayCancelled ? "這組已經取消" : "這組已經結束"}，但餐費 {money(bill.foodTotal)} 還沒記收款。
           <button type="button" disabled={busy} onClick={() => act("settle")}
             className="mt-2 block h-11 w-full rounded-xl bg-ink font-semibold text-paper disabled:opacity-50">收到餐費 {money(bill.foodTotal)}，補記</button>
         </div>}
-        {billing?.status !== "completed" && (confirmCheckout ? <div className="mt-3 grid grid-cols-2 gap-2">
+        {!roomSettled && !stayCancelled && (confirmCheckout ? <div className="mt-3 grid grid-cols-2 gap-2">
           <button type="button" onClick={() => setConfirmCheckout(false)} className="h-12 rounded-xl border border-ink/15 font-medium">再等等</button>
           <button type="button" disabled={busy} onClick={async () => { if (await act("checkout", { expected_due: bill.due })) setConfirmCheckout(false); else void load().catch(() => undefined); }}
             className="h-12 rounded-xl bg-ink font-semibold text-paper disabled:opacity-50">確定收到 {money(bill.due)}</button>
