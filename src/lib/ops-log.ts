@@ -54,6 +54,7 @@ export type OpsLogAction =
   | "stripe.payment_intent_failed"
   | "stripe.charge_refunded"
   | "stripe.refund_synced"
+  | "stripe.refund_sync_ignored"
   | "stripe.event_unhandled"
   | "stripe.webhook_error";
 

@@ -81,16 +81,18 @@ echo "settlement SQL tests: ALL PASSED"
 # 回滾（保留資料）：函式拿掉、資料一列都不少；之後可以再套一次 migration 往前走
 # ---------------------------------------------------------------------------
 before="$(run -tA -c "SELECT (SELECT count(*) FROM reservation_settlements)||'/'||(SELECT count(*) FROM reservation_extensions)
-  ||'/'||(SELECT count(*) FROM reservation_refunds)||'/'||(SELECT count(*) FROM reservation_refund_events)")"
+  ||'/'||(SELECT count(*) FROM reservation_refunds)||'/'||(SELECT count(*) FROM reservation_refund_events)
+  ||'/'||(SELECT count(*) FROM reservation_refund_alerts)")"
 run -f "$root/supabase/rollbacks/reservation-settlements-keep-data.sql" >/dev/null 2>&1
 after="$(run -tA -c "SELECT (SELECT count(*) FROM reservation_settlements)||'/'||(SELECT count(*) FROM reservation_extensions)
-  ||'/'||(SELECT count(*) FROM reservation_refunds)||'/'||(SELECT count(*) FROM reservation_refund_events)")"
+  ||'/'||(SELECT count(*) FROM reservation_refunds)||'/'||(SELECT count(*) FROM reservation_refund_events)
+  ||'/'||(SELECT count(*) FROM reservation_refund_alerts)")"
 [ "$before" = "$after" ] || { echo "FAIL: rollback lost rows ($before → $after)"; exit 1; }
 [ "$(run -tA -c "SELECT count(*) FROM pg_proc WHERE proname IN ('settle_reservation_checkout','extend_reservation_stay',
   'request_reservation_refund','record_reservation_refund_status','sync_provider_refund','reservation_billing_state')")" = "0" ] \
   || { echo "FAIL: rollback left write RPCs"; exit 1; }
 run -c "UPDATE reservation_refunds SET amount = 1" >/dev/null 2>&1 && { echo "FAIL: ledger writable after rollback"; exit 1; }
-echo "ok - rollback keeps every settlement/extension/refund row ($after) and stays append-only"
+echo "ok - rollback keeps every settlement/extension/refund/alert row ($after) and stays append-only"
 run -f "$root/supabase/migration-reservation-settlements.sql" >/dev/null 2>&1
 [ "$(run -tA -c "SELECT count(*) FROM pg_proc WHERE proname = 'request_reservation_refund'")" = "1" ] \
   || { echo "FAIL: re-apply after rollback"; exit 1; }

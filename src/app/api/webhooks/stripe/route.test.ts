@@ -31,7 +31,8 @@ import { POST } from "./route";
 
 const send = () => POST(new NextRequest("http://localhost/api/webhooks/stripe", { method: "POST", body: "{}",
   headers: { "stripe-signature": "sig" } }));
-const refund = (status: string, amount = 200) => ({ id: "re_1", status, amount, payment_intent: "pi_1",
+// Stripe 單位：TWD ×100（NT$200 = 20000）
+const refund = (status: string, amount = 200) => ({ id: "re_1", status, amount: amount * 100, currency: "twd", payment_intent: "pi_1",
   metadata: { refund_ledger_id: "rf-1", reservationId: "res-1" } });
 const deposit = (refunded: number, status: string) => ({ data: { id: "rf-1", reservation_id: "res-1", kind: "deposit",
   amount: 200, status, deposit_gross: 200, deposit_refunded: refunded }, error: null });
@@ -82,5 +83,18 @@ describe("Stripe webhook → refund ledger (#444)", () => {
     mocks.event = { type: "charge.refunded", data: { object: { id: "ch_1", payment_intent: "pi_1", amount: 200, amount_refunded: 200 } } };
     await send();
     expect(mocks.updates.map((u) => u.table).sort()).toEqual(["payment_intents", "reservations"]);
+  });
+
+  it("P2: a stale or out-of-order transition is logged and acknowledged with 200, not a 500", async () => {
+    mocks.event = { type: "refund.updated", data: { object: refund("pending") } };
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: "P0001", message: "invalid_refund_transition" } });
+    expect((await send()).status).toBe(200);
+    expect(mocks.updates).toHaveLength(0);
+  });
+
+  it("P2: an unexpected database error still fails the webhook so Stripe retries", async () => {
+    mocks.event = { type: "refund.updated", data: { object: refund("succeeded") } };
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: "XX000", message: "boom" } });
+    expect((await send()).status).toBe(500);
   });
 });

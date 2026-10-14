@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   getAdminContext: vi.fn(),
   rpc: vi.fn(),
   refundsCreate: vi.fn(),
+  refundsList: vi.fn(),
+  retrieveIntent: vi.fn(),
   logOps: vi.fn(),
   updates: [] as Array<{ table: string; values: unknown }>,
   reservation: null as Record<string, unknown> | null,
@@ -14,10 +16,10 @@ const mocks = vi.hoisted(() => ({
 
 function from(table: string) {
   const self: Record<string, unknown> = {};
-  for (const op of ["select", "eq"]) self[op] = () => self;
+  for (const op of ["select", "eq", "order", "limit", "in"]) self[op] = () => self;
   self.update = (values: unknown) => { mocks.updates.push({ table, values }); return self; };
   self.maybeSingle = () => Promise.resolve(table === "reservations" ? { data: mocks.reservation, error: null }
-    : table === "reservation_refunds" ? { data: mocks.refundRow, error: null }
+    : table === "reservation_refunds" || table === "reservation_refund_current" ? { data: mocks.refundRow, error: null }
     : { data: { reservation_id: "res-1" }, error: null });
   self.then = (ok: (value: unknown) => unknown) => Promise.resolve({ data: null, error: null }).then(ok);
   return self;
@@ -25,10 +27,11 @@ function from(table: string) {
 
 vi.mock("@/lib/admin-api-auth", () => ({ requireAdminApiAuth: mocks.requireAdminApiAuth, getAdminContext: mocks.getAdminContext }));
 vi.mock("@/lib/supabase-admin", () => ({ supabaseAdmin: () => ({ from, rpc: mocks.rpc }) }));
-vi.mock("@/lib/stripe", () => ({ stripe: { refunds: { create: mocks.refundsCreate } }, isStripeEnabled: () => true }));
+vi.mock("@/lib/stripe", () => ({ stripe: { refunds: { create: mocks.refundsCreate, list: mocks.refundsList },
+  paymentIntents: { retrieve: mocks.retrieveIntent } }, isStripeEnabled: () => true }));
 vi.mock("@/lib/ops-log", () => ({ logOps: mocks.logOps }));
 
-import { PATCH, POST } from "./route";
+import { GET, PATCH, POST } from "./route";
 
 const call = (method: "POST" | "PATCH", body: Record<string, unknown>) =>
   (method === "POST" ? POST : PATCH)(new NextRequest("http://localhost/api/payment/refund", {
@@ -36,7 +39,7 @@ const call = (method: "POST" | "PATCH", body: Record<string, unknown>) =>
   }));
 
 const ledger = (overrides: Record<string, unknown> = {}) => ({
-  id: "rf-1", reservation_id: "res-1", kind: "deposit", amount: 200, status: "requested",
+  id: "rf-1", reservation_id: "res-1", kind: "deposit", amount: 200, status: "requested", created_at: new Date().toISOString(),
   deposit_gross: 200, deposit_refunded: 0, ...overrides,
 });
 const rpcCalls = (name: string) => mocks.rpc.mock.calls.filter(([n]) => n === name);
@@ -51,8 +54,11 @@ describe("POST /api/payment/refund — refund ledger (#444)", () => {
     mocks.rpc.mockImplementation(async (name: string) => name === "request_reservation_refund"
       ? { data: ledger(), error: null }
       : { data: ledger({ status: "succeeded", deposit_refunded: 200 }), error: null });
-    mocks.refundsCreate.mockResolvedValue({ id: "re_1", status: "succeeded", amount: 200, payment_intent: "pi_1",
+    // Stripe 單位：TWD ×100
+    mocks.refundsCreate.mockResolvedValue({ id: "re_1", status: "succeeded", amount: 20000, currency: "twd", payment_intent: "pi_1",
       metadata: { refund_ledger_id: "rf-1", reservationId: "res-1" } });
+    mocks.refundsList.mockResolvedValue({ data: [] });
+    mocks.retrieveIntent.mockResolvedValue({ id: "pi_1", latest_charge: { amount_captured: 50000, amount_refunded: 0, currency: "twd" } });
   });
 
   it.each([
@@ -76,8 +82,43 @@ describe("POST /api/payment/refund — refund ledger (#444)", () => {
       p_idempotency_key: "click-1", p_actor: "mgr-1", p_actor_role: "branch_manager", p_actor_branch_ids: ["b1"],
     }));
     expect(mocks.refundsCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ payment_intent: "pi_1", amount: 200, metadata: expect.objectContaining({ refund_ledger_id: "rf-1" }) }),
+      expect.objectContaining({ payment_intent: "pi_1", amount: 20000, metadata: expect.objectContaining({ refund_ledger_id: "rf-1" }) }),
       { idempotencyKey: "ledger_refund_rf-1" });
+    // Stripe 回的 20000（TWD ×100）同步回帳本是 200 元
+    expect(rpcCalls("sync_provider_refund")[0][1]).toMatchObject({ p_amount: 200, p_status: "succeeded" });
+  });
+
+  it("P1-b: caps the refund at what Stripe actually captured and has not refunded yet (in whole NT$)", async () => {
+    mocks.retrieveIntent.mockResolvedValue({ id: "pi_1", latest_charge: { amount_captured: 50000, amount_refunded: 35000, currency: "twd" } });
+    await call("POST", { reservationId: "res-1", reason: "客人取消" });
+    expect(mocks.retrieveIntent).toHaveBeenCalledWith("pi_1", { expand: ["latest_charge"] });
+    expect(rpcCalls("request_reservation_refund")[0][1]).toMatchObject({ p_provider_cap: 150 });
+  });
+
+  it("P1-b: a charge Stripe cannot show is not refundable", async () => {
+    mocks.retrieveIntent.mockRejectedValue(new Error("stripe down"));
+    expect((await call("POST", { reservationId: "res-1", reason: "客人取消" })).status).toBe(502);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("P1-a: a retry first reconciles with Stripe and syncs the existing refund instead of creating another", async () => {
+    mocks.refundsList.mockResolvedValue({ data: [{ id: "re_1", status: "pending", amount: 20000, currency: "twd", payment_intent: "pi_1",
+      metadata: { refund_ledger_id: "rf-1", reservationId: "res-1" } }] });
+    mocks.rpc.mockImplementation(async (name: string) => name === "request_reservation_refund"
+      ? { data: ledger(), error: null } : { data: ledger({ status: "pending" }), error: null });
+    await call("POST", { reservationId: "res-1", reason: "客人取消", idempotencyKey: "click-1" });
+    expect(mocks.refundsCreate).not.toHaveBeenCalled();
+    expect(rpcCalls("sync_provider_refund")[0][1]).toMatchObject({ p_provider_ref: "re_1", p_status: "pending" });
+  });
+
+  it("P1-a: never re-drives a request older than 23h; Stripe has no such refund → provider-side cancel", async () => {
+    const old = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    mocks.rpc.mockImplementation(async (name: string) => name === "request_reservation_refund"
+      ? { data: ledger({ created_at: old }), error: null } : { data: ledger({ status: "canceled" }), error: null });
+    const response = await call("POST", { reservationId: "res-1", reason: "客人取消", idempotencyKey: "click-old" });
+    expect(response.status).toBe(200);
+    expect(mocks.refundsCreate).not.toHaveBeenCalled();
+    expect(rpcCalls("record_reservation_refund_status")[0][1]).toMatchObject({ p_status: "canceled", p_actor_role: "provider" });
   });
 
   it("P3: a partial refund sends only that amount to the ledger and Stripe", async () => {
@@ -87,13 +128,13 @@ describe("POST /api/payment/refund — refund ledger (#444)", () => {
     const response = await call("POST", { reservationId: "res-1", reason: "部分退", amount: 80 });
     expect(response.status).toBe(200);
     expect(rpcCalls("request_reservation_refund")[0][1]).toMatchObject({ p_amount: 80 });
-    expect(mocks.refundsCreate.mock.calls[0][0]).toMatchObject({ amount: 80 });
+    expect(mocks.refundsCreate.mock.calls[0][0]).toMatchObject({ amount: 8000 });
     // 部分退款：不把整筆付款標成已退
     expect(mocks.updates.filter((u) => u.table === "payment_intents")).toHaveLength(0);
   });
 
   it("P4: a pending Stripe refund is recorded as pending and nothing is marked refunded", async () => {
-    mocks.refundsCreate.mockResolvedValue({ id: "re_1", status: "pending", amount: 200, payment_intent: "pi_1",
+    mocks.refundsCreate.mockResolvedValue({ id: "re_1", status: "pending", amount: 20000, currency: "twd", payment_intent: "pi_1",
       metadata: { refund_ledger_id: "rf-1", reservationId: "res-1" } });
     mocks.rpc.mockImplementation(async (name: string) => name === "request_reservation_refund"
       ? { data: ledger(), error: null } : { data: ledger({ status: "pending" }), error: null });
@@ -161,6 +202,7 @@ describe("PATCH /api/payment/refund — confirm a manual refund", () => {
     mocks.getAdminContext.mockResolvedValue({ user_id: "own-1", role: "owner", branch_ids: null, legacy: false });
     mocks.reservation = { id: "res-1", payment_intent_id: null, deposit_status: "paid", booking_code: "ABC123", room: { branch_id: "b1" } };
     mocks.refundRow = { id: "rf-1", reservation_id: "res-1" };
+    mocks.refundsList.mockResolvedValue({ data: [] });
     mocks.rpc.mockResolvedValue({ data: ledger({ status: "succeeded" }), error: null });
   });
 
@@ -185,4 +227,40 @@ describe("PATCH /api/payment/refund — confirm a manual refund", () => {
     expect(response.status).toBe(409);
     expect((await response.json()).error).toMatch(/Stripe/);
   });
+
+  it("P1-a: staff cannot cancel a Stripe refund of unknown outcome (SQL refuses) — they reconcile instead", async () => {
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: "P0001", message: "provider_outcome_only" } });
+    expect((await call("PATCH", { refundId: "rf-1", status: "canceled" })).status).toBe(409);
+    expect(mocks.rpc).toHaveBeenCalledWith("record_reservation_refund_status", expect.objectContaining({ p_actor_role: "owner" }));
+  });
+
+  it("P1-a: reconcile asks Stripe and records Stripe's answer", async () => {
+    mocks.reservation = { ...mocks.reservation!, payment_intent_id: "pi_1" };
+    mocks.refundRow = { id: "rf-1", reservation_id: "res-1", kind: "deposit", amount: 200, method: "stripe", status: "requested",
+      created_at: new Date().toISOString() };
+    mocks.refundsList.mockResolvedValue({ data: [{ id: "re_1", status: "succeeded", amount: 20000, currency: "twd", payment_intent: "pi_1",
+      metadata: { refund_ledger_id: "rf-1", reservationId: "res-1" } }] });
+    const response = await call("PATCH", { refundId: "rf-1", reconcile: true });
+    expect(response.status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith("sync_provider_refund", expect.objectContaining({ p_status: "succeeded", p_amount: 200 }));
+    expect(mocks.refundsCreate).not.toHaveBeenCalled();
+  });
 });
+
+describe("GET /api/payment/refund — staff can see refund alerts", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.requireAdminApiAuth.mockResolvedValue(null);
+  });
+  it("refuses staff and finance", async () => {
+    for (const ctx of [{ role: "staff", branch_ids: ["b1"] }, { role: "finance", branch_ids: null }]) {
+      mocks.getAdminContext.mockResolvedValue({ user_id: "x", legacy: false, ...ctx });
+      expect((await GET(new NextRequest("http://localhost/api/payment/refund"))).status).toBe(403);
+    }
+  });
+  it("lets an owner list alerts", async () => {
+    mocks.getAdminContext.mockResolvedValue({ user_id: "own-1", role: "owner", branch_ids: null, legacy: false });
+    expect((await GET(new NextRequest("http://localhost/api/payment/refund"))).status).toBe(200);
+  });
+});
+

@@ -47,9 +47,10 @@ CREATE FUNCTION t.b1() RETURNS uuid[] LANGUAGE sql AS $$ SELECT ARRAY['00000000-
 CREATE FUNCTION t.b2() RETURNS uuid[] LANGUAGE sql AS $$ SELECT ARRAY['00000000-0000-0000-0000-0000000000b2'::uuid] $$;
 
 CREATE FUNCTION t.refund(p_res uuid, p_amount integer, p_key text, p_method text DEFAULT 'transfer',
-                         p_role text DEFAULT 'owner', p_branches uuid[] DEFAULT NULL, p_kind text DEFAULT 'deposit')
+                         p_role text DEFAULT 'owner', p_branches uuid[] DEFAULT NULL, p_kind text DEFAULT 'deposit',
+                         p_cap integer DEFAULT NULL)
 RETURNS jsonb LANGUAGE sql AS $$
-  SELECT request_reservation_refund(p_res, p_kind, p_amount, p_method, '客人取消', p_key, 'user-1', p_role, p_branches)
+  SELECT request_reservation_refund(p_res, p_kind, p_amount, p_method, '客人取消', p_key, 'user-1', p_role, p_branches, p_cap)
 $$;
 CREATE FUNCTION t.mark(p_refund jsonb, p_status text, p_role text DEFAULT 'owner', p_branches uuid[] DEFAULT NULL)
 RETURNS jsonb LANGUAGE sql AS $$
@@ -187,6 +188,12 @@ BEGIN
   PERFORM t.mark(f, 'succeeded');
   s := t.settle(r, 300);
   PERFORM t.ok(s.deposit_credit = 100, 'P3 checkout credits 200 − 80 − 20 = 100');
+  -- 實收金額上限（API 從 Stripe 讀到的那筆付款剩多少沒退）：可退 = min(帳本上限, 實收上限)
+  r := t.mk(p_status => 'cancelled');
+  f := t.refund(r, NULL, 'p3-cap', 'stripe', 'owner', NULL, 'deposit', 150);
+  PERFORM t.ok((f->>'amount')::int = 150, 'P3 refund is clamped to the captured amount still on the charge');
+  PERFORM t.raises(format('SELECT t.refund(%L, 10, %L, %L, %L, NULL, %L, 0)', r, 'p3-cap2', 'stripe', 'owner', 'deposit'),
+    'nothing_to_refund', 'P3 nothing refundable once the captured charge is used up');
 END $$;
 
 -- ===========================================================================
@@ -231,6 +238,29 @@ BEGIN
   s := t.settle(r, 0, 100, 'cash');
   PERFORM t.ok((SELECT status FROM reservation_refund_current WHERE settlement_id = s.id) = 'succeeded',
     'P4d cash checkout change is succeeded');
+
+  -- 4f（審閱 P1-a）Stripe 結果不明的請求：店長／老闆不能取消，結帳一直擋著，直到金流商或對帳給出結果
+  r := t.mk();
+  f := t.refund(r, 200, 'p4-f', 'stripe');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L)', f, 'canceled'), 'provider_outcome_only',
+    'P4f owner cannot cancel a Stripe refund whose outcome is unknown');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L, %L, %L)', f, 'canceled', 'branch_manager', t.b1()), 'provider_outcome_only',
+    'P4f manager cannot cancel a Stripe refund whose outcome is unknown');
+  PERFORM t.raises(format('SELECT t.settle(%L, 200)', r), 'refund_in_flight', 'P4f checkout stays blocked until Stripe answers');
+  -- Stripe 回報成功 → 算已退，結帳不再折抵
+  PERFORM sync_provider_refund(r, (f->>'id')::uuid, 're_p4f', 200, 'succeeded');
+  s := t.settle(r, 400);
+  PERFORM t.ok(s.deposit_credit = 0, 'P4f a Stripe success after the uncertain window is never credited at checkout');
+  -- 對帳確認 Stripe 沒有這筆退款 → provider 取消；之後若金流商仍回報成功，照算已退並留警示
+  r := t.mk();
+  f := t.refund(r, 200, 'p4-f2', 'stripe');
+  PERFORM record_reservation_refund_status((f->>'id')::uuid, 'canceled', NULL, 'reconcile: no Stripe refund', 'reconcile', 'provider', NULL);
+  s := t.settle(r, 200);
+  PERFORM t.ok(s.deposit_credit = 200, 'P4f after reconcile confirms no refund, the deposit is credited');
+  f := sync_provider_refund(r, (f->>'id')::uuid, 're_p4f2', 200, 'succeeded');
+  PERFORM t.ok(f->>'status' = 'succeeded' AND (f->>'deposit_refunded')::int = 200, 'P4f a later provider success still counts');
+  PERFORM t.ok(EXISTS (SELECT 1 FROM reservation_refund_alerts WHERE reservation_id = r AND kind = 'provider_succeeded_after_cancel'
+    AND (detail->>'deposit_credit_at_checkout')::int = 200), 'P4f success-after-cancel raises a visible alert with the checkout credit');
 
   -- 4e Stripe 退款的結果只能由金流商回報
   r := t.mk(p_status => 'cancelled');
@@ -295,6 +325,19 @@ BEGIN
     'P5 provider refund recorded once');
   PERFORM t.ok((SELECT requested_by_role FROM reservation_refunds WHERE id = (f->>'id')::uuid) = 'provider',
     'P5 provider refund is marked as provider-originated');
+  PERFORM t.ok(NOT EXISTS (SELECT 1 FROM reservation_refund_alerts WHERE reservation_id = r), 'P5 an in-cap dashboard refund raises no alert');
+  -- 結帳已折抵訂金之後，才在 Stripe 後台退款 → 照實記，並留警示
+  r := t.mk();
+  PERFORM t.settle(r, 200);
+  f := sync_provider_refund(r, NULL, 're_late', 200, 'succeeded');
+  PERFORM t.ok(f->>'status' = 'succeeded', 'P5 a dashboard refund after checkout is still recorded');
+  PERFORM t.ok(EXISTS (SELECT 1 FROM reservation_refund_alerts WHERE reservation_id = r AND kind = 'provider_after_checkout_credit'),
+    'P5 a dashboard refund after checkout credit raises an alert');
+  r := t.mk(p_status => 'cancelled');
+  PERFORM sync_provider_refund(r, NULL, 're_big', 500, 'succeeded');
+  PERFORM t.ok(EXISTS (SELECT 1 FROM reservation_refund_alerts WHERE reservation_id = r AND kind = 'provider_over_cap'),
+    'P5 a dashboard refund above the cap raises an alert');
+  PERFORM t.raises('UPDATE reservation_refund_alerts SET kind = kind', 'refund_ledger_append_only', 'P5 alerts cannot be edited');
   PERFORM t.raises(format('SELECT sync_provider_refund(%L, NULL, %L, 150, %L)', t.mk(), 're_ext', 'succeeded'),
     'refund_reservation_mismatch', 'P5 provider ref cannot be re-attached to another reservation');
 END $$;
@@ -303,5 +346,11 @@ SET ROLE service_role;
 SELECT t.raises('UPDATE reservation_refunds SET reason = reason', 'permission denied%', 'P5 service_role has no UPDATE on refunds');
 SELECT t.raises('DELETE FROM reservation_refund_events', 'permission denied%', 'P5 service_role has no DELETE on refund events');
 RESET ROLE;
+
+SELECT t.ok(NOT EXISTS (
+  SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.prosecdef
+     AND NOT EXISTS (SELECT 1 FROM unnest(p.proconfig) c WHERE c = 'search_path=public, pg_temp')),
+  'every SECURITY DEFINER function pins search_path = public, pg_temp');
 
 \echo 'refund-ledger.test.sql: ALL PASSED'

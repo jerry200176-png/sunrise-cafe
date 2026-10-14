@@ -42,6 +42,11 @@ async function syncRefunds(
   for (const refund of refunds) {
     const result = await syncStripeRefund(supabaseAdmin(), refund);
     if (result && "schemaMissing" in result) { schemaMissing = true; break; }
+    if (result && "ignored" in result) {
+      // 重送或順序錯亂的舊事件（例如 succeeded 之後才到的 pending）：記 log，回 200，不讓 Stripe 一直重送
+      logOps("webhook", "stripe.refund_sync_ignored", { refund_id: refund.id, status: refund.status ?? null, reason: result.ignored });
+      continue;
+    }
     if (result) fullyRefunded = isDepositFullyRefunded(result);
   }
   if (!paymentIntentId) return;

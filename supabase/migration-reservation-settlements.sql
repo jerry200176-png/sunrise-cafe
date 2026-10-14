@@ -144,7 +144,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_reservation_refund_events_requested
 CREATE OR REPLACE FUNCTION public.refund_ledger_append_only()
 RETURNS trigger
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 BEGIN
   RAISE EXCEPTION 'refund_ledger_append_only' USING ERRCODE = 'P0001';
@@ -198,6 +198,35 @@ REVOKE ALL ON public.reservation_refund_current FROM PUBLIC, anon, authenticated
 GRANT SELECT ON public.reservation_refund_current TO service_role;
 GRANT SELECT, INSERT ON reservation_refunds, reservation_refund_events TO service_role;
 
+-- 退款警示（只能新增）：金流商回報的退款超過可退上限、在結帳已折抵訂金之後才退、取消後又回報成功。
+-- 錢已經動了，帳本照實記；這裡另外留一列讓老闆／店長在後台看到並人工處理。
+CREATE TABLE IF NOT EXISTS reservation_refund_alerts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  reservation_id uuid NOT NULL REFERENCES reservations(id) ON DELETE RESTRICT,
+  refund_id uuid REFERENCES reservation_refunds(id) ON DELETE RESTRICT,
+  kind text NOT NULL CHECK (kind IN ('provider_over_cap', 'provider_after_checkout_credit', 'provider_succeeded_after_cancel')),
+  branch_id uuid,
+  detail jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_reservation_refund_alerts_created
+  ON reservation_refund_alerts(created_at DESC);
+DROP TRIGGER IF EXISTS trg_reservation_refund_alerts_append_only ON reservation_refund_alerts;
+CREATE TRIGGER trg_reservation_refund_alerts_append_only
+  BEFORE UPDATE OR DELETE ON reservation_refund_alerts
+  FOR EACH ROW EXECUTE FUNCTION public.refund_ledger_append_only();
+DROP TRIGGER IF EXISTS trg_reservation_refund_alerts_no_truncate ON reservation_refund_alerts;
+CREATE TRIGGER trg_reservation_refund_alerts_no_truncate
+  BEFORE TRUNCATE ON reservation_refund_alerts
+  FOR EACH STATEMENT EXECUTE FUNCTION public.refund_ledger_append_only();
+ALTER TABLE reservation_refund_alerts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_read_insert_reservation_refund_alerts" ON reservation_refund_alerts;
+CREATE POLICY "service_read_insert_reservation_refund_alerts" ON reservation_refund_alerts
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+REVOKE ALL ON reservation_refund_alerts FROM PUBLIC, anon, authenticated;
+REVOKE UPDATE, DELETE, TRUNCATE ON reservation_refund_alerts FROM service_role;
+GRANT SELECT, INSERT ON reservation_refund_alerts TO service_role;
+
 -- ---------------------------------------------------------------------------
 -- 共用：與 src/lib/room-checkout.ts 相同的規則
 --   * 平日／假日依「台北日期」判斷（週六、週日 = 假日）
@@ -207,7 +236,7 @@ CREATE OR REPLACE FUNCTION public.reservation_hourly_rate(p_room_id uuid, p_star
 RETURNS numeric
 LANGUAGE sql
 STABLE
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
   SELECT COALESCE(
     CASE WHEN extract(isodow FROM (p_start AT TIME ZONE 'Asia/Taipei')) IN (6, 7)
@@ -224,7 +253,7 @@ CREATE OR REPLACE FUNCTION public.can_adjust_reservation_money(p_role text, p_br
 RETURNS boolean
 LANGUAGE sql
 IMMUTABLE
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
   SELECT CASE p_role
     WHEN 'owner' THEN p_branch_ids IS NULL OR p_branch_id = ANY (p_branch_ids)
@@ -239,7 +268,7 @@ CREATE OR REPLACE FUNCTION public.reservation_deposit_gross(p_reservation_id uui
 RETURNS integer
 LANGUAGE plpgsql
 STABLE
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_res reservations%ROWTYPE;
@@ -268,7 +297,7 @@ CREATE OR REPLACE FUNCTION public.reservation_deposit_refunded(p_reservation_id 
 RETURNS integer
 LANGUAGE plpgsql
 STABLE
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 BEGIN
   IF EXISTS (SELECT 1 FROM reservation_refunds WHERE reservation_id = p_reservation_id AND kind = 'deposit') THEN
@@ -287,7 +316,7 @@ CREATE OR REPLACE FUNCTION public.reservation_refund_in_flight(p_reservation_id 
 RETURNS boolean
 LANGUAGE sql
 STABLE
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
   SELECT EXISTS (
     SELECT 1 FROM reservation_refund_current
@@ -299,12 +328,12 @@ CREATE OR REPLACE FUNCTION public.reservation_refund_json(p_refund_id uuid)
 RETURNS jsonb
 LANGUAGE sql
 STABLE
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
   SELECT jsonb_build_object(
     'id', c.id, 'reservation_id', c.reservation_id, 'settlement_id', c.settlement_id, 'kind', c.kind,
     'amount', c.amount, 'method', c.method, 'status', c.status, 'provider_ref', c.provider_ref,
-    'idempotency_key', c.idempotency_key,
+    'idempotency_key', c.idempotency_key, 'created_at', c.created_at, 'requested_by_role', c.requested_by_role,
     'deposit_gross', reservation_deposit_gross(c.reservation_id),
     'deposit_refunded', reservation_deposit_refunded(c.reservation_id))
   FROM reservation_refund_current c
@@ -315,12 +344,12 @@ $$;
 --   requested → pending | succeeded | failed | canceled
 --   pending   → succeeded | failed | canceled
 --   succeeded → failed
---   canceled  → succeeded | failed（只限金流商回報：取消了卡住的請求，但金流商其實有處理）
+--   canceled  → succeeded | failed（只限金流商回報；發生時另記 reservation_refund_alerts 警示）
 CREATE OR REPLACE FUNCTION public.refund_transition_allowed(p_from text, p_to text, p_actor_role text)
 RETURNS boolean
 LANGUAGE sql
 IMMUTABLE
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
   SELECT CASE p_from
     WHEN 'requested' THEN p_to IN ('pending', 'succeeded', 'failed', 'canceled')
@@ -336,7 +365,7 @@ $$;
 CREATE OR REPLACE FUNCTION public.sync_reservation_deposit_status(p_reservation_id uuid)
 RETURNS void
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_gross integer := reservation_deposit_gross(p_reservation_id);
@@ -357,7 +386,7 @@ RETURNS jsonb
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
   SELECT jsonb_build_object(
     'extension_minutes', COALESCE((SELECT sum(minutes) FROM reservation_extensions WHERE reservation_id = p_reservation_id), 0),
@@ -367,13 +396,47 @@ AS $$
     'deposit_refund_in_flight', reservation_refund_in_flight(p_reservation_id, 'deposit'))
 $$;
 
+-- 訂金還能退多少（還沒扣金流商實際收到的金額上限；那個由 API 依 Stripe 的實收傳進來）：
+--   已付訂金 − 進行中與已成功的訂金退款 − 已被結帳折抵掉的部分
+--   （已完成但沒有結帳紀錄的舊資料：訂金視為已在舊結帳流程折抵掉；舊流程已全額退過 = 0）
+CREATE OR REPLACE FUNCTION public.reservation_deposit_refundable(p_reservation_id uuid)
+RETURNS integer
+LANGUAGE plpgsql
+STABLE
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_res reservations%ROWTYPE;
+  v_credit integer;
+  v_active integer;
+BEGIN
+  SELECT * INTO v_res FROM reservations WHERE id = p_reservation_id;
+  IF NOT FOUND THEN
+    RETURN 0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM reservation_refunds WHERE reservation_id = v_res.id AND kind = 'deposit')
+     AND v_res.deposit_status = 'refunded' THEN
+    RETURN 0;
+  END IF;
+  SELECT COALESCE(sum(amount), 0) INTO v_active FROM reservation_refund_current
+    WHERE reservation_id = v_res.id AND kind = 'deposit' AND status IN ('requested', 'pending', 'succeeded');
+  SELECT deposit_credit INTO v_credit FROM reservation_settlements WHERE reservation_id = v_res.id;
+  IF NOT FOUND THEN
+    v_credit := CASE WHEN v_res.status = 'completed' THEN reservation_deposit_gross(v_res.id) ELSE 0 END;
+  END IF;
+  RETURN GREATEST(0, reservation_deposit_gross(v_res.id) - v_active - v_credit);
+END;
+$$;
+
 -- ---------------------------------------------------------------------------
 -- 退款請求：鎖住訂位 → 冪等鍵重送就回原本那筆 → 檢查角色／分店 → 檢查最多能退多少 → 記一筆 requested
 --   訂金可退 = 已付訂金 − 進行中與已成功的訂金退款 − 已被結帳折抵掉的部分
 --   （已完成但沒有結帳紀錄的舊資料：訂金視為已在舊結帳流程折抵掉，不能再退）
 --   結帳差額可退 = 結帳紀錄的 refund_amount − 進行中與已成功的差額退款
 --   p_amount 為 NULL = 退剩下能退的全部
+--   p_provider_cap：金流商那筆付款實際還沒退的金額（整數元，API 從 Stripe 讀）；可退金額不超過它
 -- ---------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.request_reservation_refund(uuid, text, integer, text, text, text, text, text, uuid[]);
 CREATE OR REPLACE FUNCTION public.request_reservation_refund(
   p_reservation_id uuid,
   p_kind text,
@@ -383,11 +446,12 @@ CREATE OR REPLACE FUNCTION public.request_reservation_refund(
   p_idempotency_key text,
   p_actor text,
   p_actor_role text,
-  p_actor_branch_ids uuid[]
+  p_actor_branch_ids uuid[],
+  p_provider_cap integer DEFAULT NULL
 ) RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_res reservations%ROWTYPE;
@@ -443,17 +507,7 @@ BEGIN
     WHERE reservation_id = v_res.id AND kind = p_kind AND status IN ('requested', 'pending', 'succeeded');
 
   IF p_kind = 'deposit' THEN
-    IF NOT EXISTS (SELECT 1 FROM reservation_refunds WHERE reservation_id = v_res.id AND kind = 'deposit')
-       AND v_res.deposit_status = 'refunded' THEN
-      v_refundable := 0;  -- 舊流程已全額退過
-    ELSE
-      v_refundable := reservation_deposit_gross(v_res.id) - v_active
-        - CASE
-            WHEN v_has_settlement THEN v_settlement.deposit_credit
-            WHEN v_res.status = 'completed' THEN reservation_deposit_gross(v_res.id)
-            ELSE 0
-          END;
-    END IF;
+    v_refundable := reservation_deposit_refundable(v_res.id);
   ELSE
     IF NOT v_has_settlement OR v_settlement.refund_amount <= 0 THEN
       RAISE EXCEPTION 'nothing_to_refund' USING ERRCODE = 'P0001';
@@ -462,6 +516,9 @@ BEGIN
   END IF;
 
   v_refundable := GREATEST(0, v_refundable);
+  IF p_provider_cap IS NOT NULL THEN
+    v_refundable := LEAST(v_refundable, GREATEST(0, p_provider_cap));
+  END IF;
   v_amount := COALESCE(p_amount, v_refundable);
   IF v_refundable <= 0 THEN
     RAISE EXCEPTION 'nothing_to_refund' USING ERRCODE = 'P0001';
@@ -488,7 +545,7 @@ $$;
 -- ---------------------------------------------------------------------------
 -- 退款狀態變化：鎖住訂位（和結帳、退款請求同一把鎖）→ 驗角色 → 驗狀態轉換 → 記一筆事件
 --   同一個狀態重送 = 不做事、回目前結果（冪等）。
---   Stripe 退款的結果只能由金流商回報（actor_role = provider）；店長／老闆只能取消卡在 requested 的 Stripe 請求。
+--   Stripe 退款的任何結果（含取消）只能由金流商回報或對帳（actor_role = provider）；店長／老闆不能動 Stripe 退款的狀態。
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.record_reservation_refund_status(
   p_refund_id uuid,
@@ -501,7 +558,7 @@ CREATE OR REPLACE FUNCTION public.record_reservation_refund_status(
 ) RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_refund reservation_refunds%ROWTYPE;
@@ -533,13 +590,22 @@ BEGIN
     RAISE EXCEPTION 'invalid_refund_transition' USING ERRCODE = 'P0001',
       DETAIL = json_build_object('from', v_current, 'to', p_status)::text;
   END IF;
-  IF v_refund.method = 'stripe' AND p_actor_role <> 'provider'
-     AND NOT (v_current = 'requested' AND p_status = 'canceled') THEN
+  -- Stripe 退款的任何結果（包括取消）都只能由金流商回報或對帳（reconcile）決定：
+  -- 店長取消一筆結果不明的 Stripe 請求後，Stripe 可能其實退了，訂金就會被拿去折抵兩次
+  IF v_refund.method = 'stripe' AND p_actor_role <> 'provider' THEN
     RAISE EXCEPTION 'provider_outcome_only' USING ERRCODE = 'P0001';
   END IF;
 
   INSERT INTO reservation_refund_events (refund_id, status, provider_ref, note, actor, actor_role)
   VALUES (v_refund.id, p_status, p_provider_ref, NULLIF(btrim(p_note), ''), p_actor, p_actor_role);
+
+  -- 取消後金流商又回報成功：照實算已退，另外留警示（若期間已結帳折抵訂金，客人等於多拿了一次）
+  IF v_current = 'canceled' AND p_status = 'succeeded' THEN
+    INSERT INTO reservation_refund_alerts (reservation_id, refund_id, kind, branch_id, detail)
+    VALUES (v_refund.reservation_id, v_refund.id, 'provider_succeeded_after_cancel', v_branch,
+      jsonb_build_object('amount', v_refund.amount, 'provider_ref', p_provider_ref,
+        'deposit_credit_at_checkout', (SELECT deposit_credit FROM reservation_settlements WHERE reservation_id = v_refund.reservation_id)));
+  END IF;
 
   IF v_refund.kind = 'deposit' THEN
     PERFORM sync_reservation_deposit_status(v_refund.reservation_id);
@@ -563,12 +629,14 @@ CREATE OR REPLACE FUNCTION public.sync_provider_refund(
 ) RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_res reservations%ROWTYPE;
   v_refund_id uuid;
   v_branch uuid;
+  v_refundable integer;
+  v_credit integer;
 BEGIN
   IF p_provider_ref IS NULL OR length(btrim(p_provider_ref)) = 0 THEN
     RAISE EXCEPTION 'provider_ref_required' USING ERRCODE = 'P0001';
@@ -601,6 +669,8 @@ BEGIN
     RAISE EXCEPTION 'invalid_refund_amount' USING ERRCODE = 'P0001';
   END IF;
   SELECT branch_id INTO v_branch FROM rooms WHERE id = v_res.room_id;
+  v_refundable := reservation_deposit_refundable(v_res.id);
+  SELECT deposit_credit INTO v_credit FROM reservation_settlements WHERE reservation_id = v_res.id;
   INSERT INTO reservation_refunds (
     reservation_id, kind, amount, method, reason, requested_by, requested_by_role, branch_id, idempotency_key
   ) VALUES (
@@ -609,6 +679,14 @@ BEGIN
   ) RETURNING id INTO v_refund_id;
   INSERT INTO reservation_refund_events (refund_id, status, provider_ref, actor, actor_role)
   VALUES (v_refund_id, 'requested', p_provider_ref, 'stripe', 'provider');
+  -- 照實記，但超過可退上限（例如結帳已經折抵了訂金）就留警示給老闆／店長
+  IF p_amount > v_refundable THEN
+    INSERT INTO reservation_refund_alerts (reservation_id, refund_id, kind, branch_id, detail)
+    VALUES (v_res.id, v_refund_id,
+      CASE WHEN COALESCE(v_credit, 0) > 0 THEN 'provider_after_checkout_credit' ELSE 'provider_over_cap' END,
+      v_branch, jsonb_build_object('amount', p_amount, 'refundable', v_refundable,
+        'deposit_credit_at_checkout', v_credit, 'provider_ref', p_provider_ref));
+  END IF;
   IF p_status <> 'requested' THEN
     RETURN record_reservation_refund_status(v_refund_id, p_status, p_provider_ref, NULL, 'stripe', 'provider', NULL);
   END IF;
@@ -628,7 +706,7 @@ CREATE OR REPLACE FUNCTION public.extend_reservation_stay(
 ) RETURNS reservation_extensions
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_res reservations%ROWTYPE;
@@ -694,7 +772,7 @@ CREATE OR REPLACE FUNCTION public.settle_reservation_checkout(
 ) RETURNS reservation_settlements
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_res reservations%ROWTYPE;
@@ -854,14 +932,15 @@ REVOKE ALL ON FUNCTION public.reservation_refund_json(uuid) FROM PUBLIC, anon, a
 REVOKE ALL ON FUNCTION public.refund_transition_allowed(text, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.sync_reservation_deposit_status(uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.refund_ledger_append_only() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.request_reservation_refund(uuid, text, integer, text, text, text, text, text, uuid[])
+REVOKE ALL ON FUNCTION public.request_reservation_refund(uuid, text, integer, text, text, text, text, text, uuid[], integer)
   FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.record_reservation_refund_status(uuid, text, text, text, text, text, uuid[])
   FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.sync_provider_refund(uuid, uuid, text, integer, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.reservation_billing_state(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.reservation_deposit_refundable(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.reservation_billing_state(uuid) TO service_role;
-GRANT EXECUTE ON FUNCTION public.request_reservation_refund(uuid, text, integer, text, text, text, text, text, uuid[]) TO service_role;
+GRANT EXECUTE ON FUNCTION public.request_reservation_refund(uuid, text, integer, text, text, text, text, text, uuid[], integer) TO service_role;
 GRANT EXECUTE ON FUNCTION public.record_reservation_refund_status(uuid, text, text, text, text, text, uuid[]) TO service_role;
 GRANT EXECUTE ON FUNCTION public.sync_provider_refund(uuid, uuid, text, integer, text) TO service_role;
 REVOKE ALL ON FUNCTION public.extend_reservation_stay(uuid, timestamptz, timestamptz, text) FROM PUBLIC, anon, authenticated;
