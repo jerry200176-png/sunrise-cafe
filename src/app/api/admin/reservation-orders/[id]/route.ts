@@ -97,6 +97,16 @@ export async function POST(request: NextRequest, { params }: Params) {
     const db = supabaseAdmin();
     const { order, billing: current } = await load(id);
     if (body.action === "check_in") {
+      if (order && ["pending", "confirmed"].includes(auth.reservation!.status)) {
+        // 取消後又恢復的訂位：現場訂單還在，activate RPC 看到訂單就直接返回，不會改狀態，所以走狀態轉換保留原訂單
+        const ctx = await getAdminContext(request);
+        const transition = await transitionReservation(id, { type: "check_in" }, { kind: "admin", userId: ctx.user_id, label: ctx.role });
+        if (!transition.ok) {
+          const { status, body: failure } = transitionHttp(transition);
+          return NextResponse.json(failure, { status });
+        }
+        return NextResponse.json({ ok: true, ...(await load(id)) });
+      }
       const result = await db.rpc("activate_reservation_order", { p_reservation_id: id });
       if (result.error) throw result.error;
       return NextResponse.json({ ok: true, ...(await load(id)) });
@@ -180,6 +190,11 @@ export async function POST(request: NextRequest, { params }: Params) {
       await updateStatus(order.id);
       logOps("admin", "admin.room_checked_out", { reservation_id: id, due, actor: ctx.user_id ?? ctx.role });
       return NextResponse.json({ ok: true, ...(await load(id)) });
+    }
+    const EDIT_ACTIONS = ["add_items", "replace_item", "update_quantity", "remove_item"];
+    if (EDIT_ACTIONS.includes(body.action ?? "") && auth.reservation!.status !== "checked_in") {
+      // 結帳完（或取消）的組只能補記餐費、標記出餐，不能再加點或改單
+      return NextResponse.json({ error: "這組已經結帳離開，不能再加點或改餐點" }, { status: 409 });
     }
     if (body.action === "settle") {
       if (!order.paid_at) {

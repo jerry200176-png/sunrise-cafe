@@ -6,6 +6,8 @@ import { UPCOMING_MINUTES, type FloorReservation } from "@/lib/room-checkout";
 
 /** 回看多久內結帳完的組（跨午夜時仍顯示還沒送的餐／沒收的餐費） */
 const RECENT_COMPLETED_HOURS = 6;
+/** 已結帳但餐費還沒收的組，不論預約時段多早結束都留在場控上（訂位沒有結帳時間欄位，只能用時段回看） */
+const UNPAID_LOOKBACK_DAYS = 7;
 
 export type FloorRoom = {
   id: string;
@@ -57,7 +59,7 @@ export async function GET(request: NextRequest) {
 
     const columns = "id,room_id,customer_name,booking_code,start_time,end_time,status,guest_count,total_price,is_deposit_paid";
     const roomIds = rooms.map((room) => room.id);
-    const [resResult, inRoomResult, recentResult] = await Promise.all([
+    const [resResult, inRoomResult, recentResult, unpaidResult] = await Promise.all([
       db.from("reservations").select(columns).in("room_id", roomIds)
         // 往後多抓「即將到店」的時間，午夜前也看得到 00:xx 進場的下一組
         .lt("start_time", new Date(window.endMs + UPCOMING_MINUTES * 60_000).toISOString()).gt("end_time", window.startIso)
@@ -67,12 +69,19 @@ export async function GET(request: NextRequest) {
       // 剛結帳完（可能跨午夜）的組，可能還有沒送的餐或沒收的餐費
       db.from("reservations").select(columns).in("room_id", roomIds).eq("status", "completed")
         .gt("end_time", new Date(window.startMs - RECENT_COMPLETED_HOURS * 3_600_000).toISOString()).limit(50),
+      // 超時很久才結帳（預約時段早已結束）但餐費還沒收的組
+      db.from("reservations").select(`${columns},orders!inner(paid_at)`).in("room_id", roomIds).eq("status", "completed")
+        .is("orders.paid_at", null)
+        .gt("end_time", new Date(window.startMs - UNPAID_LOOKBACK_DAYS * 86_400_000).toISOString()).limit(50),
     ]);
     if (resResult.error) throw resResult.error;
     if (inRoomResult.error) throw inRoomResult.error;
     if (recentResult.error) throw recentResult.error;
+    if (unpaidResult.error) throw unpaidResult.error;
+    const unpaidRows = ((unpaidResult.data ?? []) as Array<FloorReservation & { orders?: unknown }>)
+      .map((row) => { const copy = { ...row }; delete copy.orders; return copy as FloorReservation; });
     const byId = new Map<string, FloorReservation>();
-    for (const row of [...(resResult.data ?? []), ...(inRoomResult.data ?? []), ...(recentResult.data ?? [])] as FloorReservation[]) {
+    for (const row of [...(resResult.data ?? []), ...(inRoomResult.data ?? []), ...(recentResult.data ?? []), ...unpaidRows] as FloorReservation[]) {
       byId.set(row.id, row);
     }
     const reservations = [...byId.values()].sort((a, b) => a.start_time.localeCompare(b.start_time));

@@ -86,8 +86,11 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
       if (!response.ok) throw new Error(friendlyMessage(data.error, response.status));
       // 回應已帶最新資料：直接套用。動作已成功，就不要因為之後的重新整理失敗而回報失敗（避免重按而重複加點）。
       if (currentApi.current !== requested) { onChanged(); return true; }
-      if (data?.reservation && data?.billing) setView(data as View);
-      else await load().catch(() => undefined);
+      // POST 回應帶 order／billing／preorder（沒有 reservation）：合併進目前畫面
+      if (data?.billing) {
+        setView((previous) => previous ? { ...previous, ...(data as Partial<View>) } : previous);
+        setCustomEnd(fmtClock((data as View).billing.end_time));
+      } else await load().catch(() => undefined);
       onChanged();
       return true;
     } catch (cause) { setError(thrownMessage(cause)); return false; }
@@ -167,7 +170,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
           </> : <p className="mt-3 text-sm text-ink-soft">{billing.status === "completed" ? "這組已經結帳了。" : "客人到了以後，才能點餐、延長時間和結帳。"}</p>}
         </section>}
 
-        {view && !order && billing && ["pending", "confirmed", "checked_in"].includes(billing.status) && <section className="rounded-2xl border border-caramel/30 bg-caramel-glow/15 p-4">
+        {view && billing && (order ? ["pending", "confirmed"] : ["pending", "confirmed", "checked_in"]).includes(billing.status) && <section className="rounded-2xl border border-caramel/30 bg-caramel-glow/15 p-4">
           <p className="text-sm text-ink-soft">{view.preorder?.requires_reconfirmation ? "這組的預約改過，請先打開「看預點的餐」確認一下餐點。"
             : checkedIn ? "這組已經報到，但還沒開點餐單。按下去就可以開始點餐、結帳。" : "客人到了嗎？按下去之後，他們先點好的餐會通知廚房準備。"}</p>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -189,7 +192,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
                   {item.served_at ? <span className="text-emerald-700">已送</span> : "還沒送"}
                 </p>
               </div>
-              {item.served_at || paid ? <span className="w-24 text-center text-sm tabular-nums">×{item.quantity}</span> : <div className="flex items-center">
+              {item.served_at || paid || !checkedIn ? <span className="w-24 text-center text-sm tabular-nums">×{item.quantity}</span> : <div className="flex items-center">
                 <button type="button" aria-label={`${item.item_name}減一`} disabled={busy}
                   onClick={() => item.quantity <= 1 ? act("remove_item", { item_id: item.id }) : act("update_quantity", { item_id: item.id, quantity: item.quantity - 1 })}
                   className="flex h-9 w-9 items-center justify-center rounded-lg border border-ink/15 disabled:opacity-40"><Minus className="h-4 w-4" /></button>
@@ -204,7 +207,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
             </li>)}
           </ul>
 
-          {!paid && <div className="mt-4 border-t border-ink/10 pt-4">
+          {!paid && checkedIn && <div className="mt-4 border-t border-ink/10 pt-4">
             <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2" role="tablist" aria-label="菜單種類">
               {[{ id: "all", name: "全部" }, ...categories].map((cat) => <button key={cat.id} type="button" role="tab" aria-selected={category === cat.id}
                 onClick={() => setCategory(cat.id)}

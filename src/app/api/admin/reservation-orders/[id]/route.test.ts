@@ -204,4 +204,26 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
     expect((await post({ action: "checkout", expected_due: DUE })).status).toBe(500);
     expect(undoWrites()).toHaveLength(1);
   });
+  it("blocks adding or changing dishes after the stay is completed, but still allows marking served", async () => {
+    mocks.getReservationForPreorder.mockResolvedValue({ id: "res-1", status: "completed", room: { name: "A", branch_id: "b1" } });
+    for (const body of [
+      { action: "add_items", items: [{ menu_item_id: "m1", quantity: 1 }] },
+      { action: "replace_item", item_id: "i1", item: { menu_item_id: "m1", quantity: 1 } },
+      { action: "update_quantity", item_id: "i1", quantity: 2 },
+      { action: "remove_item", item_id: "i1" },
+    ]) {
+      expect((await post(body)).status, body.action).toBe(409);
+    }
+    expect(mocks.calls.some((call) => call.table === "order_items")).toBe(false);
+    mocks.respond = ((base) => (call: Call) => call.table === "order_items" ? { data: [{ id: "i1" }], error: null } : base(call))(mocks.respond);
+    expect((await post({ action: "serve_item", item_id: "i1" })).status).toBe(200);
+  });
+
+  it("checks a restored reservation back in through the lifecycle, keeping its existing order", async () => {
+    mocks.getReservationForPreorder.mockResolvedValue({ id: "res-1", status: "confirmed", room: { name: "A", branch_id: "b1" } });
+    mocks.transitionReservation.mockResolvedValue({ ok: true, status: "checked_in" });
+    expect((await post({ action: "check_in" })).status).toBe(200);
+    expect(mocks.transitionReservation).toHaveBeenCalledWith("res-1", { type: "check_in" }, expect.objectContaining({ kind: "admin" }));
+    expect(mocks.calls.some((call) => call.table === "orders" && hasOp(call, "insert"))).toBe(false);
+  });
 });
