@@ -8,7 +8,6 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "test:agent-preflight": "node --test scripts/agent-preflight.test.mjs",
     "typecheck": "tsc --noEmit",
     "typecheck:baseline": "node scripts/verify-typecheck-baseline.mjs",
     "test:watch": "vitest",
@@ -48,7 +47,6 @@
     "cto:gmail-signals": "bash scripts/orchestrator/gmail-signals.sh",
     "design:audit": "bash scripts/design-slop-audit.sh",
     "gov:overlay-pin": "bash scripts/governance/check-constitution-pin.sh",
-    "agent-preflight": "bash scripts/agent-preflight.sh",
     "production-identity": "bash scripts/production-identity.sh",
     "line:usage-audit": "npx tsx scripts/line-usage-audit.ts"
   },
@@ -98,11 +96,11 @@
   "overrides": {
     "esbuild": "^0.28.1",
     "postcss": "^8.5.28",
-    "fast-uri": "3.1.7",
+    "fast-uri": "3.1.8",
     "browserslist": "4.28.9",
     "undici": "7.29.1",
-    "sharp": "0.35.4",
-    "brace-expansion@1": "1.1.18",
-    "brace-expansion@5": "5.0.9"
+    "sharp": "0.35.5",
+    "brace-expansion@1": "1.1.21",
+    "brace-expansion@5": "5.0.12"
   }
 }

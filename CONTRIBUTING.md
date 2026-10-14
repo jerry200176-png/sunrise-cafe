@@ -21,7 +21,6 @@ Keep each pull request narrow and link it to an issue. Include:
 Before pushing:
 
 ```bash
-npm run agent-preflight
 npm test
 npm run lint
 npm run build

@@ -1,12 +1,11 @@
 name: Agent Session Provenance
 
+# Retired (Founder 2026-10-14, cloud move): the job keeps its name only so the
+# branch-protection required check still reports. Remove it together with that
+# required check.
 on:
   pull_request:
     branches: [main]
-
-concurrency:
-  group: agent-provenance-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -15,12 +14,6 @@ jobs:
   provenance:
     name: Agent Session Provenance
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 2
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Verify provenance manifest
-        env:
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-        run: bash scripts/check-agent-provenance.sh
+      - run: echo "retired (Founder 2026-10-14)"

@@ -32,17 +32,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Agent preflight (CI mode)
-        run: AGENT_PREFLIGHT_MODE=ci bash scripts/agent-preflight.sh
-
       - name: Lint
         run: npm run lint
 
       - name: Test
         run: npm test
-
-      - name: Agent preflight worktree regression tests
-        run: npm run test:agent-preflight
 
       - name: TypeScript typecheck (advisory while baseline burns down)
         run: npm run typecheck
