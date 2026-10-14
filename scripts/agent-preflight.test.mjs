@@ -275,3 +275,68 @@ test("cloud mode validates a manifest that is already committed", () => {
   assert.notEqual(forged.status, 0);
   assert.match(forged.stderr, /does not match this cloud session/);
 });
+
+test("cloud mode rejects a session whose lock was superseded by a reacquire", () => {
+  const fixture = createFixture();
+  writeCloudManifest(fixture);
+  writeJson(fixture.root, ".exo/locks/ticket.lock.json", { ...fixture.lock, fencing_token: fixture.lock.fencing_token + 1 });
+  const result = runClassifier(fixture, ["--cloud"], { CLAUDE_CODE_REMOTE_SESSION_ID: CLOUD_SESSION });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Exo ticket lock does not match its active session/);
+});
+
+test("cloud bootstrap writes this session's manifest over one inherited from main", () => {
+  const fixture = createFixture();
+  execFileSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD"], { cwd: fixture.root });
+  const base = execFileSync("git", ["rev-parse", "HEAD"], { cwd: fixture.root, encoding: "utf8" }).trim();
+  writeCloudManifest(fixture, { session_id: "cse_01EARLIERSESSION", session_urls: ["https://claude.ai/code/session_01EARLIERSESSION"], branch: "chore/task-OTHER-TASK-1", task_id: "OTHER-TASK-1" });
+  const result = runClassifier(fixture, ["--cloud", "--bootstrap-manifest"], { CLAUDE_CODE_REMOTE_SESSION_ID: CLOUD_SESSION });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const manifest = readJson(fixture.root, ".agent-session/manifest.json");
+  assert.equal(manifest.session_id, CLOUD_SESSION);
+  assert.deepEqual(manifest.session_urls, [`https://claude.ai/code/session_${CLOUD_SESSION.slice(4)}`]);
+  assert.equal(manifest.branch, fixture.branch);
+  assert.equal(manifest.task_id, "GOV-TEST-PREFLIGHT");
+  assert.equal(manifest.base_sha, base);
+});
+
+test("cloud bootstrap on a branch an earlier cloud session started keeps its base and session urls", () => {
+  const fixture = createFixture();
+  writeCloudManifest(fixture, { session_id: "cse_01EARLIERSESSION", session_urls: ["https://claude.ai/code/session_01EARLIERSESSION"], started_at: "2026-10-01T00:00:00Z" });
+  const base = readJson(fixture.root, ".agent-session/manifest.json").base_sha;
+  writeFileSync(path.join(fixture.root, "later.txt"), "later\n");
+  execFileSync("git", ["add", "later.txt", ".agent-session/manifest.json"], { cwd: fixture.root });
+  execFileSync("git", ["commit", "--quiet", "-m", "earlier session work"], { cwd: fixture.root });
+  execFileSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD"], { cwd: fixture.root });
+  const result = runClassifier(fixture, ["--cloud", "--bootstrap-manifest"], { CLAUDE_CODE_REMOTE_SESSION_ID: CLOUD_SESSION });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const manifest = readJson(fixture.root, ".agent-session/manifest.json");
+  assert.equal(manifest.base_sha, base);
+  assert.equal(manifest.started_at, "2026-10-01T00:00:00Z");
+  assert.deepEqual(manifest.session_urls, [
+    "https://claude.ai/code/session_01EARLIERSESSION",
+    `https://claude.ai/code/session_${CLOUD_SESSION.slice(4)}`,
+  ]);
+});
+
+test("cloud bootstrap requires the live Exo lease, cloud mode and a task branch", () => {
+  const noLease = createFixture();
+  execFileSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD"], { cwd: noLease.root });
+  rmSync(path.join(noLease.root, ".exo", "cache", "sessions"), { recursive: true, force: true });
+  const before = readFileSync(path.join(noLease.root, ".agent-session", "manifest.json"), "utf8");
+  assert.notEqual(runClassifier(noLease, ["--cloud", "--bootstrap-manifest"], { CLAUDE_CODE_REMOTE_SESSION_ID: CLOUD_SESSION }).status, 0);
+  assert.equal(readFileSync(path.join(noLease.root, ".agent-session", "manifest.json"), "utf8"), before);
+
+  const local = createFixture();
+  const localResult = runClassifier(local, ["--bootstrap-manifest"], { CLAUDE_CODE_REMOTE_SESSION_ID: CLOUD_SESSION });
+  assert.notEqual(localResult.status, 0);
+  assert.match(localResult.stderr, /only available in cloud mode/);
+
+  const untasked = createFixture();
+  execFileSync("git", ["checkout", "--quiet", "-b", "feat/no-task-id"], { cwd: untasked.root });
+  const session = readJson(untasked.root, ".exo/cache/sessions/agent-codex.active.json");
+  writeJson(untasked.root, ".exo/cache/sessions/agent-codex.active.json", { ...session, git_branch: "feat/no-task-id" });
+  const result = runClassifier({ ...untasked, branch: "feat/no-task-id" }, ["--cloud", "--bootstrap-manifest"], { CLAUDE_CODE_REMOTE_SESSION_ID: CLOUD_SESSION });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /does not name a task/);
+});

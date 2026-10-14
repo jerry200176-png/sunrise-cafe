@@ -82,7 +82,11 @@ echo "$BRANCH" | grep -qE '^(feat|fix|hotfix|chore|exp|perf|test|refactor|docs|b
 MB="$(git merge-base HEAD origin/main)"
 [[ "$MB" == "$ORIGIN_MAIN" ]] || fail "stale base — recreate via agent-start"
 CLASSIFIER_ARGS=(--root "$TARGET" --branch "$BRANCH")
-[[ "$CLOUD" == "1" ]] && CLASSIFIER_ARGS+=(--cloud)
+if [[ "$CLOUD" == "1" ]]; then
+  CLASSIFIER_ARGS+=(--cloud)
+  # One-time per cloud session: preflight itself writes the manifest (cloud has no agent-start gateway).
+  [[ "${AGENT_PREFLIGHT_BOOTSTRAP_MANIFEST:-0}" == "1" ]] && CLASSIFIER_ARGS+=(--bootstrap-manifest)
+fi
 node "$SCRIPT_DIR/agent-preflight-worktree.mjs" "${CLASSIFIER_ARGS[@]}" || exit 1
 GIT_DIR="$(git rev-parse --git-dir)"
 [[ ! -d "$GIT_DIR/rebase-merge" && ! -d "$GIT_DIR/rebase-apply" && ! -f "$GIT_DIR/MERGE_HEAD" ]] || fail "merge/rebase in progress"

@@ -16,7 +16,7 @@ Portfolio Constitution (canonical): pin via [`docs/governance/OVERLAY.md`](docs/
 - Bare: `/home/jerry/workspace/repos/sunrise-cafe.git`
 - Tasks: `/home/jerry/workspace/tasks/sunrise/<task-id>/`
 - Commit `.agent-session/manifest.json` on Agent PRs (or `human-authored.json`).
-- Cloud sessions (Claude Code on the web/mobile; no `/home/jerry` workspace): use `provenance_type: "agent-session-cloud"` with `session_id` (`cse_…`), `session_urls`, `preflight_mode: "cloud"`, `runner: "claude-code-remote"`; every non-merge commit must end with a `Claude-Session: <url>` trailer listed in `session_urls` (verified by `scripts/check-agent-provenance.sh`). `npm run agent-preflight` detects the cloud runner and skips only the path allowlist and `gh` checks; branch naming, fresh base, origin, Exo ownership and dirty-tree rules still apply.
+- Cloud sessions (Claude Code on the web/mobile; no `/home/jerry` workspace): use `provenance_type: "agent-session-cloud"` with `session_id` (`cse_…`), `session_urls`, `preflight_mode: "cloud"`, `runner: "claude-code-remote"`; every non-merge commit must end with a `Claude-Session: <url>` trailer listed in `session_urls` (verified by `scripts/check-agent-provenance.sh`). `npm run agent-preflight` detects the cloud runner and skips only the path allowlist and `gh` checks; branch naming, fresh base, origin, Exo ownership and dirty-tree rules still apply. Cloud has no `agent-start`, so after `exo session-start` run `AGENT_PREFLIGHT_BOOTSTRAP_MANIFEST=1 npm run agent-preflight` once per session on a `<type>/task-<TASK-ID>` branch: preflight itself writes the manifest (keeping the base and earlier session URLs when this branch already has one); never hand-edit it.
 
 ## Hard rules
 

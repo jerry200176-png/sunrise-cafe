@@ -4,8 +4,10 @@ import { execFileSync } from "node:child_process";
 import {
   existsSync,
   readFileSync,
+  mkdirSync,
   readdirSync,
   realpathSync,
+  writeFileSync,
 } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -25,6 +27,10 @@ function parseArgs(args) {
       parsed.cloud = true;
       continue;
     }
+    if (name === "--bootstrap-manifest") {
+      parsed.bootstrapManifest = true;
+      continue;
+    }
     if (name !== "--root" && name !== "--branch") {
       fail(`unsupported argument: ${name}`);
     }
@@ -35,6 +41,9 @@ function parseArgs(args) {
   }
   if (!parsed.root || !parsed.branch) {
     fail("usage: agent-preflight-worktree.mjs --root <path> --branch <name>");
+  }
+  if (parsed.bootstrapManifest && !parsed.cloud) {
+    fail("--bootstrap-manifest is only available in cloud mode", "local task worktrees get their manifest from agent-start");
   }
   return parsed;
 }
@@ -146,7 +155,7 @@ function validateManifest(root, branch, cloud = false) {
       || !validRemote
       || !validBase
     ) {
-      fail("agent-session-cloud manifest does not match this cloud session", "write the manifest for this session id and branch; never reuse another session's manifest");
+      fail("agent-session-cloud manifest does not match this cloud session", "run `AGENT_PREFLIGHT_BOOTSTRAP_MANIFEST=1 npm run agent-preflight` once to write it for this session; never edit it by hand");
     }
     return;
   }
@@ -165,6 +174,64 @@ function validateManifest(root, branch, cloud = false) {
   ) {
     fail("agent-session manifest does not match this task worktree", "preserve its provenance and recreate the canonical task manifest through agent-start");
   }
+}
+
+// Cloud counterpart of agent-start: a fresh cloud clone inherits whatever manifest main last committed, so
+// the session cannot pass preflight until it writes its own. Preflight is the only writer, and only after the
+// caller is proven to own the live Exo lease on this branch. A manifest this branch already carries (an
+// earlier cloud session on the same PR) keeps its base and earlier session URLs, so their trailers stay valid.
+function bootstrapCloudManifest(root, branch) {
+  const sessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID || "";
+  if (!/^cse_[A-Za-z0-9]{8,}$/.test(sessionId)) fail("cloud bootstrap: no Claude Code cloud session id");
+  const taskId = branch.match(/\/task-([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)$/)?.[1];
+  if (!taskId) {
+    fail(`cloud bootstrap: branch ${branch} does not name a task`, "name the branch <type>/task-<TASK-ID>");
+  }
+  const url = `https://claude.ai/code/session_${sessionId.slice(4)}`;
+  const path = join(root, ".agent-session", "manifest.json");
+  let existing = null;
+  try {
+    existing = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    existing = null;
+  }
+  const continuing = existing
+    && existing.provenance_type === "agent-session-cloud"
+    && existing.branch === branch
+    && existing.task_id === taskId
+    && typeof existing.base_sha === "string"
+    && /^[0-9a-f]{40}$/i.test(existing.base_sha)
+    && spawnGitAncestor(root, existing.base_sha);
+  let baseSha = continuing ? existing.base_sha : null;
+  if (!baseSha) {
+    try {
+      baseSha = git(root, ["merge-base", "HEAD", "origin/main"]).trim();
+    } catch {
+      fail("cloud bootstrap: cannot find the merge base with origin/main", "fetch origin main first");
+    }
+  }
+  const earlier = continuing && Array.isArray(existing.session_urls)
+    ? existing.session_urls.filter((item) => typeof item === "string" && /^https:\/\/claude\.ai\/code\/session_[A-Za-z0-9]+$/.test(item))
+    : [];
+  const manifest = {
+    schema_version: "1.0",
+    provenance_type: "agent-session-cloud",
+    project: "sunrise",
+    task_id: taskId,
+    session_id: sessionId,
+    session_urls: [...new Set([...earlier, url])],
+    repo_remote: "https://github.com/jerry200176-png/sunrise-cafe.git",
+    base_sha: baseSha,
+    branch,
+    started_at: continuing && existing.started_at ? existing.started_at : new Date().toISOString(),
+    production_mutation: false,
+    preflight_result: "pass",
+    preflight_mode: "cloud",
+    runner: "claude-code-remote",
+  };
+  mkdirSync(join(root, ".agent-session"), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`);
+  console.log(`sunrise-preflight: OK: wrote agent-session-cloud manifest for ${sessionId} (${continuing ? "continuing this branch" : "new branch"})`);
 }
 
 function spawnGitAncestor(root, sha) {
@@ -294,6 +361,10 @@ function main() {
   }
 
   if (args.cloud) {
+    if (args.bootstrapManifest) {
+      bootstrapCloudManifest(root, branch);
+      metadataAllowed.add(".agent-session/manifest.json");
+    }
     // Validate the cloud manifest even when it is already committed (a fresh cloud checkout is clean).
     validateManifest(root, branch, true);
     if (changedPaths.includes(".agent-session/manifest.json")) metadataAllowed.add(".agent-session/manifest.json");
