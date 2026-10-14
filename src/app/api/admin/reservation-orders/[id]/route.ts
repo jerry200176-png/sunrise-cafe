@@ -145,6 +145,8 @@ export async function POST(request: NextRequest, { params }: Params) {
         const result = await db.from("orders").update({ paid_at: paidAt }).eq("id", order.id).is("paid_at", null).select("id");
         if (result.error) throw result.error;
         wrotePaid = result.data.length > 0;
+        // 沒寫成功 = 另一台剛好同時在結帳：交給那一台，這台不要繼續轉成已完成
+        if (!wrotePaid) return NextResponse.json({ error: "另一台裝置正在幫這組結帳，請重新整理看結果" }, { status: 409 });
       }
       const undoPaid = async () => {
         if (!wrotePaid) return;

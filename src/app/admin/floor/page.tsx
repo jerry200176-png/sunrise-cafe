@@ -112,15 +112,13 @@ export default function FloorConsolePage() {
 
   const tiles: FloorTile[] = useMemo(() => (data?.rooms ?? []).map((room) => {
     const state = roomFloorState((data?.reservations ?? []).filter((r) => r.room_id === room.id), now);
-    const order = state.current ? data?.orders.find((o) => o.reservation_id === state.current!.id) : undefined;
-    // 還沒送的餐跟著包廂算（結帳後客人可能還在等餐），不只看目前這組
+    // 還沒送的餐、還沒收的餐費都跟著包廂算，不只看目前這組（結帳後客人可能還在等餐；舊的「已完成」按鈕不會記收款）
     const roomReservationIds = new Set((data?.reservations ?? []).filter((r) => r.room_id === room.id).map((r) => r.id));
-    const unserved = (data?.orders ?? []).filter((o) => roomReservationIds.has(o.reservation_id))
-      .reduce((sum, o) => sum + o.unserved_count, 0);
+    const roomOrders = (data?.orders ?? []).filter((o) => roomReservationIds.has(o.reservation_id));
     return {
       id: room.id, name: room.name, capacity: room.capacity, state,
-      foodTotal: order && !order.paid_at ? order.total_amount : 0,
-      unserved,
+      foodTotal: roomOrders.filter((o) => !o.paid_at).reduce((sum, o) => sum + o.total_amount, 0),
+      unserved: roomOrders.reduce((sum, o) => sum + o.unserved_count, 0),
     };
   }), [data, now]);
 
@@ -135,12 +133,15 @@ export default function FloorConsolePage() {
   const slots = useMemo(() => (plan && data ? assignRoomsToPlan(plan, data.rooms) : null), [plan, data]);
 
   const selected = tiles.find((t) => t.id === selectedRoom) ?? null;
-  // 包廂沒人時，若有已結帳但還沒送完的餐，打開那一組，才按得到「送了」
-  const withUnserved = selected && !selected.state.current
-    ? (data?.reservations ?? []).find((r) => r.room_id === selected.id
-      && (data?.orders ?? []).some((o) => o.reservation_id === r.id && o.unserved_count > 0)) ?? null
-    : null;
-  const selectedReservation = selected?.state.current ?? withUnserved ?? selected?.state.next ?? null;
+  // 這間包廂裡「不是目前這組」但還有沒送完的餐或沒收餐費的單（上一組、或用舊按鈕完成的組）
+  const leftovers = selected
+    ? (data?.reservations ?? []).filter((r) => r.room_id === selected.id && r.id !== selected.state.current?.id
+      && (data?.orders ?? []).some((o) => o.reservation_id === r.id && (o.unserved_count > 0 || !o.paid_at)))
+    : [];
+  const [openReservationId, setOpenReservationId] = useState<string | null>(null);
+  useEffect(() => { setOpenReservationId(null); }, [selectedRoom]);
+  const defaultReservation = selected?.state.current ?? leftovers[0] ?? selected?.state.next ?? null;
+  const selectedReservation = (openReservationId && (data?.reservations ?? []).find((r) => r.id === openReservationId)) || defaultReservation;
   const sortedTiles = [...tiles].sort((a, b) => ATTENTION.indexOf(a.state.status) - ATTENTION.indexOf(b.state.status));
 
   return (
@@ -212,7 +213,14 @@ export default function FloorConsolePage() {
 
       {selected && <div className="fixed inset-0 z-40 flex justify-end" role="dialog" aria-modal="true" aria-label={`${selected.name} 結帳`}>
         <button type="button" aria-label="關閉面板" className="absolute inset-0 bg-ink/30 backdrop-blur-[2px]" onClick={() => setSelectedRoom(null)} />
-        <div className="relative h-full w-full max-w-lg shadow-2xl sm:rounded-l-[1.5rem] sm:overflow-hidden">
+        <div className="relative flex h-full w-full max-w-lg flex-col shadow-2xl sm:rounded-l-[1.5rem] sm:overflow-hidden">
+          {selectedReservation && leftovers.some((r) => r.id !== selectedReservation.id) && <div className="flex flex-wrap gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm">
+            <span className="text-amber-900">這間還有別組的單沒處理完：</span>
+            {leftovers.filter((r) => r.id !== selectedReservation.id).map((r) => <button key={r.id} type="button" onClick={() => setOpenReservationId(r.id)}
+              className="rounded-full border border-amber-300 bg-white px-3 py-0.5 text-amber-900">{r.customer_name}</button>)}
+            {openReservationId && <button type="button" onClick={() => setOpenReservationId(null)} className="rounded-full px-3 py-0.5 text-ink-soft underline">回到目前這組</button>}
+          </div>}
+          <div className="min-h-0 flex-1">
           {selectedReservation
             ? <RoomCheckoutPanel reservationId={selectedReservation.id} roomName={selected.name} branchId={branchId} nowMs={now}
               onClose={() => setSelectedRoom(null)} onChanged={() => void load()} />
@@ -224,6 +232,7 @@ export default function FloorConsolePage() {
                 <button type="button" onClick={() => setSelectedRoom(null)} className="h-11 rounded-xl border border-ink/15 px-4 text-sm">關閉</button>
               </div>
             </div>}
+          </div>
         </div>
       </div>}
     </AdminShell>

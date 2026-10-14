@@ -77,7 +77,9 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
         body: JSON.stringify({ action, ...extra }) });
       const data = await response.json();
       if (!response.ok) throw new Error(friendlyMessage(data.error, response.status));
-      await load();
+      // 回應已帶最新資料：直接套用。動作已成功，就不要因為之後的重新整理失敗而回報失敗（避免重按而重複加點）。
+      if (data?.reservation && data?.billing) setView(data as View);
+      else await load().catch(() => undefined);
       onChanged();
       return true;
     } catch (cause) { setError(thrownMessage(cause)); return false; }
@@ -90,7 +92,9 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   const bill = billing?.bill ?? null;
   const paid = Boolean(order?.paid_at);
   const checkedIn = billing?.status === "checked_in";
-  const canEditTime = checkedIn && !paid && !busy;
+  // 延長只看客人是否還在包廂（餐費先結過也能延長，伺服器同樣只檢查 checked_in）
+  const canEditTime = checkedIn && !busy;
+  const roomSettled = billing?.status === "completed";
   const minutesLeft = billing ? Math.floor((new Date(billing.end_time).getTime() - nowMs) / 60_000) : null;
   const settleEnd = billing && checkedIn ? overtimeSettledEnd(billing.end_time, nowMs) : null;
 
@@ -226,7 +230,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
           {bill.depositCredit > 0 && <Row label="已付訂金" value={`− ${money(bill.depositCredit)}`} />}
         </dl>
         <div className="mt-2 flex items-end justify-between border-t border-dashed border-ink/15 pt-2">
-          <span className="flex items-center gap-1.5 font-serif"><Receipt className="h-4 w-4 text-caramel-deep" strokeWidth={1.5} />{paid ? "已經收了" : "這組要收"}</span>
+          <span className="flex items-center gap-1.5 font-serif"><Receipt className="h-4 w-4 text-caramel-deep" strokeWidth={1.5} />{roomSettled ? "已經收了" : "這組要收"}</span>
           <strong className="text-3xl tabular-nums">{money(bill.due)}</strong>
         </div>
         {billing?.total_price != null && billing.total_price !== bill.roomFee && <p className="mt-1 text-[11px] text-ink-faint">預約時是 {money(billing.total_price)}，多出來的是延長的時間</p>}

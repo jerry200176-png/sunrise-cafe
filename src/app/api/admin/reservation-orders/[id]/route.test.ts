@@ -158,6 +158,15 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
     expect(mocks.transitionReservation).toHaveBeenCalledTimes(1);
   });
 
+  it("checkout stops with 409 when another terminal recorded the payment first", async () => {
+    const base = mocks.respond;
+    mocks.respond = (call) => writesPaidAt(call) ? { data: [], error: null } : base(call);
+    const response = await post({ action: "checkout", expected_due: DUE });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatch(/另一台/);
+    expect(mocks.transitionReservation).not.toHaveBeenCalled();
+  });
+
   it("does not credit a refunded deposit", async () => {
     const base = mocks.respond;
     mocks.respond = (call) => call.table === "reservations" && !hasOp(call, "update") && !hasOp(call, "limit")
