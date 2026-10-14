@@ -21,6 +21,10 @@ function parseArgs(args) {
   const parsed = {};
   for (let index = 0; index < args.length; index += 1) {
     const name = args[index];
+    if (name === "--cloud") {
+      parsed.cloud = true;
+      continue;
+    }
     if (name !== "--root" && name !== "--branch") {
       fail(`unsupported argument: ${name}`);
     }
@@ -113,7 +117,7 @@ function callerActor() {
   return null;
 }
 
-function validateManifest(root, branch) {
+function validateManifest(root, branch, cloud = false) {
   const path = join(root, ".agent-session", "manifest.json");
   const manifest = readJson(path, "agent-session manifest");
   const baseSha = manifest.base_sha;
@@ -122,6 +126,30 @@ function validateManifest(root, branch) {
     && spawnGitAncestor(root, baseSha);
   const validRemote = typeof manifest.repo_remote === "string"
     && /(?:github\.com[:/])jerry200176-png\/sunrise-cafe(?:\.git)?$/.test(manifest.repo_remote);
+  if (cloud) {
+    // Cloud sessions have no worktree path; the manifest is bound to the session id instead
+    // (check-agent-provenance.sh verifies every commit carries a matching Claude-Session trailer).
+    const sessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID || "";
+    const urls = Array.isArray(manifest.session_urls) ? manifest.session_urls : [];
+    if (
+      manifest.schema_version !== "1.0"
+      || manifest.provenance_type !== "agent-session-cloud"
+      || manifest.project !== "sunrise"
+      || !validTicketId(manifest.task_id)
+      || manifest.branch !== branch
+      || manifest.preflight_result !== "pass"
+      || manifest.preflight_mode !== "cloud"
+      || manifest.runner !== "claude-code-remote"
+      || manifest.production_mutation !== false
+      || manifest.session_id !== sessionId
+      || !urls.some((url) => typeof url === "string" && url === `https://claude.ai/code/session_${sessionId.slice(4)}`)
+      || !validRemote
+      || !validBase
+    ) {
+      fail("agent-session-cloud manifest does not match this cloud session", "write the manifest for this session id and branch; never reuse another session's manifest");
+    }
+    return;
+  }
   if (
     manifest.schema_version !== "1.0"
     || manifest.project !== "sunrise"
@@ -248,7 +276,7 @@ function main() {
   }
 
   if (changedPaths.includes(".agent-session/manifest.json")) {
-    validateManifest(root, branch);
+    validateManifest(root, branch, Boolean(args.cloud));
     metadataAllowed.add(".agent-session/manifest.json");
   }
 

@@ -36,10 +36,19 @@ fi
 
 TARGET="$ROOT"
 PWD_R="$(resolve "${PWD:-.}")"
-case "$TARGET" in
-  "$TASK_PREFIX"*) ;;
-  *) fail "path not allowlisted (use agent-start): $TARGET" ;;
-esac
+# Cloud agent sessions (Claude Code on the web/mobile) run in a fresh, isolated clone with no
+# /home/jerry workspace and no gh CLI. They are identified by the runner's own environment and
+# prove provenance through the agent-session-cloud manifest + Claude-Session commit trailers.
+CLOUD=0
+if [[ "$MODE" == "agent" && "${CLAUDE_CODE_REMOTE:-}" == "true" && "${CLAUDE_CODE_REMOTE_SESSION_ID:-}" =~ ^cse_[A-Za-z0-9]{8,}$ ]]; then
+  CLOUD=1
+fi
+if [[ "$CLOUD" == "0" ]]; then
+  case "$TARGET" in
+    "$TASK_PREFIX"*) ;;
+    *) fail "path not allowlisted (use agent-start): $TARGET" ;;
+  esac
+fi
 case "$TARGET" in
   */workspace-backups/*|*/actions-runner*|*/mnt/c/*|*/workspace/repos/*|*/workspace/sunrise-cafe) fail "forbidden path class: $TARGET" ;;
 esac
@@ -64,11 +73,17 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 echo "$BRANCH" | grep -qE '^(feat|fix|hotfix|chore|exp|perf|test|refactor|docs|build|ci)/.+' || fail "branch needs type/slug: $BRANCH"
 MB="$(git merge-base HEAD origin/main)"
 [[ "$MB" == "$ORIGIN_MAIN" ]] || fail "stale base — recreate via agent-start"
-node "$SCRIPT_DIR/agent-preflight-worktree.mjs" --root "$TARGET" --branch "$BRANCH" || exit 1
+CLASSIFIER_ARGS=(--root "$TARGET" --branch "$BRANCH")
+[[ "$CLOUD" == "1" ]] && CLASSIFIER_ARGS+=(--cloud)
+node "$SCRIPT_DIR/agent-preflight-worktree.mjs" "${CLASSIFIER_ARGS[@]}" || exit 1
 GIT_DIR="$(git rev-parse --git-dir)"
 [[ ! -d "$GIT_DIR/rebase-merge" && ! -d "$GIT_DIR/rebase-apply" && ! -f "$GIT_DIR/MERGE_HEAD" ]] || fail "merge/rebase in progress"
 [[ "${SUNRISE_PRODUCTION_MUTATION:-0}" == "0" ]] || fail "SUNRISE_PRODUCTION_MUTATION must be 0"
-command -v gh >/dev/null || fail "gh missing"
-gh auth status >/dev/null 2>&1 || fail "gh not authenticated"
+if [[ "$CLOUD" == "0" ]]; then
+  command -v gh >/dev/null || fail "gh missing"
+  gh auth status >/dev/null 2>&1 || fail "gh not authenticated"
+else
+  ok "cloud session ${CLAUDE_CODE_REMOTE_SESSION_ID} (GitHub via the session connector, not gh)"
+fi
 ok "path=$TARGET branch=$BRANCH origin/main=${ORIGIN_MAIN:0:12}"
 ok "preflight passed"

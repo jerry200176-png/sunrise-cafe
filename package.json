@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "test:agent-preflight": "node --test scripts/agent-preflight.test.mjs",
+    "test:agent-preflight": "node --test scripts/agent-preflight.test.mjs scripts/check-agent-provenance.test.mjs",
     "typecheck": "tsc --noEmit",
     "typecheck:baseline": "node scripts/verify-typecheck-baseline.mjs",
     "test:watch": "vitest",

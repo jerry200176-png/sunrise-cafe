@@ -1,0 +1,46 @@
+id: INT-20261014-085635-7GMA
+title: Cloud agent-session provenance (agent-session-cloud) + preflight cloud mode
+intent: Cloud agent-session provenance (agent-session-cloud) + preflight cloud mode
+kind: intent
+brain_dump: "Founder: \u6211\u73FE\u5728\u6539 cloud\uFF0C\u6240\u4EE5\u8981\u6539\
+  \u898F\u5247\uFF1B\u96F2\u7AEF session \u5FC5\u9808\u80FD\u901A\u904E Agent Session\
+  \ Provenance\uFF0C\u4E0D\u80FD\u5F37\u5236\u672C\u6A5F"
+boundary: Only provenance checker, preflight scripts, their tests and AGENTS.md; no
+  change to other CI gates; no merge without review
+success_condition: Cloud sessions pass provenance via Claude-Session trailers; local
+  path unchanged; tests pass; PR approved by Founder
+risk: high
+priority: 3
+labels: []
+scope:
+  allow:
+  - scripts/agent-preflight.sh
+  - scripts/agent-preflight-worktree.mjs
+  - scripts/agent-preflight.test.mjs
+  - scripts/check-agent-provenance.sh
+  - scripts/check-agent-provenance.test.mjs
+  - AGENTS.md
+  - .agent-session/**
+  - package.json
+  - .exo/**
+  - .exo/cache/**
+  - .exo/memory/**
+  - .exo/locks/**
+  - .exo/tickets/**
+  - .exo/logs/**
+  deny: []
+budgets:
+  max_files_changed: 10
+  max_loc_changed: 600
+checks:
+- npm test
+- npm run lint
+type: feature
+status: todo
+parent_id: null
+spec_ref: null
+notes: []
+blockers: []
+created_at: '2026-10-14T08:56:36+00:00'
+children: []
+resource_profile: default

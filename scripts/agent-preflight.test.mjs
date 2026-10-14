@@ -190,3 +190,59 @@ test("mismatched task provenance is rejected", () => {
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /agent-session manifest does not match this task worktree/);
 });
+
+const CLOUD_SESSION = "cse_01TESTCLOUDSESSION";
+
+function writeCloudManifest(fixture, overrides = {}) {
+  const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: fixture.root, encoding: "utf8" }).trim();
+  writeJson(fixture.root, ".agent-session/manifest.json", {
+    schema_version: "1.0",
+    provenance_type: "agent-session-cloud",
+    project: "sunrise",
+    task_id: "GOV-TEST-PREFLIGHT",
+    session_id: CLOUD_SESSION,
+    session_urls: [`https://claude.ai/code/session_${CLOUD_SESSION.slice(4)}`],
+    repo_remote: "https://github.com/jerry200176-png/sunrise-cafe.git",
+    base_sha: head,
+    branch: fixture.branch,
+    started_at: new Date().toISOString(),
+    production_mutation: false,
+    preflight_result: "pass",
+    preflight_mode: "cloud",
+    runner: "claude-code-remote",
+    ...overrides,
+  });
+}
+
+test("cloud mode accepts an agent-session-cloud manifest bound to this session", () => {
+  const fixture = createFixture();
+  writeCloudManifest(fixture);
+  const result = runClassifier(fixture, ["--cloud"], { CLAUDE_CODE_REMOTE_SESSION_ID: CLOUD_SESSION });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test("cloud mode rejects a manifest written for another cloud session", () => {
+  const fixture = createFixture();
+  writeCloudManifest(fixture);
+  const result = runClassifier(fixture, ["--cloud"], { CLAUDE_CODE_REMOTE_SESSION_ID: "cse_01SOMEONEELSE" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /agent-session-cloud manifest does not match this cloud session/);
+});
+
+test("cloud mode rejects a local agent-session manifest and a production-mutating one", () => {
+  const local = createFixture();
+  const localResult = runClassifier(local, ["--cloud"], { CLAUDE_CODE_REMOTE_SESSION_ID: CLOUD_SESSION });
+  assert.notEqual(localResult.status, 0);
+  const mutating = createFixture();
+  writeCloudManifest(mutating, { production_mutation: true });
+  const mutatingResult = runClassifier(mutating, ["--cloud"], { CLAUDE_CODE_REMOTE_SESSION_ID: CLOUD_SESSION });
+  assert.notEqual(mutatingResult.status, 0);
+});
+
+test("a cloud manifest is not accepted outside cloud mode", () => {
+  const fixture = createFixture();
+  writeCloudManifest(fixture);
+  const result = runClassifier(fixture, [], { CLAUDE_CODE_REMOTE_SESSION_ID: CLOUD_SESSION });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /agent-session manifest does not match this task worktree/);
+});
