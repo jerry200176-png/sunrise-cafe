@@ -240,4 +240,13 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
     expect(mocks.calls.some(writesPaidAt)).toBe(false);
     expect(mocks.transitionReservation).not.toHaveBeenCalled();
   });
+  it("checkout also requires the confirmed refund to match", async () => {
+    mocks.respond = ((base) => (call: Call) => call.table === "reservations" && !hasOp(call, "update") && !hasOp(call, "limit")
+      ? { data: { ...reservationRow, end_time: at("14:30") }, error: null } : base(call))(mocks.respond);
+    order.total_amount = 0;
+    // 14:00–14:30 at 200/h = 100, deposit 200 → refund 100
+    expect((await post({ action: "checkout", expected_due: 0, expected_refund: 50 })).status).toBe(409);
+    expect(mocks.calls.some(writesPaidAt)).toBe(false);
+    expect((await post({ action: "checkout", expected_due: 0, expected_refund: 100 })).status).toBe(200);
+  });
 });

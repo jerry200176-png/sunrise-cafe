@@ -70,8 +70,9 @@ export async function GET(request: NextRequest) {
       db.from("reservations").select(columns).in("room_id", roomIds).eq("status", "completed")
         .gt("end_time", new Date(window.startMs - RECENT_COMPLETED_HOURS * 3_600_000).toISOString()).limit(50),
       // 結帳完或報到後取消、但還有現場訂單的組（可能餐費沒收，或餐費收了但還有餐沒送；超時很久才結帳也一樣）。
-      // 畫面只顯示還沒處理完的單，處理完的組不會出現在任何地方。
-      db.from("reservations").select(`${columns},orders!inner(id)`).in("room_id", roomIds).in("status", ["completed", "cancelled"])
+      // 在資料庫就先濾掉處理完的單（訂位訂單的 status 只有「全部送完且已收款」才是 completed），再套筆數上限。
+      db.from("reservations").select(`${columns},orders!inner(status)`).in("room_id", roomIds).in("status", ["completed", "cancelled"])
+        .neq("orders.status", "completed")
         .gt("end_time", new Date(window.startMs - UNPAID_LOOKBACK_DAYS * 86_400_000).toISOString())
         .order("end_time", { ascending: false }).limit(100),
     ]);

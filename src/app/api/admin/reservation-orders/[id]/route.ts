@@ -92,7 +92,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (auth.denied) return auth.denied;
     const body = await request.json() as {
       action: Action; item?: DraftItemInput; items?: DraftItemInput[];
-      item_id?: string; notes?: string | null; quantity?: number; end_time?: string; expected_due?: number;
+      item_id?: string; notes?: string | null; quantity?: number; end_time?: string; expected_due?: number; expected_refund?: number;
     };
     const db = supabaseAdmin();
     const { order, billing: current } = await load(id);
@@ -147,7 +147,10 @@ export async function POST(request: NextRequest, { params }: Params) {
       if (!["checked_in", "completed"].includes(auth.reservation!.status)) {
         return NextResponse.json({ error: "客人到了以後才能結帳" }, { status: 409 });
       }
-      if (auth.reservation!.status !== "completed" && (typeof body.expected_due !== "number" || body.expected_due !== due)) {
+      const refund = current.bill?.refund ?? 0;
+      // 要收和要退都要對得上：退款時 due 都是 0，只比 due 會放過過期的退款金額
+      if (auth.reservation!.status !== "completed" && (typeof body.expected_due !== "number" || body.expected_due !== due
+        || (body.expected_refund ?? 0) !== refund)) {
         return NextResponse.json({ error: `金額剛剛有變動（現在要收 NT$ ${(due ?? 0).toLocaleString()}），請再確認一次`, billing: current }, { status: 409 });
       }
       const ctx = await getAdminContext(request);
