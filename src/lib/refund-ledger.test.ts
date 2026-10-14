@@ -56,4 +56,14 @@ describe("refund-ledger (Stripe boundary)", () => {
     expect(rpc).toHaveBeenCalledWith("record_reservation_refund_status", expect.objectContaining({ p_status: "canceled", p_actor_role: "provider" }));
     expect(out).toMatchObject({ status: "canceled" });
   });
+
+  it("P2: a refund pointing at another reservation is not swallowed — it writes an alert and throws", async () => {
+    const insert = vi.fn(async () => ({ error: null }));
+    const rpc = vi.fn(async () => ({ data: null, error: { code: "P0001", message: "refund_reservation_mismatch" } }));
+    const client = { rpc, from: (table: string) => (table === "reservation_refund_alerts" ? { insert } : {}) } as never;
+    await expect(syncStripeRefund(client, { id: "re_x", status: "succeeded", amount: 20000, payment_intent: "pi_1",
+      metadata: { reservationId: "res-1", refund_ledger_id: "rf-other" } })).rejects.toMatchObject({ message: "refund_reservation_mismatch" });
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ reservation_id: "res-1", kind: "provider_reservation_mismatch",
+      detail: expect.objectContaining({ provider_ref: "re_x", ledger_refund_id: "rf-other" }) }));
+  });
 });

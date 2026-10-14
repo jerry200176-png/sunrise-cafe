@@ -12,6 +12,7 @@ function from(table: string) {
   const self: Record<string, unknown> = {};
   for (const op of ["select", "eq"]) self[op] = () => self;
   self.update = (values: unknown) => { mocks.updates.push({ table, values }); return self; };
+  self.insert = (values: unknown) => { mocks.updates.push({ table, values }); return Promise.resolve({ error: null }); };
   self.maybeSingle = () => Promise.resolve({ data: { reservation_id: "res-1" }, error: null });
   self.single = self.maybeSingle;
   self.then = (ok: (value: unknown) => unknown) => Promise.resolve({ data: null, error: null }).then(ok);
@@ -95,6 +96,12 @@ describe("Stripe webhook → refund ledger (#444)", () => {
   it("P2: an unexpected database error still fails the webhook so Stripe retries", async () => {
     mocks.event = { type: "refund.updated", data: { object: refund("succeeded") } };
     mocks.rpc.mockResolvedValue({ data: null, error: { code: "XX000", message: "boom" } });
+    expect((await send()).status).toBe(500);
+  });
+
+  it("P2: a refund whose metadata points at another reservation returns 500 (visible), not 200", async () => {
+    mocks.event = { type: "refund.updated", data: { object: refund("succeeded") } };
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: "P0001", message: "refund_reservation_mismatch" } });
     expect((await send()).status).toBe(500);
   });
 });

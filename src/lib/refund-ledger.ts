@@ -32,7 +32,7 @@ export type RefundLedgerResult = {
 export const STRIPE_REDRIVE_WINDOW_MS = 23 * 60 * 60 * 1000;
 
 /** 重送或延遲的舊事件（例如已 succeeded 之後才到的 pending）：記 log、回 200，不讓 webhook 500 重試 */
-const STALE_CODES = new Set(["invalid_refund_transition", "refund_reservation_mismatch"]);
+const STALE_CODES = new Set(["invalid_refund_transition"]);
 
 /** Stripe 冪等鍵：一定包含帳本那一列的 id，同一筆帳本請求怎麼重送都只會在 Stripe 退一次 */
 export const stripeRefundIdempotencyKey = (ledgerId: string) => `ledger_refund_${ledgerId}`;
@@ -65,6 +65,16 @@ export async function syncStripeRefund(db: SupabaseClient, refund: StripeRefundL
     if (isSettlementSchemaMissing(result.error)) return { schemaMissing: true };
     const code = (result.error.message ?? "").trim();
     if (STALE_CODES.has(code)) return { ignored: code };
+    if (code === "refund_reservation_mismatch") {
+      // 退款的 metadata 指向別筆訂位：不是過期事件，是資料不一致。留警示讓老闆／店長看到，並讓 webhook 500（Stripe 會重送、log 也看得到）
+      const alert = await db.from("reservation_refund_alerts").insert({
+        reservation_id: reservationId,
+        refund_id: null,
+        kind: "provider_reservation_mismatch",
+        detail: { provider_ref: refund.id, ledger_refund_id: refund.metadata?.refund_ledger_id ?? null, payment_intent: paymentIntent },
+      });
+      if (alert.error) console.error("[refund-ledger] mismatch alert insert failed", alert.error.message);
+    }
     throw result.error;
   }
   return result.data as RefundLedgerResult;

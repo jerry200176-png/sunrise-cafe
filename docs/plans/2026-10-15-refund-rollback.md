@@ -34,7 +34,7 @@
 
 ## 2. 需要 Founder 決定的事
 
-**主要決定：** 核准「`supabase/migration-reservation-settlements.sql` sha256 `674894e6b0552c9b23bbe4106d8d53f4a8c1348fdb50ceb8ebe2564193ed80e4`」這一份確切內容，可以在下面的備份步驟之後套用到正式環境（#446 換成同一份）。沒有核准前，新表不存在，API 走舊流程，退款 API 會回 503（不會在沒有帳本的情況下退款）。
+**主要決定：** 核准「`supabase/migration-reservation-settlements.sql` sha256 `06dc6a717bc837f4651baf53e2b5893953ac89e4f84720046f5e94f44cb0f722`」這一份確切內容，可以在下面的備份步驟之後套用到正式環境（#446 換成同一份）。沒有核准前，新表不存在，API 走舊流程，退款 API 會回 503（不會在沒有帳本的情況下退款）。
 
 一起確認的政策（都已照推薦寫進程式）：
 
@@ -46,6 +46,13 @@
 5. **舊資料 `deposit_status = 'refunded'`（帳本沒有紀錄）一律當作全額已退**（舊的退款 API 只能全額退）。推薦：照做。
 
 金額單位：已修正（見上）。Stripe 目前在正式環境沒有啟用（`create-intent` 回 503），所以舊的單位錯誤沒有實際收過錢。
+
+## 2a. Stripe 啟用前（cutover）注意
+
+- Stripe 目前在正式環境**沒有啟用**：`create-intent` 回 503「Stripe 支付尚未啟用」。
+- 如果 Stripe 曾經在正式環境啟用過：這次修正前收的訂金只收到 **1/100**（NT$500 送成 Stripe amount 500 = NT$5）。這些付款在新的付款金額檢查會被判定「付款金額不足」，退款也會被 Stripe 實收上限限制在 NT$5。
+- `create-intent` 的冪等鍵是 `reservation_<id>_deposit`：修正上線後 24 小時內同一筆訂位重試，會帶同一個冪等鍵但不同金額（×100），Stripe 會拒絕（冪等鍵參數不符）。
+- **啟用 Stripe 之前**：先在 Stripe 後台查有沒有 live 模式的 TWD PaymentIntent／收款；有的話逐筆人工核對、決定補收或退款，再啟用。
 
 ## 3. 套用前備份（必做）
 

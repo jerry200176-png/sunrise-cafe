@@ -338,6 +338,10 @@ BEGIN
   PERFORM t.ok(EXISTS (SELECT 1 FROM reservation_refund_alerts WHERE reservation_id = r AND kind = 'provider_over_cap'),
     'P5 a dashboard refund above the cap raises an alert');
   PERFORM t.raises('UPDATE reservation_refund_alerts SET kind = kind', 'refund_ledger_append_only', 'P5 alerts cannot be edited');
+  INSERT INTO reservation_refund_alerts (reservation_id, kind, detail)
+  VALUES (r, 'provider_reservation_mismatch', '{"provider_ref": "re_x"}');
+  PERFORM t.ok(EXISTS (SELECT 1 FROM reservation_refund_alerts WHERE reservation_id = r AND kind = 'provider_reservation_mismatch'),
+    'P5 a provider/reservation mismatch alert can be recorded');
   PERFORM t.raises(format('SELECT sync_provider_refund(%L, NULL, %L, 150, %L)', t.mk(), 're_ext', 'succeeded'),
     'refund_reservation_mismatch', 'P5 provider ref cannot be re-attached to another reservation');
 END $$;

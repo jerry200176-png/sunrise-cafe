@@ -204,7 +204,9 @@ CREATE TABLE IF NOT EXISTS reservation_refund_alerts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   reservation_id uuid NOT NULL REFERENCES reservations(id) ON DELETE RESTRICT,
   refund_id uuid REFERENCES reservation_refunds(id) ON DELETE RESTRICT,
-  kind text NOT NULL CHECK (kind IN ('provider_over_cap', 'provider_after_checkout_credit', 'provider_succeeded_after_cancel')),
+  -- provider_reservation_mismatch：金流商回報的退款指向另一筆訂位（由 API 在同步失敗時寫入）
+  kind text NOT NULL CHECK (kind IN ('provider_over_cap', 'provider_after_checkout_credit', 'provider_succeeded_after_cancel',
+                                     'provider_reservation_mismatch')),
   branch_id uuid,
   detail jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now()
