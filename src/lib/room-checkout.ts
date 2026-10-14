@@ -57,7 +57,8 @@ export function roomFloorState(
   // 已報到的客人不論時間都算在包廂內（超時就是還沒走）。
   // 上一組超時還沒結帳、下一組也報到了：以最新報到的那組為主（上一組會出現在「別組的單」讓店員處理）
   const checkedIn = [...sorted].reverse().find((r) => r.status === "checked_in") ?? null;
-  const started = sorted.find((r) => WAITING.has(r.status) && ms(r.start_time) <= nowMs && nowMs < ms(r.end_time)) ?? null;
+  // 時間已到還沒報到的組（包含時段已過、還沒標成沒來的）都算「客人還沒到」，讓店員處理；取最近開始的那組
+  const started = [...sorted].reverse().find((r) => WAITING.has(r.status) && ms(r.start_time) <= nowMs) ?? null;
   const current = checkedIn ?? started;
   // 下一組：排在目前這組之後的第一組（目前這組超時時，下一組可能已經到了，也要顯示）
   const next = sorted.find((r) => WAITING.has(r.status) && r.id !== current?.id

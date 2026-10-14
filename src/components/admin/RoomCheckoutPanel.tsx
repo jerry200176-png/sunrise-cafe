@@ -50,12 +50,15 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   // 目前顯示的是哪一組：切換組別後，舊組晚回來的回應一律丟掉，避免畫面是 A 組、按鈕卻送到 B 組
   const currentApi = useRef(api);
   currentApi.current = api;
+  // 每次請求一個遞增編號：A→B→A 切回來時，A 的舊請求端點相同，只比端點擋不住
+  const requestGen = useRef(0);
 
   const load = useCallback(async () => {
     const requested = api;
+    const gen = ++requestGen.current;
     const response = await fetch(requested, { credentials: "include" });
     const data = await response.json();
-    if (currentApi.current !== requested) return;
+    if (currentApi.current !== requested || gen !== requestGen.current) return;
     if (!response.ok) throw new Error(friendlyMessage(data.error, response.status));
     setView(data as View);
     setCustomEnd(fmtClock((data as View).billing.end_time));
@@ -79,13 +82,14 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   async function act(action: string, extra: Record<string, unknown> = {}) {
     setBusy(true); setError("");
     const requested = api;
+    const gen = ++requestGen.current;
     try {
       const response = await fetch(requested, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, ...extra }) });
       const data = await response.json();
       if (!response.ok) throw new Error(friendlyMessage(data.error, response.status));
       // 回應已帶最新資料：直接套用。動作已成功，就不要因為之後的重新整理失敗而回報失敗（避免重按而重複加點）。
-      if (currentApi.current !== requested) { onChanged(); return true; }
+      if (currentApi.current !== requested || gen !== requestGen.current) { onChanged(); return true; }
       // POST 回應帶 order／billing／preorder（沒有 reservation）：合併進目前畫面
       if (data?.billing) {
         setView((previous) => previous ? { ...previous, ...(data as Partial<View>) } : previous);
@@ -244,7 +248,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
         </dl>
         <div className="mt-2 flex items-end justify-between border-t border-dashed border-ink/15 pt-2">
           <span className="flex items-center gap-1.5 font-serif"><Receipt className="h-4 w-4 text-caramel-deep" strokeWidth={1.5} />{roomSettled && paid ? "已經收了" : roomSettled ? "包廂已結帳" : stayCancelled ? "已取消，只收餐費" : "這組要收"}</span>
-          <strong className="text-3xl tabular-nums">{money(stayCancelled ? (paid ? 0 : bill.foodTotal) : bill.due)}</strong>
+          <strong className="text-3xl tabular-nums">{money((stayCancelled || roomSettled) && !paid ? bill.foodTotal : stayCancelled ? 0 : bill.due)}</strong>
         </div>
         {bill.refund > 0 && !stayCancelled && !roomSettled && <p className="mt-2 rounded-xl border border-sky-300 bg-sky-50 p-2 text-sm text-sky-900">
           時間縮短了，訂金比要收的多：結帳時要退客人 <strong className="tabular-nums">{money(bill.refund)}</strong>。</p>}

@@ -188,3 +188,11 @@ describe("two checked-in groups in one room", () => {
     expect(bill.refund).toBeGreaterThan(0);
   });
 });
+
+describe("overdue waiting reservations", () => {
+  it("keeps a group that never arrived as the room's current attention item after its end time", () => {
+    const state = roomFloorState([res({ status: "confirmed" })], Date.parse(at("17:30")));
+    expect(state.status).toBe("awaiting");
+    expect(state.current?.status).toBe("confirmed");
+  });
+});
