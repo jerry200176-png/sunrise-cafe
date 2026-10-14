@@ -154,6 +154,7 @@ sentry.*.config.ts          # Sentry 設定（三個 runtime）
 - **後台驗證金鑰**：`ADMIN_PASSWORD` 為登入密碼；`SESSION_SECRET`（選填）為 session 簽章金鑰，未設定時向下相容沿用密碼。建議在 Vercel 設定獨立的 `SESSION_SECRET`，更換密碼才不會讓既有 session 失效
 
 ExoProtocol is retired (Founder 2026-10-14). Ignore any `.exo/` tree; do not start Exo sessions, tickets or `exo push`.
+Still in force: never read or write `**/.env*`, `~/.ssh/**` or `~/.aws/**`; run the repo checks (`npm test`, `npm run lint`, `npm run build`) before pushing.
 
 ## Portfolio governance overlay
 

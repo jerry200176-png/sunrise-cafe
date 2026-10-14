@@ -1,63 +1,55 @@
 # GitHub Triage Registry
 
-**Updated:** 2026-10-15 00:09 CST  
-**Gate:** PASS
+**Updated:** 2026-07-13 15:25 CST  
+**Gate:** PASS (Round 27 boss execution)
 
-Curated issue/PR actions. Bot cannot close — Founder executes [`FOUNDER_ACTION_LIST.md`](./FOUNDER_ACTION_LIST.md).
+Curated issue/PR actions. See live state: `bash scripts/cto-github-hygiene.sh`
 
 ---
 
-## Issues
+## Issues (open: 1)
 
-| # | Title | Action | Status |
-|--:|-------|--------|--------|
-| 53 | Payment flow optimization | **KEEP** P1 | open — needs OUTCOME_LOG |
-| 54 | Production Excellence epic | **KEEP** epic | open |
-| 61 | AI workflow docs | **DEFER** P3 | open — tracked in CAPABILITY_GAPS |
-| 63 | PaymentProvider abstraction | **DEFER** P3 | open — no gateway contract |
-| 95 | Founder ops batch | **KEEP** P0 | open — migrations + secrets |
-| 99 | Integrated deposit capture | **KEEP** strategic | open |
+| # | Title | Action |
+|--:|-------|--------|
+| 99 | Integrated deposit capture (Stripe/LINE Pay) | **KEEP** — strategic; implement after KPI evidence |
+
+All other former open issues (#53 #54 #61 #63 #95) are **closed on GitHub** — see [`GITHUB_ISSUE_STATUS.md`](./GITHUB_ISSUE_STATUS.md).
+
+---
 
 ## Pull requests
 
-_All triaged PRs closed 2026-07-11. Non-dependabot open: 0._
+**Open:** 0 (as of 2026-07-13 after #177 #178 merge)
 
-## Branches
+Recent merged:
 
-Remote should be: `main` only (+ short-lived `cursor/*` during agent runs).  
-Delete merged `cursor/*` after PR merge.
+| # | Title |
+|--:|-------|
+| 181 | OPS-004b funnel metrics on Executive dashboard |
+| 180 | Deploy verify + LINE validation SOP (Round 26) |
+| 179 | GitHub/doc cleanup |
+| 178 | LINE Flex cards unified |
+| 177 | AI-company orchestrator patterns |
 
 ---
 
-## GitHub Hygiene Audit
-_Generated: 2026-10-15 00:10 CST
+## Branches
 
-**Repository:** unknown
+After merge: delete stale `cursor/*` on remote. Target: `main` + at most 1 active agent branch.
 
-### Open Issues (0)
-
-| # | Title | Recommended action | Evidence |
-|--:|-------|-------------------|----------|
-
-### Open Pull Requests (0, draft: 0, non-dependabot: 0)
-
-| # | Branch | Action | Reason |
-|--:|--------|--------|--------|
-
-### Remote branches (10 total, cursor/*: 0)
-
-```
-chore/install-grill-me-skill
-chore/task-SUNRISE-437-20261012
-chore/task-SUNRISE-CLOSEOUT-20261011-docs
-chore/task-SUNRISE-CLOUD-PROV-20261014
-chore/task-production-approval-gate
-chore/task-rate-limit-durable-20260905
-chore/task-reservation-preorder-docs
-docs-preorder
-main
-vitest5
+```bash
+# Example cleanup (merged branches only)
+git push origin --delete cursor/gmail-secret-fallback-d275
+git push origin --delete cursor/gmail-secrets-guide-bb51
 ```
 
-### Bot permissions
-ℹ️ No open issues — skip permission probe
+---
+
+## Hygiene command
+
+```bash
+bash scripts/cto-github-hygiene.sh
+npm run cto:governance
+```
+
+Bot **cannot** close issues — agent merges PRs via PR tool; Founder only for secrets/migrations.

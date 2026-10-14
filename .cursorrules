@@ -27,6 +27,7 @@ rule wins. If the overlay or required governance context is unavailable, stop
 and report the missing context instead of inventing a replacement.
 
 ExoProtocol is retired (Founder 2026-10-14). Ignore any `.exo/` tree; do not start Exo sessions, tickets or `exo push`.
+Still in force: never read or write `**/.env*`, `~/.ssh/**` or `~/.aws/**`; run the repo checks (`npm test`, `npm run lint`, `npm run build`) before pushing.
 
 ## Portfolio governance overlay
 
