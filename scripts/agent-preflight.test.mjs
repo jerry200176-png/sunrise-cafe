@@ -351,3 +351,25 @@ test("cloud bootstrap refuses to write when a product path is dirty", () => {
   assert.match(result.stderr, /README\.md/);
   assert.equal(readFileSync(path.join(fixture.root, ".agent-session", "manifest.json"), "utf8"), before);
 });
+
+test("cloud bootstrap keeps only committed session urls, not ones added to the working tree", () => {
+  const fixture = createFixture();
+  writeCloudManifest(fixture, { session_id: "cse_01EARLIERSESSION", session_urls: ["https://claude.ai/code/session_01EARLIERSESSION"] });
+  execFileSync("git", ["add", ".agent-session/manifest.json"], { cwd: fixture.root });
+  execFileSync("git", ["commit", "--quiet", "-m", "earlier session"], { cwd: fixture.root });
+  execFileSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD"], { cwd: fixture.root });
+  const committed = readJson(fixture.root, ".agent-session/manifest.json");
+  writeJson(fixture.root, ".agent-session/manifest.json", { ...committed, session_urls: [...committed.session_urls, "https://claude.ai/code/session_01SMUGGLED"] });
+  const result = runClassifier(fixture, ["--cloud", "--bootstrap-manifest"], { CLAUDE_CODE_REMOTE_SESSION_ID: CLOUD_SESSION });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.deepEqual(readJson(fixture.root, ".agent-session/manifest.json").session_urls, [
+    "https://claude.ai/code/session_01EARLIERSESSION",
+    `https://claude.ai/code/session_${CLOUD_SESSION.slice(4)}`,
+  ]);
+});
+
+test("a manifest naming a look-alike host is rejected", () => {
+  const fixture = createFixture();
+  writeCloudManifest(fixture, { repo_remote: "https://evilgithub.com/jerry200176-png/sunrise-cafe.git" });
+  assert.notEqual(runClassifier(fixture, ["--cloud"], { CLAUDE_CODE_REMOTE_SESSION_ID: CLOUD_SESSION }).status, 0);
+});

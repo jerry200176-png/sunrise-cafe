@@ -134,7 +134,7 @@ function validateManifest(root, branch, cloud = false) {
     && /^[0-9a-f]{40}$/i.test(baseSha)
     && spawnGitAncestor(root, baseSha);
   const validRemote = typeof manifest.repo_remote === "string"
-    && /(?:github\.com[:/])jerry200176-png\/sunrise-cafe(?:\.git)?$/.test(manifest.repo_remote);
+    && /^(?:https:\/\/(?:[^@/\s]+@)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)jerry200176-png\/sunrise-cafe(?:\.git)?\/?$/.test(manifest.repo_remote);
   if (cloud) {
     // Cloud sessions have no worktree path; the manifest is bound to the session id instead
     // (check-agent-provenance.sh verifies every commit carries a matching Claude-Session trailer).
@@ -189,9 +189,11 @@ function bootstrapCloudManifest(root, branch) {
   }
   const url = `https://claude.ai/code/session_${sessionId.slice(4)}`;
   const path = join(root, ".agent-session", "manifest.json");
+  // Earlier sessions are taken only from the committed manifest: a working-tree edit made before bootstrap
+  // must not be able to smuggle extra session URLs into the trusted manifest.
   let existing = null;
   try {
-    existing = JSON.parse(readFileSync(path, "utf8"));
+    existing = JSON.parse(git(root, ["show", "HEAD:.agent-session/manifest.json"]));
   } catch {
     existing = null;
   }

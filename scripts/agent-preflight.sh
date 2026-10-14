@@ -58,8 +58,15 @@ if [[ "$CLOUD" == "0" ]]; then
   esac
 fi
 case "$TARGET" in
-  */workspace-backups/*|*/actions-runner*|*/mnt/c/*|*/workspace/repos/*|*/workspace/sunrise-cafe) fail "forbidden path class: $TARGET" ;;
+  */workspace-backups/*|*/actions-runner*|*/mnt/c/*) fail "forbidden path class: $TARGET" ;;
 esac
+# The legacy local clones only exist on the founder's machine; a managed cloud checkout may be mounted at
+# /workspace/sunrise-cafe, so these two classes are denied in local mode only.
+if [[ "$CLOUD" == "0" ]]; then
+  case "$TARGET" in
+    */workspace/repos/*|*/workspace/sunrise-cafe) fail "forbidden path class: $TARGET" ;;
+  esac
+fi
 case "$PWD_R" in
   */mnt/c/*|*/workspace-backups/*|*/actions-runner*) fail "forbidden cwd class: $PWD_R" ;;
 esac
@@ -69,10 +76,9 @@ fi
 
 cd "$TARGET"
 REMOTE="$(git remote get-url origin)"
-case "$REMOTE" in
-  *github.com/jerry200176-png/sunrise-cafe*) ;;
-  *) fail "unexpected origin: $REMOTE" ;;
-esac
+# Anchored to the exact github.com host (an unanchored glob would accept e.g. evilgithub.com).
+echo "$REMOTE" | grep -qE '^(https://([^@/[:space:]]+@)?github\.com/|git@github\.com:|ssh://git@github\.com/)jerry200176-png/sunrise-cafe(\.git)?/?$' \
+  || fail "unexpected origin: $(echo "$REMOTE" | sed -E 's#//[^@/]*@#//<credentials>@#')"
 
 [[ "${AGENT_PREFLIGHT_SKIP_FETCH:-0}" == "1" ]] || git fetch origin main --quiet || fail "fetch origin main failed"
 ORIGIN_MAIN="$(git rev-parse origin/main)"

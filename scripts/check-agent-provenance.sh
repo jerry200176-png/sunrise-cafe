@@ -67,7 +67,7 @@ if ptype=="agent-session-cloud":
     if m["production_mutation"] is not False: raise SystemExit('production_mutation must be false')
     if not re.match(r'^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$', m["task_id"]): raise SystemExit('bad task_id')
     if not re.match(r'^[0-9a-f]{40}$', m["base_sha"]): raise SystemExit('bad base_sha')
-    if not re.search(r'github\.com[:/]jerry200176-png/sunrise-cafe(\.git)?$', m["repo_remote"]): raise SystemExit('bad repo_remote')
+    if not re.fullmatch(r'(?:https://(?:[^@/\s]+@)?github\.com/|git@github\.com:|ssh://git@github\.com/)jerry200176-png/sunrise-cafe(?:\.git)?/?', m["repo_remote"]): raise SystemExit('bad repo_remote')
     urls=m["session_urls"]
     if not isinstance(urls,list) or not urls: raise SystemExit('session_urls must be a non-empty list')
     for u in urls:

@@ -96,6 +96,8 @@ test("cloud manifest cannot claim a production mutation, a failed preflight or a
     { preflight_mode: "local" },
     { runner: "something-else" },
     { repo_remote: "https://github.com/evil/sunrise-cafe.git" },
+    { repo_remote: "https://evilgithub.com/jerry200176-png/sunrise-cafe.git" },
+    { repo_remote: "https://github.com.evil.example/jerry200176-png/sunrise-cafe.git" },
     { task_id: "NOT-IN-BRANCH-9" },
   ]) {
     assert.notEqual(check(fixture({ manifest })).status, 0, JSON.stringify(manifest));
