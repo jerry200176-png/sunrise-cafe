@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
 
     const columns = "id,room_id,customer_name,booking_code,start_time,end_time,status,guest_count,total_price,is_deposit_paid";
     const roomIds = rooms.map((room) => room.id);
-    const [resResult, inRoomResult, recentResult, unpaidResult] = await Promise.all([
+    const [resResult, inRoomResult, recentResult, unpaidResult, unservedResult, overdueResult] = await Promise.all([
       db.from("reservations").select(columns).in("room_id", roomIds)
         // 往後多抓「即將到店」的時間，午夜前也看得到 00:xx 進場的下一組
         .lt("start_time", new Date(window.endMs + UPCOMING_MINUTES * 60_000).toISOString()).gt("end_time", window.startIso)
@@ -76,15 +76,25 @@ export async function GET(request: NextRequest) {
         .neq("orders.status", "completed").gt("orders.total_amount", 0)
         .gt("end_time", new Date(window.startMs - UNPAID_LOOKBACK_DAYS * 86_400_000).toISOString())
         .order("end_time", { ascending: false }).limit(100),
+      // 金額 0 的贈品還沒送：上面用金額濾空單會漏掉，另外用「有未出餐品項」找回來
+      db.from("reservations").select(`${columns},orders!inner(order_items!inner(served_at))`).in("room_id", roomIds)
+        .in("status", ["completed", "cancelled", "no_show"]).is("orders.order_items.served_at", null)
+        .gt("end_time", new Date(window.startMs - UNPAID_LOOKBACK_DAYS * 86_400_000).toISOString()).limit(50),
+      // 時間已到、一直沒報到也沒標成沒來的組（可能是昨天的）：跨過午夜也要留著讓店員處理
+      db.from("reservations").select(columns).in("room_id", roomIds).in("status", ["pending", "confirmed"])
+        .lt("start_time", new Date().toISOString())
+        .gt("start_time", new Date(window.startMs - UNPAID_LOOKBACK_DAYS * 86_400_000).toISOString()).limit(50),
     ]);
     if (resResult.error) throw resResult.error;
     if (inRoomResult.error) throw inRoomResult.error;
     if (recentResult.error) throw recentResult.error;
     if (unpaidResult.error) throw unpaidResult.error;
-    const unpaidRows = ((unpaidResult.data ?? []) as Array<FloorReservation & { orders?: unknown }>)
+    if (unservedResult.error) throw unservedResult.error;
+    if (overdueResult.error) throw overdueResult.error;
+    const unpaidRows = ([...(unpaidResult.data ?? []), ...(unservedResult.data ?? [])] as Array<FloorReservation & { orders?: unknown }>)
       .map((row) => { const copy = { ...row }; delete copy.orders; return copy as FloorReservation; });
     const byId = new Map<string, FloorReservation>();
-    for (const row of [...(resResult.data ?? []), ...(inRoomResult.data ?? []), ...(recentResult.data ?? []), ...unpaidRows] as FloorReservation[]) {
+    for (const row of [...(resResult.data ?? []), ...(inRoomResult.data ?? []), ...(recentResult.data ?? []), ...unpaidRows, ...(overdueResult.data ?? [])] as FloorReservation[]) {
       byId.set(row.id, row);
     }
     const reservations = [...byId.values()].sort((a, b) => a.start_time.localeCompare(b.start_time));
