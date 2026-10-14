@@ -111,7 +111,6 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (body.action === "extend") {
       // 只給已報到、尚未結帳的組調整結束時間（店員現場延時／提早離開）；不改 total_price，不推 LINE。
       if (auth.reservation!.status !== "checked_in") return NextResponse.json({ error: "客人到了以後才能改時間" }, { status: 409 });
-      if (order.paid_at) return NextResponse.json({ error: "這組已經結帳，不能再改時間" }, { status: 409 });
       const endTime = typeof body.end_time === "string" ? new Date(body.end_time) : null;
       if (!endTime || Number.isNaN(endTime.getTime())) return NextResponse.json({ error: "時間沒填好，請重新選一次" }, { status: 400 });
       const { reservation, nextStart } = await loadBilling(id);
@@ -150,6 +149,16 @@ export async function POST(request: NextRequest, { params }: Params) {
         const undo = await db.from("orders").update({ paid_at: null }).eq("id", order.id).eq("paid_at", paidAt);
         if (undo.error) console.error("[checkout] 撤回已收失敗", order.id, undo.error.message);
       };
+      if (wrotePaid) {
+        // 記已收之後資料庫就不准再改餐點（guard trigger 會鎖單並擋下），此時的總額就是最終總額。
+        // 若在「核對金額」到「記已收」之間別台剛好加了餐，總額會不同：撤回並請店員重新確認。
+        const after = await db.from("orders").select("total_amount").eq("id", order.id).single();
+        if (after.error) { await undoPaid(); throw after.error; }
+        if (Number(after.data.total_amount) !== Number(order.total_amount)) {
+          await undoPaid();
+          return NextResponse.json({ error: "剛剛有人加點或改了餐點，金額變了，請再確認一次" }, { status: 409 });
+        }
+      }
       if (auth.reservation!.status !== "completed") {
         let transition: Awaited<ReturnType<typeof transitionReservation>>;
         try {

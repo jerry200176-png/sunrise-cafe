@@ -113,12 +113,12 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
     expect(response.status).toBe(409);
   });
 
-  it("refuses extend before check-in or after payment", async () => {
+  it("refuses extend before check-in but allows it after a food-only settlement", async () => {
     mocks.getReservationForPreorder.mockResolvedValue({ id: "res-1", status: "confirmed", room: { name: "A", branch_id: "b1" } });
     expect((await post({ action: "extend", end_time: at("16:30") })).status).toBe(409);
     mocks.getReservationForPreorder.mockResolvedValue({ id: "res-1", status: "checked_in", room: { name: "A", branch_id: "b1" } });
     order.paid_at = at("15:00");
-    expect((await post({ action: "extend", end_time: at("16:30") })).status).toBe(409);
+    expect((await post({ action: "extend", end_time: at("16:30") })).status).toBe(200);
   });
 
   // 14:00–16:00 weekday at 200/h = 400, food 360, paid deposit 50% of 400 = 200 → due 560
@@ -156,6 +156,18 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
     expect(response.status).toBe(200);
     expect(paidUpdate()).toBeUndefined();
     expect(mocks.transitionReservation).toHaveBeenCalledTimes(1);
+  });
+
+  it("checkout undoes payment when items changed between the amount check and the payment write", async () => {
+    const base = mocks.respond;
+    mocks.respond = (call) => call.table === "orders" && call.ops.some(([op, args]) => op === "select" && args[0] === "total_amount")
+      ? { data: { total_amount: 480 }, error: null } : base(call);
+    const response = await post({ action: "checkout", expected_due: DUE });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatch(/金額變了/);
+    expect(mocks.transitionReservation).not.toHaveBeenCalled();
+    expect(mocks.calls.filter((c) => c.table === "orders"
+      && c.ops.some(([op, args]) => op === "update" && (args[0] as { paid_at?: unknown }).paid_at === null))).toHaveLength(1);
   });
 
   const undoWrites = () => mocks.calls.filter((c) => c.table === "orders"

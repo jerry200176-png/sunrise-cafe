@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/admin-api-auth";
 import { isAdminConfigured, supabaseAdmin } from "@/lib/supabase-admin";
 import { taipeiDateKey, taipeiDayWindow } from "@/lib/admin-today";
-import type { FloorReservation } from "@/lib/room-checkout";
+import { UPCOMING_MINUTES, type FloorReservation } from "@/lib/room-checkout";
 
 export type FloorRoom = {
   id: string;
@@ -56,7 +56,8 @@ export async function GET(request: NextRequest) {
     const roomIds = rooms.map((room) => room.id);
     const [resResult, inRoomResult] = await Promise.all([
       db.from("reservations").select(columns).in("room_id", roomIds)
-        .lt("start_time", window.endIso).gt("end_time", window.startIso)
+        // 往後多抓「即將到店」的時間，午夜前也看得到 00:xx 進場的下一組
+        .lt("start_time", new Date(window.endMs + UPCOMING_MINUTES * 60_000).toISOString()).gt("end_time", window.startIso)
         .not("status", "in", "(cancelled,no_show)").order("start_time"),
       // 已報到還沒結帳的客人不管預約時段（例如超時過了午夜）都還在包廂裡
       db.from("reservations").select(columns).in("room_id", roomIds).eq("status", "checked_in").limit(50),

@@ -113,10 +113,14 @@ export default function FloorConsolePage() {
   const tiles: FloorTile[] = useMemo(() => (data?.rooms ?? []).map((room) => {
     const state = roomFloorState((data?.reservations ?? []).filter((r) => r.room_id === room.id), now);
     const order = state.current ? data?.orders.find((o) => o.reservation_id === state.current!.id) : undefined;
+    // 還沒送的餐跟著包廂算（結帳後客人可能還在等餐），不只看目前這組
+    const roomReservationIds = new Set((data?.reservations ?? []).filter((r) => r.room_id === room.id).map((r) => r.id));
+    const unserved = (data?.orders ?? []).filter((o) => roomReservationIds.has(o.reservation_id))
+      .reduce((sum, o) => sum + o.unserved_count, 0);
     return {
       id: room.id, name: room.name, capacity: room.capacity, state,
       foodTotal: order && !order.paid_at ? order.total_amount : 0,
-      unserved: order?.unserved_count ?? 0,
+      unserved,
     };
   }), [data, now]);
 
