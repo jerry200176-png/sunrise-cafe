@@ -61,9 +61,12 @@ export default function RoomFloorScene({ plan, tiles, slots, selectedId, onSelec
     }),
   ], [plan, slots, tiles]);
 
+  // 沒有超時閃爍時只在有變動（拖曳、資料更新、hover）才重畫，平板放著不會一直耗電
+  const animating = tiles.some((tile) => tile.state.status === "overtime");
+
   return (
     <div className="relative h-[460px] overflow-hidden rounded-[1.5rem] border border-ink/10 bg-gradient-to-b from-paper to-paper-deep sm:h-[540px]">
-      <Canvas shadows={{ type: PCFShadowMap }} dpr={[1, 2]} camera={{ position: [0, 7.4, 6.4], fov: 45 }} aria-label="店內立體圖">
+      <Canvas frameloop={animating ? "always" : "demand"} shadows={{ type: PCFShadowMap }} dpr={[1, 2]} camera={{ position: [0, 7.4, 6.4], fov: 45 }} aria-label="店內立體圖">
         <LabelProjector anchors={anchors} refs={labelRefs} />
         <hemisphereLight args={["#fffaf0", "#d8c8ae", 0.6]} />
         <ambientLight intensity={0.7} />

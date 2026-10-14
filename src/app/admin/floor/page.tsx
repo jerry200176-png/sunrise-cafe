@@ -143,7 +143,7 @@ export default function FloorConsolePage() {
   const leftovers = selected
     ? (data?.reservations ?? []).filter((r) => r.room_id === selected.id && r.id !== selected.state.current?.id
       && (r.status === "checked_in"
-        || (data?.orders ?? []).some((o) => o.reservation_id === r.id && (o.unserved_count > 0 || !o.paid_at))))
+        || (data?.orders ?? []).some((o) => o.reservation_id === r.id && (o.unserved_count > 0 || (!o.paid_at && o.total_amount > 0)))))
     : [];
   const [openReservationId, setOpenReservationId] = useState<string | null>(null);
   useEffect(() => { setOpenReservationId(null); }, [selectedRoom]);

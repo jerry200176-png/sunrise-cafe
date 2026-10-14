@@ -249,4 +249,9 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
     expect(mocks.calls.some(writesPaidAt)).toBe(false);
     expect((await post({ action: "checkout", expected_due: 0, expected_refund: 100 })).status).toBe(200);
   });
+  it("refuses to mark dishes served before a restored group checks in", async () => {
+    mocks.getReservationForPreorder.mockResolvedValue({ id: "res-1", status: "confirmed", room: { name: "A", branch_id: "b1" } });
+    expect((await post({ action: "serve_item", item_id: "i1" })).status).toBe(409);
+    expect(mocks.calls.some((call) => call.table === "order_items")).toBe(false);
+  });
 });

@@ -235,6 +235,9 @@ export async function POST(request: NextRequest, { params }: Params) {
         .eq("order_id", order.id).is("served_at", null).select("id");
       if (result.error) throw result.error;
       if (!result.data.length) return NextResponse.json({ error: "已出餐或找不到此餐點" }, { status: 409 });
+    } else if (body.action === "serve_item" && ["pending", "confirmed"].includes(auth.reservation!.status)) {
+      // 還沒報到（例如取消後又恢復）的組不能先標記出餐
+      return NextResponse.json({ error: "客人到了以後才能標記送餐" }, { status: 409 });
     } else if (body.action === "remove_item" || body.action === "serve_item") {
       if (!body.item_id) return NextResponse.json({ error: "缺少明細 ID" }, { status: 400 });
       if (body.action === "remove_item" && order.paid_at) return NextResponse.json({ error: "已結帳，不能刪除餐點" }, { status: 409 });

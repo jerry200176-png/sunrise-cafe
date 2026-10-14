@@ -204,7 +204,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
                   className="flex h-9 w-9 items-center justify-center rounded-lg border border-ink/15 disabled:opacity-40"><Plus className="h-4 w-4" /></button>
               </div>}
               <span className="w-20 text-right text-sm tabular-nums">{money(Number(item.unit_price) * item.quantity)}</span>
-              {!item.served_at && <button type="button" disabled={busy} onClick={() => act("serve_item", { item_id: item.id })}
+              {!item.served_at && (checkedIn || roomSettled || stayCancelled) && <button type="button" disabled={busy} onClick={() => act("serve_item", { item_id: item.id })}
                 className="h-9 rounded-lg bg-emerald-700/90 px-2 text-xs font-semibold text-white disabled:opacity-40">送了</button>}
             </li>)}
           </ul>
