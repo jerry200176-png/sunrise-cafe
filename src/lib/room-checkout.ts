@@ -118,7 +118,8 @@ export function computeCheckoutBill(input: {
     : Math.round((hourlyRate * (hours * 60 - ext.minutes)) / 60)) : null;
   const roomFee = ext ? Math.max(0, bookedRoomFee! + ext.fee) : Math.round(hourlyRate * hours);
   const foodTotal = Math.round(Number(input.foodTotal) || 0);
-  const depositBase = input.bookedTotal ?? roomFee;
+  // 沒有訂位總價的舊資料：有延長紀錄時用原訂時段的包廂費（不含延長），和 settle_reservation_checkout 一致
+  const depositBase = input.bookedTotal ?? bookedRoomFee ?? roomFee;
   const depositCredit = input.isDepositPaid && depositBase > 0 ? getDepositAmount(depositBase) : 0;
   const foodSettled = Boolean(input.foodSettled);
   const balance = roomFee + (foodSettled ? 0 : foodTotal) - depositCredit;

@@ -240,10 +240,11 @@ BEGIN
     );
     v_room := GREATEST(0, v_booked + v_ext_fee);
     -- 訂金 = 訂位總價的一半（無條件進位），和 getDepositAmount 一致；延長不影響訂金基礎。
-    -- 已退款的訂金（Stripe 退款只改 deposit_status，is_deposit_paid 仍為 true）不能再扣，和 API 一致
+    -- 已退款的訂金（Stripe 退款只改 deposit_status，is_deposit_paid 仍為 true）不能再扣，和 API 一致。
+    -- 沒有 total_price 的舊資料：訂金基礎用原訂時段的包廂費（不含延長），和收訂金時的金額一致
     IF v_res.is_deposit_paid AND v_res.deposit_status IS DISTINCT FROM 'refunded'
-       AND COALESCE(v_res.total_price, v_room) > 0 THEN
-      v_deposit := ceil(COALESCE(v_res.total_price, v_room) * 0.5)::integer;
+       AND COALESCE(v_res.total_price, v_booked) > 0 THEN
+      v_deposit := ceil(COALESCE(v_res.total_price, v_booked) * 0.5)::integer;
     END IF;
   END IF;
 
@@ -256,6 +257,11 @@ BEGIN
      OR COALESCE(p_expected_refund, 0) <> v_refund THEN
     RAISE EXCEPTION 'amount_changed' USING ERRCODE = 'P0001',
       DETAIL = json_build_object('amount_before_discount', v_before, 'refund', v_refund)::text;
+  END IF;
+
+  -- 退錢和打折一樣，只有老闆／店長能做（p_actor_role 由 API 從登入 session 帶入，不吃前端輸入）
+  IF v_refund > 0 AND (p_actor_role IS NULL OR p_actor_role NOT IN ('owner', 'branch_manager')) THEN
+    RAISE EXCEPTION 'refund_not_allowed' USING ERRCODE = 'P0001';
   END IF;
 
   IF v_discount < 0 THEN

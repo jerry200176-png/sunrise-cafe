@@ -280,7 +280,7 @@ describe("POST /api/admin/reservation-orders/[id] — settlement RPCs (#444 migr
     order = { id: "ord-1", paid_at: null, total_amount: 360, order_items: [] };
     nextGroups = [{ id: "res-2", room_id: "room-a", start_time: at("17:00"), status: "confirmed" }];
     mocks.requirePermission.mockResolvedValue(null);
-    mocks.getAdminContext.mockResolvedValue({ user_id: "staff-1", role: "staff" });
+    mocks.getAdminContext.mockResolvedValue({ user_id: "staff-1", role: "staff", branch_ids: ["b1"], legacy: false });
     mocks.getReservationPreorder.mockResolvedValue(null);
     mocks.getReservationForPreorder.mockImplementation(async () => ({ id: "res-1", status, room: { name: "A", branch_id: "b1" } }));
     mocks.rpc.mockResolvedValue({ data: { id: "set-1" }, error: null });
@@ -310,13 +310,36 @@ describe("POST /api/admin/reservation-orders/[id] — settlement RPCs (#444 migr
   });
 
   it("passes a manager discount through and charges the discounted amount", async () => {
-    mocks.getAdminContext.mockResolvedValue({ user_id: "mgr-1", role: "branch_manager" });
+    mocks.getAdminContext.mockResolvedValue({ user_id: "mgr-1", role: "branch_manager", branch_ids: ["b1"], legacy: false });
     const response = await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "card",
       discount_amount: 60, discount_reason: "熟客" });
     expect(response.status).toBe(200);
     expect(mocks.rpc).toHaveBeenCalledWith("settle_reservation_checkout", expect.objectContaining({
       p_expected_before_discount: 560, p_amount_collected: 500, p_discount_amount: 60, p_discount_reason: "熟客", p_actor_role: "branch_manager",
     }));
+  });
+
+  it.each([
+    ["staff", { user_id: "staff-1", role: "staff", branch_ids: ["b1"], legacy: false }],
+    ["a manager of another branch", { user_id: "mgr-2", role: "branch_manager", branch_ids: ["b2"], legacy: false }],
+  ])("refuses a discount from %s, using the session role (not the request body)", async (_who, ctx) => {
+    mocks.getAdminContext.mockResolvedValue(ctx);
+    const response = await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "cash",
+      discount_amount: 60, discount_reason: "熟客", role: "owner", p_actor_role: "owner" });
+    expect(response.status).toBe(403);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("only lets an owner or the branch's manager hand back a refund", async () => {
+    // 預約 400、訂金 200；提早離開紀錄 −350 → 包廂費 50，沒有餐費 → 要退 150
+    extensions = [{ minutes: -90, fee: -350 }];
+    order = { ...order, total_amount: 0 };
+    const refundAt = { action: "checkout", expected_due: 0, expected_refund: 150, payment_method: "cash" };
+    expect((await post(refundAt)).status).toBe(403);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    mocks.getAdminContext.mockResolvedValue({ user_id: "own-1", role: "owner", branch_ids: null, legacy: false });
+    expect((await post(refundAt)).status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith("settle_reservation_checkout", expect.objectContaining({ p_expected_refund: 150, p_actor_role: "owner" }));
   });
 
   it("requires a payment method when money changes hands", async () => {

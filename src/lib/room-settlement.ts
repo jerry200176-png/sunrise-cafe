@@ -16,6 +16,11 @@ export type PaymentMethod = (typeof PAYMENT_METHODS)[number]["value"];
 /** 可以打折的角色（和 settle_reservation_checkout 裡的檢查一致） */
 export const DISCOUNT_ROLES = ["owner", "branch_manager"] as const;
 
+/** 打折、退錢只限老闆／店長，而且（店長）只能處理自己分店的訂位。角色一律來自登入 session。 */
+export function canAdjustMoney(role: string | null | undefined, hasBranchAccess: boolean): boolean {
+  return hasBranchAccess && (DISCOUNT_ROLES as readonly string[]).includes(role ?? "");
+}
+
 export function isPaymentMethod(value: unknown): value is PaymentMethod {
   return PAYMENT_METHODS.some((method) => method.value === value);
 }
@@ -38,6 +43,7 @@ const MESSAGES: Record<string, string> = {
   not_arrived: "客人到了以後才能結帳",
   nothing_to_settle: "這組沒有要收的餐費",
   discount_not_allowed: "只有老闆或店長可以打折",
+  refund_not_allowed: "退錢要請老闆或店長操作",
   discount_reason_required: "打折要填原因",
   discount_too_large: "折扣不能比要收的金額多",
   invalid_discount: "折扣金額不對",

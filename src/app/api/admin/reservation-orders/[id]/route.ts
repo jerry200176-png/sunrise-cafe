@@ -5,7 +5,8 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { computeCheckoutBill, newEndProblem, nextBlockingStart } from "@/lib/room-checkout";
 import { isPostgresExclusionViolation } from "@/lib/slot-conflict";
 import { afterSettledComplete, transitionHttp, transitionReservation } from "@/lib/reservation-lifecycle";
-import { isPaymentMethod, isSettlementSchemaMissing, settlementFailure } from "@/lib/room-settlement";
+import { canAdjustMoney, isPaymentMethod, isSettlementSchemaMissing, settlementFailure } from "@/lib/room-settlement";
+import { canAccessBranch, type AdminContext } from "@/lib/rbac";
 import { logOps } from "@/lib/ops-log";
 
 type Params = { params: Promise<{ id: string }> };
@@ -87,13 +88,18 @@ async function updateStatus(orderId: string) {
 /** 呼叫 settle_reservation_checkout：expected 是店員畫面上（打折前）的應收與應退，伺服器會重算核對。 */
 async function settle(
   id: string,
+  branchId: string,
   body: { payment_method?: string; discount_amount?: number; discount_reason?: string | null },
   expectedBeforeDiscount: number,
   expectedRefund: number,
-  ctx: { user_id?: string | null; role?: string | null }
+  ctx: AdminContext
 ): Promise<{ id: string } | { response: NextResponse }> {
   const discount = body.discount_amount ?? 0;
   if (!Number.isInteger(discount) || discount < 0) return { response: NextResponse.json({ error: "折扣金額不對" }, { status: 400 }) };
+  // 角色只看登入 session（ctx），前端送什麼都不採信；資料庫函式會再檢查一次
+  if ((discount > 0 || expectedRefund > 0) && !canAdjustMoney(ctx.role, canAccessBranch(ctx, branchId))) {
+    return { response: NextResponse.json({ error: discount > 0 ? "只有老闆或店長可以打折" : "退錢要請老闆或店長操作" }, { status: 403 }) };
+  }
   const collected = Math.max(0, expectedBeforeDiscount - discount);
   const method = body.payment_method ?? null;
   if ((collected > 0 || expectedRefund > 0) && !isPaymentMethod(method)) {
@@ -214,7 +220,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       const ctx = await getAdminContext(request);
       if (settlementsReady) {
         if (auth.reservation!.status !== "checked_in") return NextResponse.json({ error: "這組已經結過帳了，請重新整理看結果" }, { status: 409 });
-        const settled = await settle(id, body, due ?? 0, refund, ctx);
+        const settled = await settle(id, auth.branchId!, body, due ?? 0, refund, ctx);
         if ("response" in settled) return settled.response;
         // 訂位已在 RPC 裡轉成 completed；附帶動作失敗不影響已結帳
         try {
@@ -288,7 +294,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       const food = Math.round(Number(order.total_amount) || 0);
       const ctx = await getAdminContext(request);
       // 舊點餐頁的「補記」按鈕沒有付款方式可選：記成「其他」
-      const settled = await settle(id, { ...body, payment_method: body.payment_method ?? "other" }, food, 0, ctx);
+      const settled = await settle(id, auth.branchId!, { ...body, payment_method: body.payment_method ?? "other" }, food, 0, ctx);
       if ("response" in settled) return settled.response;
     } else if (body.action === "settle") {
       if (!order.paid_at) {
