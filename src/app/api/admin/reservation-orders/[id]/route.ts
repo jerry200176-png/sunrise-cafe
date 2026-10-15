@@ -226,6 +226,14 @@ export async function POST(request: NextRequest, { params }: Params) {
       if (body.action === "add_items") {
         const result = await db.from("order_items").insert(changes.map((item) => ({ order_id: order.id, ...item })));
         if (result.error) throw result.error;
+        // The insert is committed. A refresh failure must not invite another add.
+        // This cannot deduplicate a retry if the client never receives the response.
+        try {
+          await updateStatus(order.id);
+          return NextResponse.json({ ok: true, ...(await load(id)) });
+        } catch {
+          return NextResponse.json({ ok: true, committed: true, refresh_failed: true });
+        }
       } else {
         if (!body.item_id) return NextResponse.json({ error: "缺少明細 ID" }, { status: 400 });
         const result = await db.from("order_items").update(changes[0]).eq("id", body.item_id).eq("order_id", order.id).is("served_at", null).select("id");
