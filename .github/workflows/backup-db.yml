@@ -8,8 +8,9 @@
 #   GitHub; the Founder keeps it offline.
 # - Fails closed: no recipient (or an invalid one) -> the job stops before any DB access.
 # - The repo is PUBLIC, so the DB URL is never passed on a command line and never
-#   echoed: it is parsed in-process, every part is ::add-mask::'ed, and libpq gets
-#   PGHOST/PGPORT/PGUSER/PGDATABASE/PGSSLMODE plus a 0600 PGPASSFILE in RUNNER_TEMP.
+#   echoed: it is parsed in-process, the URL, password, host and (non-generic) user are
+#   ::add-mask::'ed, and libpq gets PGHOST/PGPORT/PGUSER/PGDATABASE/PGSSLMODE plus a 0600
+#   PGPASSFILE in RUNNER_TEMP.
 #   psql/pg_dump stderr goes through a redaction filter.
 # - The plaintext dump exists only under $RUNNER_TEMP (mode 0700) and is deleted
 #   before upload (runners are ephemeral; shred is best effort on journaled fs).
@@ -95,13 +96,25 @@ jobs:
           set -euo pipefail
           umask 077
           # Never echo the value or any part of it. Mask first, validate after.
+          # The runner unescapes %25/%0D/%0A in command data, so escape them to make
+          # the registered mask match the literal value.
           mask() {
             local v="$1" line
             [ -n "$v" ] || return 0
             while IFS= read -r line; do
+              line="${line//%/%25}"
+              line="${line//$'\r'/%0D}"
               if [ -n "$line" ]; then printf '::add-mask::%s\n' "$line"; fi
             done <<< "$v"
             return 0
+          }
+          # A bare common user name (direct connection) would blank out every
+          # "postgres" in the log; the pooler form postgres.<ref> is masked.
+          mask_user() {
+            case "$1" in
+              postgres|admin|root) return 0 ;;
+            esac
+            mask "$1"
           }
           raw="${SUPABASE_DB_URL:-}"
           mask "$raw"
@@ -127,7 +140,7 @@ jobs:
           host="${BASH_REMATCH[4]}"
           port="${BASH_REMATCH[6]:-5432}"
           db_enc="${BASH_REMATCH[8]:-postgres}"
-          mask "$user_enc"; mask "$pw_enc"; mask "$host"
+          mask_user "$user_enc"; mask "$pw_enc"; mask "$host"
           pct_ok='^([^%]|%[0-9A-Fa-f]{2})*$'
           for part in "$user_enc" "$pw_enc" "$db_enc"; do
             if ! [[ "$part" =~ $pct_ok ]]; then
@@ -142,7 +155,7 @@ jobs:
           user="$(pct_decode "$user_enc")"
           pw="$(pct_decode "$pw_enc")"
           db="$(pct_decode "$db_enc")"
-          mask "$user"; mask "$pw"
+          mask_user "$user"; mask "$pw"
           if [[ "$user$pw$db" == *[[:cntrl:]]* ]]; then
             echo "::error::DB_URL_BAD_ENCODING: decoded SUPABASE_DB_URL contains control characters. Value not shown."
             exit 1

@@ -94,6 +94,29 @@ describe("backup-db.yml contract", () => {
     expect(dump?.run).toMatch(/pgrun "\$PG_BIN\/psql"/);
   });
 
+  it("always removes the passfile after the dump, even on failure", () => {
+    const dump = stepIndex((s) => s.name.startsWith("Dump"));
+    const rm = stepIndex((s) => s.name === "Remove DB credentials file");
+    expect(rm).toBeGreaterThan(dump);
+    expect(steps[rm].text).toMatch(/^ {8}if: always\(\)$/m);
+    expect(steps[rm].run).toContain('rm -f "$RUNNER_TEMP/backup.pgpass"');
+  });
+
+  it("routes every psql/pg_dump call through pgrun (stderr redaction)", () => {
+    for (const s of steps) {
+      const lines = s.run.split("\n");
+      for (const l of lines) {
+        if (/\$PG_BIN\/(psql|pg_dump)\b/.test(l)) {
+          expect(l, `${s.name}: ${l.trim()}`).toMatch(/pgrun "\$PG_BIN\/(psql|pg_dump)"/);
+        }
+      }
+      for (const l of lines.filter((x) => !x.trim().startsWith("#"))) {
+        // no bare psql/pg_dump invocation that bypasses pgrun
+        expect(l, `${s.name}: ${l.trim()}`).not.toMatch(/(^|\$\(|[;|&]\s*)\s*(psql|pg_dump)\s/);
+      }
+    }
+  });
+
   it("uploads only ciphertext, SHA256SUMS and manifest.json, kept >= 28 days", () => {
     const allow = stepIndex((s) => s.name.startsWith("Refuse to upload"));
     const upload = stepIndex((s) => s.text.includes("actions/upload-artifact@"));
@@ -167,11 +190,11 @@ describe.skipIf(isWindows)("backup-db.yml prepare step (no credential leak)", ()
     expect(r.status).toBe(0);
     expect(visible(r.out)).not.toContain(SECRET);
     expect(visible(r.out)).not.toContain("pooler.supabase.com");
-    expect(r.out).toContain(`::add-mask::${SECRET}%40x`);
+    expect(r.out).toContain(`::add-mask::${SECRET}%2540x`);
     expect(r.out).toContain(`::add-mask::${SECRET}@x`);
     expect(r.out).toContain("::add-mask::postgres.abcref");
     expect(r.out).toContain("::add-mask::aws-0-ap.pooler.supabase.com");
-    expect(r.out).toContain(`::add-mask::${good}`);
+    expect(r.out).toContain(`::add-mask::${good.replace(/%/g, "%25")}`);
     expect(r.githubEnv).not.toContain(SECRET);
     expect(r.githubEnv).toContain("PGHOST=aws-0-ap.pooler.supabase.com");
     expect(r.githubEnv).toContain("PGUSER=postgres.abcref");
@@ -187,6 +210,20 @@ describe.skipIf(isWindows)("backup-db.yml prepare step (no credential leak)", ()
     const r = runPrepare(`postgresql://u:a%3Ab%5Cc${SECRET}@h:6543/db`);
     expect(r.status).toBe(0);
     expect(r.passfileText).toBe(`h:6543:db:u:a\\:b\\\\c${SECRET}\n`);
+  });
+
+  it("escapes % and CR in mask values and skips a bare 'postgres' user", () => {
+    const r = runPrepare(`postgresql://postgres:a%25b${SECRET}@db.example.test:5432/postgres`);
+    expect(r.status).toBe(0);
+    // encoded form a%25b... must be registered literally (runner unescapes %25)
+    expect(r.out).toContain(`::add-mask::a%2525b${SECRET}`);
+    // decoded form a%b...
+    expect(r.out).toContain(`::add-mask::a%25b${SECRET}`);
+    expect(r.out).not.toMatch(/^::add-mask::postgres$/m);
+    expect(visible(r.out)).not.toContain(SECRET);
+    for (const line of r.out.split("\n").filter((l) => l.startsWith("::add-mask::"))) {
+      expect(line.slice("::add-mask::".length)).not.toMatch(/%(?!25|0D)/);
+    }
   });
 
   it.each([

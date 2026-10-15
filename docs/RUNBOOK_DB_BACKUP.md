@@ -49,7 +49,10 @@
    ```
    腳本會：
    1. `sha256sum -c SHA256SUMS`，用私鑰 `age -d` 解密到暫存目錄；
-   2. 啟動拋棄式 `postgres:17` 容器（或用 `LOCAL_DSN=` 指定本機拋棄式 DB，client 需 ≥ 17）；
+   2. 啟動拋棄式 `postgres:17` 容器（預設，最安全）；或用 `LOCAL_DSN=` 指定本機**空的**拋棄式 DB（client 需 ≥ 17）。
+      `LOCAL_DSN` 模式會 `DROP SCHEMA public CASCADE`，所以腳本只接受 loopback（`127.0.0.1`／`localhost`／`::1`）
+      或 Unix socket、拒絕 `service=`／`hostaddr=`、清掉呼叫端的 `PG*` 環境變數、必須設
+      `I_UNDERSTAND_THIS_DROPS_LOCAL_DATA=1`，而且目標 `public` 已有任何資料表就拒絕（每次演練用新的空 DB）；
    3. 先建立 Supabase 角色 `anon`／`authenticated`／`service_role`、`extensions` schema、
       **`btree_gist`**（`reservations_no_overlap_excl` 防重複訂位需要），以及 `meta.tsv` 記錄的其他 extension
       （Supabase 專屬的會警告略過）；
@@ -81,7 +84,7 @@ artifact 保留 35 天（約 5 份週備份）。建議每月把一份 `.age` �
 | `BACKUP_AGE_RECIPIENT is missing or empty` | 第 2 步沒做，或放到 Secrets 而不是 Variables |
 | `age rejected BACKUP_AGE_RECIPIENT` | 貼錯值；必須是完整 `age1…` 一行 |
 | `DB_URL_PLACEHOLDER` | secret 內容是範本（含 `[region]` 等），見第 0 步 |
-| `DB_URL_MALFORMED`／`DB_URL_BAD_ENCODING` | secret 不是 `postgresql://user:password@host:port/db`，或密碼中的特殊字元沒有正確 percent-encode（例如 `@` → `%40`） |
+| `DB_URL_MALFORMED`／`DB_URL_BAD_ENCODING` | secret 不是 `postgresql://user:password@host:port/db`，或密碼中的特殊字元沒有正確 percent-encode（例如 `@` → `%40`）。主機必須是名稱（Supabase pooler 都是），IPv6 位址字面值（`[…]`）不支援 |
 | `PG_CLIENT_FAILED` | 連線或 dump 失敗；上方 stderr 已遮蔽 URL／主機／使用者。常見原因：Supabase 免費方案閒置 7 天暫停（到 Dashboard 恢復後重跑）、用了直連 IPv6 主機 |
 | `Server major N is newer than pg_dump 17` | Supabase 升級了 Postgres；把 workflow 的 `PG_CLIENT_MAJOR` 改成 N |
 | 演練 `reservations_no_overlap_excl missing` | `btree_gist` 沒建好，或 dump 不完整；不得當作通過 |
@@ -97,7 +100,7 @@ artifact 保留 35 天（約 5 份週備份）。建議每月把一份 `.age` �
 目前 job 用的是 repo 層級、具 migration 權限的 `SUPABASE_DB_URL`。把它單獨移到某個 environment 並不會降低暴露
 （同一個 secret 仍在 repo 層級供 `production-deploy-migrate.yml` 使用）。真正的改善是：
 建立唯讀的 `backup_ro` 角色（`pg_read_all_data` 或 `SELECT` + `BYPASSRLS`，需要 SQL），把它的 URL 放進只允許 `main` 的
-`db-backup` environment secret，再讓這個 job 加上 `environment: db-backup`。
+`db-backup` environment secret，再讓這個 job 加上 `environment: db-backup`。追蹤：#461。
 
 ## 回滾
 
