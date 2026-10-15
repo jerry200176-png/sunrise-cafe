@@ -42,6 +42,10 @@ function builder(tableName: string) {
       if (tableName === "menu_items") {
         state.catalogFilters = filters;
         const ids = (filters.find(([column]) => column === "id")?.[1] ?? []) as string[];
+        if (ids.some((id) => !/^[0-9a-f-]{36}$/i.test(id))) {
+          resolve({ data: null, error: { code: "22P02", message: "invalid input syntax for type uuid" } });
+          return;
+        }
         resolve({ data: state.catalog.filter((row) => ids.includes(row.id as string)), error: null });
         return;
       }
@@ -54,6 +58,13 @@ function builder(tableName: string) {
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ from: (name: string) => builder(name) }) }));
 
 import { POST } from "./route";
+
+const LATTE = "11111111-1111-4111-8111-111111111111";
+const CAKE = "22222222-2222-4222-8222-222222222222";
+const SOLDOUT = "33333333-3333-4333-8333-333333333333";
+const GHOST = "44444444-4444-4444-8444-444444444444";
+const OTHER_BRANCH = "55555555-5555-4555-8555-555555555555";
+
 
 const sizeOptions = [
   { id: "opt-s", option_group: "尺寸", option_name: "小", price_delta: 0, set_id: "set-size", set: { min_select: 1, max_select: 1 } },
@@ -72,7 +83,7 @@ function post(body: unknown) {
 
 function cartLine(overrides: Row = {}) {
   return {
-    menuItem: { id: "latte", name: "拿鐵", price: 120 },
+    menuItem: { id: LATTE, name: "拿鐵", price: 120 },
     quantity: 2,
     selectedOptions: [{ group: "尺寸", name: "大", delta: 20 }],
     specialNotes: "少冰",
@@ -84,9 +95,9 @@ describe("POST /api/orders server-side pricing (#434)", () => {
   beforeEach(() => {
     state.table = { id: "table-1", branch_id: "branch-1", is_active: true };
     state.catalog = [
-      { id: "latte", name: "拿鐵", price: 120, is_available: true, options: sizeOptions },
-      { id: "cake", name: "蛋糕", price: "90", is_available: true, options: [] },
-      { id: "soldout", name: "售完", price: 50, is_available: false, options: [] },
+      { id: LATTE, name: "拿鐵", price: 120, is_available: true, options: sizeOptions },
+      { id: CAKE, name: "蛋糕", price: "90", is_available: true, options: [] },
+      { id: SOLDOUT, name: "售完", price: 50, is_available: false, options: [] },
     ];
     state.catalogFilters = [];
     state.orderInserts = [];
@@ -94,13 +105,13 @@ describe("POST /api/orders server-side pricing (#434)", () => {
   });
 
   it("prices from the menu and keeps the response shape", async () => {
-    const res = await post({ tableToken: "qr-1", items: [cartLine(), cartLine({ menuItem: { id: "cake" }, quantity: 1, selectedOptions: [] })] });
+    const res = await post({ tableToken: "qr-1", items: [cartLine(), cartLine({ menuItem: { id: CAKE }, quantity: 1, selectedOptions: [] })] });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, orderId: "order-1" });
     expect(state.orderInserts[0]).toMatchObject({ branch_id: "branch-1", table_id: "table-1", status: "pending", total_amount: 2 * 140 + 90 });
     expect(state.itemInserts[0]).toEqual([
-      expect.objectContaining({ order_id: "order-1", menu_item_id: "latte", item_name: "拿鐵", quantity: 2, unit_price: 140, selected_options: [{ group: "尺寸", name: "大", delta: 20 }], special_notes: "少冰" }),
-      expect.objectContaining({ menu_item_id: "cake", unit_price: 90, selected_options: null }),
+      expect.objectContaining({ order_id: "order-1", menu_item_id: LATTE, item_name: "拿鐵", quantity: 2, unit_price: 140, selected_options: [{ group: "尺寸", name: "大", delta: 20 }], special_notes: "少冰" }),
+      expect.objectContaining({ menu_item_id: CAKE, unit_price: 90, selected_options: null }),
     ]);
     // 只查這張桌子所屬分店的菜單
     expect(state.catalogFilters).toContainEqual(["branch_id", "branch-1"]);
@@ -109,7 +120,7 @@ describe("POST /api/orders server-side pricing (#434)", () => {
   it("ignores a tampered client price, name, and option delta", async () => {
     const res = await post({
       tableToken: "qr-1",
-      items: [cartLine({ menuItem: { id: "latte", name: "免費咖啡", price: 1 }, selectedOptions: [{ group: "尺寸", name: "大", delta: -500 }] })],
+      items: [cartLine({ menuItem: { id: LATTE, name: "免費咖啡", price: 1 }, selectedOptions: [{ group: "尺寸", name: "大", delta: -500 }] })],
     });
     expect(res.status).toBe(200);
     expect(state.orderInserts[0].total_amount).toBe(280);
@@ -117,9 +128,9 @@ describe("POST /api/orders server-side pricing (#434)", () => {
   });
 
   it.each([
-    ["unknown item", [cartLine({ menuItem: { id: "ghost", price: 1 } })], /無法點餐/],
-    ["unavailable item", [cartLine({ menuItem: { id: "soldout", price: 50 }, selectedOptions: [] })], /無法點餐/],
-    ["item from another branch (filtered out of catalog)", [cartLine({ menuItem: { id: "other-branch-item" } })], /無法點餐/],
+    ["unknown item", [cartLine({ menuItem: { id: GHOST, price: 1 } })], /無法點餐/],
+    ["unavailable item", [cartLine({ menuItem: { id: SOLDOUT, price: 50 }, selectedOptions: [] })], /無法點餐/],
+    ["item from another branch (filtered out of catalog)", [cartLine({ menuItem: { id: OTHER_BRANCH } })], /無法點餐/],
     ["zero quantity", [cartLine({ quantity: 0 })], /數量/],
     ["negative quantity", [cartLine({ quantity: -3 })], /數量/],
     ["fractional quantity", [cartLine({ quantity: 1.5 })], /數量/],
@@ -128,12 +139,32 @@ describe("POST /api/orders server-side pricing (#434)", () => {
     ["unknown option", [cartLine({ selectedOptions: [{ group: "尺寸", name: "特大", delta: 0 }] })], /選項已變更/],
     ["missing required option", [cartLine({ selectedOptions: [] })], /請選擇/],
     ["missing menuItem id", [{ quantity: 1, selectedOptions: [] }], /格式不正確/],
+    ["non-UUID item id (would be Postgres 22P02 / 500)", [cartLine({ menuItem: { id: "latte" } })], /無法點餐/],
+    ["non-UUID item id with SQL-ish text", [cartLine({ menuItem: { id: "x') or 1=1--" } })], /無法點餐/],
+    ["duplicated option", [cartLine({ selectedOptions: [{ group: "尺寸", name: "大", delta: 20 }, { group: "尺寸", name: "大", delta: 20 }] })], /重複/],
+    ["option belonging to another item", [cartLine({ menuItem: { id: CAKE }, selectedOptions: [{ group: "尺寸", name: "大", delta: 20 }] })], /選項已變更/],
   ])("rejects %s with 400 and writes nothing", async (_label, items, message) => {
     const res = await post({ tableToken: "qr-1", items });
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(message);
     expect(state.orderInserts).toHaveLength(0);
     expect(state.itemInserts).toHaveLength(0);
+  });
+
+  it("ignores injected total, discount and unit_price fields", async () => {
+    const res = await post({
+      tableToken: "qr-1",
+      total_amount: 1,
+      total: 1,
+      discount: 999,
+      items: [{ ...cartLine(), unit_price: 1, total_amount: 1, discount: 999, item_name: "免費" }],
+    });
+    expect(res.status).toBe(200);
+    expect(state.orderInserts[0].total_amount).toBe(280);
+    expect(state.orderInserts[0]).not.toHaveProperty("discount");
+    expect(state.itemInserts[0][0]).toMatchObject({ item_name: "拿鐵", unit_price: 140 });
+    expect(state.itemInserts[0][0]).not.toHaveProperty("discount");
+    expect(state.itemInserts[0][0]).not.toHaveProperty("total_amount");
   });
 
   it("rejects too many lines, an empty cart, and malformed JSON", async () => {

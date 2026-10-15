@@ -18,7 +18,7 @@ Status: **app fix in this PR; SQL prepared only, not applied.** Applying the SQL
 - `src/lib/table-order-pricing.ts`: pure parsing + pricing. The cart is read only as
   "menu item id, quantity, option group/name, note". Name, base price and option price
   are loaded from `menu_items` / `menu_item_options` of the table's own branch.
-- `POST /api/orders` returns **400** with a clear message for: unknown item, item of another
+- `POST /api/orders` returns **400** with a clear message for: non-UUID item id (was a 500), unknown item, item of another
   branch, unavailable item, unknown option, option rule broken, quantity that is not an integer
   1–99, more than 50 lines, malformed body. Table checks (404 unknown, 403 inactive) are unchanged.
 - Response shape unchanged: `{ ok: true, orderId }`.
@@ -56,9 +56,31 @@ Status: **app fix in this PR; SQL prepared only, not applied.** Applying the SQL
      and prints;
    - a tampered request (edited price) is accepted with the menu price, and an unknown item
      gets a 400.
-2. Founder runs `supabase/migration-orders-anon-insert-revoke.sql` in the Supabase SQL Editor
+2. **Mandatory pre-apply snapshot (read-only).** In the Supabase SQL Editor, immediately before
+   applying, run the queries below and store the full output with the change record (attach it
+   to the PR / issue #434, or the Founder's change log). Do not apply without it. If the output
+   differs from what `migration-booking-meals.sql` defines (the two `anon_insert_*` policies with
+   the shown `WITH CHECK`, INSERT granted to anon/authenticated), stop and re-review: the rollback
+   must then be rewritten from the snapshot so it restores exactly what was there.
+   ```sql
+   -- policies
+   SELECT schemaname, tablename, policyname, permissive, roles, cmd, qual, with_check
+   FROM pg_policies
+   WHERE schemaname = 'public' AND tablename IN ('orders','order_items')
+   ORDER BY tablename, policyname;
+   -- table grants
+   SELECT table_name, grantee, privilege_type, is_grantable
+   FROM information_schema.role_table_grants
+   WHERE table_schema = 'public' AND table_name IN ('orders','order_items')
+   ORDER BY table_name, grantee, privilege_type;
+   -- RLS flags
+   SELECT relname, relrowsecurity, relforcerowsecurity
+   FROM pg_class WHERE oid IN ('public.orders'::regclass, 'public.order_items'::regclass);
+   ```
+3. Founder runs `supabase/migration-orders-anon-insert-revoke.sql` in the Supabase SQL Editor
    (it wraps itself in `BEGIN/COMMIT`). Check the file's sha256 first.
-3. Verify in the SQL Editor:
+4. Verify in the SQL Editor (and re-run the step 2 queries; the only differences allowed are the
+   two dropped `anon_insert_*` policies and the INSERT grants for anon/authenticated):
    ```sql
    SELECT policyname, cmd, roles FROM pg_policies WHERE tablename IN ('orders','order_items') ORDER BY 1;
    -- expect no INSERT policy for anon
@@ -76,7 +98,7 @@ Do not probe by inserting into production with the anon key; the SQL checks abov
 ## Rollback
 
 - App: revert the PR (no schema dependency; the old route still works with or without the SQL).
-- SQL: run `supabase/rollbacks/orders-anon-insert-revoke.sql`
+- SQL: compare the step 2 snapshot with the rollback file first; if they match, run `supabase/rollbacks/orders-anon-insert-revoke.sql`
   (sha256 `efe08597fe59b3afd8e2503ef76148dff2290fe728eff50b7d03c63e690d180a`). It restores the
   INSERT grants and recreates the two policies exactly as `migration-booking-meals.sql` defined
   them, deletes the ledger row, and touches no order data. Only needed if some direct anon
@@ -91,4 +113,7 @@ Do not probe by inserting into production with the anon key; the SQL checks abov
 - `scripts/test-orders-rls-sql.sh` runs `supabase/tests/orders-anon-insert-revoke.test.sql` on a
   throwaway local PostgreSQL: anon insert works before, is rejected after, service_role still
   inserts, anon SELECT unchanged, idempotent rerun, rollback restores, re-apply works.
-  Not wired into CI here to avoid editing `ci.yml`, which PR #448 changes.
+  Runs in CI through `npm test` via `src/lib/orders-rls-sql.pg.test.ts` (GitHub ubuntu runners ship
+  PostgreSQL binaries; `ci.yml` is not edited, since PR #448 changes it). Locally it skips when
+  `initdb` is missing or when running as root; under GitHub Actions a missing PostgreSQL fails
+  the test instead of skipping.

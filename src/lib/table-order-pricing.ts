@@ -10,6 +10,8 @@ import { checkOptionSelection, type RuleOption } from "@/lib/option-sets";
 export const MAX_ORDER_LINES = 50;
 export const MAX_LINE_QUANTITY = 99;
 const MAX_NOTE_LENGTH = 200;
+// menu_items.id 是 uuid；非 uuid 丟進 .in() 會讓 Postgres 回 22P02（500），先在這裡擋成 400。
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type CatalogOption = RuleOption & { option_name: string; price_delta: number | string | null };
 
@@ -50,8 +52,8 @@ export function parseOrderLines(raw: unknown): Result<ParsedLine[]> {
   for (const entry of raw) {
     if (!isRecord(entry) || !isRecord(entry.menuItem)) return { ok: false, error: "訂單資料格式不正確" };
     const menuItemId = entry.menuItem.id;
-    if (typeof menuItemId !== "string" || menuItemId.length === 0 || menuItemId.length > 64) {
-      return { ok: false, error: "訂單資料格式不正確" };
+    if (typeof menuItemId !== "string" || !UUID_RE.test(menuItemId)) {
+      return { ok: false, error: "部分餐點目前無法點餐" };
     }
     const quantity = entry.quantity;
     if (typeof quantity !== "number" || !Number.isInteger(quantity) || quantity < 1 || quantity > MAX_LINE_QUANTITY) {
