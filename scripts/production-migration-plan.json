@@ -5,6 +5,7 @@
     { "version": "20260710-phase7-rbac", "file": "migration-phase7-rbac.sql", "execution": "manual_sql_editor" },
     { "version": "20260713-ops-events", "file": "migration-ops-events.sql", "runner": "scripts/apply-migration-ops-events.mjs", "phase": "postdeploy" },
     { "version": "20260715-rls-catalog-read-only", "file": "migration-rls-catalog-read-only.sql", "execution": "manual_sql_editor" },
+    { "version": "20261015-orders-anon-insert-revoke", "file": "migration-orders-anon-insert-revoke.sql", "execution": "manual_sql_editor" },
     { "file": "migration-reservations-payment-request-sent.sql", "runner": "scripts/apply-migration-payment-request-sent.mjs", "execution": "workflow_untracked_contract", "phase": "postdeploy" },
     { "version": "20260813-line-pay-payments", "file": "migration-line-pay-payments.sql", "runner": "scripts/apply-migration-line-pay-safety.mjs", "phase": "postdeploy" },
     { "version": "20260813-line-pay-safety", "file": "migration-line-pay-safety.sql", "runner": "scripts/apply-migration-line-pay-safety.mjs", "phase": "postdeploy" },
