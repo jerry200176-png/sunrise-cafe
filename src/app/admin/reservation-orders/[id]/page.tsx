@@ -53,7 +53,9 @@ export default function ReservationOrderPage() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(friendlyMessage(data.error, response.status));
-      await load();
+      // 加點已成功，重新載入失敗不能保留選餐讓店員重複送出。
+      if (action === "add_items") await load().catch(() => undefined);
+      else await load();
       return true;
     } catch (cause) { setError(thrownMessage(cause)); return false; }
     finally { setBusy(false); }
