@@ -83,6 +83,8 @@ CREATE TABLE IF NOT EXISTS reservation_settlements (
         AND (change_given = 0 OR (length(btrim(COALESCE(change_given_by, ''))) > 0
                                   AND length(btrim(COALESCE(change_given_by_role, ''))) > 0)))
   ),
+  -- 現金、有收錢：一定要記客人給了多少（Founder A6-7）。0 元結帳（none）與純退款（amount_collected = 0）不在此限
+  CHECK (payment_method <> 'cash' OR amount_collected = 0 OR cash_tendered IS NOT NULL),
   CHECK (room_fee = GREATEST(0, booked_room_fee + extension_fee) OR kind = 'food_only'),
   CHECK (kind = 'full' OR (room_fee = 0 AND deposit_credit = 0 AND extension_fee = 0)),
   CHECK (amount_due = amount_before_discount - discount_amount),
@@ -967,6 +969,11 @@ BEGIN
   END IF;
   IF (v_due > 0 OR v_refund > 0) AND COALESCE(p_payment_method, 'none') = 'none' THEN
     RAISE EXCEPTION 'payment_method_required' USING ERRCODE = 'P0001';
+  END IF;
+
+  -- 現金、有要收的錢：客人給的現金必填（Founder A6-7）
+  IF p_cash_tendered IS NULL AND p_payment_method = 'cash' AND v_due > 0 THEN
+    RAISE EXCEPTION 'cash_tendered_required' USING ERRCODE = 'P0001';
   END IF;
 
   -- 現金找零（Founder D6）：任何有結帳權限的店員都能做，但只限「現金、有收錢」的結帳。

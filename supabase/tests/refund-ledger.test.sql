@@ -61,8 +61,10 @@ $$;
 CREATE FUNCTION t.settle(p_res uuid, p_before integer, p_refund integer DEFAULT 0, p_method text DEFAULT 'cash',
                          p_role text DEFAULT 'owner', p_branches uuid[] DEFAULT NULL, p_discount integer DEFAULT 0)
 RETURNS reservation_settlements LANGUAGE sql AS $$
+  -- 現金有收錢時客人給的現金必填（A6-7）：這裡模擬剛好付清
   SELECT * FROM settle_reservation_checkout(p_res, p_before, p_refund, p_method, p_before - p_discount, p_discount,
-    CASE WHEN p_discount > 0 THEN '熟客' END, 'user-1', p_role, p_branches)
+    CASE WHEN p_discount > 0 THEN '熟客' END, 'user-1', p_role, p_branches,
+    CASE WHEN p_method = 'cash' AND p_before - p_discount > 0 THEN p_before - p_discount END)
 $$;
 
 -- 現金找零（Founder D6）：客人付的現金 p_tendered；找零由伺服器算
@@ -444,6 +446,27 @@ BEGIN
       change_given_by_role, change_given_at)
     VALUES (%L, 'food_only', 0, 100, 0, 100, 100, 100, 'cash', 100001, 100001 - 100, 'u', 'staff', now())$q$, r), '%check constraint%',
     'D6i table rejects a tendered amount above 100000');
+
+  -- D6k 現金、有要收的錢：客人給的現金必填（A6-7）；0 元與純退款不需要
+  r := t.mk();
+  PERFORM t.raises(format($q$SELECT settle_reservation_checkout(%L, 200, 0, 'cash', 200, 0, NULL, 'u', 'staff', %L, NULL)$q$, r, t.b1()),
+    'cash_tendered_required', 'D6k cash checkout with money due requires the tendered amount');
+  s := settle_reservation_checkout(r, 200, 0, 'card', 200, 0, NULL, 'u', 'staff', t.b1(), NULL);
+  PERFORM t.ok(s.cash_tendered IS NULL, 'D6k card checkout needs no tendered amount');
+  r := t.mk();
+  PERFORM extend_reservation_stay(r, '2026-10-14 16:00+08', '2026-10-14 15:00+08', 'user-1');
+  s := settle_reservation_checkout(r, 0, 0, 'cash', 0, 0, NULL, 'u', 'staff', t.b1(), NULL);
+  PERFORM t.ok(s.payment_method = 'none' AND s.cash_tendered IS NULL, 'D6k zero-amount checkout needs no tendered amount');
+  r := t.mk();
+  PERFORM extend_reservation_stay(r, '2026-10-14 16:00+08', '2026-10-14 14:30+08', 'user-1');
+  s := t.settle(r, 0, 100, 'cash');
+  PERFORM t.ok(s.refund_amount = 100 AND s.cash_tendered IS NULL AND s.change_given IS NULL,
+    'D6k pure deposit refund in cash needs no tendered amount and records no change');
+  r := t.mk(p_status => 'cancelled');
+  PERFORM t.raises(format($q$INSERT INTO reservation_settlements (reservation_id, kind, room_fee, food_total, deposit_credit,
+      amount_before_discount, amount_due, amount_collected, payment_method)
+    VALUES (%L, 'food_only', 0, 100, 0, 100, 100, 100, 'cash')$q$, r), '%check constraint%',
+    'D6k table rejects a cash settlement that collected money without a tendered amount');
 
   -- D6j 函式也擋：超過上限、沒有操作者
   r := t.mk();

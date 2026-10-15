@@ -46,10 +46,15 @@ export function moneyActor(ctx: { user_id: string | null; role: string; branch_i
 /** 客人給的現金上限（整數元）。超過一定是輸錯；也避免超過資料庫 integer 範圍變成 500。和 SQL 的 CHECK 一致。 */
 export const MAX_CASH_TENDERED = 100_000;
 
-export type CashChangeProblem = "invalid_cash_tendered" | "change_cash_only" | "change_not_refund" | "cash_tendered_short";
+export type CashChangeProblem = "invalid_cash_tendered" | "change_cash_only" | "change_not_refund" | "cash_tendered_short"
+  | "cash_tendered_required";
 export function cashChange(input: { tendered: unknown; method: string | null | undefined; collected: number; refund: number }):
   { change: number | null } | { problem: CashChangeProblem } {
-  if (input.tendered === undefined || input.tendered === null) return { change: null };
+  if (input.tendered === undefined || input.tendered === null) {
+    // 現金、有要收的錢（不是純退款）：客人給的現金必填（Founder A6-7）
+    return input.method === "cash" && input.collected > 0 && input.refund <= 0
+      ? { problem: "cash_tendered_required" } : { change: null };
+  }
   if (typeof input.tendered !== "number" || !Number.isInteger(input.tendered) || input.tendered <= 0
     || input.tendered > MAX_CASH_TENDERED) {
     return { problem: "invalid_cash_tendered" };
@@ -136,6 +141,7 @@ const MESSAGES: Record<string, string> = {
   change_cash_only: "只有現金結帳才有找零",
   change_not_refund: "找零不能用來退錢；要退訂金請老闆或店長走退款",
   cash_tendered_short: "客人付的現金比要收的少",
+  cash_tendered_required: "現金結帳要填客人實際給了多少",
 };
 
 /** 找零檢查不過時給店員看的中文 */
