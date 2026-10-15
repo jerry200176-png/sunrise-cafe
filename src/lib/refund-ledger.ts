@@ -94,16 +94,40 @@ export function capturedRemaining(charge: { amount_captured?: number | null; amo
 }
 
 type StripeRefundsApi = {
-  list(params: { payment_intent: string; limit: number }): Promise<{ data: StripeRefundLike[] }>;
+  list(params: { payment_intent: string; limit: number; starting_after?: string }):
+    Promise<{ data: StripeRefundLike[]; has_more?: boolean }>;
+  retrieve?(id: string): Promise<StripeRefundLike>;
   create(params: Record<string, unknown>, options: { idempotencyKey: string }): Promise<StripeRefundLike>;
 };
 
+/** 對帳一次最多翻幾頁（每頁 100 筆）；超過就當「查不完整」，不能當成「沒有」 */
+export const STRIPE_REFUND_LIST_MAX_PAGES = 20;
+
+export type UnknownOutcome = { unknown: true; reason: string; alertId: string | null };
+export type DriveOutcome = SyncOutcome | UnknownOutcome;
+
+/** 這筆付款在 Stripe 的所有退款（翻完每一頁）。翻不完回 null（= 查不完整）。 */
+export async function listAllStripeRefunds(refunds: StripeRefundsApi, paymentIntentId: string): Promise<StripeRefundLike[] | null> {
+  const all: StripeRefundLike[] = [];
+  let startingAfter: string | undefined;
+  for (let page = 0; page < STRIPE_REFUND_LIST_MAX_PAGES; page += 1) {
+    const result = await refunds.list({ payment_intent: paymentIntentId, limit: 100, ...(startingAfter ? { starting_after: startingAfter } : {}) });
+    all.push(...result.data);
+    if (!result.has_more || result.data.length === 0) return all;
+    startingAfter = result.data[result.data.length - 1].id;
+  }
+  return null;
+}
+
 /**
- * 推進一筆 requested 的 Stripe 退款（新請求、重送、對帳都走這裡）：
- *  1. 先查 Stripe 這筆付款的退款，有 metadata.refund_ledger_id = 這筆帳本 → 照 Stripe 的狀態同步（對帳）
- *  2. 查不到、請求還在 23 小時內 → 用含帳本 id 的冪等鍵建立（重送也不會退兩次）
- *  3. 查不到、超過 23 小時 → 冪等鍵可能已失效，不再重送；Stripe 確認沒有這筆退款 → 以金流商身分記 canceled
- * 店長／老闆永遠不能自己把 Stripe 退款標成取消（SQL 會擋）。
+ * 推進／對帳一筆 requested／pending 的 Stripe 退款（新請求、重送、對帳都走這裡）。Founder A6-6：
+ *  1. 完整查詢：翻完這筆付款在 Stripe 的每一頁退款，找 metadata.refund_ledger_id = 這筆帳本；
+ *     帳本上已知的 Stripe 退款編號（provider_ref）也逐一直接查。找到 → 照 Stripe 的狀態同步
+ *  2. 找不到、請求還在 23 小時內 → 用含帳本 id 的冪等鍵建立（重送也不會退兩次）
+ *  3. 找不到、超過 23 小時，或查詢不完整 → 「結果不明，需要人工對帳」：
+ *     不取消、不解鎖（帳本維持處理中，結帳仍擋著），開一個需要有人認領的 provider_outcome_unknown 警示。
+ *     23 小時查不到不代表沒有退款。
+ * 店長／老闆永遠不能自己改 Stripe 退款的狀態（SQL 會擋）。
  */
 export async function driveStripeRefund(
   db: SupabaseClient,
@@ -112,12 +136,26 @@ export async function driveStripeRefund(
   paymentIntentId: string,
   meta: { reservationId: string; bookingCode?: string | null },
   now: number = Date.now()
-): Promise<SyncOutcome> {
-  const existing = await refunds.list({ payment_intent: paymentIntentId, limit: 100 });
-  const found = existing.data.find((refund) => refund.metadata?.refund_ledger_id === ledger.id);
+): Promise<DriveOutcome> {
+  const listed = await listAllStripeRefunds(refunds, paymentIntentId);
+  const found = listed?.find((refund) => refund.metadata?.refund_ledger_id === ledger.id);
   if (found) return syncStripeRefund(db, found);
 
-  if (now - new Date(ledger.created_at).getTime() < STRIPE_REDRIVE_WINDOW_MS) {
+  // 帳本上已經記過的 Stripe 退款編號：直接查（不靠列表）
+  const known = await db.from("reservation_refund_events").select("provider_ref").eq("refund_id", ledger.id);
+  if (known.error) {
+    if (isSettlementSchemaMissing(known.error)) return { schemaMissing: true };
+    throw known.error;
+  }
+  const refs = [...new Set(((known.data ?? []) as Array<{ provider_ref: string | null }>).map((row) => row.provider_ref)
+    .filter((ref): ref is string => Boolean(ref)))];
+  for (const ref of refs) {
+    if (!refunds.retrieve) break;
+    const refund = await refunds.retrieve(ref);
+    if (refund) return syncStripeRefund(db, refund);
+  }
+
+  if (listed !== null && refs.length === 0 && now - new Date(ledger.created_at).getTime() < STRIPE_REDRIVE_WINDOW_MS) {
     const created = await refunds.create(
       {
         payment_intent: paymentIntentId,
@@ -130,18 +168,17 @@ export async function driveStripeRefund(
     return syncStripeRefund(db, created);
   }
 
-  const result = await db.rpc("record_reservation_refund_status", {
+  const reason = listed === null ? "stripe_refund_list_incomplete"
+    : refs.length ? "known_refund_ids_not_found" : "not_found_after_redrive_window";
+  const alert = await db.rpc("raise_refund_alert", {
     p_refund_id: ledger.id,
-    p_status: "canceled",
-    p_provider_ref: null,
-    p_note: "reconcile: Stripe 沒有這筆退款，且已超過重送期限",
-    p_actor: "reconcile",
-    p_actor_role: "provider",
-    p_actor_branch_ids: null,
+    p_kind: "provider_outcome_unknown",
+    p_detail: { reason, payment_intent: paymentIntentId, listed: listed?.length ?? null, known_refund_ids: refs,
+      ledger_created_at: ledger.created_at },
   });
-  if (result.error) {
-    if (isSettlementSchemaMissing(result.error)) return { schemaMissing: true };
-    throw result.error;
+  if (alert.error) {
+    if (isSettlementSchemaMissing(alert.error)) return { schemaMissing: true };
+    throw alert.error;
   }
-  return result.data as RefundLedgerResult;
+  return { unknown: true, reason, alertId: (alert.data as string | null) ?? null };
 }

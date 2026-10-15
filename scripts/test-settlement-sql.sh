@@ -82,11 +82,11 @@ echo "settlement SQL tests: ALL PASSED"
 # ---------------------------------------------------------------------------
 before="$(run -tA -c "SELECT (SELECT count(*) FROM reservation_settlements)||'/'||(SELECT count(*) FROM reservation_extensions)
   ||'/'||(SELECT count(*) FROM reservation_refunds)||'/'||(SELECT count(*) FROM reservation_refund_events)
-  ||'/'||(SELECT count(*) FROM reservation_refund_alerts)")"
+  ||'/'||(SELECT count(*) FROM reservation_refund_alerts)||'/'||(SELECT count(*) FROM reservation_refund_alert_acks)")"
 run -f "$root/supabase/rollbacks/reservation-settlements-keep-data.sql" >/dev/null 2>&1
 after="$(run -tA -c "SELECT (SELECT count(*) FROM reservation_settlements)||'/'||(SELECT count(*) FROM reservation_extensions)
   ||'/'||(SELECT count(*) FROM reservation_refunds)||'/'||(SELECT count(*) FROM reservation_refund_events)
-  ||'/'||(SELECT count(*) FROM reservation_refund_alerts)")"
+  ||'/'||(SELECT count(*) FROM reservation_refund_alerts)||'/'||(SELECT count(*) FROM reservation_refund_alert_acks)")"
 [ "$before" = "$after" ] || { echo "FAIL: rollback lost rows ($before → $after)"; exit 1; }
 [ "$(run -tA -c "SELECT count(*) FROM pg_proc WHERE proname IN ('settle_reservation_checkout','extend_reservation_stay',
   'request_reservation_refund','record_reservation_refund_status','sync_provider_refund','reservation_billing_state')")" = "0" ] \
@@ -98,3 +98,43 @@ run -f "$root/supabase/migration-reservation-settlements.sql" >/dev/null 2>&1
   || { echo "FAIL: re-apply after rollback"; exit 1; }
 echo "ok - migration re-applies after rollback"
 echo "rollback tests: ALL PASSED"
+
+# ---------------------------------------------------------------------------
+# 舊資料「訂金已退」盤點查詢（A6-5）：在另一個全新的資料庫跑，只有 fixture（模擬 migration 之前），結果要分得出四種證據等級
+# ---------------------------------------------------------------------------
+inv="settlement_inv_$$"
+psql_admin -c "CREATE DATABASE $inv"
+trap 'psql_admin -c "DROP DATABASE IF EXISTS $db WITH (FORCE)" >/dev/null 2>&1 || true; psql_admin -c "DROP DATABASE IF EXISTS $inv WITH (FORCE)" >/dev/null 2>&1 || true' EXIT
+irun() { psql -X -q -v ON_ERROR_STOP=1 -d "$inv" "$@"; }
+irun -f "$root/supabase/tests/settlement-fixture.sql" >/dev/null 2>&1
+irun -c "
+  INSERT INTO branches (id, name) VALUES ('00000000-0000-0000-0000-0000000000b1', 'B1');
+  INSERT INTO rooms (id, branch_id, name) VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000b1', 'R');
+  INSERT INTO reservations (id, room_id, start_time, end_time, status, total_price, deposit_status, booking_code, payment_intent_id) VALUES
+    ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000a1', '2026-01-01 10:00+08', '2026-01-01 11:00+08', 'cancelled', 400, 'refunded', 'A1', 'pi_api'),
+    ('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-0000000000a1', '2026-01-02 10:00+08', '2026-01-02 11:00+08', 'cancelled', 301, 'refunded', 'A2', 'pi_hook'),
+    ('00000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-0000000000a1', '2026-01-03 10:00+08', '2026-01-03 11:00+08', 'cancelled', 600, 'refunded', 'A3', 'pi_none'),
+    ('00000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-0000000000a1', '2026-01-04 10:00+08', '2026-01-04 11:00+08', 'cancelled', NULL, 'refunded', 'A4', NULL),
+    ('00000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-0000000000a1', '2026-01-05 10:00+08', '2026-01-05 11:00+08', 'cancelled', 800, 'paid', 'A5', NULL);
+  INSERT INTO payment_intents (stripe_pi_id, reservation_id, amount, status) VALUES
+    ('pi_api', '00000000-0000-0000-0000-000000000001', 200, 'refunded'),
+    ('pi_hook', '00000000-0000-0000-0000-000000000002', 151, 'refunded'),
+    ('pi_none', '00000000-0000-0000-0000-000000000003', 300, 'succeeded');
+  INSERT INTO ops_events (domain, action, detail) VALUES
+    ('payment', 'payment.refund_processed', '{\"reservation_id\": \"00000000-0000-0000-0000-000000000001\", \"refund_id\": \"re_api\"}'),
+    ('webhook', 'stripe.charge_refunded', '{\"stripe_pi_id\": \"pi_hook\", \"charge_id\": \"ch_hook\"}');
+" >/dev/null
+before_objs="$(irun -tA -c "SELECT (SELECT count(*) FROM pg_class)||'/'||(SELECT count(*) FROM reservations)||'/'||(SELECT count(*) FROM ops_events)")"
+out="$(irun -tA -F'|' -f "$root/supabase/queries/legacy-refunded-deposit-inventory.sql")"
+after_objs="$(irun -tA -c "SELECT (SELECT count(*) FROM pg_class)||'/'||(SELECT count(*) FROM reservations)||'/'||(SELECT count(*) FROM ops_events)")"
+grep -qx '4|651|1' <<<"$out" || { echo "FAIL: inventory totals ($out)"; exit 1; }
+for want in 'api_full_refund_logged|likely_full_verify_in_stripe|1|200' 'webhook_refund_only|unknown|1|151' \
+            'stripe_pi_no_log|unknown|1|300' 'no_stripe_payment|unknown|1|0'; do
+  grep -qx "$want" <<<"$out" || { echo "FAIL: inventory group $want missing ($out)"; exit 1; }
+done
+grep -q 'A5' <<<"$out" && { echo "FAIL: inventory included a paid deposit"; exit 1; }
+[ "$before_objs" = "$after_objs" ] || { echo "FAIL: inventory query left objects or rows behind ($before_objs → $after_objs)"; exit 1; }
+irun -c "BEGIN TRANSACTION READ ONLY; INSERT INTO ops_events (domain, action) VALUES ('x', 'y'); ROLLBACK;" >/dev/null 2>&1 \
+  && { echo "FAIL: read-only transaction accepted a write"; exit 1; }
+echo "ok - legacy refunded inventory: 4 rows, 651 estimated, 1 without total, 4 evidence classes, nothing written"
+echo "inventory tests: ALL PASSED"

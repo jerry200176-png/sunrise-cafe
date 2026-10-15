@@ -3,15 +3,21 @@
 --
 -- 拿掉：會寫入的 RPC（結帳、延長、退款請求、退款狀態、Stripe 同步）與 reservation_billing_state（API 用它判斷新流程可用）→ API 偵測到函式不存在，自動退回舊流程。
 -- 保留：reservation_settlements、reservation_extensions、reservation_refunds、reservation_refund_events
---       四張表、reservation_refund_alerts 與其中所有資料、append-only trigger、reservation_refund_current view、唯讀輔助函式、schema_migrations 那一列。
+--       四張表、reservation_refund_alerts、reservation_refund_alert_acks 與其中所有資料、refund_reference_valid／refund_transition_allowed（事件表 CHECK 用到）、append-only trigger、reservation_refund_current view、唯讀輔助函式、schema_migrations 那一列。
 -- 不佔時段規則（no_show 釋出時段）：只有在沒有重疊時才換回舊規則；有重疊就保留新規則並印出提示。
 BEGIN;
 
 DROP FUNCTION IF EXISTS public.reservation_billing_state(uuid);
 DROP FUNCTION IF EXISTS public.sync_provider_refund(uuid, uuid, text, integer, text);
 DROP FUNCTION IF EXISTS public.record_reservation_refund_status(uuid, text, text, text, text, text, uuid[]);
+DROP FUNCTION IF EXISTS public.record_reservation_refund_status(uuid, text, text, text, text, text, uuid[], text);
+DROP FUNCTION IF EXISTS public.record_reservation_refund_status(uuid, text, text, text, text, text, uuid[], text, boolean);
+DROP FUNCTION IF EXISTS public.record_offsystem_refund(uuid, integer, text, text, text, boolean, text, text, text, uuid[]);
+DROP FUNCTION IF EXISTS public.acknowledge_refund_alert(uuid, text, text, text, uuid[]);
+DROP FUNCTION IF EXISTS public.raise_refund_alert(uuid, text, jsonb);
 DROP FUNCTION IF EXISTS public.request_reservation_refund(uuid, text, integer, text, text, text, text, text, uuid[], integer);
 DROP FUNCTION IF EXISTS public.settle_reservation_checkout(uuid, integer, integer, text, integer, integer, text, text, text, uuid[]);
+DROP FUNCTION IF EXISTS public.settle_reservation_checkout(uuid, integer, integer, text, integer, integer, text, text, text, uuid[], integer);
 DROP FUNCTION IF EXISTS public.extend_reservation_stay(uuid, timestamptz, timestamptz, text);
 
 DO $$
