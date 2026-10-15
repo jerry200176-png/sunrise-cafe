@@ -6,6 +6,11 @@
 
 ## [Unreleased]
 
+### Ops — 每週資料庫備份改在 GitHub Actions 執行 (2026-10-15)
+- 新 workflow `backup-db.yml`：每週日 03:10（台北）`pg_dump` → age 公鑰加密 → artifact 保留 7 天；未設 `BACKUP_AGE_RECIPIENT` 時在 dump 前失敗
+- Founder 設定與還原演練：`docs/RUNBOOK_DB_BACKUP.md`；`scripts/backup-db.ps1`＋Windows 工作排程器改為 legacy
+- 無 DB migration、不寫入正式資料庫
+
 ### Admin — 包廂現況：真實格局 3D 圖＋現場點餐・延長・結帳 (2026-10-14)
 - 新頁 `/admin/floor`（底部導覽「包廂」）：大安店依平面圖做成 3D 店面（three.js，從櫃台看過去；包廂、櫃台、茶水區、休息區、廁所、辦公室、入口），尺寸依圖面標註（202／211／218／226／434 cm）與面積換算，櫃台等位置以 OpenCV 偵測照片牆線對位；其他分店或不支援 WebGL 時用簡易立體圖；手機預設清單
 - 依狀態著色：空房／快到了／客人還沒到／使用中／快到時間／超時，每 30 秒更新；畫面用語改為店員日常說法（例：「收好錢了，結帳」「超時補收」）

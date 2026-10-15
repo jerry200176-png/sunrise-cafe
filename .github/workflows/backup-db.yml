@@ -1,0 +1,230 @@
+# Weekly encrypted Supabase DB backup (Founder 2026-10-15: no paid Supabase plan,
+# so backups move from Jerry's PC / Windows Task Scheduler to GitHub Actions).
+#
+# Safety model (see docs/RUNBOOK_DB_BACKUP.md):
+# - Reads production (pg_dump, read-only). Never writes to the database.
+# - Encrypts with age PUBLIC-KEY encryption. The recipient public key comes from
+#   the repository VARIABLE BACKUP_AGE_RECIPIENT. The private key never touches
+#   GitHub; the Founder keeps it offline.
+# - Fails closed: no recipient (or an invalid one) -> the job stops before dumping.
+# - The plaintext dump exists only under $RUNNER_TEMP (mode 0700) and is shredded
+#   before upload. Only *.age ciphertext plus a SHA-256/size manifest is uploaded.
+# - The repo is PUBLIC: logs print only sizes and table counts, never data.
+
+name: DB backup (encrypted)
+
+on:
+  schedule:
+    # Saturday 19:10 UTC = Sunday 03:10 Asia/Taipei (off-peak).
+    - cron: "10 19 * * 6"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: pg_dump -> age -> artifact
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      AGE_VERSION: v1.2.1
+      AGE_SHA256: 7df45a6cc87d4da11cc03a539a7470c15b1041ab2b396af088fe9990f7c79d50
+      PG_CLIENT_MAJOR: "17"
+      PGDG_KEY_FPR: B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8
+    steps:
+      - name: Fail closed without an age recipient
+        env:
+          BACKUP_AGE_RECIPIENT: ${{ vars.BACKUP_AGE_RECIPIENT }}
+        run: |
+          set -euo pipefail
+          r="$(printf '%s' "${BACKUP_AGE_RECIPIENT:-}" | tr -d '[:space:]')"
+          if [ -z "$r" ]; then
+            echo "::error::Repository variable BACKUP_AGE_RECIPIENT is missing or empty. Refusing to dump. See docs/RUNBOOK_DB_BACKUP.md."
+            exit 1
+          fi
+          case "$r" in
+            age1*) ;;
+            *) echo "::error::BACKUP_AGE_RECIPIENT is not an age X25519 public key (must start with age1). Refusing to dump."; exit 1 ;;
+          esac
+
+      - name: Fail closed without a usable DB URL
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "::error::Secret SUPABASE_DB_URL is not set. Refusing to run."
+            exit 1
+          fi
+          case "$SUPABASE_DB_URL" in
+            *"[region]"*|*"[ref]"*|*placeholder*)
+              echo "::error::Secret SUPABASE_DB_URL looks like a placeholder. Refusing to run."
+              exit 1 ;;
+          esac
+
+      - name: Install age (pinned release, SHA-256 verified)
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          tarball="age-${AGE_VERSION}-linux-amd64.tar.gz"
+          curl -fsSL --retry 3 -o "$tarball" \
+            "https://github.com/FiloSottile/age/releases/download/${AGE_VERSION}/${tarball}"
+          echo "${AGE_SHA256}  ${tarball}" | sha256sum -c -
+          tar -xzf "$tarball"
+          sudo install -m 0755 age/age /usr/local/bin/age
+          age --version
+
+      - name: Validate the age recipient key
+        env:
+          BACKUP_AGE_RECIPIENT: ${{ vars.BACKUP_AGE_RECIPIENT }}
+        run: |
+          set -euo pipefail
+          r="$(printf '%s' "$BACKUP_AGE_RECIPIENT" | tr -d '[:space:]')"
+          if ! printf 'probe' | age -r "$r" >/dev/null; then
+            echo "::error::age rejected BACKUP_AGE_RECIPIENT. Refusing to dump."
+            exit 1
+          fi
+          echo "age recipient accepted"
+
+      - name: Install PostgreSQL client ${{ env.PG_CLIENT_MAJOR }} (PGDG, key fingerprint verified)
+        run: |
+          set -euo pipefail
+          key="$RUNNER_TEMP/pgdg.asc"
+          curl -fsSL --retry 3 -o "$key" https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          fpr="$(gpg --show-keys --with-colons "$key" | awk -F: '/^fpr:/{print $10; exit}')"
+          if [ "$fpr" != "$PGDG_KEY_FPR" ]; then
+            echo "::error::PGDG signing key fingerprint mismatch"
+            exit 1
+          fi
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo install -m 0644 "$key" /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg-backup.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends "postgresql-client-${PG_CLIENT_MAJOR}"
+          bin="/usr/lib/postgresql/${PG_CLIENT_MAJOR}/bin"
+          "$bin/pg_dump" --version
+          echo "PG_BIN=$bin" >> "$GITHUB_ENV"
+
+      - name: Dump, encrypt, shred plaintext
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_AGE_RECIPIENT: ${{ vars.BACKUP_AGE_RECIPIENT }}
+          PGSSLMODE: require
+          PGCONNECT_TIMEOUT: "20"
+        run: |
+          set -euo pipefail
+          umask 077
+          recipient="$(printf '%s' "$BACKUP_AGE_RECIPIENT" | tr -d '[:space:]')"
+          plain="$RUNNER_TEMP/plain"
+          out="$RUNNER_TEMP/backup-out"
+          mkdir -m 0700 "$plain" "$out"
+          cleanup() {
+            if [ -d "$plain" ]; then
+              find "$plain" -type f -exec shred -u {} + 2>/dev/null || true
+              rm -rf "$plain"
+            fi
+          }
+          trap cleanup EXIT
+
+          # pg_dump must be >= the server major version.
+          server_num="$("$PG_BIN/psql" "$SUPABASE_DB_URL" -X -At -v ON_ERROR_STOP=1 -c 'SHOW server_version_num')"
+          server_major=$(( server_num / 10000 ))
+          echo "server major: $server_major / pg_dump major: $PG_CLIENT_MAJOR"
+          if [ "$server_major" -gt "$PG_CLIENT_MAJOR" ]; then
+            echo "::error::Server major $server_major is newer than pg_dump $PG_CLIENT_MAJOR. Bump PG_CLIENT_MAJOR."
+            exit 1
+          fi
+
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          base="sunrise-cafe_${stamp}"
+
+          # All app tables live in the public schema (supabase/*.sql).
+          "$PG_BIN/pg_dump" "$SUPABASE_DB_URL" --no-password \
+            --format=custom --schema=public --lock-wait-timeout=60s \
+            --file="$plain/${base}.dump"
+
+          # Per-table exact row counts for the restore drill (encrypted, never logged).
+          "$PG_BIN/psql" "$SUPABASE_DB_URL" -X -At -F $'\t' -v ON_ERROR_STOP=1 -c "
+            SELECT table_name,
+                   (xpath('/row/c/text()', query_to_xml(
+                     format('SELECT count(*) AS c FROM %I.%I', table_schema, table_name),
+                     false, true, '')))[1]::text::bigint
+            FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+            ORDER BY table_name" > "$plain/${base}.rowcounts.tsv"
+
+          # Structural validation from the archive TOC (counts only).
+          tables="$("$PG_BIN/pg_restore" --list "$plain/${base}.dump" | grep -c ' TABLE public ' || true)"
+          table_data="$("$PG_BIN/pg_restore" --list "$plain/${base}.dump" | grep -c ' TABLE DATA public ' || true)"
+          plain_bytes="$(stat -c %s "$plain/${base}.dump")"
+          if [ "$tables" -lt 1 ] || [ "$plain_bytes" -lt 1000 ]; then
+            echo "::error::Dump looks empty (tables=$tables bytes=$plain_bytes)"
+            exit 1
+          fi
+
+          age -r "$recipient" -o "$out/${base}.dump.age" "$plain/${base}.dump"
+          age -r "$recipient" -o "$out/${base}.rowcounts.tsv.age" "$plain/${base}.rowcounts.tsv"
+          cleanup
+
+          cipher_bytes="$(stat -c %s "$out/${base}.dump.age")"
+          (cd "$out" && sha256sum ./*.age > SHA256SUMS)
+          dump_sha="$(awk -v f="./${base}.dump.age" '$2==f{print $1}' "$out/SHA256SUMS")"
+          cat > "$out/manifest.json" <<EOF
+          {
+            "created_at_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "artifact": "${base}.dump.age",
+            "format": "pg_dump custom (-Fc), schema public, age-encrypted",
+            "sha256": "${dump_sha}",
+            "ciphertext_bytes": ${cipher_bytes},
+            "plaintext_bytes": ${plain_bytes},
+            "tables": ${tables},
+            "table_data_entries": ${table_data},
+            "server_major": ${server_major},
+            "pg_dump_major": ${PG_CLIENT_MAJOR},
+            "age_recipient": "${recipient}",
+            "run_id": "${GITHUB_RUN_ID}",
+            "source_sha": "${GITHUB_SHA}",
+            "restore_target_isolation": "never restore into production without Founder approval; use a disposable local/Docker DB"
+          }
+          EOF
+
+          {
+            echo "### DB backup"
+            echo "| field | value |"
+            echo "|---|---|"
+            echo "| artifact | \`${base}.dump.age\` |"
+            echo "| sha256 | \`${dump_sha}\` |"
+            echo "| plaintext bytes | ${plain_bytes} |"
+            echo "| ciphertext bytes | ${cipher_bytes} |"
+            echo "| tables (public) | ${tables} |"
+            echo "| table data entries | ${table_data} |"
+            echo "| server / pg_dump major | ${server_major} / ${PG_CLIENT_MAJOR} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "BACKUP_OK tables=${tables} plaintext_bytes=${plain_bytes} ciphertext_bytes=${cipher_bytes}"
+          echo "ARTIFACT_NAME=sunrise-cafe-db-backup-${stamp}" >> "$GITHUB_ENV"
+
+      - name: Refuse to upload anything that is not ciphertext or manifest
+        run: |
+          set -euo pipefail
+          bad="$(find "$RUNNER_TEMP/backup-out" -type f ! -name '*.age' ! -name 'SHA256SUMS' ! -name 'manifest.json')"
+          if [ -n "$bad" ]; then
+            echo "::error::Unexpected file in upload directory"
+            exit 1
+          fi
+          ls -l "$RUNNER_TEMP/backup-out"
+
+      - name: Upload encrypted backup
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ runner.temp }}/backup-out/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

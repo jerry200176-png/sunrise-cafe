@@ -1,5 +1,11 @@
 # Backup & Restore Drill
 
+> **2026-10-15：** the scheduled backup now runs in GitHub Actions
+> (`.github/workflows/backup-db.yml`, age public-key encryption, 7-day artifacts).
+> Setup and the restore drill for those artifacts: [`docs/RUNBOOK_DB_BACKUP.md`](../RUNBOOK_DB_BACKUP.md).
+> The local commands below (`backup-db.sh` / `restore-drill.sh`) remain for ad-hoc use;
+> `scripts/backup-db.ps1` + Windows Task Scheduler is legacy.
+
 ## What “done” means (free path)
 
 Not “script exists” — must produce:
