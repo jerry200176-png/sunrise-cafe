@@ -10,6 +10,7 @@ BEGIN;
 DROP FUNCTION IF EXISTS public.reservation_billing_state(uuid);
 DROP FUNCTION IF EXISTS public.sync_provider_refund(uuid, uuid, text, integer, text);
 DROP FUNCTION IF EXISTS public.record_reservation_refund_status(uuid, text, text, text, text, text, uuid[]);
+DROP FUNCTION IF EXISTS public.record_reservation_refund_status(uuid, text, text, text, text, text, uuid[], text);
 DROP FUNCTION IF EXISTS public.request_reservation_refund(uuid, text, integer, text, text, text, text, text, uuid[], integer);
 DROP FUNCTION IF EXISTS public.settle_reservation_checkout(uuid, integer, integer, text, integer, integer, text, text, text, uuid[]);
 DROP FUNCTION IF EXISTS public.settle_reservation_checkout(uuid, integer, integer, text, integer, integer, text, text, text, uuid[], integer);

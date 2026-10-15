@@ -7,6 +7,7 @@ import { canAccessBranch } from "@/lib/rbac";
 import { logOps } from "@/lib/ops-log";
 import { canAdjustMoney, isSettlementSchemaMissing, moneyActor, settlementFailure } from "@/lib/room-settlement";
 import { capturedRemaining, driveStripeRefund, isDepositFullyRefunded, type RefundLedgerResult } from "@/lib/refund-ledger";
+import { MANUAL_REFUND_STATUSES, manualRefundProblem } from "@/lib/refund-actions";
 
 /**
  * 退款（#444 退款帳本）。退款原則（Founder 2026-10-15）：
@@ -18,12 +19,14 @@ import { capturedRemaining, driveStripeRefund, isDepositFullyRefunded, type Refu
  *
  * POST  { reservationId, reason, amount?, idempotencyKey?, method? }
  *   有 Stripe 付款 → 經 Stripe 退款；沒有 → 記一筆人工退款（method：cash／transfer／line_pay／card／other），狀態 requested
- * PATCH { refundId, status: "pending" | "succeeded" | "failed" | "canceled", note? }
- *   確認人工退款的結果。Stripe 退款的任何結果（含取消）只能由 Stripe 回報或對帳決定
+ * PATCH { refundId, status: "pending" | "succeeded" | "failed" | "canceled", note?, reference? }
+ *   確認人工退款的結果（Founder D7）：標成功要有證據（非現金 = reference 轉帳序號／交易編號＋note；現金 = note），
+ *   標失敗／取消要寫原因（note）。Stripe 退款的任何結果（含取消）只能由 Stripe 回報或對帳決定
  * PATCH { refundId, reconcile: true }
  *   Stripe 退款對帳：向 Stripe 查這筆帳本的退款並同步；23 小時內查不到就用同一個冪等鍵重送，
  *   超過 23 小時且 Stripe 確認沒有 → 記 canceled（之後才可以重新申請）
- * GET  ?reservationId=  這筆訂位的退款與警示；不帶 = 最近的退款警示（店長只看自己分店）
+ * GET  ?reservationId=  這筆訂位的退款、每一步事件、訂金狀態與警示
+ * GET  ?view=open       還沒結束（requested／pending）的退款清單＋最近警示；不帶 = 最近的退款警示（店長只看自己分店）
  *
  * 金額：帳本、請求、回應都是整數元；和 Stripe 往來在 refund-ledger／stripe-money 換算（TWD ×100），
  * 可退金額不超過 Stripe 那筆付款實際收到且還沒退的金額。
@@ -168,14 +171,26 @@ export async function GET(request: NextRequest) {
     if (reservationId) {
       const checked = await guard(request, reservationId);
       if ("denied" in checked) return checked.denied;
-      const [refunds, alerts] = await Promise.all([
+      const [refunds, alerts, state] = await Promise.all([
         supabaseAdmin().from("reservation_refund_current").select("*").eq("reservation_id", reservationId).order("created_at"),
         supabaseAdmin().from("reservation_refund_alerts").select("*").eq("reservation_id", reservationId).order("created_at"),
+        supabaseAdmin().rpc("reservation_billing_state", { p_reservation_id: reservationId }),
       ]);
-      const error = refunds.error ?? alerts.error;
+      const error = refunds.error ?? alerts.error ?? state.error;
       if (error) return failure(error) ?? NextResponse.json({ error: error.message }, { status: 500 });
-      return NextResponse.json({ refunds: refunds.data, alerts: alerts.data });
+      const ids = ((refunds.data ?? []) as Array<{ id: string }>).map((row) => row.id);
+      const events = ids.length
+        ? await supabaseAdmin().from("reservation_refund_events").select("*").in("refund_id", ids).order("seq")
+        : { data: [], error: null };
+      if (events.error) return failure(events.error) ?? NextResponse.json({ error: events.error.message }, { status: 500 });
+      const { reservation } = checked;
+      return NextResponse.json({
+        reservation: { id: reservation.id, booking_code: reservation.booking_code, deposit_status: reservation.deposit_status,
+          via_stripe: Boolean(reservation.payment_intent_id) },
+        billing: state.data, refunds: refunds.data, events: events.data, alerts: alerts.data,
+      });
     }
+    if (request.nextUrl.searchParams.get("view") === "open") return openRefunds(ctx);
     let query = supabaseAdmin().from("reservation_refund_alerts").select("*").order("created_at", { ascending: false }).limit(100);
     if (ctx.branch_ids !== null) query = query.in("branch_id", ctx.branch_ids);
     const alerts = await query;
@@ -187,15 +202,37 @@ export async function GET(request: NextRequest) {
   }
 }
 
+/** 還沒結束的退款（老闆看全部，店長只看自己分店）＋訂位資訊＋最近警示 */
+async function openRefunds(ctx: Awaited<ReturnType<typeof getAdminContext>>) {
+  let refunds = supabaseAdmin().from("reservation_refund_current").select("*").in("status", ["requested", "pending"])
+    .order("created_at").limit(200);
+  let alerts = supabaseAdmin().from("reservation_refund_alerts").select("*").order("created_at", { ascending: false }).limit(50);
+  if (ctx.branch_ids !== null) {
+    refunds = refunds.in("branch_id", ctx.branch_ids);
+    alerts = alerts.in("branch_id", ctx.branch_ids);
+  }
+  const [open, recent] = await Promise.all([refunds, alerts]);
+  const error = open.error ?? recent.error;
+  if (error) return failure(error) ?? NextResponse.json({ error: error.message }, { status: 500 });
+  const rows = (open.data ?? []) as Array<{ reservation_id: string }>;
+  const ids = [...new Set(rows.map((row) => row.reservation_id))];
+  const reservations = ids.length
+    ? await supabaseAdmin().from("reservations").select("id, booking_code, customer_name, start_time, status").in("id", ids)
+    : { data: [], error: null };
+  if (reservations.error) throw reservations.error;
+  const byId = new Map(((reservations.data ?? []) as Array<{ id: string }>).map((row) => [row.id, row]));
+  return NextResponse.json({ refunds: rows.map((row) => ({ ...row, reservation: byId.get(row.reservation_id) ?? null })), alerts: recent.data });
+}
+
 export async function PATCH(request: NextRequest): Promise<NextResponse> {
   try {
-    const body = (await request.json()) as { refundId?: string; status?: string; note?: string; reconcile?: boolean };
+    const body = (await request.json()) as { refundId?: string; status?: string; note?: string; reference?: string; reconcile?: boolean };
     if (body.refundId && body.reconcile === true) return reconcile(request, body.refundId);
     if (!body.refundId || !body.status) return NextResponse.json({ error: "缺少必填欄位（refundId, status）" }, { status: 400 });
-    if (!["pending", "succeeded", "failed", "canceled"].includes(body.status)) {
+    if (!(MANUAL_REFUND_STATUSES as readonly string[]).includes(body.status)) {
       return NextResponse.json({ error: "退款狀態不對" }, { status: 400 });
     }
-    const { data: row, error } = await supabaseAdmin().from("reservation_refunds").select("id, reservation_id")
+    const { data: row, error } = await supabaseAdmin().from("reservation_refund_current").select("id, reservation_id, method, status")
       .eq("id", body.refundId).maybeSingle();
     if (error) {
       const response = failure(error);
@@ -206,12 +243,22 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
     const checked = await guard(request, row.reservation_id as string);
     if ("denied" in checked) return checked.denied;
     const { ctx } = checked;
+    // D7：不能為了解除「處理中」就直接標成功；證據／原因先在這裡擋一次，SQL 會再檢查一次
+    if (row.status !== body.status) {
+      const problem = manualRefundProblem({ method: row.method as string, from: row.status as string, to: body.status,
+        note: body.note, reference: body.reference });
+      if (problem) {
+        const mapped = settlementFailure({ message: problem });
+        return NextResponse.json({ error: mapped?.error ?? problem }, { status: problem === "invalid_refund_transition" ? 409 : 400 });
+      }
+    }
     const result = await supabaseAdmin().rpc("record_reservation_refund_status", {
       p_refund_id: row.id,
       p_status: body.status,
       p_provider_ref: null,
-      p_note: body.note ?? null,
+      p_note: body.note?.trim() || null,
       ...moneyActor(ctx),
+      p_evidence_ref: body.reference?.trim() || null,
     });
     if (result.error) {
       const response = failure(result.error);
@@ -221,6 +268,7 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
     const ledger = result.data as RefundLedgerResult;
     logOps("payment", "payment.refund_status_recorded", {
       reservation_id: ledger.reservation_id, refund_id: ledger.id, status: ledger.status, actor: ctx.user_id ?? ctx.role,
+      has_evidence: Boolean(body.reference?.trim()),
     });
     return NextResponse.json({ ok: true, refundId: ledger.id, status: ledger.status });
   } catch (err) {

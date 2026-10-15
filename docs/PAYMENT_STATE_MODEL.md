@@ -99,7 +99,8 @@ SQL：`supabase/migration-reservation-settlements.sql`（**草稿，Founder 核�
 | 入口 | 寫什麼 |
 |------|--------|
 | `POST /api/payment/refund` | 先記 `requested`，再呼叫 Stripe（冪等鍵綁帳本編號），照 Stripe 回的狀態記；沒有 Stripe 付款就記人工退款（要選方式） |
-| `PATCH /api/payment/refund` | 老闆／本分店店長確認人工退款結果（Stripe 退款不能手動改狀態） |
+| `PATCH /api/payment/refund` | 老闆／本分店店長記人工退款結果（Founder D7）：「已退」要證據（非現金 `reference` 轉帳序號／交易編號＋`note`；現金 `note`），「失敗」「取消」要原因；Stripe 退款不能手動改狀態 |
+| `GET /api/payment/refund?view=open`、`/admin/refunds` | 還沒結束的退款清單＋警示；`/admin/refunds/<訂位>` 單一訂位的退款面板（每一步事件、處理按鈕、申請退訂金） |
 | `PATCH /api/payment/refund` `{ reconcile: true }` | Stripe 對帳：先查 Stripe 有沒有這筆帳本的退款並同步；23 小時內查不到才用同一個冪等鍵（`ledger_refund_<帳本 id>`）重送；超過 23 小時且 Stripe 沒有 → 以金流商身分記 `canceled` |
 | `GET /api/payment/refund` | 老闆／店長看退款與警示（`reservation_refund_alerts`：Stripe 後台退款超過上限、結帳折抵後才退、取消後又成功） |
 | `POST /api/webhooks/stripe` | `charge.refunded`／`refund.*` → `sync_provider_refund`；Stripe 後台直接退的也會補記一筆 |

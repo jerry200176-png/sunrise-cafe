@@ -139,12 +139,16 @@ CREATE TABLE IF NOT EXISTS reservation_refund_events (
   seq bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   refund_id uuid NOT NULL REFERENCES reservation_refunds(id) ON DELETE RESTRICT,
   status text NOT NULL CHECK (status IN ('requested', 'pending', 'succeeded', 'failed', 'canceled')),
-  -- 金流商的退款編號（Stripe re_...）
+  -- 金流商的退款編號（Stripe re_...）；只由金流商回報或對帳寫入
   provider_ref text,
+  -- 人工退款的成功證據（Founder D7）：轉帳後五碼／交易序號、LINE Pay 交易編號、刷卡退刷單號…（不是 Stripe 編號）
+  evidence_ref text,
   note text,
   actor text,
   actor_role text,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  -- 人工把退款標成成功／失敗／取消時，一定要留說明（D7：每一步都要可追查）
+  CHECK (actor_role = 'provider' OR status IN ('requested', 'pending') OR (note IS NOT NULL AND length(btrim(note)) > 0))
 );
 
 CREATE INDEX IF NOT EXISTS idx_reservation_refund_events_refund
@@ -198,10 +202,10 @@ CREATE OR REPLACE VIEW public.reservation_refund_current
 WITH (security_invoker = true) AS
 SELECT r.id, r.reservation_id, r.settlement_id, r.kind, r.amount, r.method, r.reason,
        r.requested_by, r.requested_by_role, r.branch_id, r.idempotency_key, r.created_at,
-       e.status, e.provider_ref, e.created_at AS status_at
+       e.status, e.provider_ref, e.created_at AS status_at, e.evidence_ref, e.note AS status_note
 FROM reservation_refunds r
 JOIN LATERAL (
-  SELECT ev.status, ev.provider_ref, ev.created_at
+  SELECT ev.status, ev.provider_ref, ev.created_at, ev.evidence_ref, ev.note
   FROM reservation_refund_events ev
   WHERE ev.refund_id = r.id
   ORDER BY ev.seq DESC
@@ -563,6 +567,8 @@ $$;
 --   同一個狀態重送 = 不做事、回目前結果（冪等）。
 --   Stripe 退款的任何結果（含取消）只能由金流商回報或對帳（actor_role = provider）；店長／老闆不能動 Stripe 退款的狀態。
 -- ---------------------------------------------------------------------------
+-- 舊版（沒有證據參數）若曾在測試環境套用過，先拿掉，避免留下兩個同名函式
+DROP FUNCTION IF EXISTS public.record_reservation_refund_status(uuid, text, text, text, text, text, uuid[]);
 CREATE OR REPLACE FUNCTION public.record_reservation_refund_status(
   p_refund_id uuid,
   p_status text,
@@ -570,7 +576,9 @@ CREATE OR REPLACE FUNCTION public.record_reservation_refund_status(
   p_note text,
   p_actor text,
   p_actor_role text,
-  p_actor_branch_ids uuid[]
+  p_actor_branch_ids uuid[],
+  -- 人工退款的成功證據（轉帳序號等）；金流商回報不用
+  p_evidence_ref text DEFAULT NULL
 ) RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -612,8 +620,28 @@ BEGIN
     RAISE EXCEPTION 'provider_outcome_only' USING ERRCODE = 'P0001';
   END IF;
 
-  INSERT INTO reservation_refund_events (refund_id, status, provider_ref, note, actor, actor_role)
-  VALUES (v_refund.id, p_status, p_provider_ref, NULLIF(btrim(p_note), ''), p_actor, p_actor_role);
+  -- 人工退款（Founder D7）：不能為了解除「退款處理中」就直接標成功。
+  --   成功：非現金要有實際證據（轉帳序號等）＋說明；現金要有說明（誰、何時交給客人）
+  --   失敗／取消：要寫原因。每一步都是一列只能新增的事件，可追查。
+  IF p_actor_role <> 'provider' THEN
+    IF p_provider_ref IS NOT NULL THEN
+      -- 金流商編號只能由金流商回報寫入（人工證據放 evidence_ref）
+      RAISE EXCEPTION 'provider_outcome_only' USING ERRCODE = 'P0001';
+    END IF;
+    IF p_status = 'succeeded' AND (
+         p_note IS NULL OR length(btrim(p_note)) = 0
+         OR (v_refund.method <> 'cash' AND (p_evidence_ref IS NULL OR length(btrim(p_evidence_ref)) = 0))) THEN
+      RAISE EXCEPTION 'refund_evidence_required' USING ERRCODE = 'P0001';
+    END IF;
+    IF p_status IN ('failed', 'canceled') AND (p_note IS NULL OR length(btrim(p_note)) = 0) THEN
+      RAISE EXCEPTION 'refund_reason_required' USING ERRCODE = 'P0001';
+    END IF;
+  END IF;
+
+  INSERT INTO reservation_refund_events (refund_id, status, provider_ref, evidence_ref, note, actor, actor_role)
+  VALUES (v_refund.id, p_status, p_provider_ref,
+    CASE WHEN p_actor_role <> 'provider' THEN NULLIF(btrim(p_evidence_ref), '') END,
+    NULLIF(btrim(p_note), ''), p_actor, p_actor_role);
 
   -- 取消後金流商又回報成功：照實算已退，另外留警示（若期間已結帳折抵訂金，客人等於多拿了一次）
   IF v_current = 'canceled' AND p_status = 'succeeded' THEN
@@ -953,8 +981,9 @@ BEGIN
     ) RETURNING id INTO v_refund_id;
     INSERT INTO reservation_refund_events (refund_id, status, actor, actor_role)
     VALUES (v_refund_id, 'requested', p_actor, p_actor_role);
-    INSERT INTO reservation_refund_events (refund_id, status, actor, actor_role)
-    VALUES (v_refund_id, CASE WHEN p_payment_method = 'cash' THEN 'succeeded' ELSE 'pending' END, p_actor, p_actor_role);
+    INSERT INTO reservation_refund_events (refund_id, status, note, actor, actor_role)
+    VALUES (v_refund_id, CASE WHEN p_payment_method = 'cash' THEN 'succeeded' ELSE 'pending' END,
+      CASE WHEN p_payment_method = 'cash' THEN '結帳時現金當場退還（結帳紀錄 ' || v_row.id::text || '）' END, p_actor, p_actor_role);
   END IF;
 
   IF v_has_order AND v_order.paid_at IS NULL THEN
@@ -980,14 +1009,14 @@ REVOKE ALL ON FUNCTION public.sync_reservation_deposit_status(uuid) FROM PUBLIC,
 REVOKE ALL ON FUNCTION public.refund_ledger_append_only() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.request_reservation_refund(uuid, text, integer, text, text, text, text, text, uuid[], integer)
   FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.record_reservation_refund_status(uuid, text, text, text, text, text, uuid[])
+REVOKE ALL ON FUNCTION public.record_reservation_refund_status(uuid, text, text, text, text, text, uuid[], text)
   FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.sync_provider_refund(uuid, uuid, text, integer, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.reservation_billing_state(uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.reservation_deposit_refundable(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.reservation_billing_state(uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.request_reservation_refund(uuid, text, integer, text, text, text, text, text, uuid[], integer) TO service_role;
-GRANT EXECUTE ON FUNCTION public.record_reservation_refund_status(uuid, text, text, text, text, text, uuid[]) TO service_role;
+GRANT EXECUTE ON FUNCTION public.record_reservation_refund_status(uuid, text, text, text, text, text, uuid[], text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.sync_provider_refund(uuid, uuid, text, integer, text) TO service_role;
 REVOKE ALL ON FUNCTION public.extend_reservation_stay(uuid, timestamptz, timestamptz, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.settle_reservation_checkout(uuid, integer, integer, text, integer, integer, text, text, text, uuid[], integer)

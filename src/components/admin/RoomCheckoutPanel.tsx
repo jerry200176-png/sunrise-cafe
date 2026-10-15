@@ -278,7 +278,8 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
         {bill.refund > 0 && !stayCancelled && !roomSettled && <p className="mt-2 rounded-xl border border-sky-300 bg-sky-50 p-2 text-sm text-sky-900">
           時間縮短了，訂金比要收的多：結帳時要退客人 <strong className="tabular-nums">{money(bill.refund)}</strong>。</p>}
         {billing?.deposit_refund_in_flight && !roomSettled && !stayCancelled && <p className="mt-2 rounded-xl border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">
-          這組有一筆訂金退款還在處理中，訂金先不折抵；等退款結果出來再結帳。</p>}
+          這組有一筆訂金退款還在處理中，訂金先不折抵；等退款結果出來再結帳。
+          <Link href={`/admin/refunds/${encodeURIComponent(reservationId)}`} className="ml-1 underline">處理退款（老闆／店長）</Link></p>}
         {billing?.total_price != null && billing.total_price !== bill.roomFee && <p className="mt-1 text-[11px] text-ink-faint">預約時是 {money(billing.total_price)}，多出來的是延長的時間</p>}
         {(roomSettled || stayCancelled) && !paid && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
           {stayCancelled ? "這組已經取消" : "這組已經結束"}，但餐費 {money(bill.foodTotal)} 還沒記收款。

@@ -519,6 +519,7 @@
       { "type": "table", "name": "reservation_refunds", "introspect": "rest" },
       { "type": "column", "table": "reservation_refunds", "name": "idempotency_key", "introspect": "rest" },
       { "type": "table", "name": "reservation_refund_events", "introspect": "rest" },
+      { "type": "column", "table": "reservation_refund_events", "name": "evidence_ref", "introspect": "rest" },
       { "type": "table", "name": "reservation_refund_alerts", "introspect": "rest" },
       {
         "type": "function",

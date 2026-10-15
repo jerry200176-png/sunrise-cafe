@@ -52,9 +52,11 @@ CREATE FUNCTION t.refund(p_res uuid, p_amount integer, p_key text, p_method text
 RETURNS jsonb LANGUAGE sql AS $$
   SELECT request_reservation_refund(p_res, p_kind, p_amount, p_method, '客人取消', p_key, 'user-1', p_role, p_branches, p_cap)
 $$;
-CREATE FUNCTION t.mark(p_refund jsonb, p_status text, p_role text DEFAULT 'owner', p_branches uuid[] DEFAULT NULL)
+-- 人工標記一律帶證據與說明（D7）；缺證據的情境另外直接呼叫 record_reservation_refund_status 測
+CREATE FUNCTION t.mark(p_refund jsonb, p_status text, p_role text DEFAULT 'owner', p_branches uuid[] DEFAULT NULL,
+                       p_note text DEFAULT '測試：已核對', p_evidence text DEFAULT 'TX-0001')
 RETURNS jsonb LANGUAGE sql AS $$
-  SELECT record_reservation_refund_status((p_refund->>'id')::uuid, p_status, NULL, NULL, 'user-1', p_role, p_branches)
+  SELECT record_reservation_refund_status((p_refund->>'id')::uuid, p_status, NULL, p_note, 'user-1', p_role, p_branches, p_evidence)
 $$;
 CREATE FUNCTION t.settle(p_res uuid, p_before integer, p_refund integer DEFAULT 0, p_method text DEFAULT 'cash',
                          p_role text DEFAULT 'owner', p_branches uuid[] DEFAULT NULL, p_discount integer DEFAULT 0)
@@ -175,7 +177,7 @@ SELECT t.raises($q$SELECT request_reservation_refund(gen_random_uuid(), 'deposit
   'permission denied%', 'P2 anon cannot call request_reservation_refund');
 RESET ROLE;
 SET ROLE authenticated;
-SELECT t.raises($q$SELECT record_reservation_refund_status(gen_random_uuid(), 'succeeded', NULL, NULL, 'a', 'owner', NULL)$q$,
+SELECT t.raises($q$SELECT record_reservation_refund_status(gen_random_uuid(), 'succeeded', NULL, NULL, 'a', 'owner', NULL, NULL)$q$,
   'permission denied%', 'P2 authenticated cannot call record_reservation_refund_status');
 RESET ROLE;
 
@@ -428,6 +430,113 @@ BEGIN
       amount_before_discount, amount_due, amount_collected, payment_method, cash_tendered, change_given, change_given_at)
     VALUES (%L, 'food_only', 0, 100, 0, 100, 100, 100, 'cash', 500, 450, now())$q$, r), '%check constraint%',
     'D6i table rejects change larger than tendered minus collected');
+END $$;
+
+-- ===========================================================================
+-- D7（Founder 2026-10-15）：人工退款要有實際證據才能標成功；解除「退款處理中」只能走可追查的
+-- 完成／失敗／取消，不能繞過檢查
+-- ===========================================================================
+DO $$
+DECLARE r uuid; f jsonb; s reservation_settlements; ev reservation_refund_events;
+BEGIN
+  -- D7a 轉帳退款：沒有轉帳序號、或沒有說明 → 不能標成功；退款仍在處理中、結帳仍被擋
+  r := t.mk();
+  f := t.refund(r, 100, 'd7a', 'transfer');
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'succeeded', NULL, '已轉', 'user-1', 'owner', NULL, NULL)$q$, f->>'id'),
+    'refund_evidence_required', 'D7a transfer refund cannot succeed without a transfer reference');
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'succeeded', NULL, NULL, 'user-1', 'owner', NULL, 'TX-9')$q$, f->>'id'),
+    'refund_evidence_required', 'D7a transfer refund cannot succeed without a note');
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'succeeded', NULL, '已轉', 'user-1', 'owner', NULL, '   ')$q$, f->>'id'),
+    'refund_evidence_required', 'D7a a blank reference is not evidence');
+  PERFORM t.ok(reservation_refund_in_flight(r, 'deposit'), 'D7a without evidence the refund stays in flight');
+  PERFORM t.raises(format('SELECT t.settle(%L, 300)', r), 'refund_in_flight', 'D7a checkout stays blocked while the refund is unproven');
+
+  -- D7b 有證據 → 成功；事件列記下證據、說明、誰；結帳解除封鎖且只折抵剩下的訂金
+  f := t.mark(f, 'succeeded', 'branch_manager', t.b1(), '已轉帳，客人確認收到', 'TX-20261015-001');
+  SELECT * INTO ev FROM reservation_refund_events WHERE refund_id = (f->>'id')::uuid ORDER BY seq DESC LIMIT 1;
+  PERFORM t.ok(ev.status = 'succeeded' AND ev.evidence_ref = 'TX-20261015-001' AND ev.note = '已轉帳，客人確認收到'
+    AND ev.actor_role = 'branch_manager', 'D7b success event keeps the reference, note and actor');
+  PERFORM t.ok((SELECT evidence_ref FROM reservation_refund_current WHERE id = (f->>'id')::uuid) = 'TX-20261015-001',
+    'D7b the current-status view shows the evidence');
+  s := t.settle(r, 300);
+  PERFORM t.ok(s.deposit_credit = 100, 'D7b after a proven partial refund checkout credits only the remaining 100');
+
+  -- D7c 現金退訂金：要寫說明（誰交給客人），不需要轉帳序號
+  r := t.mk(p_status => 'cancelled');
+  f := t.refund(r, 80, 'd7c', 'cash');
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'succeeded', NULL, NULL, 'user-1', 'owner', NULL, NULL)$q$, f->>'id'),
+    'refund_evidence_required', 'D7c cash refund needs a note to succeed');
+  f := t.mark(f, 'succeeded', 'owner', NULL, '店長當面交給客人', NULL);
+  PERFORM t.ok(f->>'status' = 'succeeded', 'D7c cash refund succeeds with a note');
+
+  -- D7d 標失敗、取消都要寫原因；寫了之後解除處理中（可追查的結束）
+  r := t.mk();
+  f := t.refund(r, 50, 'd7d', 'line_pay');
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'failed', NULL, NULL, 'user-1', 'owner', NULL, NULL)$q$, f->>'id'),
+    'refund_reason_required', 'D7d failing a refund needs a reason');
+  f := t.mark(f, 'failed', 'owner', NULL, 'LINE Pay 退款被拒', NULL);
+  PERFORM t.ok(NOT reservation_refund_in_flight(r, 'deposit'), 'D7d a failed refund clears the in-flight block');
+  PERFORM t.ok(reservation_deposit_refunded(r) = 0, 'D7d a failed refund is not counted as refunded');
+  f := t.refund(r, 50, 'd7d2', 'transfer');
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'canceled', NULL, '  ', 'user-1', 'owner', NULL, NULL)$q$, f->>'id'),
+    'refund_reason_required', 'D7d canceling a refund needs a reason');
+  f := t.mark(f, 'canceled', 'owner', NULL, '客人改要留抵', NULL);
+  PERFORM t.ok(NOT reservation_refund_in_flight(r, 'deposit'), 'D7d a canceled refund clears the in-flight block');
+  PERFORM t.ok((SELECT count(*) FROM reservation_refund_events WHERE refund_id = (f->>'id')::uuid) = 2,
+    'D7d the cancel is one more append-only event (requested → canceled)');
+
+  -- D7e pending（例如已送出轉帳、等銀行）不需要證據，但仍算處理中
+  r := t.mk();
+  f := t.refund(r, 60, 'd7e', 'transfer');
+  PERFORM record_reservation_refund_status((f->>'id')::uuid, 'pending', NULL, NULL, 'user-1', 'owner', NULL, NULL);
+  PERFORM t.ok(reservation_refund_in_flight(r, 'deposit'), 'D7e pending still blocks checkout');
+
+  -- D7f 人工不能填金流商編號（Stripe 的結果只能由 Stripe 回報）
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'succeeded', 're_fake', '已退', 'user-1', 'owner', NULL, 'TX')$q$, f->>'id'),
+    'provider_outcome_only', 'D7f staff cannot write a provider refund id');
+
+  -- D7g Stripe 退款：老闆／店長不能標成功、失敗或取消（只能由 Stripe 回報或對帳）
+  r := t.mk(p_status => 'cancelled');
+  f := t.refund(r, NULL, 'd7g', 'stripe');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L)', f, 'succeeded'), 'provider_outcome_only', 'D7g owner cannot confirm a Stripe refund');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L)', f, 'canceled'), 'provider_outcome_only', 'D7g owner cannot cancel a Stripe refund');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L)', f, 'failed'), 'provider_outcome_only', 'D7g owner cannot fail a Stripe refund');
+  PERFORM record_reservation_refund_status((f->>'id')::uuid, 'canceled', NULL, 'reconcile: Stripe 沒有這筆退款', 'reconcile', 'provider', NULL);
+  PERFORM t.ok(NOT reservation_refund_in_flight(r, 'deposit'), 'D7g reconcile (provider) may cancel when Stripe has no refund');
+
+  -- D7h 權限：一般員工、其他分店店長、沒有分店清單的店長都不能標任何結果
+  r := t.mk();
+  f := t.refund(r, 40, 'd7h', 'transfer');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L, %L, %L)', f, 'succeeded', 'staff', t.b1()), 'refund_not_allowed', 'D7h staff cannot confirm');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L, %L, %L)', f, 'failed', 'staff', t.b1()), 'refund_not_allowed', 'D7h staff cannot fail');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L, %L, %L)', f, 'canceled', 'branch_manager', t.b2()), 'refund_not_allowed',
+    'D7h another branch manager cannot cancel');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L, %L, NULL)', f, 'succeeded', 'branch_manager'), 'refund_not_allowed',
+    'D7h a manager with no branch list cannot confirm');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L, %L, NULL)', f, 'succeeded', 'finance'), 'refund_not_allowed', 'D7h finance cannot confirm');
+
+  -- D7i 結帳時用轉帳退訂金差額 → pending；確認也要證據
+  r := t.mk();
+  PERFORM extend_reservation_stay(r, '2026-10-14 16:00+08', '2026-10-14 14:30+08', 'user-1');
+  s := t.settle(r, 0, 100, 'transfer');
+  SELECT to_jsonb(c) INTO f FROM reservation_refund_current c WHERE c.settlement_id = s.id;
+  PERFORM t.ok(f->>'status' = 'pending' AND f->>'kind' = 'checkout_deposit_excess', 'D7i transfer deposit-excess refund starts pending');
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'succeeded', NULL, '已轉', 'user-1', 'owner', NULL, NULL)$q$, f->>'id'),
+    'refund_evidence_required', 'D7i deposit-excess transfer needs a reference too');
+  f := t.mark(f, 'succeeded');
+  PERFORM t.ok(f->>'status' = 'succeeded', 'D7i deposit-excess transfer succeeds with evidence');
+  -- 現金退差額：結帳當下成功，事件上有說明
+  r := t.mk();
+  PERFORM extend_reservation_stay(r, '2026-10-14 16:00+08', '2026-10-14 14:30+08', 'user-1');
+  s := t.settle(r, 0, 100, 'cash');
+  PERFORM t.ok((SELECT note FROM reservation_refund_current c JOIN reservation_refund_events e ON e.refund_id = c.id AND e.status = 'succeeded'
+    WHERE c.settlement_id = s.id) LIKE '結帳時現金當場退還%', 'D7i cash deposit-excess refund at checkout carries a note');
+
+  -- D7j 事件表本身也擋：人工的成功／失敗／取消沒有說明就寫不進去
+  r := t.mk();
+  f := t.refund(r, 30, 'd7j', 'transfer');
+  PERFORM t.raises(format($q$INSERT INTO reservation_refund_events (refund_id, status, actor, actor_role) VALUES (%L, 'succeeded', 'x', 'owner')$q$, f->>'id'),
+    '%check constraint%', 'D7j table rejects a manual success event without a note');
 END $$;
 
 SET ROLE service_role;

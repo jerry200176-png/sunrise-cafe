@@ -12,16 +12,18 @@ const mocks = vi.hoisted(() => ({
   updates: [] as Array<{ table: string; values: unknown }>,
   reservation: null as Record<string, unknown> | null,
   refundRow: null as Record<string, unknown> | null,
+  lists: {} as Record<string, unknown>,
+  ops: [] as Array<[string, string, unknown[]]>,
 }));
 
 function from(table: string) {
   const self: Record<string, unknown> = {};
-  for (const op of ["select", "eq", "order", "limit", "in"]) self[op] = () => self;
+  for (const op of ["select", "eq", "order", "limit", "in"]) self[op] = (...args: unknown[]) => { mocks.ops.push([table, op, args]); return self; };
   self.update = (values: unknown) => { mocks.updates.push({ table, values }); return self; };
   self.maybeSingle = () => Promise.resolve(table === "reservations" ? { data: mocks.reservation, error: null }
     : table === "reservation_refunds" || table === "reservation_refund_current" ? { data: mocks.refundRow, error: null }
     : { data: { reservation_id: "res-1" }, error: null });
-  self.then = (ok: (value: unknown) => unknown) => Promise.resolve({ data: null, error: null }).then(ok);
+  self.then = (ok: (value: unknown) => unknown) => Promise.resolve({ data: mocks.lists[table] ?? null, error: null }).then(ok);
   return self;
 }
 
@@ -195,43 +197,100 @@ describe("POST /api/payment/refund — refund ledger (#444)", () => {
   });
 });
 
-describe("PATCH /api/payment/refund — confirm a manual refund", () => {
+describe("PATCH /api/payment/refund — manual refund outcomes need evidence (Founder D7)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.requireAdminApiAuth.mockResolvedValue(null);
     mocks.getAdminContext.mockResolvedValue({ user_id: "own-1", role: "owner", branch_ids: null, legacy: false });
     mocks.reservation = { id: "res-1", payment_intent_id: null, deposit_status: "paid", booking_code: "ABC123", room: { branch_id: "b1" } };
-    mocks.refundRow = { id: "rf-1", reservation_id: "res-1" };
+    mocks.refundRow = { id: "rf-1", reservation_id: "res-1", method: "transfer", status: "requested" };
     mocks.refundsList.mockResolvedValue({ data: [] });
     mocks.rpc.mockResolvedValue({ data: ledger({ status: "succeeded" }), error: null });
   });
 
-  it("appends the new status with the session actor", async () => {
-    const response = await call("PATCH", { refundId: "rf-1", status: "succeeded", note: "已轉帳" });
+  it("confirms a transfer refund only with a reference and a note, recorded with the session actor", async () => {
+    const response = await call("PATCH", { refundId: "rf-1", status: "succeeded", note: " 已轉帳 ", reference: " TX-001 ",
+      p_actor_role: "provider" });
     expect(response.status).toBe(200);
     expect(mocks.rpc).toHaveBeenCalledWith("record_reservation_refund_status", expect.objectContaining({
-      p_refund_id: "rf-1", p_status: "succeeded", p_note: "已轉帳", p_actor_role: "owner", p_actor_branch_ids: null,
+      p_refund_id: "rf-1", p_status: "succeeded", p_note: "已轉帳", p_evidence_ref: "TX-001", p_provider_ref: null,
+      p_actor: "own-1", p_actor_role: "owner", p_actor_branch_ids: null,
     }));
   });
 
-  it("refuses staff and rejects unknown statuses", async () => {
-    mocks.getAdminContext.mockResolvedValue({ user_id: "s-1", role: "staff", branch_ids: ["b1"], legacy: false });
-    expect((await call("PATCH", { refundId: "rf-1", status: "succeeded" })).status).toBe(403);
+  it.each([
+    ["no reference", { note: "已轉帳" }],
+    ["a blank reference", { note: "已轉帳", reference: "   " }],
+    ["no note", { reference: "TX-001" }],
+    ["nothing at all", {}],
+  ])("refuses to mark a transfer refund succeeded with %s (cannot clear pending without proof)", async (_what, extra) => {
+    const response = await call("PATCH", { refundId: "rf-1", status: "succeeded", ...extra });
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatch(/證據/);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("confirms a cash refund with a note (no bank reference exists)", async () => {
+    mocks.refundRow = { ...mocks.refundRow!, method: "cash" };
+    expect((await call("PATCH", { refundId: "rf-1", status: "succeeded" })).status).toBe(400);
+    expect((await call("PATCH", { refundId: "rf-1", status: "succeeded", note: "店長當面交給客人" })).status).toBe(200);
+  });
+
+  it.each(["failed", "canceled"])("needs a reason to mark a refund %s, then records it", async (status) => {
+    expect((await call("PATCH", { refundId: "rf-1", status })).status).toBe(400);
+    expect((await call("PATCH", { refundId: "rf-1", status, note: "  " })).status).toBe(400);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect((await call("PATCH", { refundId: "rf-1", status, note: "客人改要留抵" })).status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith("record_reservation_refund_status", expect.objectContaining({ p_status: status, p_note: "客人改要留抵" }));
+  });
+
+  it("lets a pending step be recorded without evidence (it keeps checkout blocked)", async () => {
+    expect((await call("PATCH", { refundId: "rf-1", status: "pending" })).status).toBe(200);
+  });
+
+  it("rejects transitions out of a finished refund before calling SQL", async () => {
+    mocks.refundRow = { ...mocks.refundRow!, status: "canceled" };
+    expect((await call("PATCH", { refundId: "rf-1", status: "succeeded", note: "x", reference: "TX" })).status).toBe(409);
+    mocks.refundRow = { ...mocks.refundRow!, status: "succeeded" };
+    expect((await call("PATCH", { refundId: "rf-1", status: "canceled", note: "x" })).status).toBe(409);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    // 轉帳事後被退回：已退 → 失敗（要原因）
+    expect((await call("PATCH", { refundId: "rf-1", status: "failed", note: "銀行退回" })).status).toBe(200);
+  });
+
+  it.each(["succeeded", "failed", "canceled"])("never lets anyone set a Stripe refund to %s by hand — only Stripe or reconcile", async (status) => {
+    mocks.refundRow = { ...mocks.refundRow!, method: "stripe" };
+    const response = await call("PATCH", { refundId: "rf-1", status, note: "x", reference: "re_123" });
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatch(/Stripe/);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("maps the SQL re-check to a readable error", async () => {
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: "P0001", message: "refund_evidence_required" } });
+    const response = await call("PATCH", { refundId: "rf-1", status: "succeeded", note: "已轉", reference: "TX" });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatch(/證據/);
+  });
+
+  it.each([
+    ["staff", { user_id: "s-1", role: "staff", branch_ids: ["b1"], legacy: false }],
+    ["finance", { user_id: "f-1", role: "finance", branch_ids: null, legacy: false }],
+    ["a manager of another branch", { user_id: "m-2", role: "branch_manager", branch_ids: ["b2"], legacy: false }],
+  ])("refuses %s for every outcome", async (_who, ctx) => {
+    mocks.getAdminContext.mockResolvedValue(ctx);
+    for (const status of ["succeeded", "failed", "canceled", "pending"]) {
+      expect((await call("PATCH", { refundId: "rf-1", status, note: "x", reference: "TX" })).status).toBe(403);
+    }
     expect((await call("PATCH", { refundId: "rf-1", status: "requested" })).status).toBe(400);
     expect(mocks.rpc).not.toHaveBeenCalled();
   });
 
-  it("maps provider_outcome_only (staff trying to mark a Stripe refund succeeded) to 409", async () => {
-    mocks.rpc.mockResolvedValue({ data: null, error: { code: "P0001", message: "provider_outcome_only" } });
-    const response = await call("PATCH", { refundId: "rf-1", status: "succeeded" });
-    expect(response.status).toBe(409);
-    expect((await response.json()).error).toMatch(/Stripe/);
-  });
-
-  it("P1-a: staff cannot cancel a Stripe refund of unknown outcome (SQL refuses) — they reconcile instead", async () => {
-    mocks.rpc.mockResolvedValue({ data: null, error: { code: "P0001", message: "provider_outcome_only" } });
-    expect((await call("PATCH", { refundId: "rf-1", status: "canceled" })).status).toBe(409);
-    expect(mocks.rpc).toHaveBeenCalledWith("record_reservation_refund_status", expect.objectContaining({ p_actor_role: "owner" }));
+  it("lets the branch's own manager confirm with evidence", async () => {
+    mocks.getAdminContext.mockResolvedValue({ user_id: "mgr-1", role: "branch_manager", branch_ids: ["b1"], legacy: false });
+    expect((await call("PATCH", { refundId: "rf-1", status: "succeeded", note: "已轉", reference: "TX" })).status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith("record_reservation_refund_status", expect.objectContaining({
+      p_actor_role: "branch_manager", p_actor_branch_ids: ["b1"] }));
   });
 
   it("P1-a: reconcile asks Stripe and records Stripe's answer", async () => {
@@ -245,22 +304,74 @@ describe("PATCH /api/payment/refund — confirm a manual refund", () => {
     expect(mocks.rpc).toHaveBeenCalledWith("sync_provider_refund", expect.objectContaining({ p_status: "succeeded", p_amount: 200 }));
     expect(mocks.refundsCreate).not.toHaveBeenCalled();
   });
+
+  it("refuses reconcile from staff", async () => {
+    mocks.getAdminContext.mockResolvedValue({ user_id: "s-1", role: "staff", branch_ids: ["b1"], legacy: false });
+    mocks.refundRow = { id: "rf-1", reservation_id: "res-1", kind: "deposit", amount: 200, method: "stripe", status: "requested" };
+    expect((await call("PATCH", { refundId: "rf-1", reconcile: true })).status).toBe(403);
+    expect(mocks.refundsList).not.toHaveBeenCalled();
+  });
 });
 
-describe("GET /api/payment/refund — staff can see refund alerts", () => {
+describe("GET /api/payment/refund — refund screens", () => {
+  const get = (query = "") => GET(new NextRequest(`http://localhost/api/payment/refund${query}`));
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.ops.length = 0;
+    mocks.lists = {};
     mocks.requireAdminApiAuth.mockResolvedValue(null);
+    mocks.reservation = { id: "res-1", payment_intent_id: null, deposit_status: "paid", booking_code: "ABC123", room: { branch_id: "b1" } };
+    mocks.rpc.mockResolvedValue({ data: { deposit_gross: 200, deposit_refunded: 0, deposit_refund_in_flight: true }, error: null });
   });
   it("refuses staff and finance", async () => {
     for (const ctx of [{ role: "staff", branch_ids: ["b1"] }, { role: "finance", branch_ids: null }]) {
       mocks.getAdminContext.mockResolvedValue({ user_id: "x", legacy: false, ...ctx });
-      expect((await GET(new NextRequest("http://localhost/api/payment/refund"))).status).toBe(403);
+      expect((await get()).status).toBe(403);
+      expect((await get("?view=open")).status).toBe(403);
+      expect((await get("?reservationId=res-1")).status).toBe(403);
     }
   });
   it("lets an owner list alerts", async () => {
     mocks.getAdminContext.mockResolvedValue({ user_id: "own-1", role: "owner", branch_ids: null, legacy: false });
-    expect((await GET(new NextRequest("http://localhost/api/payment/refund"))).status).toBe(200);
+    expect((await get()).status).toBe(200);
+  });
+  it("lists open refunds with their reservation for the manager screen", async () => {
+    mocks.getAdminContext.mockResolvedValue({ user_id: "own-1", role: "owner", branch_ids: null, legacy: false });
+    mocks.lists = {
+      reservation_refund_current: [{ id: "rf-1", reservation_id: "res-1", status: "pending", method: "transfer", amount: 100 }],
+      reservations: [{ id: "res-1", booking_code: "ABC123", customer_name: "王", start_time: "2026-10-14T06:00:00Z", status: "cancelled" }],
+      reservation_refund_alerts: [],
+    };
+    const response = await get("?view=open");
+    expect(response.status).toBe(200);
+    const json = await response.json();
+    expect(json.refunds[0]).toMatchObject({ id: "rf-1", reservation: { booking_code: "ABC123" } });
+    expect(mocks.ops).toContainEqual(["reservation_refund_current", "in", ["status", ["requested", "pending"]]]);
+    expect(mocks.ops.some(([table, op, args]) => table === "reservation_refund_current" && op === "in" && args[0] === "branch_id")).toBe(false);
+  });
+  it("scopes a branch manager's open list to their branches", async () => {
+    mocks.getAdminContext.mockResolvedValue({ user_id: "mgr-1", role: "branch_manager", branch_ids: ["b1"], legacy: false });
+    expect((await get("?view=open")).status).toBe(200);
+    expect(mocks.ops).toContainEqual(["reservation_refund_current", "in", ["branch_id", ["b1"]]]);
+    expect(mocks.ops).toContainEqual(["reservation_refund_alerts", "in", ["branch_id", ["b1"]]]);
+  });
+  it("returns a reservation's refunds with every event, the deposit state and alerts", async () => {
+    mocks.getAdminContext.mockResolvedValue({ user_id: "mgr-1", role: "branch_manager", branch_ids: ["b1"], legacy: false });
+    mocks.lists = {
+      reservation_refund_current: [{ id: "rf-1", reservation_id: "res-1", status: "pending", method: "transfer" }],
+      reservation_refund_events: [{ seq: 1, refund_id: "rf-1", status: "requested" }, { seq: 2, refund_id: "rf-1", status: "pending" }],
+      reservation_refund_alerts: [],
+    };
+    const response = await get("?reservationId=res-1");
+    expect(response.status).toBe(200);
+    const json = await response.json();
+    expect(json.events).toHaveLength(2);
+    expect(json.billing).toMatchObject({ deposit_refund_in_flight: true });
+    expect(json.reservation).toMatchObject({ booking_code: "ABC123", via_stripe: false });
+    expect(mocks.rpc).toHaveBeenCalledWith("reservation_billing_state", { p_reservation_id: "res-1" });
+  });
+  it("refuses another branch's manager on a reservation", async () => {
+    mocks.getAdminContext.mockResolvedValue({ user_id: "mgr-2", role: "branch_manager", branch_ids: ["b2"], legacy: false });
+    expect((await get("?reservationId=res-1")).status).toBe(403);
   });
 });
-

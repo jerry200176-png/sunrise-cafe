@@ -126,6 +126,7 @@ const MESSAGES: Record<string, string> = {
   invalid_refund_kind: "退款類型不對",
   refund_not_found: "找不到這筆退款",
   refund_ledger_append_only: "退款紀錄不能修改或刪除",
+  refund_evidence_required: "標成「已退」要附證據：轉帳序號（或交易編號）和說明；現金退款要寫是誰、何時交給客人",
   invalid_cash_tendered: "客人付的現金金額不對",
   change_cash_only: "只有現金結帳才有找零",
   change_not_refund: "找零不能用來退錢；要退訂金請老闆或店長走退款",
