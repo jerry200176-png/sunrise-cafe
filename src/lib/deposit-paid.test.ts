@@ -114,7 +114,8 @@ describe("verifyStripeIntentForReservation (binding + amount)", () => {
     intentReservationId: async () => boundTo,
     totalPrice: async () => total,
   });
-  const pi = (over = {}) => ({ id: "pi_1", amount: 500, currency: "twd", metadata: { reservationId: "r1" }, ...over });
+  // Stripe 單位：NT$500 = 50000
+  const pi = (over = {}) => ({ id: "pi_1", amount: 50000, currency: "twd", metadata: { reservationId: "r1" }, ...over });
   const check = (p: ReturnType<typeof pi>, f = fx("r1", 1000)) => verifyStripeIntentForReservation(p, "r1", f);
 
   it("correct, sufficient intent is accepted", async () => {
@@ -130,7 +131,9 @@ describe("verifyStripeIntentForReservation (binding + amount)", () => {
     expect(await check(pi({ metadata: {} }))).toMatchObject({ ok: false, status: 403 });
   });
   it("underpaid and wrong-currency intents are refused", async () => {
-    expect(await check(pi({ amount: 100 }))).toMatchObject({ ok: false, status: 409 });
+    expect(await check(pi({ amount: 10000 }))).toMatchObject({ ok: false, status: 409 });
+    // 舊的單位錯誤：把 500 元當成 Stripe amount 500（= NT$5）送出，不能算付清
+    expect(await check(pi({ amount: 500 }))).toMatchObject({ ok: false, status: 409 });
     expect(await check(pi({ currency: "usd" }))).toMatchObject({ ok: false, status: 409 });
   });
 });

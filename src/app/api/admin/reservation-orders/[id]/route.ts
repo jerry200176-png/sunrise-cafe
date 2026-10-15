@@ -5,7 +5,8 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { computeCheckoutBill, newEndProblem, nextBlockingStart } from "@/lib/room-checkout";
 import { isPostgresExclusionViolation } from "@/lib/slot-conflict";
 import { afterSettledComplete, transitionHttp, transitionReservation } from "@/lib/reservation-lifecycle";
-import { canAdjustMoney, isPaymentMethod, isSettlementSchemaMissing, settlementFailure } from "@/lib/room-settlement";
+import { canAdjustMoney, isPaymentMethod, isSettlementSchemaMissing, moneyActor, settlementFailure, summarizeDepositRefunds,
+  type RefundLedgerRow } from "@/lib/room-settlement";
 import { canAccessBranch, type AdminContext } from "@/lib/rbac";
 import { logOps } from "@/lib/ops-log";
 
@@ -38,9 +39,11 @@ async function load(id: string) {
     foodTotal: Number(orderResult.data?.total_amount) || 0,
     foodSettled: Boolean(orderResult.data?.paid_at) && billing.reservation.status !== "completed",
     extensions: billing.extensions,
+    depositRefunded: billing.depositRefunds.refunded,
   }) : null;
   return { preorder, order: orderResult.data, settlementsReady: billing.extensions !== null,
-    billing: { ...billing.reservation, next_start: billing.nextStart, bill } };
+    billing: { ...billing.reservation, next_start: billing.nextStart, bill,
+      deposit_refund_in_flight: billing.depositRefunds.inFlight } };
 }
 
 /** 現場結帳需要的包廂費率、訂位金額與同包廂下一組開始時間（延時上限）。 */
@@ -55,22 +58,37 @@ async function loadBilling(id: string) {
     .select("id,room_id,start_time,status").eq("room_id", data.room_id)
     .gte("start_time", data.start_time).neq("status", "cancelled").neq("id", id).order("start_time").limit(5);
   if (sameRoomError) throw sameRoomError;
-  // 延長紀錄（#444）。表還不存在 = migration 尚未套用：extensions 為 null，全部走舊流程
-  const ext = await db.from("reservation_extensions").select("minutes,fee").eq("reservation_id", id);
-  if (ext.error && !isSettlementSchemaMissing(ext.error)) throw ext.error;
-  const extensions = ext.error ? null : (ext.data ?? []).reduce((sum, row) =>
-    ({ minutes: sum.minutes + Number(row.minutes), fee: sum.fee + Number(row.fee) }), { minutes: 0, fee: 0 });
+  // 延長紀錄與訂金退款（#444），由 SQL 用和結帳函式同一套規則算好。
+  // 函式不存在 = migration 尚未套用（或已回滾函式）：extensions 為 null，全部走舊流程
+  const state = await db.rpc("reservation_billing_state", { p_reservation_id: id });
+  if (state.error && !isSettlementSchemaMissing(state.error)) throw state.error;
+  const row = state.error ? null : state.data as {
+    extension_minutes: number; extension_fee: number; deposit_refunded: number; deposit_refund_in_flight: boolean } | null;
+  const extensions = row ? { minutes: Number(row.extension_minutes) || 0, fee: Number(row.extension_fee) || 0 } : null;
+  const depositRefunds = row
+    ? { refunded: Number(row.deposit_refunded) || 0, inFlight: Boolean(row.deposit_refund_in_flight) }
+    : await legacyDepositRefunds(id, data.deposit_status as string | null);
   return {
     reservation: { id: data.id as string, room_id: data.room_id as string, start_time: data.start_time as string,
       end_time: data.end_time as string, status: data.status as string,
       total_price: data.total_price == null ? null : Number(data.total_price),
-      // 退過款的訂金（Stripe 退款只改 deposit_status，is_deposit_paid 仍為 true）不能再扣
-      is_deposit_paid: Boolean(data.is_deposit_paid) && data.deposit_status !== "refunded" },
+      is_deposit_paid: Boolean(data.is_deposit_paid) },
+    depositRefunds,
     room: (room ?? null) as { price_weekday: number; price_weekend: number } | null,
     // 套用 migration 後「沒來」不再佔時段，延長上限也跟著放寬
     nextStart: nextBlockingStart(data, sameRoom ?? [], extensions ? ["cancelled", "no_show"] : ["cancelled"]),
     extensions,
   };
+}
+
+/**
+ * 舊流程（函式不在）時的訂金退款：退款帳本表還在（函式回滾但保留資料）就照帳本算；
+ * 表也不在（migration 從沒套用）就只看 deposit_status（舊的 Stripe 全額退款）。
+ */
+async function legacyDepositRefunds(id: string, depositStatus: string | null) {
+  const ledger = await supabaseAdmin().from("reservation_refund_current").select("kind,amount,status").eq("reservation_id", id);
+  if (ledger.error && !isSettlementSchemaMissing(ledger.error)) throw ledger.error;
+  return summarizeDepositRefunds(ledger.error ? null : (ledger.data as RefundLedgerRow[]), depositStatus);
 }
 
 async function updateStatus(orderId: string) {
@@ -97,7 +115,7 @@ async function settle(
   const discount = body.discount_amount ?? 0;
   if (!Number.isInteger(discount) || discount < 0) return { response: NextResponse.json({ error: "折扣金額不對" }, { status: 400 }) };
   // 角色只看登入 session（ctx），前端送什麼都不採信；資料庫函式會再檢查一次
-  if ((discount > 0 || expectedRefund > 0) && !canAdjustMoney(ctx.role, canAccessBranch(ctx, branchId))) {
+  if ((discount > 0 || expectedRefund > 0) && !canAdjustMoney(ctx.role, canAccessBranch(ctx, branchId), ctx.branch_ids)) {
     return { response: NextResponse.json({ error: discount > 0 ? "只有老闆或店長可以打折" : "退錢要請老闆或店長操作" }, { status: 403 }) };
   }
   const collected = Math.max(0, expectedBeforeDiscount - discount);
@@ -113,8 +131,7 @@ async function settle(
     p_amount_collected: collected,
     p_discount_amount: discount,
     p_discount_reason: body.discount_reason ?? null,
-    p_actor: ctx.user_id ?? ctx.role ?? null,
-    p_actor_role: ctx.role ?? null,
+    ...moneyActor(ctx),
   });
   if (result.error) {
     const failure = settlementFailure(result.error);
@@ -212,6 +229,10 @@ export async function POST(request: NextRequest, { params }: Params) {
         return NextResponse.json({ error: "客人到了以後才能結帳" }, { status: 409 });
       }
       const refund = current.bill?.refund ?? 0;
+      // 訂金退款還在處理中：結果未定，訂金不能折抵也不能當已退 → 等結果出來再結帳
+      if (current.deposit_refund_in_flight && auth.reservation!.status === "checked_in") {
+        return NextResponse.json({ error: "這組有一筆訂金退款還在處理中，等退款結果出來再結帳", billing: current }, { status: 409 });
+      }
       // 要收和要退都要對得上：退款時 due 都是 0，只比 due 會放過過期的退款金額
       if (auth.reservation!.status !== "completed" && (typeof body.expected_due !== "number" || body.expected_due !== due
         || (body.expected_refund ?? 0) !== refund)) {
@@ -231,6 +252,11 @@ export async function POST(request: NextRequest, { params }: Params) {
         await updateStatus(order.id);
         logOps("admin", "admin.room_checked_out", { reservation_id: id, due, actor: ctx.user_id ?? ctx.role, settlement_id: settled.id });
         return NextResponse.json({ ok: true, ...(await load(id)) });
+      }
+      // 舊流程也一樣：退錢只限老闆／本分店店長（角色取自 session）
+      if (refund > 0 && auth.reservation!.status !== "completed"
+        && !canAdjustMoney(ctx.role, canAccessBranch(ctx, auth.branchId!), ctx.branch_ids)) {
+        return NextResponse.json({ error: "退錢要請老闆或店長操作" }, { status: 403 });
       }
       // 沒有資料庫交易可用：先記已收，再轉「已完成」；轉換被拒絕或出錯就把剛記的已收撤回
       // （只撤回自己寫的那一筆）。萬一撤回也失敗，留下的是「已收但仍在包廂內」，

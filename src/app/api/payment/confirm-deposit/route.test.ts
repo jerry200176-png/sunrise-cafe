@@ -52,11 +52,12 @@ describe("POST /api/payment/confirm-deposit binds the PaymentIntent to the reser
       reservations: { id: "r1", deposit_status: "pending", is_deposit_paid: false, total_price: 1000, status: "confirmed", booking_code: "ABC", deposit_payment_note: null },
       payment_intents: { reservation_id: "r1" },
     };
-    mocks.retrieve.mockResolvedValue({ id: "pi_1", status: "succeeded", amount: 500, currency: "twd", metadata: { reservationId: "r1" } });
+    // Stripe 單位：TWD ×100（NT$500 = 50000）
+    mocks.retrieve.mockResolvedValue({ id: "pi_1", status: "succeeded", amount: 50000, currency: "twd", metadata: { reservationId: "r1" } });
   });
 
   it("someone else's succeeded PaymentIntent: refused, nothing written", async () => {
-    mocks.retrieve.mockResolvedValue({ id: "pi_x", status: "succeeded", amount: 500, currency: "twd", metadata: { reservationId: "other" } });
+    mocks.retrieve.mockResolvedValue({ id: "pi_x", status: "succeeded", amount: 50000, currency: "twd", metadata: { reservationId: "other" } });
     const res = await POST(req());
     expect(res.status).toBe(403);
     expect(mocks.updates).toEqual([]);
@@ -64,7 +65,7 @@ describe("POST /api/payment/confirm-deposit binds the PaymentIntent to the reser
   });
 
   it("underpaid PaymentIntent: refused, nothing written", async () => {
-    mocks.retrieve.mockResolvedValue({ id: "pi_1", status: "succeeded", amount: 100, currency: "twd", metadata: { reservationId: "r1" } });
+    mocks.retrieve.mockResolvedValue({ id: "pi_1", status: "succeeded", amount: 10000, currency: "twd", metadata: { reservationId: "r1" } });
     const res = await POST(req());
     expect(res.status).toBe(409);
     expect(mocks.updates).toEqual([]);
