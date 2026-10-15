@@ -23,7 +23,7 @@
 | 7 | **結帳函式 `settle_reservation_checkout` 改了 4 處**：(a) 多一個參數「操作者的分店清單」，退款與打折改成「老闆，或這間分店的店長」才行（先前只看角色、不看分店）；(b) 訂金折抵改成「已付訂金 − 真的已退的金額」（先前是看到 `deposit_status = 'refunded'` 就整筆不折抵，部分退款會算錯）；(c) 有訂金退款還在處理中就擋下結帳（`refund_in_flight`）；(d) 要退差額時，同一個 transaction 記一筆退款帳本：現金 = 已退，其他方式 = 待確認 | 1、2、3、4、5 |
 | 8 | 退款成功後由 SQL 同步 `reservations.deposit_status`：實際已退 ≥ 已付訂金才改 `refunded`；之後退款失敗會改回 `paid`。這是本 migration 唯一會改既有資料列的地方，而且只在退款發生時、只動這一個欄位（現在的 Stripe 退款流程本來就寫這個欄位） | 3、4 |
 | 9 | 檔尾的回滾從「DROP 全部表」改成「只拿掉函式、保留所有資料」，並拆成獨立檔案 [`supabase/rollbacks/reservation-settlements-keep-data.sql`](../../supabase/rollbacks/reservation-settlements-keep-data.sql) | 5 |
-| 10 | **現金找零（Founder D6，2026-10-15）**：`reservation_settlements` 多 5 個欄位 `cash_tendered`、`change_given`、`change_given_by`、`change_given_by_role`、`change_given_at`，加一條 CHECK：有找零就一定是「現金、有收錢、沒有退訂金」，而且 `change_given = cash_tendered − amount_collected`。`settle_reservation_checkout` 多一個參數 `p_cash_tendered`（預設 NULL）：一般員工可以記找零；非現金（`change_cash_only`）、沒收錢或要退訂金（`change_not_refund`）、付的比要收的少（`cash_tendered_short`）一律擋下。找零**不進**退款帳本 | D6 |
+| 10 | **現金找零（Founder D6，2026-10-15）**：`reservation_settlements` 多 5 個欄位 `cash_tendered`、`change_given`、`change_given_by`、`change_given_by_role`、`change_given_at`，加一條 CHECK：有找零就一定是「現金、有收錢、沒有退訂金」，而且 `change_given = cash_tendered − amount_collected`。`settle_reservation_checkout` 多一個參數 `p_cash_tendered`（預設 NULL）：一般員工可以記找零；非現金（`change_cash_only`）、沒收錢或要退訂金（`change_not_refund`）、付的比要收的少（`cash_tendered_short`）、超過 NT$ 100,000（`invalid_cash_tendered`）、沒有操作者（`change_actor_required`）一律擋下；表的 CHECK 也要求有找零（> 0）就一定記下是誰、什麼角色找的。找零**不進**退款帳本 | D6 |
 | 11 | **退款帳本種類改名**：`checkout_change` → `checkout_deposit_excess`（結帳時訂金比帳單多、要退的差額）。這是退款、限老闆／本分店店長，不能叫「找零」（D6：退款不可包成找零）。只改名稱，規則不變 | D6 |
 | 12 | **人工退款要有證據才能標成功（Founder D7，2026-10-15）**：`reservation_refund_events` 多一欄 `evidence_ref`（轉帳序號、LINE Pay 交易編號…），並加一條 CHECK：人工（非金流商）的成功／失敗／取消事件一定要有說明。`record_reservation_refund_status` 多一個參數 `p_evidence_ref`（預設 NULL）：人工標「成功」時，非現金要有 `evidence_ref`＋說明、現金要有說明，否則 `refund_evidence_required`；標「失敗」「取消」沒寫原因 → `refund_reason_required`；人工不能寫金流商編號（`provider_outcome_only`）。結帳時現金當場退的差額，事件上自動帶說明。`reservation_refund_current` view 末端多 `evidence_ref`、`status_note` 兩欄 | D7 |
 | 13 | 解除結帳的「退款處理中」**只能**經過上面這些可追查的狀態變化（確認已退／失敗／取消；Stripe 只能由 Stripe 回報或對帳）；沒有任何繞過 `refund_in_flight` 的路徑 | D7 |
@@ -52,7 +52,7 @@
 
 D6／D7 實作時多出來、也需要 Founder 回覆的細節（都**未確認**，目前照最保守的寫法）：
 
-- 現金找零：客人給的現金金額是「選填」（空白 = 剛好付清，不記找零）。要不要改成現金結帳一律必填？找零沒有另外設上限（只要求付的 ≥ 要收的）。
+- 現金找零：客人給的現金金額是「選填」（空白 = 剛好付清，不記找零）。要不要改成現金結帳一律必填？客人給的現金上限 NT$ 100,000（防輸入錯誤，審閱 P2），此外只要求付的 ≥ 要收的。
 - 人工退款「確認已退」：目前要「轉帳序號／交易編號＋說明」（現金只要說明）。**附件（截圖上傳）還沒做**。要不要附件也必填？
 - 已退的人工退款事後發現沒退成（例如轉帳被退回），可以改標「失敗」（要寫原因），訂金就重新算回可折抵。可以嗎？
 - 結帳時記下的退差額（客人應拿回的錢）也可以被「取消」（要寫原因）。取消後帳上不再顯示要退。可以嗎？

@@ -430,6 +430,28 @@ BEGIN
       amount_before_discount, amount_due, amount_collected, payment_method, cash_tendered, change_given, change_given_at)
     VALUES (%L, 'food_only', 0, 100, 0, 100, 100, 100, 'cash', 500, 450, now())$q$, r), '%check constraint%',
     'D6i table rejects change larger than tendered minus collected');
+  PERFORM t.raises(format($q$INSERT INTO reservation_settlements (reservation_id, kind, room_fee, food_total, deposit_credit,
+      amount_before_discount, amount_due, amount_collected, payment_method, cash_tendered, change_given, change_given_at)
+    VALUES (%L, 'food_only', 0, 100, 0, 100, 100, 100, 'cash', 500, 400, now())$q$, r), '%check constraint%',
+    'D6i table rejects change > 0 with no change-giver recorded');
+  PERFORM t.raises(format($q$INSERT INTO reservation_settlements (reservation_id, kind, room_fee, food_total, deposit_credit,
+      amount_before_discount, amount_due, amount_collected, payment_method, cash_tendered, change_given, change_given_by,
+      change_given_by_role, change_given_at)
+    VALUES (%L, 'food_only', 0, 100, 0, 100, 100, 100, 'cash', 500, 400, '  ', 'staff', now())$q$, r), '%check constraint%',
+    'D6i table rejects change > 0 with a blank change-giver');
+  PERFORM t.raises(format($q$INSERT INTO reservation_settlements (reservation_id, kind, room_fee, food_total, deposit_credit,
+      amount_before_discount, amount_due, amount_collected, payment_method, cash_tendered, change_given, change_given_by,
+      change_given_by_role, change_given_at)
+    VALUES (%L, 'food_only', 0, 100, 0, 100, 100, 100, 'cash', 100001, 100001 - 100, 'u', 'staff', now())$q$, r), '%check constraint%',
+    'D6i table rejects a tendered amount above 100000');
+
+  -- D6j 函式也擋：超過上限、沒有操作者
+  r := t.mk();
+  PERFORM t.raises(format('SELECT t.settle_cash(%L, 200, 100001)', r), 'invalid_cash_tendered', 'D6j tendered above 100000 is rejected');
+  PERFORM t.raises(format($q$SELECT settle_reservation_checkout(%L, 200, 0, 'cash', 200, 0, NULL, NULL, 'staff', %L, 500)$q$, r, t.b1()),
+    'change_actor_required', 'D6j change without an actor is rejected');
+  PERFORM t.raises(format($q$SELECT settle_reservation_checkout(%L, 200, 0, 'cash', 200, 0, NULL, 'u', ' ', %L, 500)$q$, r, t.b1()),
+    'change_actor_required', 'D6j change without a role is rejected');
 END $$;
 
 -- ===========================================================================
