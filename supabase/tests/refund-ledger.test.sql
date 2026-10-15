@@ -559,6 +559,34 @@ BEGIN
   f := t.refund(r, 30, 'd7j', 'transfer');
   PERFORM t.raises(format($q$INSERT INTO reservation_refund_events (refund_id, status, actor, actor_role) VALUES (%L, 'succeeded', 'x', 'owner')$q$, f->>'id'),
     '%check constraint%', 'D7j table rejects a manual success event without a note');
+  -- 審閱 P2：用 service key 直接寫事件也繞不過證據
+  PERFORM t.raises(format($q$INSERT INTO reservation_refund_events (refund_id, status, note, actor, actor_role)
+      VALUES (%L, 'succeeded', '已轉', 'x', 'owner')$q$, f->>'id'),
+    '%check constraint%', 'D7j table rejects a manual non-cash success without a reference');
+  PERFORM t.raises(format($q$INSERT INTO reservation_refund_events (refund_id, status, note, evidence_ref, actor, actor_role)
+      VALUES (%L, 'succeeded', '已轉', '  ', 'x', 'owner')$q$, f->>'id'),
+    '%check constraint%', 'D7j table rejects a blank reference');
+  PERFORM t.raises(format($q$INSERT INTO reservation_refund_events (refund_id, status, note, refund_method, actor, actor_role)
+      VALUES (%L, 'succeeded', '已轉', 'cash', 'x', 'owner')$q$, f->>'id'),
+    '%check constraint%', 'D7j a spoofed refund_method is overwritten from the refund row');
+  PERFORM t.raises(format($q$INSERT INTO reservation_refund_events (refund_id, status, note, evidence_ref, actor, actor_role)
+      VALUES (%L, 'failed', '原因', NULL, 'x', NULL)$q$, f->>'id'),
+    '%check constraint%', 'D7j table rejects a manual transition with no role');
+  PERFORM t.raises(format($q$INSERT INTO reservation_refund_events (refund_id, status, note, actor, actor_role)
+      VALUES (%L, 'canceled', '原因', 'x', '  ')$q$, f->>'id'),
+    '%check constraint%', 'D7j table rejects a manual transition with a blank role');
+  PERFORM t.raises(format($q$INSERT INTO reservation_refund_events (refund_id, status, actor, actor_role)
+      VALUES (%L, 'succeeded', 'x', 'provider')$q$, f->>'id'),
+    '%check constraint%', 'D7j table rejects posing as the provider on a manual refund');
+  INSERT INTO reservation_refund_events (refund_id, status, note, evidence_ref, actor, actor_role)
+    VALUES ((f->>'id')::uuid, 'succeeded', '已轉', 'TX-77', 'x', 'owner');
+  PERFORM t.ok((SELECT refund_method FROM reservation_refund_events WHERE refund_id = (f->>'id')::uuid ORDER BY seq DESC LIMIT 1) = 'transfer',
+    'D7j a complete manual success with a reference is accepted and carries the refund method');
+  r := t.mk(p_status => 'cancelled');
+  f := t.refund(r, NULL, 'd7j-stripe', 'stripe');
+  PERFORM t.raises(format($q$INSERT INTO reservation_refund_events (refund_id, status, note, evidence_ref, actor, actor_role)
+      VALUES (%L, 'canceled', '原因', NULL, 'x', 'owner')$q$, f->>'id'),
+    '%check constraint%', 'D7j table rejects a non-provider outcome on a Stripe refund');
 END $$;
 
 SET ROLE service_role;

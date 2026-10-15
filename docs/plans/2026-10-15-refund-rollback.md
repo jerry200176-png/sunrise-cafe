@@ -25,7 +25,7 @@
 | 9 | 檔尾的回滾從「DROP 全部表」改成「只拿掉函式、保留所有資料」，並拆成獨立檔案 [`supabase/rollbacks/reservation-settlements-keep-data.sql`](../../supabase/rollbacks/reservation-settlements-keep-data.sql) | 5 |
 | 10 | **現金找零（Founder D6，2026-10-15）**：`reservation_settlements` 多 5 個欄位 `cash_tendered`、`change_given`、`change_given_by`、`change_given_by_role`、`change_given_at`，加一條 CHECK：有找零就一定是「現金、有收錢、沒有退訂金」，而且 `change_given = cash_tendered − amount_collected`。`settle_reservation_checkout` 多一個參數 `p_cash_tendered`（預設 NULL）：一般員工可以記找零；非現金（`change_cash_only`）、沒收錢或要退訂金（`change_not_refund`）、付的比要收的少（`cash_tendered_short`）、超過 NT$ 100,000（`invalid_cash_tendered`）、沒有操作者（`change_actor_required`）一律擋下；表的 CHECK 也要求有找零（> 0）就一定記下是誰、什麼角色找的。找零**不進**退款帳本 | D6 |
 | 11 | **退款帳本種類改名**：`checkout_change` → `checkout_deposit_excess`（結帳時訂金比帳單多、要退的差額）。這是退款、限老闆／本分店店長，不能叫「找零」（D6：退款不可包成找零）。只改名稱，規則不變 | D6 |
-| 12 | **人工退款要有證據才能標成功（Founder D7，2026-10-15）**：`reservation_refund_events` 多一欄 `evidence_ref`（轉帳序號、LINE Pay 交易編號…），並加一條 CHECK：人工（非金流商）的成功／失敗／取消事件一定要有說明。`record_reservation_refund_status` 多一個參數 `p_evidence_ref`（預設 NULL）：人工標「成功」時，非現金要有 `evidence_ref`＋說明、現金要有說明，否則 `refund_evidence_required`；標「失敗」「取消」沒寫原因 → `refund_reason_required`；人工不能寫金流商編號（`provider_outcome_only`）。結帳時現金當場退的差額，事件上自動帶說明。`reservation_refund_current` view 末端多 `evidence_ref`、`status_note` 兩欄 | D7 |
+| 12 | **人工退款要有證據才能標成功（Founder D7，2026-10-15）**：`reservation_refund_events` 多一欄 `evidence_ref`（轉帳序號、LINE Pay 交易編號…），並加 CHECK（審閱 P2：連 service key 直接寫入也繞不過）：每一步都要有角色；人工（非金流商）的成功／失敗／取消一定要有說明，非現金的「成功」還要有 `evidence_ref`；金流商身分只能用在 Stripe 退款，Stripe 退款除了「申請」之外只能由金流商記。事件多一欄 `refund_method`，由 BEFORE INSERT trigger 從退款那一列帶入（寫入者填的值會被蓋掉）並以外鍵 `(refund_id, refund_method)` 對應 `reservation_refunds (id, method)`。`record_reservation_refund_status` 多一個參數 `p_evidence_ref`（預設 NULL）：人工標「成功」時，非現金要有 `evidence_ref`＋說明、現金要有說明，否則 `refund_evidence_required`；標「失敗」「取消」沒寫原因 → `refund_reason_required`；人工不能寫金流商編號（`provider_outcome_only`）。結帳時現金當場退的差額，事件上自動帶說明。`reservation_refund_current` view 末端多 `evidence_ref`、`status_note` 兩欄 | D7 |
 | 13 | 解除結帳的「退款處理中」**只能**經過上面這些可追查的狀態變化（確認已退／失敗／取消；Stripe 只能由 Stripe 回報或對帳）；沒有任何繞過 `refund_in_flight` 的路徑 | D7 |
 
 沒有改的：延長紀錄、結帳紀錄兩張表的欄位與檢查條件、延長函式、計費規則、no_show 不佔時段的規則。
@@ -38,7 +38,7 @@
 
 ## 2. 需要 Founder 決定的事
 
-**主要決定：** 核准「`supabase/migration-reservation-settlements.sql` sha256 `cc09343abf69acb9151eee40f66ca93e94736ed81562780bda6c2be2ab2fb32c`」（含 D6 現金找零與 D7 退款證據；#448 @ `78a4619` 的 `06dc6a71…f722` 已被取代）這一份確切內容，可以在下面的備份步驟之後套用到正式環境（#446 換成同一份）。沒有核准前，新表不存在，API 走舊流程，退款 API 會回 503（不會在沒有帳本的情況下退款）。
+**主要決定：** 核准「`supabase/migration-reservation-settlements.sql` sha256 `ef9ba5b0c3e2dec8c175673654bd9126af5333eeb69072e03697a2d892296144`」（含 D6 現金找零與 D7 退款證據；#448 @ `78a4619` 的 `06dc6a71…f722` 已被取代）這一份確切內容，可以在下面的備份步驟之後套用到正式環境（#446 換成同一份）。沒有核准前，新表不存在，API 走舊流程，退款 API 會回 503（不會在沒有帳本的情況下退款）。
 
 一起確認的政策：程式已照推薦寫好，但 **Founder 2026-10-15 指示「不要整包默認同意」**，所以逐條標出狀態。只有標「已確認」的部分算 Founder 決定；其他都還在等回覆，回覆前 SQL 不套用。
 （原本列 5 條，審閱時加了第 6 條，所以共 6 條。）

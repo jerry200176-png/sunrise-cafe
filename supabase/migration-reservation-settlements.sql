@@ -133,7 +133,9 @@ CREATE TABLE IF NOT EXISTS reservation_refunds (
   idempotency_key text NOT NULL UNIQUE CHECK (length(idempotency_key) BETWEEN 1 AND 200),
   created_at timestamptz NOT NULL DEFAULT now(),
   CHECK (kind = 'deposit' OR settlement_id IS NOT NULL),
-  CHECK (requested_by_role <> 'provider' OR method = 'stripe')
+  CHECK (requested_by_role <> 'provider' OR method = 'stripe'),
+  -- 讓事件表能用 (refund_id, refund_method) 外鍵帶上退款方式，CHECK 才看得到（審閱 P2）
+  CONSTRAINT uq_reservation_refunds_id_method UNIQUE (id, method)
 );
 
 CREATE INDEX IF NOT EXISTS idx_reservation_refunds_reservation
@@ -150,10 +152,39 @@ CREATE TABLE IF NOT EXISTS reservation_refund_events (
   note text,
   actor text,
   actor_role text,
+  -- 這筆退款的方式：由 BEFORE INSERT trigger 從 reservation_refunds 帶入（寫入的人填什麼都會被蓋掉），
+  -- 外鍵再保證一致。下面的 CHECK 靠它判斷「非現金」（審閱 P2：連 service key 直接寫入也擋）
+  refund_method text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  -- 人工把退款標成成功／失敗／取消時，一定要留說明（D7：每一步都要可追查）
-  CHECK (actor_role = 'provider' OR status IN ('requested', 'pending') OR (note IS NOT NULL AND length(btrim(note)) > 0))
+  FOREIGN KEY (refund_id, refund_method) REFERENCES reservation_refunds (id, method) ON DELETE RESTRICT,
+  -- 每一步都要記下是什麼角色做的
+  CHECK (length(btrim(COALESCE(actor_role, ''))) > 0),
+  -- 金流商身分只能用在 Stripe 退款；Stripe 退款除了「申請」之外的每一步都只能由金流商記
+  CHECK (actor_role <> 'provider' OR refund_method = 'stripe'),
+  CHECK (refund_method <> 'stripe' OR actor_role = 'provider' OR status = 'requested'),
+  -- 人工把退款標成成功／失敗／取消時，一定要留說明；非現金的「成功」還要有證據編號（D7：每一步都要可追查）
+  CHECK (
+    actor_role = 'provider' OR status IN ('requested', 'pending')
+    OR (length(btrim(COALESCE(note, ''))) > 0
+        AND (status <> 'succeeded' OR refund_method = 'cash' OR length(btrim(COALESCE(evidence_ref, ''))) > 0))
+  )
 );
+
+-- 事件的退款方式一律從退款那一列帶入，不信任寫入的人填的值
+CREATE OR REPLACE FUNCTION public.refund_event_fill_method()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  SELECT method INTO NEW.refund_method FROM reservation_refunds WHERE id = NEW.refund_id;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_reservation_refund_events_fill_method ON reservation_refund_events;
+CREATE TRIGGER trg_reservation_refund_events_fill_method
+  BEFORE INSERT ON reservation_refund_events
+  FOR EACH ROW EXECUTE FUNCTION public.refund_event_fill_method();
 
 CREATE INDEX IF NOT EXISTS idx_reservation_refund_events_refund
   ON reservation_refund_events(refund_id, seq);
@@ -1017,6 +1048,7 @@ REVOKE ALL ON FUNCTION public.reservation_refund_json(uuid) FROM PUBLIC, anon, a
 REVOKE ALL ON FUNCTION public.refund_transition_allowed(text, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.sync_reservation_deposit_status(uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.refund_ledger_append_only() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.refund_event_fill_method() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.request_reservation_refund(uuid, text, integer, text, text, text, text, text, uuid[], integer)
   FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.record_reservation_refund_status(uuid, text, text, text, text, text, uuid[], text)
