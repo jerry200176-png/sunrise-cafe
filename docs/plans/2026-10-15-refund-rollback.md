@@ -23,7 +23,7 @@
 | 7 | **結帳函式 `settle_reservation_checkout` 改了 4 處**：(a) 多一個參數「操作者的分店清單」，退款與打折改成「老闆，或這間分店的店長」才行（先前只看角色、不看分店）；(b) 訂金折抵改成「已付訂金 − 真的已退的金額」（先前是看到 `deposit_status = 'refunded'` 就整筆不折抵，部分退款會算錯）；(c) 有訂金退款還在處理中就擋下結帳（`refund_in_flight`）；(d) 要退差額時，同一個 transaction 記一筆退款帳本：現金 = 已退，其他方式 = 待確認 | 1、2、3、4、5 |
 | 8 | 退款成功後由 SQL 同步 `reservations.deposit_status`：實際已退 ≥ 已付訂金才改 `refunded`；之後退款失敗會改回 `paid`。這是本 migration 唯一會改既有資料列的地方，而且只在退款發生時、只動這一個欄位（現在的 Stripe 退款流程本來就寫這個欄位） | 3、4 |
 | 9 | 檔尾的回滾從「DROP 全部表」改成「只拿掉函式、保留所有資料」，並拆成獨立檔案 [`supabase/rollbacks/reservation-settlements-keep-data.sql`](../../supabase/rollbacks/reservation-settlements-keep-data.sql) | 5 |
-| 10 | **現金找零（Founder D6，2026-10-15）**：`reservation_settlements` 多 5 個欄位 `cash_tendered`、`change_given`、`change_given_by`、`change_given_by_role`、`change_given_at`，加一條 CHECK：有找零就一定是「現金、有收錢、沒有退訂金」，而且 `change_given = cash_tendered − amount_collected`。`settle_reservation_checkout` 多一個參數 `p_cash_tendered`（預設 NULL）：一般員工可以記找零；非現金（`change_cash_only`）、沒收錢或要退訂金（`change_not_refund`）、付的比要收的少（`cash_tendered_short`）一律擋下。找零**不進**退款帳本 | D6 |
+| 10 | **現金找零（Founder D6，2026-10-15）**：`reservation_settlements` 多 5 個欄位 `cash_tendered`、`change_given`、`change_given_by`、`change_given_by_role`、`change_given_at`，加一條 CHECK：有找零就一定是「現金、有收錢、沒有退訂金」，而且 `change_given = cash_tendered − amount_collected`。`settle_reservation_checkout` 多一個參數 `p_cash_tendered`（預設 NULL）：一般員工可以記找零；非現金（`change_cash_only`）、沒收錢或要退訂金（`change_not_refund`）、付的比要收的少（`cash_tendered_short`）、超過 NT$ 100,000（`invalid_cash_tendered`）、沒有操作者（`change_actor_required`）一律擋下；表的 CHECK 也要求有找零（> 0）就一定記下是誰、什麼角色找的。找零**不進**退款帳本 | D6 |
 | 11 | **退款帳本種類改名**：`checkout_change` → `checkout_deposit_excess`（結帳時訂金比帳單多、要退的差額）。這是退款、限老闆／本分店店長，不能叫「找零」（D6：退款不可包成找零）。只改名稱，規則不變 | D6 |
 
 沒有改的：延長紀錄、結帳紀錄兩張表的欄位與檢查條件、延長函式、計費規則、no_show 不佔時段的規則。
@@ -36,7 +36,7 @@
 
 ## 2. 需要 Founder 決定的事
 
-**主要決定：** 核准「`supabase/migration-reservation-settlements.sql` sha256 `4c8ec0df1119bcf9bc6fcc558c3f4d627d1855f9004dcb4ef345749e4230842f`」（含 D6 現金找零；#448 @ `78a4619` 的 `06dc6a71…f722` 已被取代）這一份確切內容，可以在下面的備份步驟之後套用到正式環境（#446 換成同一份）。沒有核准前，新表不存在，API 走舊流程，退款 API 會回 503（不會在沒有帳本的情況下退款）。
+**主要決定：** 核准「`supabase/migration-reservation-settlements.sql` sha256 `9621624a72442fadfe01933637367fff97170b0e880e5d7598d8a2b4e60d4e6d`」（含 D6 現金找零；#448 @ `78a4619` 的 `06dc6a71…f722` 已被取代）這一份確切內容，可以在下面的備份步驟之後套用到正式環境（#446 換成同一份）。沒有核准前，新表不存在，API 走舊流程，退款 API 會回 503（不會在沒有帳本的情況下退款）。
 
 一起確認的政策（都已照推薦寫進程式）：
 

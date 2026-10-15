@@ -64,7 +64,8 @@ CREATE TABLE IF NOT EXISTS reservation_settlements (
     CHECK (payment_method IN ('cash', 'card', 'line_pay', 'transfer', 'other', 'none')),
   -- 現金找零（Founder D6）：只有「現金結帳、有收錢」才有。找零 = 客人付的現金 − 這次要收的金額，由伺服器算，不能手填。
   -- 找零不是退款：不能拿來退訂金（refund_amount 必須是 0）、不能用在現金以外的付款方式。
-  cash_tendered integer CHECK (cash_tendered > 0),
+  -- 上限 100000（和 src/lib/room-settlement.ts MAX_CASH_TENDERED 一致）：超過就是輸入錯誤
+  cash_tendered integer CHECK (cash_tendered BETWEEN 1 AND 100000),
   change_given integer CHECK (change_given >= 0),
   change_given_by text,
   change_given_by_role text,
@@ -77,7 +78,10 @@ CREATE TABLE IF NOT EXISTS reservation_settlements (
      AND change_given_at IS NULL)
     OR (payment_method = 'cash' AND amount_collected > 0 AND refund_amount = 0
         AND cash_tendered >= amount_collected AND change_given = cash_tendered - amount_collected
-        AND change_given_at IS NOT NULL)
+        AND change_given_at IS NOT NULL
+        -- 有找零就一定要記下是誰找的（審閱 P2：連 service key 直接寫入也擋）
+        AND (change_given = 0 OR (length(btrim(COALESCE(change_given_by, ''))) > 0
+                                  AND length(btrim(COALESCE(change_given_by_role, ''))) > 0)))
   ),
   CHECK (room_fee = GREATEST(0, booked_room_fee + extension_fee) OR kind = 'food_only'),
   CHECK (kind = 'full' OR (room_fee = 0 AND deposit_credit = 0 AND extension_fee = 0)),
@@ -910,6 +914,12 @@ BEGIN
   --   找零 = 客人付的現金 − 這次要收的金額（伺服器算，前端不能指定）；所以找零永遠不會超過「付的現金 − 帳單」，
   --   店裡現金的淨流入永遠等於 amount_collected，不可能用找零把訂金或任何錢退出去。
   IF p_cash_tendered IS NOT NULL THEN
+    IF p_cash_tendered <= 0 OR p_cash_tendered > 100000 THEN
+      RAISE EXCEPTION 'invalid_cash_tendered' USING ERRCODE = 'P0001';
+    END IF;
+    IF length(btrim(COALESCE(p_actor, ''))) = 0 OR length(btrim(COALESCE(p_actor_role, ''))) = 0 THEN
+      RAISE EXCEPTION 'change_actor_required' USING ERRCODE = 'P0001';
+    END IF;
     IF p_payment_method IS DISTINCT FROM 'cash' THEN
       RAISE EXCEPTION 'change_cash_only' USING ERRCODE = 'P0001';
     END IF;

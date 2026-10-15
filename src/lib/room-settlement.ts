@@ -43,11 +43,15 @@ export function moneyActor(ctx: { user_id: string | null; role: string; branch_i
  * 找零不是退款：要退訂金差額（refund > 0）時不能帶找零；退款與打折照各自的權限（老闆／本分店店長）。
  * 和 SQL settle_reservation_checkout 的檢查一致。tendered 為 undefined／null = 沒有找零紀錄。
  */
+/** 客人給的現金上限（整數元）。超過一定是輸錯；也避免超過資料庫 integer 範圍變成 500。和 SQL 的 CHECK 一致。 */
+export const MAX_CASH_TENDERED = 100_000;
+
 export type CashChangeProblem = "invalid_cash_tendered" | "change_cash_only" | "change_not_refund" | "cash_tendered_short";
 export function cashChange(input: { tendered: unknown; method: string | null | undefined; collected: number; refund: number }):
   { change: number | null } | { problem: CashChangeProblem } {
   if (input.tendered === undefined || input.tendered === null) return { change: null };
-  if (typeof input.tendered !== "number" || !Number.isInteger(input.tendered) || input.tendered <= 0) {
+  if (typeof input.tendered !== "number" || !Number.isInteger(input.tendered) || input.tendered <= 0
+    || input.tendered > MAX_CASH_TENDERED) {
     return { problem: "invalid_cash_tendered" };
   }
   if (input.refund > 0) return { problem: "change_not_refund" };
@@ -126,7 +130,8 @@ const MESSAGES: Record<string, string> = {
   invalid_refund_kind: "退款類型不對",
   refund_not_found: "找不到這筆退款",
   refund_ledger_append_only: "退款紀錄不能修改或刪除",
-  invalid_cash_tendered: "客人付的現金金額不對",
+  invalid_cash_tendered: "客人付的現金金額不對（最多 NT$ 100,000）",
+  change_actor_required: "找零要記下是誰操作的，請重新登入再試",
   change_cash_only: "只有現金結帳才有找零",
   change_not_refund: "找零不能用來退錢；要退訂金請老闆或店長走退款",
   cash_tendered_short: "客人付的現金比要收的少",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canAdjustMoney, cashChange, cashChangeMessage, moneyActor, settlementFailure, stripeRefundStatus, summarizeDepositRefunds } from "@/lib/room-settlement";
+import { MAX_CASH_TENDERED, canAdjustMoney, cashChange, cashChangeMessage, moneyActor, settlementFailure, stripeRefundStatus, summarizeDepositRefunds } from "@/lib/room-settlement";
 import { isDepositFullyRefunded } from "@/lib/refund-ledger";
 
 describe("refund principle 2 — who may move money", () => {
@@ -82,6 +82,9 @@ describe("cashChange (Founder D6)", () => {
     expect(cashChange({ tendered: 1000, method: "cash", collected: 560, refund: 0 })).toEqual({ change: 440 });
     expect(cashChange({ tendered: 560, method: "cash", collected: 560, refund: 0 })).toEqual({ change: 0 });
   });
+  it("accepts exactly the maximum", () => {
+    expect(cashChange({ tendered: MAX_CASH_TENDERED, method: "cash", collected: 560, refund: 0 })).toEqual({ change: MAX_CASH_TENDERED - 560 });
+  });
   it("records nothing when no tendered amount is given", () => {
     expect(cashChange({ tendered: undefined, method: "card", collected: 560, refund: 0 })).toEqual({ change: null });
     expect(cashChange({ tendered: null, method: "cash", collected: 0, refund: 150 })).toEqual({ change: null });
@@ -95,6 +98,9 @@ describe("cashChange (Founder D6)", () => {
     [{ tendered: 0, method: "cash", collected: 560, refund: 0 }, "invalid_cash_tendered"],
     [{ tendered: 600.5, method: "cash", collected: 560, refund: 0 }, "invalid_cash_tendered"],
     [{ tendered: "1000", method: "cash", collected: 560, refund: 0 }, "invalid_cash_tendered"],
+    [{ tendered: 100_001, method: "cash", collected: 560, refund: 0 }, "invalid_cash_tendered"],
+    [{ tendered: 2 ** 31, method: "cash", collected: 560, refund: 0 }, "invalid_cash_tendered"],
+    [{ tendered: Number.MAX_SAFE_INTEGER + 2, method: "cash", collected: 560, refund: 0 }, "invalid_cash_tendered"],
   ])("refuses %o with %s", (input, problem) => {
     expect(cashChange(input)).toEqual({ problem });
   });

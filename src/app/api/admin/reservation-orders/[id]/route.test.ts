@@ -441,6 +441,8 @@ describe("POST /api/admin/reservation-orders/[id] — settlement RPCs (#444 migr
       ["a negative amount", { ...cash, cash_tendered: -100 }, /金額不對/],
       ["a fractional amount", { ...cash, cash_tendered: 600.5 }, /金額不對/],
       ["a string amount", { ...cash, cash_tendered: "1000" }, /金額不對/],
+      ["an amount above the DB integer range", { ...cash, cash_tendered: 2 ** 31 }, /金額不對/],
+      ["an amount above the sane maximum", { ...cash, cash_tendered: 100_001 }, /金額不對/],
     ])("refuses change on %s before calling SQL", async (_what, body, message) => {
       const response = await post(body);
       expect(response.status).toBe(400);
