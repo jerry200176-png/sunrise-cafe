@@ -87,7 +87,12 @@ describe("cashChange (Founder D6)", () => {
   });
   it("records nothing when no tendered amount is given", () => {
     expect(cashChange({ tendered: undefined, method: "card", collected: 560, refund: 0 })).toEqual({ change: null });
+    expect(cashChange({ tendered: undefined, method: "cash", collected: 0, refund: 0 })).toEqual({ change: null });
     expect(cashChange({ tendered: null, method: "cash", collected: 0, refund: 150 })).toEqual({ change: null });
+  });
+  it("requires the tendered amount for a cash checkout that collects money (Founder A6-7)", () => {
+    expect(cashChange({ tendered: undefined, method: "cash", collected: 560, refund: 0 })).toEqual({ problem: "cash_tendered_required" });
+    expect(cashChange({ tendered: null, method: "cash", collected: 1, refund: 0 })).toEqual({ problem: "cash_tendered_required" });
   });
   it.each([
     [{ tendered: 1000, method: "card", collected: 560, refund: 0 }, "change_cash_only"],
@@ -105,7 +110,7 @@ describe("cashChange (Founder D6)", () => {
     expect(cashChange(input)).toEqual({ problem });
   });
   it("has a Chinese message for every problem", () => {
-    for (const problem of ["invalid_cash_tendered", "change_cash_only", "change_not_refund", "cash_tendered_short"] as const) {
+    for (const problem of ["invalid_cash_tendered", "change_cash_only", "change_not_refund", "cash_tendered_short", "cash_tendered_required"] as const) {
       expect(cashChangeMessage(problem)).toMatch(/[\u4e00-\u9fff]/);
       expect(settlementFailure({ message: problem })?.error).toBe(cashChangeMessage(problem));
     }

@@ -135,6 +135,14 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   const change = tenderedAmount === null ? null
     : cashChange({ tendered: tenderedAmount, method, collected: collect, refund: bill?.refund ?? 0 });
   const changeProblem = change && "problem" in change ? cashChangeMessage(change.problem) : "";
+  // 現金、有要收的錢：客人給的現金必填（Founder A6-7）；0 元或純退款不需要
+  const tenderedMissing = changeAllowed && tenderedAmount === null;
+  // 已結束／取消的組補收餐費，現金也一樣要填客人給了多少
+  const foodCash = ready && method === "cash" && (bill?.foodTotal ?? 0) > 0;
+  const foodTendered = foodCash && /^\d+$/.test(tendered) ? Number(tendered) : null;
+  const foodChange = foodTendered === null ? null
+    : cashChange({ tendered: foodTendered, method, collected: bill?.foodTotal ?? 0, refund: 0 });
+  const foodProblem = foodChange && "problem" in foodChange ? cashChangeMessage(foodChange.problem) : "";
   const minutesLeft = billing ? Math.floor((new Date(billing.end_time).getTime() - nowMs) / 60_000) : null;
   const settleEnd = billing && checkedIn ? overtimeSettledEnd(billing.end_time, nowMs) : null;
 
@@ -283,7 +291,10 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
         {(roomSettled || stayCancelled) && !paid && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
           {stayCancelled ? "這組已經取消" : "這組已經結束"}，但餐費 {money(bill.foodTotal)} 還沒記收款。
           {ready && <MethodPicker value={method} onChange={setMethod} />}
-          <button type="button" disabled={busy} onClick={() => act("settle", payment)}
+          {foodCash && <TenderedField value={tendered} onChange={setTendered} due={bill.foodTotal}
+            change={foodChange && "change" in foodChange ? foodChange.change : null} problem={foodProblem} />}
+          <button type="button" disabled={busy || (foodCash && (foodTendered === null || Boolean(foodProblem)))}
+            onClick={() => act("settle", { ...payment, ...(foodCash && foodTendered !== null ? { cash_tendered: foodTendered } : {}) })}
             className="mt-2 block h-11 w-full rounded-xl bg-ink font-semibold text-paper disabled:opacity-50">收到餐費 {money(bill.foodTotal)}，補記</button>
         </div>}
         {!roomSettled && !stayCancelled && (confirmCheckout ? <div className="mt-3 space-y-2">
@@ -298,19 +309,11 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
             </div>
             {discountProblem && <p className="mt-1 text-xs text-red-700">{discountProblem}</p>}
           </details>}
-          {changeAllowed && <div className="rounded-xl border border-ink/10 px-3 py-2 text-sm">
-            <label className="flex items-center gap-2">
-              <span className="shrink-0 text-ink-soft">客人給了</span>
-              <input inputMode="numeric" value={tendered} onChange={(e) => setTendered(e.target.value.replace(/\D/g, ""))}
-                placeholder={`剛好 ${collect}`} aria-label="客人給的現金" className="h-11 w-32 rounded-xl border border-ink/15 px-3 tabular-nums" />
-            </label>
-            {change && "change" in change && change.change !== null && <p className="mt-1 font-semibold tabular-nums">
-              找零 {money(change.change)}</p>}
-            {changeProblem && <p role="alert" className="mt-1 text-xs text-red-700">{changeProblem}</p>}
-          </div>}
+          {changeAllowed && <TenderedField value={tendered} onChange={setTendered} due={collect}
+            change={change && "change" in change ? change.change : null} problem={changeProblem} />}
           <div className="grid grid-cols-2 gap-2">
             <button type="button" onClick={() => setConfirmCheckout(false)} className="h-12 rounded-xl border border-ink/15 font-medium">再等等</button>
-            <button type="button" disabled={busy || Boolean(discountProblem) || Boolean(changeProblem)} onClick={async () => {
+            <button type="button" disabled={busy || Boolean(discountProblem) || Boolean(changeProblem) || tenderedMissing} onClick={async () => {
               const ok = await act("checkout", { expected_due: bill.due, expected_refund: bill.refund, ...payment,
                 ...(discountAmount > 0 ? { discount_amount: discountAmount, discount_reason: discountReason.trim() } : {}),
                 ...(tenderedAmount !== null ? { cash_tendered: tenderedAmount } : {}) });
@@ -328,6 +331,22 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
       </footer>}
     </aside>
   );
+}
+
+/** 現金收款：客人給了多少（必填）與找零。找零只是收款的一部分，不是退款。 */
+function TenderedField({ value, onChange, due, change, problem }: {
+  value: string; onChange: (value: string) => void; due: number; change: number | null; problem: string;
+}) {
+  return <div className="rounded-xl border border-ink/10 px-3 py-2 text-sm">
+    <label className="flex items-center gap-2">
+      <span className="shrink-0 text-ink-soft">客人給了（必填）</span>
+      <input inputMode="numeric" value={value} onChange={(e) => onChange(e.target.value.replace(/\D/g, ""))}
+        placeholder={`至少 ${due}`} aria-label="客人給的現金" className="h-11 w-32 rounded-xl border border-ink/15 px-3 tabular-nums" />
+    </label>
+    {change !== null && <p className="mt-1 font-semibold tabular-nums">找零 {money(change)}</p>}
+    {problem ? <p role="alert" className="mt-1 text-xs text-red-700">{problem}</p>
+      : !value && <p className="mt-1 text-xs text-ink-faint">現金結帳要填客人實際給的金額（剛好付清就填 {due}）</p>}
+  </div>;
 }
 
 function MethodPicker({ value, onChange, label = "怎麼收" }: { value: PaymentMethod; onChange: (value: PaymentMethod) => void; label?: string }) {

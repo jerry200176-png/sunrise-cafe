@@ -348,7 +348,7 @@ describe("POST /api/admin/reservation-orders/[id] — settlement RPCs (#444 migr
   it("bills the booked price plus recorded extension fees, not the current hourly rate", async () => {
     // 預約 400，延長紀錄 +150（當時費率）；目前房價 200/hr 不影響
     extensions = [{ minutes: 30, fee: 150 }];
-    const checkout = await post({ action: "checkout", expected_due: 400 + 150 + 360 - 200, expected_refund: 0, payment_method: "cash" });
+    const checkout = await post({ action: "checkout", expected_due: 400 + 150 + 360 - 200, expected_refund: 0, payment_method: "cash", cash_tendered: 400 + 150 + 360 - 200 });
     expect(checkout.status).toBe(200);
     expect(mocks.rpc).toHaveBeenCalledWith("settle_reservation_checkout", expect.objectContaining({
       p_reservation_id: "res-1", p_expected_before_discount: 710, p_expected_refund: 0, p_payment_method: "cash", p_amount_collected: 710,
@@ -375,7 +375,7 @@ describe("POST /api/admin/reservation-orders/[id] — settlement RPCs (#444 migr
     ["a manager of another branch", { user_id: "mgr-2", role: "branch_manager", branch_ids: ["b2"], legacy: false }],
   ])("refuses a discount from %s, using the session role (not the request body)", async (_who, ctx) => {
     mocks.getAdminContext.mockResolvedValue(ctx);
-    const response = await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "cash",
+    const response = await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "cash", cash_tendered: 560,
       discount_amount: 60, discount_reason: "熟客", role: "owner", p_actor_role: "owner" });
     expect(response.status).toBe(403);
     expect(mocks.rpc).not.toHaveBeenCalled();
@@ -395,7 +395,7 @@ describe("POST /api/admin/reservation-orders/[id] — settlement RPCs (#444 migr
 
   it("passes the session's branch list to the RPC so SQL can re-check the branch, ignoring body fields", async () => {
     mocks.getAdminContext.mockResolvedValue({ user_id: "mgr-1", role: "branch_manager", branch_ids: ["b1"], legacy: false });
-    await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "cash",
+    await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "cash", cash_tendered: 560,
       p_actor_role: "owner", p_actor_branch_ids: null });
     expect(mocks.rpc).toHaveBeenCalledWith("settle_reservation_checkout", expect.objectContaining({
       p_actor: "mgr-1", p_actor_role: "branch_manager", p_actor_branch_ids: ["b1"],
@@ -423,9 +423,33 @@ describe("POST /api/admin/reservation-orders/[id] — settlement RPCs (#444 migr
       expect(mocks.logOps).toHaveBeenCalledWith("admin", "admin.room_checked_out", expect.objectContaining({ change_given: 440 }));
     });
 
-    it("sends no change when the cashier does not enter the cash tendered", async () => {
-      expect((await post(cash)).status).toBe(200);
+    it("requires the cash tendered when cash is collected (Founder A6-7)", async () => {
+      const response = await post(cash);
+      expect(response.status).toBe(400);
+      expect((await response.json()).error).toMatch(/客人實際給了多少/);
+      expect(mocks.rpc).not.toHaveBeenCalled();
+    });
+
+    it("does not require a tendered amount for card, a pure refund, or a zero bill", async () => {
+      expect((await post({ ...cash, payment_method: "card" })).status).toBe(200);
       expect(mocks.rpc).toHaveBeenCalledWith("settle_reservation_checkout", expect.objectContaining({ p_cash_tendered: null }));
+      mocks.rpc.mockClear();
+      mocks.getAdminContext.mockResolvedValue({ user_id: "own-1", role: "owner", branch_ids: null, legacy: false });
+      extensions = [{ minutes: -90, fee: -350 }];
+      order = { ...order, total_amount: 0 };
+      expect((await post({ action: "checkout", expected_due: 0, expected_refund: 150, payment_method: "cash" })).status).toBe(200);
+      expect(mocks.rpc).toHaveBeenCalledWith("settle_reservation_checkout", expect.objectContaining({ p_cash_tendered: null, p_expected_refund: 150 }));
+      mocks.rpc.mockClear();
+      extensions = [{ minutes: -60, fee: -200 }];
+      expect((await post({ action: "checkout", expected_due: 0, expected_refund: 0, payment_method: "cash" })).status).toBe(200);
+      expect(mocks.rpc).toHaveBeenCalledWith("settle_reservation_checkout", expect.objectContaining({ p_cash_tendered: null }));
+    });
+
+    it("maps the SQL re-check cash_tendered_required to a readable error", async () => {
+      mocks.rpc.mockResolvedValue({ data: null, error: { code: "P0001", message: "cash_tendered_required" } });
+      const response = await post({ ...cash, cash_tendered: 560 });
+      expect(response.status).toBe(409);
+      expect((await response.json()).error).toMatch(/客人實際給了多少/);
     });
 
     it("computes change on the discounted amount for a manager discount", async () => {
@@ -495,21 +519,21 @@ describe("POST /api/admin/reservation-orders/[id] — settlement RPCs (#444 migr
   it("credits only the deposit actually refunded (partial refund)", async () => {
     // 訂金 200，已實際退 80 → 只折抵 120：400 + 360 − 120 = 640
     depositRefunded = 80;
-    expect((await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "cash" })).status).toBe(409);
-    const response = await post({ action: "checkout", expected_due: 640, expected_refund: 0, payment_method: "cash" });
+    expect((await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "cash", cash_tendered: 560 })).status).toBe(409);
+    const response = await post({ action: "checkout", expected_due: 640, expected_refund: 0, payment_method: "cash", cash_tendered: 640 });
     expect(response.status).toBe(200);
     expect(mocks.rpc).toHaveBeenCalledWith("settle_reservation_checkout", expect.objectContaining({ p_expected_before_discount: 640 }));
   });
 
   it("never credits a fully refunded deposit again", async () => {
     depositRefunded = 200;
-    expect((await post({ action: "checkout", expected_due: 760, expected_refund: 0, payment_method: "cash" })).status).toBe(200);
+    expect((await post({ action: "checkout", expected_due: 760, expected_refund: 0, payment_method: "cash", cash_tendered: 760 })).status).toBe(200);
     expect(mocks.rpc).toHaveBeenCalledWith("settle_reservation_checkout", expect.objectContaining({ p_expected_before_discount: 760 }));
   });
 
   it("blocks checkout while a deposit refund is pending — it is neither refunded nor creditable", async () => {
     refundInFlight = true;
-    const response = await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "cash" });
+    const response = await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "cash", cash_tendered: 560 });
     expect(response.status).toBe(409);
     expect((await response.json()).error).toMatch(/退款還在處理中/);
     expect(mocks.rpc).not.toHaveBeenCalled();
@@ -517,7 +541,7 @@ describe("POST /api/admin/reservation-orders/[id] — settlement RPCs (#444 migr
 
   it("maps the RPC's refund_in_flight (a refund started between load and checkout) to 409", async () => {
     mocks.rpc.mockResolvedValue({ data: null, error: { code: "P0001", message: "refund_in_flight" } });
-    const response = await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "cash" });
+    const response = await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "cash", cash_tendered: 560 });
     expect(response.status).toBe(409);
     expect((await response.json()).error).toMatch(/退款/);
   });
@@ -532,7 +556,7 @@ describe("POST /api/admin/reservation-orders/[id] — settlement RPCs (#444 migr
     ["amount_changed", 409], ["already_settled", 409], ["discount_not_allowed", 409], ["discount_reason_required", 409],
   ])("maps the RPC's %s to a readable %i", async (code, httpStatus) => {
     mocks.rpc.mockResolvedValue({ data: null, error: { code: "P0001", message: code } });
-    const response = await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "cash" });
+    const response = await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "cash", cash_tendered: 560 });
     expect(response.status).toBe(httpStatus);
     expect((await response.json()).error).not.toBe(code);
     expect(mocks.afterSettledComplete).not.toHaveBeenCalled();
@@ -540,7 +564,7 @@ describe("POST /api/admin/reservation-orders/[id] — settlement RPCs (#444 migr
 
   it("still returns success when the follow-up effects fail after the RPC committed", async () => {
     mocks.afterSettledComplete.mockRejectedValue(new Error("line down"));
-    const response = await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "cash" });
+    const response = await post({ action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "cash", cash_tendered: 560 });
     expect(response.status).toBe(200);
     expect(mocks.logOps).toHaveBeenCalledWith("admin", "admin.room_checkout_side_effect_failed", expect.anything());
   });
