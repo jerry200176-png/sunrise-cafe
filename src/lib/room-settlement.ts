@@ -37,6 +37,26 @@ export function moneyActor(ctx: { user_id: string | null; role: string; branch_i
   return { p_actor: ctx.user_id ?? ctx.role ?? null, p_actor_role: ctx.role ?? null, p_actor_branch_ids: ctx.branch_ids ?? null };
 }
 
+/**
+ * 現金找零（Founder D6）：一般員工可以做，但只限「現金結帳、這次有收錢」。
+ * 找零 = 客人付的現金 − 這次要收的金額（伺服器算，前端不能指定），所以永遠不會超過「付的現金 − 帳單」。
+ * 找零不是退款：要退訂金差額（refund > 0）時不能帶找零；退款與打折照各自的權限（老闆／本分店店長）。
+ * 和 SQL settle_reservation_checkout 的檢查一致。tendered 為 undefined／null = 沒有找零紀錄。
+ */
+export type CashChangeProblem = "invalid_cash_tendered" | "change_cash_only" | "change_not_refund" | "cash_tendered_short";
+export function cashChange(input: { tendered: unknown; method: string | null | undefined; collected: number; refund: number }):
+  { change: number | null } | { problem: CashChangeProblem } {
+  if (input.tendered === undefined || input.tendered === null) return { change: null };
+  if (typeof input.tendered !== "number" || !Number.isInteger(input.tendered) || input.tendered <= 0) {
+    return { problem: "invalid_cash_tendered" };
+  }
+  if (input.refund > 0) return { problem: "change_not_refund" };
+  if (input.method !== "cash") return { problem: "change_cash_only" };
+  if (input.collected <= 0) return { problem: "change_not_refund" };
+  if (input.tendered < input.collected) return { problem: "cash_tendered_short" };
+  return { change: input.tendered - input.collected };
+}
+
 export type RefundStatus = "requested" | "pending" | "succeeded" | "failed" | "canceled";
 export type RefundLedgerRow = { kind: string; amount: number; status: string };
 
@@ -106,7 +126,16 @@ const MESSAGES: Record<string, string> = {
   invalid_refund_kind: "退款類型不對",
   refund_not_found: "找不到這筆退款",
   refund_ledger_append_only: "退款紀錄不能修改或刪除",
+  invalid_cash_tendered: "客人付的現金金額不對",
+  change_cash_only: "只有現金結帳才有找零",
+  change_not_refund: "找零不能用來退錢；要退訂金請老闆或店長走退款",
+  cash_tendered_short: "客人付的現金比要收的少",
 };
+
+/** 找零檢查不過時給店員看的中文 */
+export function cashChangeMessage(problem: CashChangeProblem): string {
+  return MESSAGES[problem];
+}
 
 const NOT_FOUND = new Set(["reservation_not_found", "refund_not_found"]);
 

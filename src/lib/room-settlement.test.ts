@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canAdjustMoney, moneyActor, settlementFailure, stripeRefundStatus, summarizeDepositRefunds } from "@/lib/room-settlement";
+import { canAdjustMoney, cashChange, cashChangeMessage, moneyActor, settlementFailure, stripeRefundStatus, summarizeDepositRefunds } from "@/lib/room-settlement";
 import { isDepositFullyRefunded } from "@/lib/refund-ledger";
 
 describe("refund principle 2 — who may move money", () => {
@@ -32,7 +32,7 @@ describe("refund principles 3 & 4 — what counts as refunded", () => {
       { kind: "deposit", amount: 20, status: "succeeded" },
       { kind: "deposit", amount: 50, status: "failed" },
       { kind: "deposit", amount: 30, status: "canceled" },
-      { kind: "checkout_change", amount: 100, status: "succeeded" },
+      { kind: "checkout_deposit_excess", amount: 100, status: "succeeded" },
     ], "paid")).toEqual({ refunded: 100, inFlight: false });
   });
 
@@ -74,5 +74,34 @@ describe("settlementFailure — refund codes from the SQL", () => {
     const mapped = settlementFailure({ code: "P0001", message: code });
     expect(mapped?.status).toBe(status);
     expect(mapped?.error).not.toBe(code);
+  });
+});
+
+describe("cashChange (Founder D6)", () => {
+  it("is tendered minus collected for a cash checkout that collects money", () => {
+    expect(cashChange({ tendered: 1000, method: "cash", collected: 560, refund: 0 })).toEqual({ change: 440 });
+    expect(cashChange({ tendered: 560, method: "cash", collected: 560, refund: 0 })).toEqual({ change: 0 });
+  });
+  it("records nothing when no tendered amount is given", () => {
+    expect(cashChange({ tendered: undefined, method: "card", collected: 560, refund: 0 })).toEqual({ change: null });
+    expect(cashChange({ tendered: null, method: "cash", collected: 0, refund: 150 })).toEqual({ change: null });
+  });
+  it.each([
+    [{ tendered: 1000, method: "card", collected: 560, refund: 0 }, "change_cash_only"],
+    [{ tendered: 1000, method: "line_pay", collected: 560, refund: 0 }, "change_cash_only"],
+    [{ tendered: 150, method: "cash", collected: 0, refund: 150 }, "change_not_refund"],
+    [{ tendered: 100, method: "cash", collected: 0, refund: 0 }, "change_not_refund"],
+    [{ tendered: 500, method: "cash", collected: 560, refund: 0 }, "cash_tendered_short"],
+    [{ tendered: 0, method: "cash", collected: 560, refund: 0 }, "invalid_cash_tendered"],
+    [{ tendered: 600.5, method: "cash", collected: 560, refund: 0 }, "invalid_cash_tendered"],
+    [{ tendered: "1000", method: "cash", collected: 560, refund: 0 }, "invalid_cash_tendered"],
+  ])("refuses %o with %s", (input, problem) => {
+    expect(cashChange(input)).toEqual({ problem });
+  });
+  it("has a Chinese message for every problem", () => {
+    for (const problem of ["invalid_cash_tendered", "change_cash_only", "change_not_refund", "cash_tendered_short"] as const) {
+      expect(cashChangeMessage(problem)).toMatch(/[\u4e00-\u9fff]/);
+      expect(settlementFailure({ message: problem })?.error).toBe(cashChangeMessage(problem));
+    }
   });
 });

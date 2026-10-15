@@ -62,9 +62,23 @@ CREATE TABLE IF NOT EXISTS reservation_settlements (
   amount_collected integer NOT NULL CHECK (amount_collected >= 0),
   payment_method text NOT NULL
     CHECK (payment_method IN ('cash', 'card', 'line_pay', 'transfer', 'other', 'none')),
+  -- 現金找零（Founder D6）：只有「現金結帳、有收錢」才有。找零 = 客人付的現金 − 這次要收的金額，由伺服器算，不能手填。
+  -- 找零不是退款：不能拿來退訂金（refund_amount 必須是 0）、不能用在現金以外的付款方式。
+  cash_tendered integer CHECK (cash_tendered > 0),
+  change_given integer CHECK (change_given >= 0),
+  change_given_by text,
+  change_given_by_role text,
+  change_given_at timestamptz,
   settled_by text,
   settled_by_role text,
   settled_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (
+    (cash_tendered IS NULL AND change_given IS NULL AND change_given_by IS NULL AND change_given_by_role IS NULL
+     AND change_given_at IS NULL)
+    OR (payment_method = 'cash' AND amount_collected > 0 AND refund_amount = 0
+        AND cash_tendered >= amount_collected AND change_given = cash_tendered - amount_collected
+        AND change_given_at IS NOT NULL)
+  ),
   CHECK (room_fee = GREATEST(0, booked_room_fee + extension_fee) OR kind = 'food_only'),
   CHECK (kind = 'full' OR (room_fee = 0 AND deposit_credit = 0 AND extension_fee = 0)),
   CHECK (amount_due = amount_before_discount - discount_amount),
@@ -101,10 +115,10 @@ CREATE POLICY "service_all_reservation_settlements" ON reservation_settlements
 CREATE TABLE IF NOT EXISTS reservation_refunds (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   reservation_id uuid NOT NULL REFERENCES reservations(id) ON DELETE RESTRICT,
-  -- checkout_change 一定掛在某一筆結帳紀錄底下
+  -- checkout_deposit_excess 一定掛在某一筆結帳紀錄底下（這是退款，不是找零；找零記在 reservation_settlements.change_given）
   settlement_id uuid REFERENCES reservation_settlements(id) ON DELETE RESTRICT,
-  -- deposit = 退訂金（Stripe 或人工）；checkout_change = 結帳時訂金比帳單多，退差額給客人
-  kind text NOT NULL CHECK (kind IN ('deposit', 'checkout_change')),
+  -- deposit = 退訂金（Stripe 或人工）；checkout_deposit_excess = 結帳時訂金比帳單多，退差額給客人
+  kind text NOT NULL CHECK (kind IN ('deposit', 'checkout_deposit_excess')),
   amount integer NOT NULL CHECK (amount > 0),
   method text NOT NULL CHECK (method IN ('stripe', 'cash', 'card', 'line_pay', 'transfer', 'other')),
   reason text NOT NULL CHECK (length(btrim(reason)) > 0),
@@ -489,7 +503,7 @@ BEGIN
     RETURN reservation_refund_json(v_existing.id);
   END IF;
 
-  IF p_kind NOT IN ('deposit', 'checkout_change') THEN
+  IF p_kind NOT IN ('deposit', 'checkout_deposit_excess') THEN
     RAISE EXCEPTION 'invalid_refund_kind' USING ERRCODE = 'P0001';
   END IF;
   IF p_method IS NULL OR p_method NOT IN ('stripe', 'cash', 'card', 'line_pay', 'transfer', 'other')
@@ -757,8 +771,9 @@ $$;
 --    同時取消／延長：都要先拿同一列訂位的 FOR UPDATE 鎖，所以一定是先後發生、不會交錯。
 --    LINE 評價邀請、鎖預點單這類附帶動作仍由 API 在 RPC 成功後執行（失敗不影響已結帳）。
 -- ---------------------------------------------------------------------------
--- 舊草稿（沒有分店參數）的版本若曾在測試環境套用過，先拿掉，避免留下兩個同名函式
+-- 舊草稿（沒有分店參數、沒有找零參數）的版本若曾在測試環境套用過，先拿掉，避免留下兩個同名函式
 DROP FUNCTION IF EXISTS public.settle_reservation_checkout(uuid, integer, integer, text, integer, integer, text, text, text);
+DROP FUNCTION IF EXISTS public.settle_reservation_checkout(uuid, integer, integer, text, integer, integer, text, text, text, uuid[]);
 
 CREATE OR REPLACE FUNCTION public.settle_reservation_checkout(
   p_reservation_id uuid,
@@ -770,7 +785,9 @@ CREATE OR REPLACE FUNCTION public.settle_reservation_checkout(
   p_discount_reason text DEFAULT NULL,
   p_actor text DEFAULT NULL,
   p_actor_role text DEFAULT NULL,
-  p_actor_branch_ids uuid[] DEFAULT NULL
+  p_actor_branch_ids uuid[] DEFAULT NULL,
+  -- 現金結帳時客人實際給的現金（整數元）；NULL = 沒有找零紀錄（剛好付清或非現金）
+  p_cash_tendered integer DEFAULT NULL
 ) RETURNS reservation_settlements
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -796,6 +813,7 @@ DECLARE
   v_due integer;
   v_branch uuid;
   v_refund_id uuid;
+  v_change integer;
   v_row reservation_settlements%ROWTYPE;
 BEGIN
   SELECT * INTO v_res FROM reservations WHERE id = p_reservation_id FOR UPDATE;
@@ -855,6 +873,11 @@ BEGIN
       DETAIL = json_build_object('amount_before_discount', v_before, 'refund', v_refund)::text;
   END IF;
 
+  -- 找零不能拿來退錢（Founder D6）：要退訂金差額時不准帶找零，不論角色。退款一律走退款權限與退款帳本。
+  IF p_cash_tendered IS NOT NULL AND v_refund > 0 THEN
+    RAISE EXCEPTION 'change_not_refund' USING ERRCODE = 'P0001';
+  END IF;
+
   -- 退錢和打折一樣，只有老闆／本分店店長能做（角色與分店由 API 從登入 session 帶入，不吃前端輸入）
   IF v_refund > 0 AND NOT can_adjust_reservation_money(p_actor_role, p_actor_branch_ids, v_branch) THEN
     RAISE EXCEPTION 'refund_not_allowed' USING ERRCODE = 'P0001';
@@ -883,28 +906,49 @@ BEGIN
     RAISE EXCEPTION 'payment_method_required' USING ERRCODE = 'P0001';
   END IF;
 
+  -- 現金找零（Founder D6）：任何有結帳權限的店員都能做，但只限「現金、有收錢」的結帳。
+  --   找零 = 客人付的現金 − 這次要收的金額（伺服器算，前端不能指定）；所以找零永遠不會超過「付的現金 − 帳單」，
+  --   店裡現金的淨流入永遠等於 amount_collected，不可能用找零把訂金或任何錢退出去。
+  IF p_cash_tendered IS NOT NULL THEN
+    IF p_payment_method IS DISTINCT FROM 'cash' THEN
+      RAISE EXCEPTION 'change_cash_only' USING ERRCODE = 'P0001';
+    END IF;
+    IF v_due <= 0 THEN
+      RAISE EXCEPTION 'change_not_refund' USING ERRCODE = 'P0001';
+    END IF;
+    IF p_cash_tendered < v_due THEN
+      RAISE EXCEPTION 'cash_tendered_short' USING ERRCODE = 'P0001';
+    END IF;
+    v_change := p_cash_tendered - v_due;
+  END IF;
+
   INSERT INTO reservation_settlements (
     reservation_id, order_id, kind, booked_room_fee, extension_fee, room_fee,
     food_total, food_already_paid, deposit_credit, amount_before_discount,
     discount_amount, discount_reason, discount_by_role, amount_due, refund_amount,
-    amount_collected, payment_method, settled_by, settled_by_role
+    amount_collected, payment_method, settled_by, settled_by_role,
+    cash_tendered, change_given, change_given_by, change_given_by_role, change_given_at
   ) VALUES (
     v_res.id, CASE WHEN v_has_order THEN v_order.id END, v_kind, v_booked, v_ext_fee, v_room,
     v_food, v_food_paid, v_deposit, v_before,
     v_discount, NULLIF(btrim(p_discount_reason), ''), CASE WHEN v_discount > 0 THEN p_actor_role END,
     v_due, v_refund, p_amount_collected,
     CASE WHEN v_due = 0 AND v_refund = 0 THEN 'none' ELSE p_payment_method END,
-    p_actor, p_actor_role
+    p_actor, p_actor_role,
+    p_cash_tendered, v_change,
+    CASE WHEN p_cash_tendered IS NOT NULL THEN p_actor END,
+    CASE WHEN p_cash_tendered IS NOT NULL THEN p_actor_role END,
+    CASE WHEN p_cash_tendered IS NOT NULL THEN now() END
   ) RETURNING * INTO v_row;
 
-  -- 結帳要退的差額記進退款帳本：現金當場交還 = succeeded；其他方式（轉帳、LINE Pay…）先記 pending，
+  -- 結帳要退的訂金差額是「退款」（不是找零），記進退款帳本：現金當場交還 = succeeded；其他方式（轉帳、LINE Pay…）先記 pending，
   -- 等店長／老闆確認真的退了才算數。冪等鍵綁結帳紀錄，重試不會多記。
   IF v_refund > 0 THEN
     INSERT INTO reservation_refunds (
       reservation_id, settlement_id, kind, amount, method, reason,
       requested_by, requested_by_role, branch_id, idempotency_key
     ) VALUES (
-      v_res.id, v_row.id, 'checkout_change', v_refund, p_payment_method, '結帳退訂金差額',
+      v_res.id, v_row.id, 'checkout_deposit_excess', v_refund, p_payment_method, '結帳退訂金差額（退款，非找零）',
       p_actor, p_actor_role, v_branch, 'settlement:' || v_row.id::text
     ) RETURNING id INTO v_refund_id;
     INSERT INTO reservation_refund_events (refund_id, status, actor, actor_role)
@@ -946,11 +990,11 @@ GRANT EXECUTE ON FUNCTION public.request_reservation_refund(uuid, text, integer,
 GRANT EXECUTE ON FUNCTION public.record_reservation_refund_status(uuid, text, text, text, text, text, uuid[]) TO service_role;
 GRANT EXECUTE ON FUNCTION public.sync_provider_refund(uuid, uuid, text, integer, text) TO service_role;
 REVOKE ALL ON FUNCTION public.extend_reservation_stay(uuid, timestamptz, timestamptz, text) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.settle_reservation_checkout(uuid, integer, integer, text, integer, integer, text, text, text, uuid[])
+REVOKE ALL ON FUNCTION public.settle_reservation_checkout(uuid, integer, integer, text, integer, integer, text, text, text, uuid[], integer)
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.reservation_hourly_rate(uuid, timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION public.extend_reservation_stay(uuid, timestamptz, timestamptz, text) TO service_role;
-GRANT EXECUTE ON FUNCTION public.settle_reservation_checkout(uuid, integer, integer, text, integer, integer, text, text, text, uuid[])
+GRANT EXECUTE ON FUNCTION public.settle_reservation_checkout(uuid, integer, integer, text, integer, integer, text, text, text, uuid[], integer)
   TO service_role;
 
 -- ---------------------------------------------------------------------------

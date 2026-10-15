@@ -410,6 +410,86 @@ describe("POST /api/admin/reservation-orders/[id] — settlement RPCs (#444 migr
     expect(mocks.rpc).not.toHaveBeenCalled();
   });
 
+  describe("cash change (Founder D6)", () => {
+    // 預約 400 + 餐 360 − 訂金 200 = 560
+    const cash = { action: "checkout", expected_due: 560, expected_refund: 0, payment_method: "cash" };
+
+    it("lets regular staff check out in cash with change, and passes the tendered amount to SQL", async () => {
+      const response = await post({ ...cash, cash_tendered: 1000 });
+      expect(response.status).toBe(200);
+      expect(mocks.rpc).toHaveBeenCalledWith("settle_reservation_checkout", expect.objectContaining({
+        p_payment_method: "cash", p_amount_collected: 560, p_cash_tendered: 1000, p_actor: "staff-1", p_actor_role: "staff",
+      }));
+      expect(mocks.logOps).toHaveBeenCalledWith("admin", "admin.room_checked_out", expect.objectContaining({ change_given: 440 }));
+    });
+
+    it("sends no change when the cashier does not enter the cash tendered", async () => {
+      expect((await post(cash)).status).toBe(200);
+      expect(mocks.rpc).toHaveBeenCalledWith("settle_reservation_checkout", expect.objectContaining({ p_cash_tendered: null }));
+    });
+
+    it("computes change on the discounted amount for a manager discount", async () => {
+      mocks.getAdminContext.mockResolvedValue({ user_id: "mgr-1", role: "branch_manager", branch_ids: ["b1"], legacy: false });
+      expect((await post({ ...cash, discount_amount: 60, discount_reason: "熟客", cash_tendered: 600 })).status).toBe(200);
+      expect(mocks.logOps).toHaveBeenCalledWith("admin", "admin.room_checked_out", expect.objectContaining({ change_given: 100 }));
+    });
+
+    it.each([
+      ["a card checkout", { ...cash, payment_method: "card", cash_tendered: 1000 }, /只有現金/],
+      ["a transfer checkout", { ...cash, payment_method: "transfer", cash_tendered: 1000 }, /只有現金/],
+      ["less cash than the bill", { ...cash, cash_tendered: 500 }, /比要收的少/],
+      ["a negative amount", { ...cash, cash_tendered: -100 }, /金額不對/],
+      ["a fractional amount", { ...cash, cash_tendered: 600.5 }, /金額不對/],
+      ["a string amount", { ...cash, cash_tendered: "1000" }, /金額不對/],
+    ])("refuses change on %s before calling SQL", async (_what, body, message) => {
+      const response = await post(body);
+      expect(response.status).toBe(400);
+      expect((await response.json()).error).toMatch(message);
+      expect(mocks.rpc).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["staff", { user_id: "staff-1", role: "staff", branch_ids: ["b1"], legacy: false }],
+      ["the owner", { user_id: "own-1", role: "owner", branch_ids: null, legacy: false }],
+    ])("never lets %s pass a deposit refund off as change", async (_who, ctx) => {
+      mocks.getAdminContext.mockResolvedValue(ctx);
+      // 提早離開：包廂費 50，訂金 200 → 要退 150（這是退款，不是找零）
+      extensions = [{ minutes: -90, fee: -350 }];
+      order = { ...order, total_amount: 0 };
+      const response = await post({ action: "checkout", expected_due: 0, expected_refund: 150, payment_method: "cash", cash_tendered: 150 });
+      expect(response.status).toBe(400);
+      expect((await response.json()).error).toMatch(/找零不能用來退錢/);
+      expect(mocks.rpc).not.toHaveBeenCalled();
+    });
+
+    it("refuses change when nothing is collected (handing out cash is a refund)", async () => {
+      // 訂金剛好抵掉：要收 0、要退 0
+      extensions = [{ minutes: -60, fee: -200 }];
+      order = { ...order, total_amount: 0 };
+      const response = await post({ action: "checkout", expected_due: 0, expected_refund: 0, payment_method: "cash", cash_tendered: 100 });
+      expect(response.status).toBe(400);
+      expect(mocks.rpc).not.toHaveBeenCalled();
+    });
+
+    it("maps the SQL re-check (change_not_refund) to a 409 in plain Chinese", async () => {
+      mocks.rpc.mockResolvedValue({ data: null, error: { code: "P0001", message: "change_not_refund" } });
+      const response = await post({ ...cash, cash_tendered: 1000 });
+      expect(response.status).toBe(409);
+      expect((await response.json()).error).toMatch(/找零不能用來退錢/);
+      expect(mocks.afterSettledComplete).not.toHaveBeenCalled();
+    });
+
+    it("refuses change on the legacy flow (no settlement record to keep it in)", async () => {
+      mocks.billingState.mockResolvedValue({ data: null, error: { code: "PGRST202", message: "missing" } });
+      const base = mocks.respond;
+      mocks.respond = (call) => call.table === "reservation_refund_current" ? { data: null, error: { code: "PGRST205", message: "missing" } } : base(call);
+      const response = await post({ ...cash, cash_tendered: 1000 });
+      expect(response.status).toBe(409);
+      expect(mocks.calls.some((c) => c.table === "orders" && hasOp(c, "update"))).toBe(false);
+      expect(mocks.transitionReservation).not.toHaveBeenCalled();
+    });
+  });
+
   it("credits only the deposit actually refunded (partial refund)", async () => {
     // 訂金 200，已實際退 80 → 只折抵 120：400 + 360 − 120 = 640
     depositRefunded = 80;

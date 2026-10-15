@@ -63,6 +63,15 @@ RETURNS reservation_settlements LANGUAGE sql AS $$
     CASE WHEN p_discount > 0 THEN '熟客' END, 'user-1', p_role, p_branches)
 $$;
 
+-- 現金找零（Founder D6）：客人付的現金 p_tendered；找零由伺服器算
+CREATE FUNCTION t.settle_cash(p_res uuid, p_before integer, p_tendered integer, p_refund integer DEFAULT 0,
+                              p_method text DEFAULT 'cash', p_role text DEFAULT 'staff', p_branches uuid[] DEFAULT NULL,
+                              p_discount integer DEFAULT 0)
+RETURNS reservation_settlements LANGUAGE sql AS $$
+  SELECT * FROM settle_reservation_checkout(p_res, p_before, p_refund, p_method, p_before - p_discount, p_discount,
+    CASE WHEN p_discount > 0 THEN '熟客' END, 'user-1', p_role, COALESCE(p_branches, t.b1()), p_tendered)
+$$;
+
 -- ===========================================================================
 -- 原則 1：已退的訂金不能再折抵帳單（含重試、同時操作）
 -- ===========================================================================
@@ -110,9 +119,9 @@ BEGIN
   s := t.settle(r, 0, 100, 'cash');
   PERFORM t.ok(s.refund_amount = 100 AND s.deposit_credit = 200, 'P1f early leave owes 100 back');
   PERFORM t.raises(format('SELECT t.refund(%L, NULL, %L)', r, 'p1f'), 'nothing_to_refund',
-    'P1f after the change is handed back, nothing of the deposit remains refundable');
-  PERFORM t.raises(format('SELECT t.refund(%L, NULL, %L, %L, %L, NULL, %L)', r, 'p1f2', 'cash', 'owner', 'checkout_change'),
-    'nothing_to_refund', 'P1f the checkout change cannot be refunded twice');
+    'P1f after the deposit excess is refunded at checkout, nothing of the deposit remains refundable');
+  PERFORM t.raises(format('SELECT t.refund(%L, NULL, %L, %L, %L, NULL, %L)', r, 'p1f2', 'cash', 'owner', 'checkout_deposit_excess'),
+    'nothing_to_refund', 'P1f the checkout deposit-excess refund cannot be refunded twice');
 END $$;
 
 -- ===========================================================================
@@ -344,6 +353,81 @@ BEGIN
     'P5 a provider/reservation mismatch alert can be recorded');
   PERFORM t.raises(format('SELECT sync_provider_refund(%L, NULL, %L, 150, %L)', t.mk(), 're_ext', 'succeeded'),
     'refund_reservation_mismatch', 'P5 provider ref cannot be re-attached to another reservation');
+END $$;
+
+-- ===========================================================================
+-- D6（Founder 2026-10-15）：一般員工可處理現金結帳的正常找零並留紀錄；退款不可包成找零
+-- ===========================================================================
+DO $$
+DECLARE r uuid; s reservation_settlements;
+BEGIN
+  -- D6a 一般員工現金結帳：應收 200（400 − 訂金 200），客人給 500 → 找 300，留下金額、誰、何時
+  r := t.mk();
+  s := t.settle_cash(r, 200, 500);
+  PERFORM t.ok(s.amount_collected = 200 AND s.cash_tendered = 500 AND s.change_given = 300,
+    'D6a staff cash checkout records tendered 500, collected 200, change 300');
+  PERFORM t.ok(s.change_given_by = 'user-1' AND s.change_given_by_role = 'staff' AND s.change_given_at IS NOT NULL,
+    'D6a change records actor, role and time');
+  PERFORM t.ok(NOT EXISTS (SELECT 1 FROM reservation_refunds WHERE reservation_id = r), 'D6a change writes no refund ledger row');
+
+  -- D6b 剛好付清：找零 0 也照記
+  r := t.mk();
+  s := t.settle_cash(r, 200, 200);
+  PERFORM t.ok(s.change_given = 0, 'D6b exact cash records change 0');
+
+  -- D6c 付的現金比要收的少 → 擋下
+  r := t.mk();
+  PERFORM t.raises(format('SELECT t.settle_cash(%L, 200, 150)', r), 'cash_tendered_short', 'D6c tendered below the bill is rejected');
+
+  -- D6d 現金以外的方式不能有找零
+  r := t.mk();
+  PERFORM t.raises(format('SELECT t.settle_cash(%L, 200, 500, 0, %L)', r, 'card'), 'change_cash_only',
+    'D6d change on a card checkout is rejected');
+  PERFORM t.raises(format('SELECT t.settle_cash(%L, 200, 500, 0, %L)', r, 'transfer'), 'change_cash_only',
+    'D6d change on a transfer checkout is rejected');
+
+  -- D6e 訂金比帳單多（提早離開要退 100）：不能用找零的名義退，不論角色；也沒有留下任何紀錄
+  r := t.mk();
+  PERFORM extend_reservation_stay(r, '2026-10-14 16:00+08', '2026-10-14 14:30+08', 'user-1');
+  PERFORM t.raises(format('SELECT t.settle_cash(%L, 0, 100, 100)', r), 'change_not_refund',
+    'D6e staff cannot hand back the deposit excess as change');
+  PERFORM t.raises(format('SELECT t.settle_cash(%L, 0, 100, 100, %L, %L)', r, 'cash', 'owner'), 'change_not_refund',
+    'D6e even the owner cannot record a deposit refund as change');
+  PERFORM t.raises(format('SELECT t.settle_cash(%L, 0, NULL, 100)', r), 'refund_not_allowed',
+    'D6e staff still cannot refund the deposit excess without change');
+  PERFORM t.raises(format('SELECT t.settle_cash(%L, 0, 100, 0)', r), 'amount_changed',
+    'D6e hiding the refund (expected_refund 0) is caught by the server recompute');
+  PERFORM t.ok(NOT EXISTS (SELECT 1 FROM reservation_settlements WHERE reservation_id = r)
+    AND NOT EXISTS (SELECT 1 FROM reservation_refunds WHERE reservation_id = r), 'D6e rejected attempts leave no rows');
+
+  -- D6f 沒有要收的錢（訂金剛好抵掉）：給現金「找零」= 把錢送出去 → 擋下
+  r := t.mk();
+  PERFORM extend_reservation_stay(r, '2026-10-14 16:00+08', '2026-10-14 15:00+08', 'user-1');
+  PERFORM t.raises(format('SELECT t.settle_cash(%L, 0, 100)', r), 'change_not_refund', 'D6f change with nothing collected is rejected');
+
+  -- D6g 一般員工不能用找零夾帶折扣
+  r := t.mk();
+  PERFORM t.raises(format('SELECT t.settle_cash(%L, 200, 200, 0, %L, %L, NULL, 50)', r, 'cash', 'staff'), 'discount_not_allowed',
+    'D6g staff cannot add a discount alongside change');
+  -- 店長打折後找零：找零照折扣後的金額算
+  s := t.settle_cash(r, 200, 200, 0, 'cash', 'branch_manager', t.b1(), 50);
+  PERFORM t.ok(s.amount_collected = 150 AND s.change_given = 50, 'D6g manager discount then change is computed on the discounted amount');
+
+  -- D6h 已結束的組補收餐費（food_only）也能現金找零
+  r := t.mk(p_status => 'completed', p_food => 120);
+  s := t.settle_cash(r, 120, 200);
+  PERFORM t.ok(s.kind = 'food_only' AND s.change_given = 80, 'D6h food-only cash settle records change 80');
+
+  -- D6i 資料表本身也擋：直接寫入不合規則的找零會被 CHECK 擋下
+  r := t.mk(p_status => 'cancelled');
+  PERFORM t.raises(format($q$INSERT INTO reservation_settlements (reservation_id, kind, room_fee, food_total, deposit_credit,
+      amount_before_discount, amount_due, amount_collected, payment_method, cash_tendered, change_given, change_given_at)
+    VALUES (%L, 'food_only', 0, 100, 0, 100, 100, 100, 'card', 500, 400, now())$q$, r), '%check constraint%',
+    'D6i table rejects change on a non-cash settlement');
+  PERFORM t.raises(format($q$INSERT INTO reservation_settlements (reservation_id, kind, room_fee, food_total, deposit_credit,
+      amount_before_discount, amount_due, amount_collected, payment_method, cash_tendered, change_given, change_given_at)
+    VALUES (%L, 'food_only', 0, 100, 0, 100, 100, 100, 'cash', 500, 450, now())$q$, r), '%check constraint%',
+    'D6i table rejects change larger than tendered minus collected');
 END $$;
 
 SET ROLE service_role;
