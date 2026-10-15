@@ -11,6 +11,7 @@
  * payment-notify, never by callers. The deposit amount is computed only by
  * `getDepositAmount` (booking-utils).
  */
+import { fromStripeAmount } from "@/lib/stripe-money";
 import { createClient } from "@supabase/supabase-js";
 import { getDepositAmount } from "@/lib/booking-utils";
 import { logDepositStatusChange, type DepositAuditActor } from "@/lib/payment-log";
@@ -248,7 +249,8 @@ export async function verifyStripeIntentForReservation(
   }
   const total = await fx.totalPrice(reservationId);
   const required = total == null ? 0 : getDepositAmount(total);
-  if (pi.currency.toLowerCase() !== "twd" || !(pi.amount > 0) || pi.amount < required) {
+  // pi.amount 是 Stripe 單位（TWD ×100），換回整數元再和訂金比
+  if (pi.currency.toLowerCase() !== "twd" || !(pi.amount > 0) || fromStripeAmount(pi.amount, pi.currency) < required) {
     return { ok: false, status: 409, error: "付款金額不足" };
   }
   return { ok: true };

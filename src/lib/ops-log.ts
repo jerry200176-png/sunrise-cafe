@@ -46,10 +46,15 @@ export type OpsLogAction =
   | "payment.approved_notified"
   | "line.provider_rejected"
   | "payment.refund_processed"
+  | "payment.refund_recorded"
+  | "payment.refund_status_recorded"
+  | "payment.refund_provider_error"
   | "stripe.signature_failed"
   | "stripe.payment_intent_succeeded"
   | "stripe.payment_intent_failed"
   | "stripe.charge_refunded"
+  | "stripe.refund_synced"
+  | "stripe.refund_sync_ignored"
   | "stripe.event_unhandled"
   | "stripe.webhook_error";
 

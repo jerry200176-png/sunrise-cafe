@@ -3,6 +3,7 @@ import { stripe, isStripeEnabled } from "@/lib/stripe";
 import { createClient } from "@supabase/supabase-js";
 import { logOps } from "@/lib/ops-log";
 import { getBranchDepositConfig } from "@/lib/constants";
+import { STRIPE_CURRENCY, toStripeAmount } from "@/lib/stripe-money";
 
 function supabaseAdmin() {
   return createClient(
@@ -51,6 +52,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 只收新台幣（金額單位換算見 stripe-money）
+    if (currency && currency.toLowerCase() !== STRIPE_CURRENCY) {
+      return NextResponse.json({ error: "只支援新台幣付款" }, { status: 400 });
+    }
+
     // 驗證付款金額符合分店設定，防止客戶端竄改 amount
     const depositConfig = getBranchDepositConfig(branchId);
     if (amount !== depositConfig.defaultDepositAmount) {
@@ -90,8 +96,9 @@ export async function POST(request: NextRequest) {
     // 建立 Stripe PaymentIntent（使用 idempotencyKey 防止重複建立）
     const paymentIntent = await stripe!.paymentIntents.create(
       {
-        amount,
-        currency: currency || "twd",
+        // amount 是整數元；Stripe 的 TWD 是兩位小數幣別，要 ×100
+        amount: toStripeAmount(amount, STRIPE_CURRENCY),
+        currency: STRIPE_CURRENCY,
         metadata: {
           reservationId,
           branchId,
@@ -110,7 +117,7 @@ export async function POST(request: NextRequest) {
         reservation_id: reservationId,
         branch_id: branchId,
         amount,
-        currency: currency || "twd",
+        currency: STRIPE_CURRENCY,
         status: "pending",
       });
 
@@ -128,7 +135,7 @@ export async function POST(request: NextRequest) {
       reservation_id: reservationId,
       stripe_pi_id: paymentIntent.id,
       amount,
-      currency: currency || "twd",
+      currency: STRIPE_CURRENCY,
     });
 
     return NextResponse.json({

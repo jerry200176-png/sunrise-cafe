@@ -61,6 +61,27 @@ describe("roomFloorState", () => {
 });
 
 describe("computeCheckoutBill", () => {
+  it("with extension records, bills the booked total plus the recorded fees (rate changes don't matter)", () => {
+    const input = { startTime: at("14:00"), endTime: at("17:00"), bookedTotal: 400, isDepositPaid: true, foodTotal: 120,
+      extensions: { minutes: 60, fee: 230 } };
+    const a = computeCheckoutBill({ ...input, room: { price_weekday: 200, price_weekend: 300 } });
+    const b = computeCheckoutBill({ ...input, room: { price_weekday: 999, price_weekend: 999 } });
+    expect(a).toMatchObject({ bookedRoomFee: 400, extensionFee: 230, roomFee: 630, due: 630 + 120 - getDepositAmount(400) });
+    expect(b.roomFee).toBe(a.roomFee);
+  });
+
+  it("an early leave lowers the room fee and can turn into a refund", () => {
+    const bill = computeCheckoutBill({ room: { price_weekday: 300, price_weekend: 300 }, startTime: at("14:00"), endTime: at("14:30"),
+      bookedTotal: 600, isDepositPaid: true, foodTotal: 0, extensions: { minutes: -90, fee: -450 } });
+    expect(bill).toMatchObject({ roomFee: 150, due: 0, refund: getDepositAmount(600) - 150 });
+  });
+
+  it("without a booked total, prices only the originally booked minutes at the current rate", () => {
+    const bill = computeCheckoutBill({ room: { price_weekday: 200, price_weekend: 200 }, startTime: at("14:00"), endTime: at("17:00"),
+      bookedTotal: null, isDepositPaid: false, foodTotal: 0, extensions: { minutes: 60, fee: 150 } });
+    expect(bill).toMatchObject({ bookedRoomFee: 400, roomFee: 550 });
+  });
+
   it("bills the room from the current times and follows the room rates", () => {
     const base = { startTime: at("14:00"), endTime: at("17:00"), bookedTotal: null, isDepositPaid: false, foodTotal: 360 };
     const a = computeCheckoutBill({ ...base, room: { price_weekday: 200, price_weekend: 300 } });
@@ -113,6 +134,13 @@ describe("extension", () => {
     ];
     expect(nextBlockingStart(current, others)).toBe(at("17:00"));
     expect(nextBlockingStart(current, [])).toBeNull();
+  });
+
+  it("treats the released statuses it is given as free slots (no_show after #444)", () => {
+    const current = res({ status: "checked_in" });
+    const others = [res({ id: "ns", status: "no_show", start_time: at("16:30") }), res({ id: "n1", start_time: at("18:00") })];
+    expect(nextBlockingStart(current, others)).toBe(at("16:30"));
+    expect(nextBlockingStart(current, others, ["cancelled", "no_show"])).toBe(at("18:00"));
   });
 
   it("validates a new end time", () => {
@@ -196,3 +224,25 @@ describe("overdue waiting reservations", () => {
     expect(state.current?.status).toBe("confirmed");
   });
 });
+
+describe("computeCheckoutBill — refunded deposit (refund principles 1 & 3)", () => {
+  const base = {
+    room: { price_weekday: 200, price_weekend: 300 },
+    startTime: "2026-10-14T06:00:00.000Z", endTime: "2026-10-14T08:00:00.000Z",
+    bookedTotal: 400, isDepositPaid: true, foodTotal: 0, extensions: { minutes: 0, fee: 0 },
+  };
+  it("deducts only what was actually refunded from the deposit credit", () => {
+    expect(computeCheckoutBill({ ...base }).depositCredit).toBe(200);
+    expect(computeCheckoutBill({ ...base, depositRefunded: 80 })).toMatchObject({ depositCredit: 120, due: 280 });
+  });
+  it("never credits a fully refunded deposit, even when the refund exceeds it", () => {
+    expect(computeCheckoutBill({ ...base, depositRefunded: 200 })).toMatchObject({ depositCredit: 0, due: 400 });
+    expect(computeCheckoutBill({ ...base, depositRefunded: Number.POSITIVE_INFINITY })).toMatchObject({ depositCredit: 0, due: 400 });
+  });
+  it("does not turn a refunded deposit into a refund owed at checkout", () => {
+    // 提早離開：包廂費 100；訂金已全退 → 不欠客人錢
+    expect(computeCheckoutBill({ ...base, endTime: "2026-10-14T06:30:00.000Z", extensions: { minutes: -90, fee: -300 },
+      depositRefunded: 200 })).toMatchObject({ depositCredit: 0, refund: 0, due: 100 });
+  });
+});
+

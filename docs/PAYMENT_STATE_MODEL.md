@@ -82,6 +82,34 @@ pending_review ──approve──▶ approved
 - **Phase 2（現行）：** 所有客人來源（`line_image` / `line_text` / …）一律 → `pending_review`（不動 `is_deposit_paid`）
 - 舊過渡行為 `line_text` → `auto_mark_paid` **已廢止**（以程式碼為準；勿再依 ADR-002 自動標記敘述）
 
+## 退款（#444 退款帳本，Founder 2026-10-15 原則）
+
+SQL：`supabase/migration-reservation-settlements.sql`（**草稿，Founder 核准前不套用**）。回滾與備份：`docs/plans/2026-10-15-refund-rollback.md`。
+
+| 原則 | 怎麼保證 |
+|------|----------|
+| 1. 已退的訂金不能再折抵帳單（含重試、同時操作） | 結帳、退款請求、退款狀態變化都先鎖同一筆訂位（`FOR UPDATE`）；結帳紀錄每筆訂位唯一；訂金可退 = 已付訂金 − 進行中／已成功的退款 − 已被結帳折抵的部分 |
+| 2. 只有老闆或本分店店長能退 | API 只看登入 session（`moneyActor(ctx)`）；SQL `can_adjust_reservation_money` 再檢查角色與分店；店長沒有分店清單一律拒絕；`finance` 不再能退款 |
+| 3. 部分退款只扣實際退的金額 | 結帳折抵 = 已付訂金 − 狀態為 `succeeded` 的訂金退款加總 |
+| 4. 失敗或處理中的退款不算已退 | 只有 `succeeded` 算已退；`requested`／`pending` 期間結帳會被擋下（`refund_in_flight`）；Stripe 退款的任何結果（含取消）只能由 Stripe 回報或對帳（reconcile）決定，店長不能取消 |
+| 5. 每筆退款都有紀錄、只能新增 | `reservation_refunds`（誰、何時、多少、原因、哪筆訂位、冪等鍵）＋ `reservation_refund_events`（狀態變化）；trigger 擋 UPDATE／DELETE／TRUNCATE |
+
+狀態：`requested → pending → succeeded | failed | canceled`；`succeeded → failed`（金流商事後回報失敗）；`canceled → succeeded | failed` 只限金流商回報。目前狀態 = 最後一個事件（view `reservation_refund_current`）。
+
+| 入口 | 寫什麼 |
+|------|--------|
+| `POST /api/payment/refund` | 先記 `requested`，再呼叫 Stripe（冪等鍵綁帳本編號），照 Stripe 回的狀態記；沒有 Stripe 付款就記人工退款（要選方式） |
+| `PATCH /api/payment/refund` | 老闆／本分店店長確認人工退款結果（Stripe 退款不能手動改狀態） |
+| `PATCH /api/payment/refund` `{ reconcile: true }` | Stripe 對帳：先查 Stripe 有沒有這筆帳本的退款並同步；23 小時內查不到才用同一個冪等鍵（`ledger_refund_<帳本 id>`）重送；超過 23 小時且 Stripe 沒有 → 以金流商身分記 `canceled` |
+| `GET /api/payment/refund` | 老闆／店長看退款與警示（`reservation_refund_alerts`：Stripe 後台退款超過上限、結帳折抵後才退、取消後又成功） |
+| `POST /api/webhooks/stripe` | `charge.refunded`／`refund.*` → `sync_provider_refund`；Stripe 後台直接退的也會補記一筆 |
+| 包廂結帳退訂金差額（退款，限老闆／本分店店長） | `settle_reservation_checkout` 同一個 transaction 記一筆 `checkout_deposit_excess`：現金 = `succeeded`，其他方式 = `pending` |
+| 包廂結帳現金找零（Founder D6） | 不是退款，不進退款帳本。`settle_reservation_checkout(p_cash_tendered)` 在結帳紀錄記 `cash_tendered`／`change_given`／`change_given_by(_role)`／`change_given_at`。一般員工可做；只限現金、有收錢、沒有要退訂金；找零 = 付的現金 − 這次要收的金額（伺服器算）。API（`cashChange`）與 SQL（函式檢查＋表 CHECK）各擋一次 |
+
+金額單位：帳本與畫面一律整數元；呼叫 Stripe 時經 `src/lib/stripe-money.ts` 換算（TWD 在 Stripe 是兩位小數，×100）。Stripe 退款的可退金額 = min(帳本上限, Stripe 那筆付款實收且未退的金額)。
+
+`reservations.deposit_status` 只在「實際已退 ≥ 已付訂金」時才改成 `refunded`（退款失敗會改回 `paid`）。舊資料：帳本沒有紀錄但 `deposit_status = refunded` 視為全額已退。
+
 ## Routes Impact
 
 | 路徑 | 變更 |

@@ -77,6 +77,34 @@ jobs:
           ADMIN_PASSWORD: placeholder_password
           # Sentry/Upstash 未設定時自動停用，不影響 build
 
+  settlement-sql:
+    name: Settlement / refund SQL scenarios
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # 拋棄式 PostgreSQL 容器：只跑 supabase/tests/*（結帳、退款原則、同時操作、回滾），不連任何 Supabase
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run settlement SQL tests
+        run: bash scripts/test-settlement-sql.sh
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
   e2e-smoke:
     name: Playwright smoke
     runs-on: ubuntu-latest
