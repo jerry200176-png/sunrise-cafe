@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { capturedRemaining, driveStripeRefund, stripeRefundIdempotencyKey, syncStripeRefund, STRIPE_REDRIVE_WINDOW_MS } from "@/lib/refund-ledger";
+import { capturedRemaining, driveStripeRefund, stripeRefundIdempotencyKey, syncStripeRefund, STRIPE_REDRIVE_WINDOW_MS,
+  STRIPE_REFUND_LIST_MAX_PAGES } from "@/lib/refund-ledger";
 
-const db = (rpc = vi.fn(async (name: string, args: Record<string, unknown>) => ({
-  data: { id: "rf-1", status: args.p_status, amount: args.p_amount ?? 200, deposit_gross: 200, deposit_refunded: 0 }, error: null,
-}))) => ({ rpc, from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }) }) }) as never;
+const db = (rpc = vi.fn(async (name: string, args: Record<string, unknown>) => (name === "raise_refund_alert"
+  ? { data: "alert-1", error: null }
+  : { data: { id: "rf-1", status: args.p_status, amount: args.p_amount ?? 200, deposit_gross: 200, deposit_refunded: 0 }, error: null })),
+knownRefs: string[] = []) => ({ rpc, from: () => ({ select: () => ({ eq: () => ({
+  maybeSingle: async () => ({ data: null }),
+  then: (ok: (value: unknown) => unknown) => Promise.resolve({ data: knownRefs.map((provider_ref) => ({ provider_ref })), error: null }).then(ok),
+}) }) }) }) as never;
 
 const ledger = (createdAgoMs: number) => ({ id: "rf-1", reservation_id: "res-1", kind: "deposit", amount: 200, status: "requested",
   created_at: new Date(Date.now() - createdAgoMs).toISOString(), deposit_gross: 200, deposit_refunded: 0 });
@@ -48,13 +53,50 @@ describe("refund-ledger (Stripe boundary)", () => {
     expect(refunds.create).toHaveBeenCalledWith(expect.objectContaining({ amount: 20000 }), { idempotencyKey: "ledger_refund_rf-1" });
   });
 
-  it("P1-a: past 23h and not found → does not re-drive; records a provider-side cancel", async () => {
-    const rpc = vi.fn(async (_n: string, args: Record<string, unknown>) => ({ data: { id: "rf-1", status: args.p_status }, error: null }));
+  it("A6-6: past 23h and not found → never cancels or unlocks; raises an unknown-outcome alert instead", async () => {
+    const rpc = vi.fn(async (name: string) => (name === "raise_refund_alert" ? { data: "alert-1", error: null } : { data: null, error: null }));
     const refunds = { list: vi.fn(async () => ({ data: [] })), create: vi.fn() };
     const out = await driveStripeRefund(db(rpc as never), refunds, ledger(STRIPE_REDRIVE_WINDOW_MS + 60_000), "pi_1", { reservationId: "res-1" });
     expect(refunds.create).not.toHaveBeenCalled();
-    expect(rpc).toHaveBeenCalledWith("record_reservation_refund_status", expect.objectContaining({ p_status: "canceled", p_actor_role: "provider" }));
-    expect(out).toMatchObject({ status: "canceled" });
+    expect(rpc).not.toHaveBeenCalledWith("record_reservation_refund_status", expect.anything());
+    expect(rpc).toHaveBeenCalledWith("raise_refund_alert", expect.objectContaining({ p_refund_id: "rf-1", p_kind: "provider_outcome_unknown",
+      p_detail: expect.objectContaining({ reason: "not_found_after_redrive_window" }) }));
+    expect(out).toEqual({ unknown: true, reason: "not_found_after_redrive_window", alertId: "alert-1" });
+  });
+
+  it("A6-6: pages through every Stripe refund on the payment intent before deciding", async () => {
+    const page = (ids: string[], hasMore: boolean) => ({ data: ids.map((id) => ({ id, status: "succeeded", amount: 100, metadata: {} })), has_more: hasMore });
+    const list = vi.fn()
+      .mockResolvedValueOnce(page(["re_a", "re_b"], true))
+      .mockResolvedValueOnce({ data: [{ id: "re_c", status: "succeeded", amount: 20000, currency: "twd",
+        metadata: { refund_ledger_id: "rf-1", reservationId: "res-1" } }], has_more: false });
+    const refunds = { list, create: vi.fn() };
+    const out = await driveStripeRefund(db(), refunds, ledger(STRIPE_REDRIVE_WINDOW_MS + 60_000), "pi_1", { reservationId: "res-1" });
+    expect(list).toHaveBeenNthCalledWith(2, { payment_intent: "pi_1", limit: 100, starting_after: "re_b" });
+    expect(out).toMatchObject({ status: "succeeded" });
+    expect(refunds.create).not.toHaveBeenCalled();
+  });
+
+  it("A6-6: looks up refund ids already on the ledger directly, even when the list does not show them", async () => {
+    const rpc = vi.fn(async (_n: string, args: Record<string, unknown>) => ({ data: { id: "rf-1", status: args.p_status }, error: null }));
+    const retrieve = vi.fn(async () => ({ id: "re_known", status: "succeeded", amount: 20000, currency: "twd",
+      metadata: { reservationId: "res-1", refund_ledger_id: "rf-1" } }));
+    const refunds = { list: vi.fn(async () => ({ data: [], has_more: false })), retrieve, create: vi.fn() };
+    const out = await driveStripeRefund(db(rpc as never, ["re_known"]), refunds, ledger(0), "pi_1", { reservationId: "res-1" });
+    expect(retrieve).toHaveBeenCalledWith("re_known");
+    expect(rpc).toHaveBeenCalledWith("sync_provider_refund", expect.objectContaining({ p_provider_ref: "re_known", p_status: "succeeded" }));
+    expect(refunds.create).not.toHaveBeenCalled();
+    expect(out).toMatchObject({ status: "succeeded" });
+  });
+
+  it("A6-6: an incomplete listing is unknown, not 'no refund' — no re-drive, no cancel, an alert", async () => {
+    const rpc = vi.fn(async (name: string) => (name === "raise_refund_alert" ? { data: "alert-2", error: null } : { data: null, error: null }));
+    const list = vi.fn(async (params: { starting_after?: string }) => ({ data: [{ id: `re_${params.starting_after ?? "0"}x`, metadata: {}, amount: 1 }], has_more: true }));
+    const refunds = { list, create: vi.fn() };
+    const out = await driveStripeRefund(db(rpc as never), refunds, ledger(0), "pi_1", { reservationId: "res-1" });
+    expect(list).toHaveBeenCalledTimes(STRIPE_REFUND_LIST_MAX_PAGES);
+    expect(refunds.create).not.toHaveBeenCalled();
+    expect(out).toEqual({ unknown: true, reason: "stripe_refund_list_incomplete", alertId: "alert-2" });
   });
 
   it("P2: a refund pointing at another reservation is not swallowed — it writes an alert and throws", async () => {

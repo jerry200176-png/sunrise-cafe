@@ -521,6 +521,15 @@
       { "type": "table", "name": "reservation_refund_events", "introspect": "rest" },
       { "type": "column", "table": "reservation_refund_events", "name": "evidence_ref", "introspect": "rest" },
       { "type": "table", "name": "reservation_refund_alerts", "introspect": "rest" },
+      { "type": "table", "name": "reservation_refund_alert_acks", "introspect": "rest" },
+      { "type": "column", "table": "reservation_refunds", "name": "off_system", "introspect": "rest" },
+      { "type": "column", "table": "reservation_refund_events", "name": "cash_handed_back", "introspect": "rest" },
+      {
+        "type": "function",
+        "name": "record_offsystem_refund",
+        "introspect": "unsupported",
+        "note": "A6-2: owner/manager records an off-system refund after manual verification (reason + valid reference, audited alert)"
+      },
       {
         "type": "function",
         "name": "request_reservation_refund",

@@ -100,11 +100,32 @@ SQL：`supabase/migration-reservation-settlements.sql`（**草稿，Founder 核�
 |------|--------|
 | `POST /api/payment/refund` | 先記 `requested`，再呼叫 Stripe（冪等鍵綁帳本編號），照 Stripe 回的狀態記；沒有 Stripe 付款就記人工退款（要選方式） |
 | `PATCH /api/payment/refund` | 老闆／本分店店長記人工退款結果（Founder D7）：「已退」要證據（非現金 `reference` 轉帳序號／交易編號＋`note`；現金 `note`），「失敗」「取消」要原因；Stripe 退款不能手動改狀態 |
-| `GET /api/payment/refund?view=open`、`/admin/refunds` | 還沒結束的退款清單＋警示；`/admin/refunds/<訂位>` 單一訂位的退款面板（每一步事件、處理按鈕、申請退訂金） |
+| `GET /api/payment/refund?view=open`、`/admin/refunds` | 還沒結束的退款、還欠客人的訂金差額（`reservation_refund_obligations`）、還沒有人認領的警示；`/admin/refunds/<訂位>` 單一訂位的退款面板（每一步事件、處理按鈕、申請退訂金、補退欠款、系統外補登） |
+| `GET /api/payment/refund?view=ledger` | 最近的退款帳本（含已結束）。老闆、店長（自己分店）、finance（唯讀稽核，A6-1）都能看；只有老闆／本分店店長能動 |
+| `POST /api/payment/refund { offSystem: true }` | 系統外退款補登（A6-2）：`record_offsystem_refund`，要原因＋格式正確的交易編號（現金要確認已交還），開 `offsystem_refund_recorded` 警示 |
+| `PATCH /api/payment/refund { alertId, acknowledge: true, note }` | 認領警示（A6-4）：`reservation_refund_alert_acks` 記誰、角色、說明 |
+
+### 退款證據編號格式（Founder A6-8）
+
+任意文字不算證據。SQL `refund_reference_valid` 與 `src/lib/refund-actions.ts` `REFUND_REFERENCE_PATTERNS` 一字不差（有測試比對）。截圖上傳之後再做。
+
+| 方式 | 格式（正規表示式） | 說明 | 例 |
+|---|---|---|---|
+| `transfer` | `^(?=(?:[^0-9]*[0-9]){6})[0-9A-Za-z][0-9A-Za-z-]{5,31}$` | 銀行轉帳交易序號：6–32 碼英數字或 `-`，至少 6 個數字 | `TX20261015001`、`0012-3456-7890` |
+| `line_pay` | `^[0-9]{19}$` | LINE Pay transactionId（19 位數字） | `2026101500000000001` |
+| `card` | `^(?:[0-9A-Za-z]{6}\|[0-9]{12})$` | 刷卡退刷授權碼 6 碼，或 12 位數字調閱編號（RRN） | `A1B2C3`、`123456789012` |
+| `other` | `^[A-Za-z]{2,12}:[0-9A-Za-z-]{6,40}$` | `管道代碼:交易編號` | `JKOPAY:20261015001` |
+| `cash` | （無編號） | 操作者確認「現金已交還客人」（`cash_handed_back`） | — |
+
+已退改失敗（例如轉帳被退回）也要一個格式正確的編號＋原因；現金交還後不能改失敗。
+
+### 結果不明的 Stripe 退款（A6-6）
+
+對帳會翻完這筆付款在 Stripe 的每一頁退款，並直接查帳本上已知的退款編號。查不到、又超過 23 小時（或查詢不完整）→ **不取消、不解鎖**：帳本維持處理中、結帳仍擋，開 `provider_outcome_unknown` 警示，等人工對帳。
 | `PATCH /api/payment/refund` `{ reconcile: true }` | Stripe 對帳：先查 Stripe 有沒有這筆帳本的退款並同步；23 小時內查不到才用同一個冪等鍵（`ledger_refund_<帳本 id>`）重送；超過 23 小時且 Stripe 沒有 → 以金流商身分記 `canceled` |
 | `GET /api/payment/refund` | 老闆／店長看退款與警示（`reservation_refund_alerts`：Stripe 後台退款超過上限、結帳折抵後才退、取消後又成功） |
 | `POST /api/webhooks/stripe` | `charge.refunded`／`refund.*` → `sync_provider_refund`；Stripe 後台直接退的也會補記一筆 |
-| 包廂結帳退訂金差額（退款，限老闆／本分店店長） | `settle_reservation_checkout` 同一個 transaction 記一筆 `checkout_deposit_excess`：現金 = `succeeded`，其他方式 = `pending` |
+| 包廂結帳退訂金差額（退款，限老闆／本分店店長） | `settle_reservation_checkout` 同一個 transaction 記一筆 `checkout_deposit_excess`，**一律 `pending`**（A6-3）：現金要交還並勾「已交還」、其他方式要交易編號，才會變 `succeeded`。取消申請不會讓欠款消失（`reservation_refund_obligations`） |
 | 包廂結帳現金找零（Founder D6） | 不是退款，不進退款帳本。`settle_reservation_checkout(p_cash_tendered)` 在結帳紀錄記 `cash_tendered`／`change_given`／`change_given_by(_role)`／`change_given_at`。一般員工可做；只限現金、有收錢、沒有要退訂金；找零 = 付的現金 − 這次要收的金額（伺服器算）。API（`cashChange`）與 SQL（函式檢查＋表 CHECK）各擋一次 |
 
 金額單位：帳本與畫面一律整數元；呼叫 Stripe 時經 `src/lib/stripe-money.ts` 換算（TWD 在 Stripe 是兩位小數，×100）。Stripe 退款的可退金額 = min(帳本上限, Stripe 那筆付款實收且未退的金額)。

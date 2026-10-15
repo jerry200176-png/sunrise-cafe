@@ -27,6 +27,7 @@
 | 11 | **退款帳本種類改名**：`checkout_change` → `checkout_deposit_excess`（結帳時訂金比帳單多、要退的差額）。這是退款、限老闆／本分店店長，不能叫「找零」（D6：退款不可包成找零）。只改名稱，規則不變 | D6 |
 | 12 | **人工退款要有證據才能標成功（Founder D7，2026-10-15）**：`reservation_refund_events` 多一欄 `evidence_ref`（轉帳序號、LINE Pay 交易編號…），並加 CHECK（審閱 P2：連 service key 直接寫入也繞不過）：每一步都要有角色；人工（非金流商）的成功／失敗／取消一定要有說明，非現金的「成功」還要有 `evidence_ref`；金流商身分只能用在 Stripe 退款，Stripe 退款除了「申請」之外只能由金流商記。事件多一欄 `refund_method`，由 BEFORE INSERT trigger 從退款那一列帶入（寫入者填的值會被蓋掉）並以外鍵 `(refund_id, refund_method)` 對應 `reservation_refunds (id, method)`。`record_reservation_refund_status` 多一個參數 `p_evidence_ref`（預設 NULL）：人工標「成功」時，非現金要有 `evidence_ref`＋說明、現金要有說明，否則 `refund_evidence_required`；標「失敗」「取消」沒寫原因 → `refund_reason_required`；人工不能寫金流商編號（`provider_outcome_only`）。結帳時現金當場退的差額，事件上自動帶說明。`reservation_refund_current` view 末端多 `evidence_ref`、`status_note` 兩欄 | D7 |
 | 13 | 解除結帳的「退款處理中」**只能**經過上面這些可追查的狀態變化（確認已退／失敗／取消；Stripe 只能由 Stripe 回報或對帳）；沒有任何繞過 `refund_in_flight` 的路徑 | D7 |
+| 14 | **Founder A6（2026-10-15）**：`refund_reference_valid`（證據編號格式）；事件表多 `previous_status`（trigger 帶入）、`cash_handed_back`，CHECK 改成：狀態轉換照規則、人工成功要格式正確的編號（現金要已交還）、已退改失敗要編號；退款表多 `off_system`；新表 `reservation_refund_alert_acks`；新 view `reservation_refund_alerts_with_ack`、`reservation_refund_obligations`；新函式 `record_offsystem_refund`、`acknowledge_refund_alert`、`raise_refund_alert`；`record_reservation_refund_status` 多 `p_cash_handed_back`；警示種類多 `provider_outcome_unknown`、`offsystem_refund_recorded`；結帳退訂金差額一律先 pending；`settle_reservation_checkout` 現金有收錢時要 `cash_tendered`（A6-7） | A6-1～9 |
 
 沒有改的：延長紀錄、結帳紀錄兩張表的欄位與檢查條件、延長函式、計費規則、no_show 不佔時段的規則。
 
@@ -38,24 +39,30 @@
 
 ## 2. 需要 Founder 決定的事
 
-**主要決定：** 核准「`supabase/migration-reservation-settlements.sql` sha256 `ef9ba5b0c3e2dec8c175673654bd9126af5333eeb69072e03697a2d892296144`」（含 D6 現金找零與 D7 退款證據；#448 @ `78a4619` 的 `06dc6a71…f722` 已被取代）這一份確切內容，可以在下面的備份步驟之後套用到正式環境（#446 換成同一份）。沒有核准前，新表不存在，API 走舊流程，退款 API 會回 503（不會在沒有帳本的情況下退款）。
+**主要決定：** 核准「`supabase/migration-reservation-settlements.sql` sha256 `41fdabdeaab7d8feb0816dc3398fa11b99ea32a4106572aafcee4edcdef6319b`」（含 D6 現金找零、D7 退款證據、A6 退款政策；#448 @ `78a4619` 的 `06dc6a71…f722` 已被取代）這一份確切內容，可以在下面的備份步驟之後套用到正式環境（#446 換成同一份）。沒有核准前，新表不存在，API 走舊流程，退款 API 會回 503（不會在沒有帳本的情況下退款）。
 
-一起確認的政策：程式已照推薦寫好，但 **Founder 2026-10-15 指示「不要整包默認同意」**，所以逐條標出狀態。只有標「已確認」的部分算 Founder 決定；其他都還在等回覆，回覆前 SQL 不套用。
-（原本列 5 條，審閱時加了第 6 條，所以共 6 條。）
+### 政策狀態（Founder 2026-10-15 B2／A6 回覆後）
 
-1. **`finance` 角色不能再退款**（原則 2 只列老闆和店長）。推薦：照原則。**未確認**：D6 只說「退款另按權限處理」，沒有說 `finance` 算不算。問：`finance` 要不要完全不能退款？
-2. **舊流程結帳過的訂位（已完成、沒有結帳紀錄）不能從系統退訂金**：系統無法知道訂金是否已在舊結帳折抵，所以一律當作已折抵。真的要退就由老闆在 Stripe 後台處理，webhook 會補記。推薦：照做。**未確認**。問：這些舊訂位要退訂金時，只能走 Stripe 後台（或另外人工處理），可以嗎？
-3. **結帳退差額用現金以外的方式（轉帳、LINE Pay…）先記「待確認」**，要老闆／店長確認後才算已退。**部分已確認**：D6（這是退款、照退款權限，不能包成找零）＋ D7（非現金退款要有實際成功證據；畫面已做：`/admin/refunds`）。**還沒確認**：結帳時用**現金**退差額，現在是結帳當下就記「已退」（同一筆結帳紀錄留下誰、何時，不另外附證據）。問：現金退差額這樣可以嗎，還是也要事後再確認一次？
-4. **在 Stripe 後台直接退的款**，webhook 照實補記（錢已經動了），紀錄上標成 `provider`；超過上限或在結帳折抵之後才退的，另外留警示給老闆／店長處理。推薦：照做。**未確認**。問：警示只顯示在 `/admin/refunds`、由老闆／店長人工處理，可以嗎？
-6. **結果不明的 Stripe 退款不能由店長取消**：只能等 Stripe 回報或按「對帳」；這段期間這組不能結帳。推薦：照做（否則訂金可能被退一次又折抵一次）。**方向已確認**（D7：解除阻塞不能繞過退款中的檢查，要有可追查的取消／失敗／完成）。**細節未確認**：對帳在 23 小時內查不到就用同一個冪等鍵重送、超過 23 小時且 Stripe 沒有這筆才記「取消」。問：這個 23 小時規則可以嗎？
-5. **舊資料 `deposit_status = 'refunded'`（帳本沒有紀錄）一律當作全額已退**（舊的退款 API 只能全額退）。推薦：照做。**未確認**。
+Founder 指示「不要整包默認同意」，所以逐條標狀態。原本列 5 條，審閱時加了第 6 條。
 
-D6／D7 實作時多出來、也需要 Founder 回覆的細節（都**未確認**，目前照最保守的寫法）：
+| # | 政策 | 狀態 | 怎麼做到的 |
+|---|---|---|---|
+| 1 | 退款只限老闆或本分店店長；finance 不能退 | **已確認（A6-1），已實作** | SQL `can_adjust_reservation_money`＋API session 角色。finance 改成唯讀稽核：`GET /api/payment/refund`（`?view=ledger`、`?view=open`、單筆訂位）回 `viewer.can_act=false`，畫面不顯示按鈕；POST／PATCH 一律 403 |
+| 2 | 舊流程結帳過的訂位，系統退款擋下 | **已確認（A6-2），已實作人工流程** | 系統退款仍擋（`nothing_to_refund`）。新增 `record_offsystem_refund`＋`POST { offSystem: true }`＋畫面「系統外退款補登」：老闆／本分店店長在人工核對、實際退款後補記。要原因＋格式正確的交易編號（現金要確認已交還）、冪等鍵，每筆都開一個需要認領的 `offsystem_refund_recorded` 警示 |
+| 3 | 現金退款要真的交還、操作者確認才算完成；找零和退訂金分開記 | **已確認（A6-3），已實作** | 結帳退訂金差額**一律先記 pending**（現金也是）；確認時現金要勾「已交還」（`cash_handed_back`，函式＋事件表 CHECK），非現金要交易編號。找零只記在 `reservation_settlements.change_given`，退款只記在帳本，兩邊不合併 |
+| 4 | Stripe 實際回報照實記並開警示；每個警示都要有人負責 | **已確認（A6-4），已實作** | 新表 `reservation_refund_alert_acks`（只能新增；誰、角色、說明）、函式 `acknowledge_refund_alert`（老闆／該分店店長，要說明）、view `reservation_refund_alerts_with_ack`（`acknowledged_at` 為空 = 未認領清單），`/admin/refunds` 顯示未認領清單 |
+| 5 | 舊資料 `deposit_status='refunded'`（帳本沒有紀錄） | **未確認：不得假設全額（A6-5）** | 已準備唯讀盤點查詢 `supabase/queries/legacy-refunded-deposit-inventory.sql` 與 runbook `docs/runbooks/legacy-refunded-deposit-inventory.md`，由 Founder 執行。盤點前程式採最保守：結帳不折抵這些訂金、系統退款與補登都擋下（`legacy_refund_status_unverified`） |
+| 6 | 結果不明的 Stripe 退款 | **已確認並修正（A6-6）** | 對帳改成完整查詢：翻完這筆付款在 Stripe 的每一頁退款，並直接查帳本上已知的退款編號。查不到又超過 23 小時（或查詢不完整）→ **不取消、不解鎖**，維持處理中、結帳仍擋，開 `provider_outcome_unknown` 警示（同一筆未認領時不重複開） |
+| A6-7 | 現金結帳有要收的錢時，客人給的現金必填 | **已確認，已實作** | `cash_tendered_required`（API＋函式＋表 CHECK）。0 元結帳與純退款不需要 |
+| A6-8 | 成功證據 = 可驗證的交易編號＋原因；任意文字不算 | **已確認，已實作（格式待確認）** | `refund_reference_valid`（SQL）＝ `REFUND_REFERENCE_PATTERNS`（TS，測試直接比對 migration 字串）。格式見 `docs/PAYMENT_STATE_MODEL.md`「退款證據編號格式」。截圖上傳之後再做 |
+| A6-9 | 已退改失敗要有失敗／退回證據；取消申請不能讓欠款消失 | **已確認，已實作** | 已退 → 失敗要格式正確的交易編號＋原因（函式＋事件表 CHECK，`previous_status` 由 trigger 帶入）；現金交還後不能改失敗。新 view `reservation_refund_obligations`：結帳欠客人的訂金差額，直到補退**成功**才離開待辦；`POST { kind: "checkout_deposit_excess" }` 補申請 |
 
-- 現金找零：客人給的現金金額是「選填」（空白 = 剛好付清，不記找零）。要不要改成現金結帳一律必填？客人給的現金上限 NT$ 100,000（防輸入錯誤，審閱 P2），此外只要求付的 ≥ 要收的。
-- 人工退款「確認已退」：目前要「轉帳序號／交易編號＋說明」（現金只要說明）。**附件（截圖上傳）還沒做**。要不要附件也必填？
-- 已退的人工退款事後發現沒退成（例如轉帳被退回），可以改標「失敗」（要寫原因），訂金就重新算回可折抵。可以嗎？
-- 結帳時記下的退差額（客人應拿回的錢）也可以被「取消」（要寫原因）。取消後帳上不再顯示要退。可以嗎？
+### 還需要 Founder 回答
+
+1. **#5 舊資料**：跑完盤點後，核對確定是部分退款的列要怎麼處理（補登帳本需要另一個經核准的一次性程序）；無法核對的列是否維持擋下。
+2. **A6-8 格式**：轉帳（6–32 碼、至少 6 個數字）、LINE Pay（19 位數字）、刷卡（授權碼 6 碼或 12 位 RRN）、其他（`管道代碼:編號`）這四個格式是否符合實際作業？要不要再加別的方式？
+3. **A6-6 結果一直不明的 Stripe 退款**：系統只會維持處理中＋警示，沒有任何解鎖路徑。若人工向 Stripe 確認真的沒有這筆退款，要用什麼核准程序結案？目前刻意沒做。
+4. **A6-2 補登上限**：沒有結帳紀錄的舊訂位，補登上限是「已付訂金 − 帳本上已退／處理中」，不再假設舊結帳已折抵（因為已人工核對）。可以嗎？
 
 金額單位：已修正（見上）。Stripe 目前在正式環境沒有啟用（`create-intent` 回 503），所以舊的單位錯誤沒有實際收過錢。
 
@@ -107,7 +114,8 @@ D6／D7 實作時多出來、也需要 Founder 回覆的細節（都**未確認*
 1. 先照第 3 節再備份一次（這時已經有結帳／退款紀錄）。
 2. 執行 [`supabase/rollbacks/reservation-settlements-keep-data.sql`](../../supabase/rollbacks/reservation-settlements-keep-data.sql)：
    - **拿掉**：`settle_reservation_checkout`（新舊參數版本都拿掉）、`extend_reservation_stay`、`request_reservation_refund`、`record_reservation_refund_status`、`sync_provider_refund`、`reservation_billing_state`。
-   - **保留**：`reservation_settlements`、`reservation_extensions`、`reservation_refunds`、`reservation_refund_events`、`reservation_refund_alerts` 五張表與所有資料；append-only trigger；`reservation_refund_current` view；唯讀輔助函式；`schema_migrations` 那一列。
+   - **保留**：`reservation_settlements`、`reservation_extensions`、`reservation_refunds`、`reservation_refund_events`、`reservation_refund_alerts`、`reservation_refund_alert_acks` 六張表與所有資料；append-only trigger 與事件表的方式／前一狀態 trigger；`reservation_refund_current`、`reservation_refund_alerts_with_ack`、`reservation_refund_obligations` view；唯讀輔助函式（含事件表 CHECK 用到的 `refund_reference_valid`、`refund_transition_allowed`）；`schema_migrations` 那一列。
+   - 一併拿掉：`record_offsystem_refund`、`acknowledge_refund_alert`、`raise_refund_alert`（新舊參數版本的 `record_reservation_refund_status` 都拿掉）。
    - no_show 不佔時段的規則：沒有重疊才換回舊規則；有重疊就保留新規則（不然舊規則建不回來）。
 3. 回滾後程式的行為（#447 的程式碼即使還在也安全）：
    - API 偵測到 `reservation_billing_state` 不存在 → 結帳、延長走舊流程。

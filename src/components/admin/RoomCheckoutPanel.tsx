@@ -321,7 +321,8 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
               if (ok) setConfirmCheckout(false); else void load().catch(() => undefined);
             }}
               className="h-12 rounded-xl bg-ink font-semibold text-paper disabled:opacity-50">{bill.refund > 0
-                ? (ready && method !== "cash" ? `結帳，退客人 ${money(bill.refund)}（退款待確認）` : `已退客人 ${money(bill.refund)}，結帳`)
+                ? (ready && method !== "cash" ? `結帳，退客人 ${money(bill.refund)}（退款待確認）`
+                  : ready ? `結帳，現金退客人 ${money(bill.refund)}（交還後請確認）` : `已退客人 ${money(bill.refund)}，結帳`)
                 : change && "change" in change && change.change
                   ? `收 ${money(tenderedAmount ?? collect)}，找 ${money(change.change)}，結帳` : `確定收到 ${money(collect)}`}</button>
           </div>

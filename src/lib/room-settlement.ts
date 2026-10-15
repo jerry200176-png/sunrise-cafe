@@ -136,6 +136,12 @@ const MESSAGES: Record<string, string> = {
   refund_not_found: "找不到這筆退款",
   refund_ledger_append_only: "退款紀錄不能修改或刪除",
   refund_evidence_required: "標成「已退」要附證據：轉帳序號（或交易編號）和說明；現金退款要寫是誰、何時交給客人",
+  invalid_refund_reference: "證據編號格式不對：請填實際的轉帳序號／交易編號（格式見畫面說明），不能只寫文字",
+  cash_handback_required: "現金退款要等現金真的交還客人，並勾選「已交還」才算完成",
+  refund_failure_evidence_required: "已退改成失敗，要附上退回或失敗的交易編號和原因",
+  legacy_refund_status_unverified: "這筆是舊資料標成「訂金已退」，要等盤點核對後才能再處理",
+  alert_not_found: "找不到這個警示",
+  alert_note_required: "認領警示要寫說明（打算怎麼處理）",
   invalid_cash_tendered: "客人付的現金金額不對（最多 NT$ 100,000）",
   change_actor_required: "找零要記下是誰操作的，請重新登入再試",
   change_cash_only: "只有現金結帳才有找零",
@@ -149,7 +155,7 @@ export function cashChangeMessage(problem: CashChangeProblem): string {
   return MESSAGES[problem];
 }
 
-const NOT_FOUND = new Set(["reservation_not_found", "refund_not_found"]);
+const NOT_FOUND = new Set(["reservation_not_found", "refund_not_found", "alert_not_found"]);
 
 /** RPC 丟出的代碼 → 給店員看的中文與 HTTP 狀態；不認得的回 null（交給外層當 500） */
 export function settlementFailure(error: DbError): { status: number; error: string } | null {

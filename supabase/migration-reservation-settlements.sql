@@ -112,6 +112,48 @@ DROP POLICY IF EXISTS "service_all_reservation_settlements" ON reservation_settl
 CREATE POLICY "service_all_reservation_settlements" ON reservation_settlements
   FOR ALL TO service_role USING (true) WITH CHECK (true);
 
+-- 狀態轉換規則（終態只有 succeeded → failed 這一條例外：金流商事後回報退款失敗）
+--   requested → pending | succeeded | failed | canceled
+--   pending   → succeeded | failed | canceled
+--   succeeded → failed
+--   canceled  → succeeded | failed（只限金流商回報；發生時另記 reservation_refund_alerts 警示）
+CREATE OR REPLACE FUNCTION public.refund_transition_allowed(p_from text, p_to text, p_actor_role text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+  SELECT CASE p_from
+    WHEN 'requested' THEN p_to IN ('pending', 'succeeded', 'failed', 'canceled')
+    WHEN 'pending' THEN p_to IN ('succeeded', 'failed', 'canceled')
+    WHEN 'succeeded' THEN p_to = 'failed'
+    WHEN 'canceled' THEN p_actor_role = 'provider' AND p_to IN ('succeeded', 'failed')
+    ELSE false
+  END
+$$;
+
+-- 人工退款「證據編號」格式（Founder A6-8，2026-10-15）：任意文字不算證據，依退款方式驗格式。
+-- 和 src/lib/refund-actions.ts REFUND_REFERENCE_PATTERNS 必須一致（有測試直接比對這裡的字串）。
+--   transfer：銀行轉帳交易序號，6–32 碼英數字或 -，至少 6 個數字
+--   line_pay：LINE Pay transactionId，19 位數字
+--   card    ：刷卡退刷授權碼 6 碼英數字，或 12 位數字的調閱編號（RRN）
+--   other   ：「管道代碼:交易編號」，例如 JKOPAY:20261015001234
+--   cash    ：沒有編號；改由操作者確認「現金已交還客人」（cash_handed_back）
+CREATE OR REPLACE FUNCTION public.refund_reference_valid(p_method text, p_ref text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+  SELECT p_ref IS NOT NULL AND CASE p_method
+    WHEN 'transfer' THEN p_ref ~ '^(?=(?:[^0-9]*[0-9]){6})[0-9A-Za-z][0-9A-Za-z-]{5,31}$'
+    WHEN 'line_pay' THEN p_ref ~ '^[0-9]{19}$'
+    WHEN 'card' THEN p_ref ~ '^(?:[0-9A-Za-z]{6}|[0-9]{12})$'
+    WHEN 'other' THEN p_ref ~ '^[A-Za-z]{2,12}:[0-9A-Za-z-]{6,40}$'
+    ELSE false
+  END
+$$;
+
 -- ---------------------------------------------------------------------------
 -- 2b. 退款帳本（只能新增、不能改也不能刪）
 --     reservation_refunds       ：每一筆退款一列（誰、何時、退多少、原因、哪筆訂位、冪等鍵）
@@ -137,7 +179,10 @@ CREATE TABLE IF NOT EXISTS reservation_refunds (
   CHECK (kind = 'deposit' OR settlement_id IS NOT NULL),
   CHECK (requested_by_role <> 'provider' OR method = 'stripe'),
   -- 讓事件表能用 (refund_id, refund_method) 外鍵帶上退款方式，CHECK 才看得到（審閱 P2）
-  CONSTRAINT uq_reservation_refunds_id_method UNIQUE (id, method)
+  CONSTRAINT uq_reservation_refunds_id_method UNIQUE (id, method),
+  -- 系統外退款補登（Founder A6-2）：人工核對後補記一筆已在系統外完成的退訂金
+  off_system boolean NOT NULL DEFAULT false,
+  CHECK (NOT off_system OR (kind = 'deposit' AND method <> 'stripe'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_reservation_refunds_reservation
@@ -157,6 +202,10 @@ CREATE TABLE IF NOT EXISTS reservation_refund_events (
   -- 這筆退款的方式：由 BEFORE INSERT trigger 從 reservation_refunds 帶入（寫入的人填什麼都會被蓋掉），
   -- 外鍵再保證一致。下面的 CHECK 靠它判斷「非現金」（審閱 P2：連 service key 直接寫入也擋）
   refund_method text NOT NULL,
+  -- 這一步之前的狀態：同一個 trigger 從最後一個事件帶入，讓 CHECK 能檢查狀態轉換（A6-9）
+  previous_status text,
+  -- 現金退款：操作者確認現金已實際交還客人（Founder A6-3）
+  cash_handed_back boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now(),
   FOREIGN KEY (refund_id, refund_method) REFERENCES reservation_refunds (id, method) ON DELETE RESTRICT,
   -- 每一步都要記下是什麼角色做的
@@ -164,12 +213,19 @@ CREATE TABLE IF NOT EXISTS reservation_refund_events (
   -- 金流商身分只能用在 Stripe 退款；Stripe 退款除了「申請」之外的每一步都只能由金流商記
   CHECK (actor_role <> 'provider' OR refund_method = 'stripe'),
   CHECK (refund_method <> 'stripe' OR actor_role = 'provider' OR status = 'requested'),
-  -- 人工把退款標成成功／失敗／取消時，一定要留說明；非現金的「成功」還要有證據編號（D7：每一步都要可追查）
-  CHECK (
-    actor_role = 'provider' OR status IN ('requested', 'pending')
-    OR (length(btrim(COALESCE(note, ''))) > 0
-        AND (status <> 'succeeded' OR refund_method = 'cash' OR length(btrim(COALESCE(evidence_ref, ''))) > 0))
-  )
+  -- 只能照固定的狀態轉換走（第一列一定是 requested）
+  CHECK ((previous_status IS NULL AND status = 'requested')
+         OR (previous_status IS NOT NULL AND refund_transition_allowed(previous_status, status, actor_role))),
+  -- 人工把退款標成成功／失敗／取消時，一定要留說明（D7）
+  CHECK (actor_role = 'provider' OR status IN ('requested', 'pending') OR length(btrim(COALESCE(note, ''))) > 0),
+  -- 人工標「成功」：非現金要有格式正確的證據編號（A6-8）；現金要有操作者確認已交還（A6-3）
+  CHECK (actor_role = 'provider' OR status <> 'succeeded'
+         OR (refund_method = 'cash' AND cash_handed_back)
+         OR (refund_method <> 'cash' AND refund_reference_valid(refund_method, evidence_ref))),
+  -- 人工把「已退」改成「失敗」（例如轉帳被退回）：要有格式正確的證據編號；現金交還後不能改失敗（A6-9）
+  CHECK (actor_role = 'provider' OR NOT (previous_status = 'succeeded' AND status = 'failed')
+         OR (refund_method <> 'cash' AND refund_reference_valid(refund_method, evidence_ref))),
+  CHECK (NOT cash_handed_back OR (refund_method = 'cash' AND status = 'succeeded'))
 );
 
 -- 事件的退款方式一律從退款那一列帶入，不信任寫入的人填的值
@@ -180,6 +236,8 @@ SET search_path = public, pg_temp
 AS $$
 BEGIN
   SELECT method INTO NEW.refund_method FROM reservation_refunds WHERE id = NEW.refund_id;
+  SELECT status INTO NEW.previous_status FROM reservation_refund_events
+    WHERE refund_id = NEW.refund_id ORDER BY seq DESC LIMIT 1;
   RETURN NEW;
 END;
 $$;
@@ -253,6 +311,25 @@ REVOKE ALL ON public.reservation_refund_current FROM PUBLIC, anon, authenticated
 GRANT SELECT ON public.reservation_refund_current TO service_role;
 GRANT SELECT, INSERT ON reservation_refunds, reservation_refund_events TO service_role;
 
+-- 結帳時欠客人的訂金差額（Founder A6-9）：取消退款申請不會讓這筆欠款消失，直到退款真的成功為止都留在待辦清單
+--   owed = 結帳紀錄的 refund_amount；refunded = 已成功；in_flight = 已申請／處理中；unrequested = 還沒有人申請退的部分
+CREATE OR REPLACE VIEW public.reservation_refund_obligations
+WITH (security_invoker = true) AS
+SELECT s.id AS settlement_id, s.reservation_id, rm.branch_id, s.settled_at, s.refund_amount AS owed,
+       COALESCE(sum(c.amount) FILTER (WHERE c.status = 'succeeded'), 0)::integer AS refunded,
+       COALESCE(sum(c.amount) FILTER (WHERE c.status IN ('requested', 'pending')), 0)::integer AS in_flight,
+       (s.refund_amount - COALESCE(sum(c.amount) FILTER (WHERE c.status IN ('requested', 'pending', 'succeeded')), 0))::integer
+         AS unrequested
+FROM reservation_settlements s
+JOIN reservations res ON res.id = s.reservation_id
+JOIN rooms rm ON rm.id = res.room_id
+LEFT JOIN reservation_refund_current c ON c.settlement_id = s.id AND c.kind = 'checkout_deposit_excess'
+WHERE s.refund_amount > 0
+GROUP BY s.id, rm.branch_id
+HAVING s.refund_amount > COALESCE(sum(c.amount) FILTER (WHERE c.status = 'succeeded'), 0);
+REVOKE ALL ON public.reservation_refund_obligations FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.reservation_refund_obligations TO service_role;
+
 -- 退款警示（只能新增）：金流商回報的退款超過可退上限、在結帳已折抵訂金之後才退、取消後又回報成功。
 -- 錢已經動了，帳本照實記；這裡另外留一列讓老闆／店長在後台看到並人工處理。
 CREATE TABLE IF NOT EXISTS reservation_refund_alerts (
@@ -260,8 +337,10 @@ CREATE TABLE IF NOT EXISTS reservation_refund_alerts (
   reservation_id uuid NOT NULL REFERENCES reservations(id) ON DELETE RESTRICT,
   refund_id uuid REFERENCES reservation_refunds(id) ON DELETE RESTRICT,
   -- provider_reservation_mismatch：金流商回報的退款指向另一筆訂位（由 API 在同步失敗時寫入）
+  -- provider_outcome_unknown：對帳查不到 Stripe 結果、又超過重送期限（A6-6：不取消、不解鎖，等人工對帳）
+  -- offsystem_refund_recorded：系統外退款補登（A6-2：每一筆都要有人複核）
   kind text NOT NULL CHECK (kind IN ('provider_over_cap', 'provider_after_checkout_credit', 'provider_succeeded_after_cancel',
-                                     'provider_reservation_mismatch')),
+                                     'provider_reservation_mismatch', 'provider_outcome_unknown', 'offsystem_refund_recorded')),
   branch_id uuid,
   detail jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now()
@@ -283,6 +362,41 @@ CREATE POLICY "service_read_insert_reservation_refund_alerts" ON reservation_ref
 REVOKE ALL ON reservation_refund_alerts FROM PUBLIC, anon, authenticated;
 REVOKE UPDATE, DELETE, TRUNCATE ON reservation_refund_alerts FROM service_role;
 GRANT SELECT, INSERT ON reservation_refund_alerts TO service_role;
+
+-- 警示認領（Founder A6-4：每一個警示都要有人負責）：只能新增，每個警示一列，記誰、什麼角色、說明
+CREATE TABLE IF NOT EXISTS reservation_refund_alert_acks (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  alert_id uuid NOT NULL UNIQUE REFERENCES reservation_refund_alerts(id) ON DELETE RESTRICT,
+  acknowledged_by text NOT NULL CHECK (length(btrim(acknowledged_by)) > 0),
+  acknowledged_by_role text NOT NULL CHECK (acknowledged_by_role IN ('owner', 'branch_manager')),
+  note text NOT NULL CHECK (length(btrim(note)) > 0),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+DROP TRIGGER IF EXISTS trg_reservation_refund_alert_acks_append_only ON reservation_refund_alert_acks;
+CREATE TRIGGER trg_reservation_refund_alert_acks_append_only
+  BEFORE UPDATE OR DELETE ON reservation_refund_alert_acks
+  FOR EACH ROW EXECUTE FUNCTION public.refund_ledger_append_only();
+DROP TRIGGER IF EXISTS trg_reservation_refund_alert_acks_no_truncate ON reservation_refund_alert_acks;
+CREATE TRIGGER trg_reservation_refund_alert_acks_no_truncate
+  BEFORE TRUNCATE ON reservation_refund_alert_acks
+  FOR EACH STATEMENT EXECUTE FUNCTION public.refund_ledger_append_only();
+ALTER TABLE reservation_refund_alert_acks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_read_insert_reservation_refund_alert_acks" ON reservation_refund_alert_acks;
+CREATE POLICY "service_read_insert_reservation_refund_alert_acks" ON reservation_refund_alert_acks
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+REVOKE ALL ON reservation_refund_alert_acks FROM PUBLIC, anon, authenticated;
+REVOKE UPDATE, DELETE, TRUNCATE ON reservation_refund_alert_acks FROM service_role;
+GRANT SELECT, INSERT ON reservation_refund_alert_acks TO service_role;
+
+-- 警示＋認領狀態；acknowledged_at 為 NULL = 還沒有人負責（未認領清單）
+CREATE OR REPLACE VIEW public.reservation_refund_alerts_with_ack
+WITH (security_invoker = true) AS
+SELECT a.id, a.reservation_id, a.refund_id, a.kind, a.branch_id, a.detail, a.created_at,
+       k.acknowledged_by, k.acknowledged_by_role, k.note AS ack_note, k.created_at AS acknowledged_at
+FROM reservation_refund_alerts a
+LEFT JOIN reservation_refund_alert_acks k ON k.alert_id = a.id;
+REVOKE ALL ON public.reservation_refund_alerts_with_ack FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.reservation_refund_alerts_with_ack TO service_role;
 
 -- ---------------------------------------------------------------------------
 -- 共用：與 src/lib/room-checkout.ts 相同的規則
@@ -397,25 +511,6 @@ AS $$
   WHERE c.id = p_refund_id
 $$;
 
--- 狀態轉換規則（終態只有 succeeded → failed 這一條例外：金流商事後回報退款失敗）
---   requested → pending | succeeded | failed | canceled
---   pending   → succeeded | failed | canceled
---   succeeded → failed
---   canceled  → succeeded | failed（只限金流商回報；發生時另記 reservation_refund_alerts 警示）
-CREATE OR REPLACE FUNCTION public.refund_transition_allowed(p_from text, p_to text, p_actor_role text)
-RETURNS boolean
-LANGUAGE sql
-IMMUTABLE
-SET search_path = public, pg_temp
-AS $$
-  SELECT CASE p_from
-    WHEN 'requested' THEN p_to IN ('pending', 'succeeded', 'failed', 'canceled')
-    WHEN 'pending' THEN p_to IN ('succeeded', 'failed', 'canceled')
-    WHEN 'succeeded' THEN p_to = 'failed'
-    WHEN 'canceled' THEN p_actor_role = 'provider' AND p_to IN ('succeeded', 'failed')
-    ELSE false
-  END
-$$;
 
 -- 退款後同步 reservations.deposit_status（只動 Stripe 流程用的 paid／refunded，其他值不碰）：
 -- 實際已退 ≥ 已付訂金 → refunded；之後退款失敗、不再全額 → 回到 paid
@@ -606,6 +701,7 @@ $$;
 -- ---------------------------------------------------------------------------
 -- 舊版（沒有證據參數）若曾在測試環境套用過，先拿掉，避免留下兩個同名函式
 DROP FUNCTION IF EXISTS public.record_reservation_refund_status(uuid, text, text, text, text, text, uuid[]);
+DROP FUNCTION IF EXISTS public.record_reservation_refund_status(uuid, text, text, text, text, text, uuid[], text);
 CREATE OR REPLACE FUNCTION public.record_reservation_refund_status(
   p_refund_id uuid,
   p_status text,
@@ -615,7 +711,9 @@ CREATE OR REPLACE FUNCTION public.record_reservation_refund_status(
   p_actor_role text,
   p_actor_branch_ids uuid[],
   -- 人工退款的成功證據（轉帳序號等）；金流商回報不用
-  p_evidence_ref text DEFAULT NULL
+  p_evidence_ref text DEFAULT NULL,
+  -- 現金退款：操作者確認現金已實際交還客人（A6-3）
+  p_cash_handed_back boolean DEFAULT false
 ) RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -665,20 +763,41 @@ BEGIN
       -- 金流商編號只能由金流商回報寫入（人工證據放 evidence_ref）
       RAISE EXCEPTION 'provider_outcome_only' USING ERRCODE = 'P0001';
     END IF;
-    IF p_status = 'succeeded' AND (
-         p_note IS NULL OR length(btrim(p_note)) = 0
-         OR (v_refund.method <> 'cash' AND (p_evidence_ref IS NULL OR length(btrim(p_evidence_ref)) = 0))) THEN
-      RAISE EXCEPTION 'refund_evidence_required' USING ERRCODE = 'P0001';
+    IF p_status = 'succeeded' THEN
+      IF p_note IS NULL OR length(btrim(p_note)) = 0 THEN
+        RAISE EXCEPTION 'refund_evidence_required' USING ERRCODE = 'P0001';
+      END IF;
+      IF v_refund.method = 'cash' THEN
+        -- 現金：要等現金真的交還客人、操作者確認後才算完成（A6-3）
+        IF NOT COALESCE(p_cash_handed_back, false) THEN
+          RAISE EXCEPTION 'cash_handback_required' USING ERRCODE = 'P0001';
+        END IF;
+      ELSIF p_evidence_ref IS NULL OR length(btrim(p_evidence_ref)) = 0 THEN
+        RAISE EXCEPTION 'refund_evidence_required' USING ERRCODE = 'P0001';
+      ELSIF NOT refund_reference_valid(v_refund.method, btrim(p_evidence_ref)) THEN
+        RAISE EXCEPTION 'invalid_refund_reference' USING ERRCODE = 'P0001';
+      END IF;
     END IF;
     IF p_status IN ('failed', 'canceled') AND (p_note IS NULL OR length(btrim(p_note)) = 0) THEN
       RAISE EXCEPTION 'refund_reason_required' USING ERRCODE = 'P0001';
     END IF;
+    -- 已退 → 失敗（A6-9）：要有退回／失敗的實際證據（格式正確的交易編號＋原因）；現金交還後不能改失敗
+    IF v_current = 'succeeded' AND p_status = 'failed' THEN
+      IF v_refund.method = 'cash' THEN
+        RAISE EXCEPTION 'invalid_refund_transition' USING ERRCODE = 'P0001',
+          DETAIL = json_build_object('from', v_current, 'to', p_status)::text;
+      END IF;
+      IF p_evidence_ref IS NULL OR NOT refund_reference_valid(v_refund.method, btrim(p_evidence_ref)) THEN
+        RAISE EXCEPTION 'refund_failure_evidence_required' USING ERRCODE = 'P0001';
+      END IF;
+    END IF;
   END IF;
 
-  INSERT INTO reservation_refund_events (refund_id, status, provider_ref, evidence_ref, note, actor, actor_role)
+  INSERT INTO reservation_refund_events (refund_id, status, provider_ref, evidence_ref, note, actor, actor_role, cash_handed_back)
   VALUES (v_refund.id, p_status, p_provider_ref,
     CASE WHEN p_actor_role <> 'provider' THEN NULLIF(btrim(p_evidence_ref), '') END,
-    NULLIF(btrim(p_note), ''), p_actor, p_actor_role);
+    NULLIF(btrim(p_note), ''), p_actor, p_actor_role,
+    p_actor_role <> 'provider' AND p_status = 'succeeded' AND v_refund.method = 'cash' AND COALESCE(p_cash_handed_back, false));
 
   -- 取消後金流商又回報成功：照實算已退，另外留警示（若期間已結帳折抵訂金，客人等於多拿了一次）
   IF v_current = 'canceled' AND p_status = 'succeeded' THEN
@@ -772,6 +891,177 @@ BEGIN
     RETURN record_reservation_refund_status(v_refund_id, p_status, p_provider_ref, NULL, 'stripe', 'provider', NULL);
   END IF;
   RETURN reservation_refund_json(v_refund_id);
+END;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 警示：同一筆退款同一種警示，還沒有人認領時不重複新增（對帳重按也只留一列）
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.raise_refund_alert(p_refund_id uuid, p_kind text, p_detail jsonb)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_refund reservation_refunds%ROWTYPE;
+  v_id uuid;
+BEGIN
+  SELECT * INTO v_refund FROM reservation_refunds WHERE id = p_refund_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'refund_not_found' USING ERRCODE = 'P0002';
+  END IF;
+  PERFORM 1 FROM reservations WHERE id = v_refund.reservation_id FOR UPDATE;
+  SELECT a.id INTO v_id FROM reservation_refund_alerts a
+    WHERE a.refund_id = p_refund_id AND a.kind = p_kind
+      AND NOT EXISTS (SELECT 1 FROM reservation_refund_alert_acks k WHERE k.alert_id = a.id)
+    ORDER BY a.created_at LIMIT 1;
+  IF v_id IS NOT NULL THEN
+    RETURN v_id;
+  END IF;
+  INSERT INTO reservation_refund_alerts (reservation_id, refund_id, kind, branch_id, detail)
+  VALUES (v_refund.reservation_id, v_refund.id, p_kind, v_refund.branch_id, COALESCE(p_detail, '{}'::jsonb))
+  RETURNING id INTO v_id;
+  RETURN v_id;
+END;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 認領警示（A6-4）：老闆，或警示所屬分店的店長；要寫說明。已認領過就回原本那一列（冪等）
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.acknowledge_refund_alert(
+  p_alert_id uuid, p_note text, p_actor text, p_actor_role text, p_actor_branch_ids uuid[]
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_alert reservation_refund_alerts%ROWTYPE;
+  v_ack reservation_refund_alert_acks%ROWTYPE;
+BEGIN
+  SELECT * INTO v_alert FROM reservation_refund_alerts WHERE id = p_alert_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'alert_not_found' USING ERRCODE = 'P0002';
+  END IF;
+  IF NOT can_adjust_reservation_money(p_actor_role, p_actor_branch_ids, v_alert.branch_id) THEN
+    RAISE EXCEPTION 'refund_not_allowed' USING ERRCODE = 'P0001';
+  END IF;
+  IF p_note IS NULL OR length(btrim(p_note)) = 0 THEN
+    RAISE EXCEPTION 'alert_note_required' USING ERRCODE = 'P0001';
+  END IF;
+  IF length(btrim(COALESCE(p_actor, ''))) = 0 THEN
+    RAISE EXCEPTION 'refund_not_allowed' USING ERRCODE = 'P0001';
+  END IF;
+  SELECT * INTO v_ack FROM reservation_refund_alert_acks WHERE alert_id = p_alert_id;
+  IF NOT FOUND THEN
+    INSERT INTO reservation_refund_alert_acks (alert_id, acknowledged_by, acknowledged_by_role, note)
+    VALUES (p_alert_id, p_actor, p_actor_role, btrim(p_note)) RETURNING * INTO v_ack;
+  END IF;
+  RETURN to_jsonb(v_ack);
+END;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 系統外退款補登（Founder A6-2）：系統無法核實、自動退款被擋下的舊資料（例如舊流程結帳的訂位），
+-- 由老闆／本分店店長在人工核對、實際退款之後補記。要有原因與格式正確的交易編號（現金要確認已交還），
+-- 一次記成「已退」，並留一個需要有人認領的稽核警示（offsystem_refund_recorded）。
+--   上限 = 已付訂金 − 帳本上進行中／已成功的訂金退款 − 結帳紀錄已折抵的訂金（沒有結帳紀錄不扣，因為已人工核對）
+--   舊資料 deposit_status = refunded 但帳本沒有紀錄：先等 Founder 依盤點結果決定，這裡擋下（legacy_refund_status_unverified）
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.record_offsystem_refund(
+  p_reservation_id uuid,
+  p_amount integer,
+  p_method text,
+  p_reason text,
+  p_evidence_ref text,
+  p_cash_handed_back boolean,
+  p_idempotency_key text,
+  p_actor text,
+  p_actor_role text,
+  p_actor_branch_ids uuid[]
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_res reservations%ROWTYPE;
+  v_branch uuid;
+  v_existing reservation_refunds%ROWTYPE;
+  v_active integer;
+  v_credit integer;
+  v_cap integer;
+  v_id uuid;
+  v_ref text := NULLIF(btrim(p_evidence_ref), '');
+BEGIN
+  SELECT * INTO v_res FROM reservations WHERE id = p_reservation_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'reservation_not_found' USING ERRCODE = 'P0002';
+  END IF;
+  SELECT branch_id INTO v_branch FROM rooms WHERE id = v_res.room_id;
+  IF p_idempotency_key IS NULL OR length(btrim(p_idempotency_key)) = 0 THEN
+    RAISE EXCEPTION 'idempotency_key_required' USING ERRCODE = 'P0001';
+  END IF;
+  IF NOT can_adjust_reservation_money(p_actor_role, p_actor_branch_ids, v_branch)
+     OR length(btrim(COALESCE(p_actor, ''))) = 0 THEN
+    RAISE EXCEPTION 'refund_not_allowed' USING ERRCODE = 'P0001';
+  END IF;
+  SELECT * INTO v_existing FROM reservation_refunds WHERE idempotency_key = p_idempotency_key;
+  IF FOUND THEN
+    IF v_existing.reservation_id <> p_reservation_id OR NOT v_existing.off_system OR v_existing.amount <> p_amount THEN
+      RAISE EXCEPTION 'idempotency_conflict' USING ERRCODE = 'P0001';
+    END IF;
+    RETURN reservation_refund_json(v_existing.id);
+  END IF;
+  IF p_method IS NULL OR p_method NOT IN ('cash', 'card', 'line_pay', 'transfer', 'other') THEN
+    RAISE EXCEPTION 'invalid_refund_method' USING ERRCODE = 'P0001';
+  END IF;
+  IF p_reason IS NULL OR length(btrim(p_reason)) = 0 THEN
+    RAISE EXCEPTION 'refund_reason_required' USING ERRCODE = 'P0001';
+  END IF;
+  IF p_amount IS NULL OR p_amount <= 0 THEN
+    RAISE EXCEPTION 'invalid_refund_amount' USING ERRCODE = 'P0001';
+  END IF;
+  IF p_method = 'cash' THEN
+    IF NOT COALESCE(p_cash_handed_back, false) THEN
+      RAISE EXCEPTION 'cash_handback_required' USING ERRCODE = 'P0001';
+    END IF;
+  ELSIF v_ref IS NULL THEN
+    RAISE EXCEPTION 'refund_evidence_required' USING ERRCODE = 'P0001';
+  ELSIF NOT refund_reference_valid(p_method, v_ref) THEN
+    RAISE EXCEPTION 'invalid_refund_reference' USING ERRCODE = 'P0001';
+  END IF;
+  IF v_res.deposit_status = 'refunded'
+     AND NOT EXISTS (SELECT 1 FROM reservation_refunds WHERE reservation_id = v_res.id AND kind = 'deposit') THEN
+    RAISE EXCEPTION 'legacy_refund_status_unverified' USING ERRCODE = 'P0001';
+  END IF;
+  SELECT COALESCE(sum(amount), 0) INTO v_active FROM reservation_refund_current
+    WHERE reservation_id = v_res.id AND kind = 'deposit' AND status IN ('requested', 'pending', 'succeeded');
+  SELECT COALESCE(deposit_credit, 0) INTO v_credit FROM reservation_settlements WHERE reservation_id = v_res.id;
+  v_cap := GREATEST(0, reservation_deposit_gross(v_res.id) - v_active - COALESCE(v_credit, 0));
+  IF p_amount > v_cap THEN
+    RAISE EXCEPTION 'refund_exceeds_refundable' USING ERRCODE = 'P0001',
+      DETAIL = json_build_object('refundable', v_cap)::text;
+  END IF;
+
+  INSERT INTO reservation_refunds (
+    reservation_id, kind, amount, method, reason, requested_by, requested_by_role, branch_id, idempotency_key, off_system
+  ) VALUES (
+    v_res.id, 'deposit', p_amount, p_method, btrim(p_reason), p_actor, p_actor_role, v_branch, p_idempotency_key, true
+  ) RETURNING id INTO v_id;
+  INSERT INTO reservation_refund_events (refund_id, status, note, actor, actor_role)
+  VALUES (v_id, 'requested', '系統外退款補登（人工核對後）', p_actor, p_actor_role);
+  INSERT INTO reservation_refund_events (refund_id, status, evidence_ref, note, actor, actor_role, cash_handed_back)
+  VALUES (v_id, 'succeeded', CASE WHEN p_method <> 'cash' THEN v_ref END, btrim(p_reason), p_actor, p_actor_role,
+          p_method = 'cash');
+  INSERT INTO reservation_refund_alerts (reservation_id, refund_id, kind, branch_id, detail)
+  VALUES (v_res.id, v_id, 'offsystem_refund_recorded', v_branch,
+    jsonb_build_object('amount', p_amount, 'method', p_method, 'evidence_ref', v_ref, 'recorded_by', p_actor,
+      'recorded_by_role', p_actor_role, 'reservation_status', v_res.status,
+      'has_settlement', EXISTS (SELECT 1 FROM reservation_settlements WHERE reservation_id = v_res.id)));
+  PERFORM sync_reservation_deposit_status(v_res.id);
+  RETURN reservation_refund_json(v_id);
 END;
 $$;
 
@@ -1017,8 +1307,9 @@ BEGIN
     CASE WHEN p_cash_tendered IS NOT NULL THEN now() END
   ) RETURNING * INTO v_row;
 
-  -- 結帳要退的訂金差額是「退款」（不是找零），記進退款帳本：現金當場交還 = succeeded；其他方式（轉帳、LINE Pay…）先記 pending，
-  -- 等店長／老闆確認真的退了才算數。冪等鍵綁結帳紀錄，重試不會多記。
+  -- 結帳要退的訂金差額是「退款」（不是找零），記進退款帳本，一律先記 pending（A6-3）：
+  --   現金要等真的交還客人、老闆／店長確認後才算完成；其他方式（轉帳、LINE Pay…）要等證據確認。
+  --   冪等鍵綁結帳紀錄，重試不會多記。取消申請也不會讓這筆欠款消失（見 reservation_refund_obligations）。
   IF v_refund > 0 THEN
     INSERT INTO reservation_refunds (
       reservation_id, settlement_id, kind, amount, method, reason,
@@ -1030,8 +1321,9 @@ BEGIN
     INSERT INTO reservation_refund_events (refund_id, status, actor, actor_role)
     VALUES (v_refund_id, 'requested', p_actor, p_actor_role);
     INSERT INTO reservation_refund_events (refund_id, status, note, actor, actor_role)
-    VALUES (v_refund_id, CASE WHEN p_payment_method = 'cash' THEN 'succeeded' ELSE 'pending' END,
-      CASE WHEN p_payment_method = 'cash' THEN '結帳時現金當場退還（結帳紀錄 ' || v_row.id::text || '）' END, p_actor, p_actor_role);
+    VALUES (v_refund_id, 'pending',
+      CASE WHEN p_payment_method = 'cash' THEN '結帳時應以現金交還客人；交還後請老闆／店長確認（結帳紀錄 ' || v_row.id::text || '）'
+           ELSE '結帳時應退訂金差額；退了之後請附證據確認（結帳紀錄 ' || v_row.id::text || '）' END, p_actor, p_actor_role);
   END IF;
 
   IF v_has_order AND v_order.paid_at IS NULL THEN
@@ -1058,14 +1350,24 @@ REVOKE ALL ON FUNCTION public.refund_ledger_append_only() FROM PUBLIC, anon, aut
 REVOKE ALL ON FUNCTION public.refund_event_fill_method() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.request_reservation_refund(uuid, text, integer, text, text, text, text, text, uuid[], integer)
   FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.record_reservation_refund_status(uuid, text, text, text, text, text, uuid[], text)
+REVOKE ALL ON FUNCTION public.record_reservation_refund_status(uuid, text, text, text, text, text, uuid[], text, boolean)
   FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.refund_reference_valid(text, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.raise_refund_alert(uuid, text, jsonb) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.acknowledge_refund_alert(uuid, text, text, text, uuid[]) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.record_offsystem_refund(uuid, integer, text, text, text, boolean, text, text, text, uuid[])
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.refund_reference_valid(text, text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.raise_refund_alert(uuid, text, jsonb) TO service_role;
+GRANT EXECUTE ON FUNCTION public.acknowledge_refund_alert(uuid, text, text, text, uuid[]) TO service_role;
+GRANT EXECUTE ON FUNCTION public.record_offsystem_refund(uuid, integer, text, text, text, boolean, text, text, text, uuid[])
+  TO service_role;
 REVOKE ALL ON FUNCTION public.sync_provider_refund(uuid, uuid, text, integer, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.reservation_billing_state(uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.reservation_deposit_refundable(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.reservation_billing_state(uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.request_reservation_refund(uuid, text, integer, text, text, text, text, text, uuid[], integer) TO service_role;
-GRANT EXECUTE ON FUNCTION public.record_reservation_refund_status(uuid, text, text, text, text, text, uuid[], text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.record_reservation_refund_status(uuid, text, text, text, text, text, uuid[], text, boolean) TO service_role;
 GRANT EXECUTE ON FUNCTION public.sync_provider_refund(uuid, uuid, text, integer, text) TO service_role;
 REVOKE ALL ON FUNCTION public.extend_reservation_stay(uuid, timestamptz, timestamptz, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.settle_reservation_checkout(uuid, integer, integer, text, integer, integer, text, text, text, uuid[], integer)
