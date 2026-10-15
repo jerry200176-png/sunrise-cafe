@@ -103,7 +103,7 @@
 
 | 變數 | 說明 |
 |------|------|
-| `CRON_SECRET` | Vercel Cron 呼叫 send-line 時的驗證 token，未設定則跳過驗證 |
+| `CRON_SECRET` | Cron GET（Vercel Cron、GitHub 備援）的 Bearer 驗證 token。**正式環境必填**：未設定時 cron GET 一律回 500（fail closed），不再信任 `x-vercel-cron-schedule` header |
 
 ## Deploy-health source of truth
 
