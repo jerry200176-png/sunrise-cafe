@@ -22,6 +22,7 @@ Portfolio Constitution (canonical): pin via [`docs/governance/OVERLAY.md`](docs/
 - Production verify: `verify-production.yml` / `GET /api/version` SHA match.
 - Prefer Evidence over governance score green alone (`GOVERNANCE_STATUS.md` can be stale).
 - Windows `/mnt/c/**` clones are not source of truth.
+- Printing is retired (Founder 2026-10-15): `print-bridge/` and `/admin/print-station` are unused. Do not add features or fixes for them; the code stays until a separate cleanup PR.
 
 ExoProtocol is retired (Founder 2026-10-14). Ignore any `.exo/` tree; do not start Exo sessions, tickets or `exo push`.
 Still in force: never read or write `**/.env*`, `~/.ssh/**` or `~/.aws/**`; run the repo checks (`npm test`, `npm run lint`, `npm run build`) before pushing.

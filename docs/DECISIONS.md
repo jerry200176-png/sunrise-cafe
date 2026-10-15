@@ -67,6 +67,8 @@ new Date(new Date(s).toLocaleString("en-US", { timeZone: "Asia/Taipei" }))
 
 ## ADR-006：print-bridge 不部署到 Vercel
 
+> **狀態：已退役（Superseded，Founder 2026-10-15）**——店內不再使用列印，`print-bridge/` 與 `/admin/print-station` 停用。以下保留為歷史紀錄；程式碼刪除是之後另開的選擇性清理。
+
 **決策**：熱感印表機橋接服務（`print-bridge/`）獨立在店內電腦執行，不部署雲端。
 
 **背景**：熱感印表機需要 USB/網路連接，Vercel Serverless 無法存取本機裝置。
