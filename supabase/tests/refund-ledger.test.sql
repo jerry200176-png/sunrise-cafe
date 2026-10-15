@@ -1,0 +1,784 @@
+-- 退款原則（Founder 2026-10-15）情境測試。跑法：scripts/test-settlement-sql.sh（拋棄式本機 PostgreSQL）。
+-- 前置：settlement-fixture.sql → migration-reservation-settlements.sql 已套用在同一個全新資料庫。
+-- 任何一條斷言失敗都會 RAISE EXCEPTION，psql 以 ON_ERROR_STOP 結束並回非 0。
+\set ON_ERROR_STOP 1
+SET client_min_messages = notice;
+
+CREATE SCHEMA t;
+
+CREATE FUNCTION t.ok(p_cond boolean, p_label text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  IF p_cond IS NOT TRUE THEN RAISE EXCEPTION 'FAIL: %', p_label; END IF;
+  RAISE NOTICE 'ok - %', p_label;
+END $$;
+
+CREATE FUNCTION t.raises(p_sql text, p_msg text, p_label text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  BEGIN
+    EXECUTE p_sql;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE p_msg THEN RAISE EXCEPTION 'FAIL: % (expected "%", got "%")', p_label, p_msg, SQLERRM; END IF;
+    RAISE NOTICE 'ok - %', p_label;
+    RETURN;
+  END;
+  RAISE EXCEPTION 'FAIL: % (expected error "%", but it succeeded)', p_label, p_msg;
+END $$;
+
+INSERT INTO branches (id, name) VALUES
+  ('00000000-0000-0000-0000-0000000000b1', 'B1'), ('00000000-0000-0000-0000-0000000000b2', 'B2');
+
+-- 每組一間新包廂（平日 200／hr），台北 2026-10-14（三）14:00–16:00，total_price 400 → 訂金 200
+CREATE FUNCTION t.mk(p_status text DEFAULT 'checked_in', p_deposit_paid boolean DEFAULT true,
+                     p_total numeric DEFAULT 400, p_deposit_status text DEFAULT 'paid', p_food numeric DEFAULT NULL)
+RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE v_room uuid; v_res uuid;
+BEGIN
+  INSERT INTO rooms (branch_id, name, price_weekday, price_weekend)
+  VALUES ('00000000-0000-0000-0000-0000000000b1', 'R', 200, 300) RETURNING id INTO v_room;
+  INSERT INTO reservations (room_id, start_time, end_time, status, total_price, is_deposit_paid, deposit_status)
+  VALUES (v_room, '2026-10-14 14:00+08', '2026-10-14 16:00+08', p_status, p_total, p_deposit_paid, p_deposit_status)
+  RETURNING id INTO v_res;
+  IF p_food IS NOT NULL THEN INSERT INTO orders (reservation_id, total_amount) VALUES (v_res, p_food); END IF;
+  RETURN v_res;
+END $$;
+
+-- 常用身分（角色／分店清單一律由 API 從 session 帶入，這裡模擬）
+CREATE FUNCTION t.b1() RETURNS uuid[] LANGUAGE sql AS $$ SELECT ARRAY['00000000-0000-0000-0000-0000000000b1'::uuid] $$;
+CREATE FUNCTION t.b2() RETURNS uuid[] LANGUAGE sql AS $$ SELECT ARRAY['00000000-0000-0000-0000-0000000000b2'::uuid] $$;
+
+CREATE FUNCTION t.refund(p_res uuid, p_amount integer, p_key text, p_method text DEFAULT 'transfer',
+                         p_role text DEFAULT 'owner', p_branches uuid[] DEFAULT NULL, p_kind text DEFAULT 'deposit',
+                         p_cap integer DEFAULT NULL)
+RETURNS jsonb LANGUAGE sql AS $$
+  SELECT request_reservation_refund(p_res, p_kind, p_amount, p_method, '客人取消', p_key, 'user-1', p_role, p_branches, p_cap)
+$$;
+-- 人工標記一律帶證據與說明（D7／A6-8）：依退款方式給一個格式正確的範例編號；現金則確認已交還（A6-3）。
+-- 缺證據、格式錯的情境另外直接呼叫 record_reservation_refund_status 測
+CREATE FUNCTION t.sample_ref(p_method text) RETURNS text LANGUAGE sql AS $$
+  SELECT CASE p_method WHEN 'transfer' THEN 'TX20261015001' WHEN 'line_pay' THEN '2026101500000000001'
+    WHEN 'card' THEN 'A1B2C3' WHEN 'other' THEN 'JKOPAY:20261015001' END
+$$;
+CREATE FUNCTION t.mark(p_refund jsonb, p_status text, p_role text DEFAULT 'owner', p_branches uuid[] DEFAULT NULL,
+                       p_note text DEFAULT '測試：已核對', p_evidence text DEFAULT '__sample__')
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE v_method text;
+BEGIN
+  SELECT method INTO v_method FROM reservation_refunds WHERE id = (p_refund->>'id')::uuid;
+  RETURN record_reservation_refund_status((p_refund->>'id')::uuid, p_status, NULL, p_note, 'user-1', p_role, p_branches,
+    CASE WHEN p_evidence = '__sample__' THEN t.sample_ref(v_method) ELSE p_evidence END,
+    v_method = 'cash' AND p_status = 'succeeded');
+END $$;
+CREATE FUNCTION t.settle(p_res uuid, p_before integer, p_refund integer DEFAULT 0, p_method text DEFAULT 'cash',
+                         p_role text DEFAULT 'owner', p_branches uuid[] DEFAULT NULL, p_discount integer DEFAULT 0)
+RETURNS reservation_settlements LANGUAGE sql AS $$
+  -- 現金有收錢時客人給的現金必填（A6-7）：這裡模擬剛好付清
+  SELECT * FROM settle_reservation_checkout(p_res, p_before, p_refund, p_method, p_before - p_discount, p_discount,
+    CASE WHEN p_discount > 0 THEN '熟客' END, 'user-1', p_role, p_branches,
+    CASE WHEN p_method = 'cash' AND p_before - p_discount > 0 THEN p_before - p_discount END)
+$$;
+
+-- 現金找零（Founder D6）：客人付的現金 p_tendered；找零由伺服器算
+CREATE FUNCTION t.settle_cash(p_res uuid, p_before integer, p_tendered integer, p_refund integer DEFAULT 0,
+                              p_method text DEFAULT 'cash', p_role text DEFAULT 'staff', p_branches uuid[] DEFAULT NULL,
+                              p_discount integer DEFAULT 0)
+RETURNS reservation_settlements LANGUAGE sql AS $$
+  SELECT * FROM settle_reservation_checkout(p_res, p_before, p_refund, p_method, p_before - p_discount, p_discount,
+    CASE WHEN p_discount > 0 THEN '熟客' END, 'user-1', p_role, COALESCE(p_branches, t.b1()), p_tendered)
+$$;
+
+-- ===========================================================================
+-- 原則 1：已退的訂金不能再折抵帳單（含重試、同時操作）
+-- ===========================================================================
+DO $$
+DECLARE r uuid; f jsonb; s reservation_settlements;
+BEGIN
+  -- 1a 訂金全額退款成功 → 結帳不再折抵
+  r := t.mk();
+  f := t.refund(r, NULL, 'p1a');
+  PERFORM t.ok((f->>'amount')::int = 200, 'P1a full deposit refund defaults to the refundable 200');
+  PERFORM t.mark(f, 'succeeded');
+  s := t.settle(r, 400);
+  PERFORM t.ok(s.deposit_credit = 0 AND s.amount_due = 400, 'P1a refunded deposit is not credited at checkout');
+  PERFORM t.ok((SELECT deposit_status FROM reservations WHERE id = r) = 'refunded', 'P1a full refund flips deposit_status to refunded');
+
+  -- 1b 結帳重試：第二次失敗，退款帳本不會多記
+  r := t.mk(p_total => 100);  -- 包廂費 100 − 訂金 50 → 收 50
+  s := t.settle(r, 50);
+  PERFORM t.raises(format('SELECT t.settle(%L, 50)', r), 'already_settled', 'P1b retried checkout is rejected');
+  PERFORM t.ok((SELECT count(*) FROM reservation_settlements WHERE reservation_id = r) = 1, 'P1b exactly one settlement');
+
+  -- 1c 結帳已折抵訂金 → 之後不能再退訂金
+  r := t.mk();
+  s := t.settle(r, 200);
+  PERFORM t.ok(s.deposit_credit = 200, 'P1c checkout credits the deposit');
+  PERFORM t.raises(format('SELECT t.refund(%L, NULL, %L)', r, 'p1c'), 'nothing_to_refund',
+    'P1c a deposit already credited at checkout cannot be refunded');
+
+  -- 1d 舊流程結帳（completed、沒有結帳紀錄）→ 訂金視為已折抵，不能退
+  r := t.mk(p_status => 'completed');
+  PERFORM t.raises(format('SELECT t.refund(%L, 50, %L)', r, 'p1d'), 'nothing_to_refund',
+    'P1d legacy-completed stay cannot refund its deposit');
+
+  -- 1e 舊資料 deposit_status = refunded（帳本沒有紀錄）→ 不折抵、也不能再退
+  r := t.mk(p_deposit_status => 'refunded');
+  PERFORM t.raises(format('SELECT t.refund(%L, 50, %L)', r, 'p1e'), 'nothing_to_refund',
+    'P1e legacy refunded deposit cannot be refunded again');
+  s := t.settle(r, 400);
+  PERFORM t.ok(s.deposit_credit = 0, 'P1e legacy refunded deposit is not credited');
+
+  -- 1f 結帳時退的差額（現金）不會再被當成可退訂金
+  r := t.mk();
+  -- 提早 90 分離開：包廂費 400 − 300 = 100，訂金 200 → 退 100
+  PERFORM extend_reservation_stay(r, '2026-10-14 16:00+08', '2026-10-14 14:30+08', 'user-1');
+  s := t.settle(r, 0, 100, 'cash');
+  PERFORM t.ok(s.refund_amount = 100 AND s.deposit_credit = 200, 'P1f early leave owes 100 back');
+  PERFORM t.raises(format('SELECT t.refund(%L, NULL, %L)', r, 'p1f'), 'nothing_to_refund',
+    'P1f after the deposit excess is refunded at checkout, nothing of the deposit remains refundable');
+  PERFORM t.raises(format('SELECT t.refund(%L, NULL, %L, %L, %L, NULL, %L)', r, 'p1f2', 'cash', 'owner', 'checkout_deposit_excess'),
+    'nothing_to_refund', 'P1f the checkout deposit-excess refund cannot be refunded twice');
+END $$;
+
+-- ===========================================================================
+-- 原則 2：只有老闆或本分店店長能退；SQL 自己再檢查一次
+-- ===========================================================================
+DO $$
+DECLARE r uuid; f jsonb;
+BEGIN
+  r := t.mk(p_status => 'cancelled');
+  PERFORM t.raises(format('SELECT t.refund(%L, 50, %L, %L, %L, %L)', r, 'p2-staff', 'transfer', 'staff', t.b1()),
+    'refund_not_allowed', 'P2 staff cannot refund');
+  PERFORM t.raises(format('SELECT t.refund(%L, 50, %L, %L, %L, %L)', r, 'p2-fin', 'transfer', 'finance', NULL),
+    'refund_not_allowed', 'P2 finance cannot refund');
+  PERFORM t.raises(format('SELECT t.refund(%L, 50, %L, %L, %L, NULL)', r, 'p2-null', 'transfer', NULL),
+    'refund_not_allowed', 'P2 missing role cannot refund');
+  PERFORM t.raises(format('SELECT t.refund(%L, 50, %L, %L, %L, %L)', r, 'p2-bm2', 'transfer', 'branch_manager', t.b2()),
+    'refund_not_allowed', 'P2 manager of another branch cannot refund');
+  PERFORM t.raises(format('SELECT t.refund(%L, 50, %L, %L, %L, NULL)', r, 'p2-bmall', 'transfer', 'branch_manager'),
+    'refund_not_allowed', 'P2 manager without a branch list is not treated as all branches');
+  PERFORM t.raises(format('SELECT t.refund(%L, 50, %L, %L, %L, %L)', r, 'p2-own2', 'transfer', 'owner', t.b2()),
+    'refund_not_allowed', 'P2 owner restricted to another branch cannot refund');
+  f := t.refund(r, 50, 'p2-bm1', 'transfer', 'branch_manager', t.b1());
+  PERFORM t.ok(f->>'status' = 'requested', 'P2 own-branch manager can request a refund');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L, %L, %L)', f, 'succeeded', 'staff', t.b1()),
+    'refund_not_allowed', 'P2 staff cannot confirm a refund');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L, %L, %L)', f, 'succeeded', 'branch_manager', t.b2()),
+    'refund_not_allowed', 'P2 other-branch manager cannot confirm a refund');
+  f := t.mark(f, 'succeeded', 'branch_manager', t.b1());
+  PERFORM t.ok(f->>'status' = 'succeeded', 'P2 own-branch manager can confirm a refund');
+  PERFORM t.ok(f->>'provider_ref' IS NULL, 'P2 manual refund has no provider reference');
+
+  -- 結帳時的退款與打折也一樣檢查分店
+  r := t.mk();
+  PERFORM extend_reservation_stay(r, '2026-10-14 16:00+08', '2026-10-14 14:30+08', 'user-1');
+  PERFORM t.raises(format('SELECT t.settle(%L, 0, 100, %L, %L, %L)', r, 'cash', 'branch_manager', t.b2()),
+    'refund_not_allowed', 'P2 checkout refund by another branch manager is rejected');
+  PERFORM t.raises(format('SELECT t.settle(%L, 0, 100, %L, %L, %L)', r, 'cash', 'staff', t.b1()),
+    'refund_not_allowed', 'P2 checkout refund by staff is rejected');
+  r := t.mk();
+  PERFORM t.raises(format('SELECT t.settle(%L, 200, 0, %L, %L, %L, 20)', r, 'cash', 'branch_manager', t.b2()),
+    'discount_not_allowed', 'P2 discount by another branch manager is rejected');
+END $$;
+
+-- anon／authenticated 什麼都碰不到；service_role 也不能改或刪帳本
+GRANT USAGE ON SCHEMA t TO PUBLIC;
+GRANT EXECUTE ON FUNCTION t.raises(text, text, text), t.ok(boolean, text) TO PUBLIC;
+SET ROLE anon;
+SELECT t.raises('SELECT count(*) FROM reservation_refunds', 'permission denied%', 'P2 anon cannot read the refund ledger');
+SELECT t.raises('SELECT count(*) FROM reservation_refund_current', 'permission denied%', 'P2 anon cannot read the refund view');
+SELECT t.raises($q$SELECT request_reservation_refund(gen_random_uuid(), 'deposit', 1, 'cash', 'x', 'k', 'a', 'owner', NULL)$q$,
+  'permission denied%', 'P2 anon cannot call request_reservation_refund');
+RESET ROLE;
+SET ROLE authenticated;
+SELECT t.raises($q$SELECT record_reservation_refund_status(gen_random_uuid(), 'succeeded', NULL, NULL, 'a', 'owner', NULL, NULL, false)$q$,
+  'permission denied%', 'P2 authenticated cannot call record_reservation_refund_status');
+RESET ROLE;
+
+-- ===========================================================================
+-- 原則 3：部分退款只扣實際退的金額
+-- ===========================================================================
+DO $$
+DECLARE r uuid; f jsonb; s reservation_settlements;
+BEGIN
+  r := t.mk();
+  f := t.refund(r, 80, 'p3-a');
+  PERFORM t.mark(f, 'succeeded');
+  PERFORM t.ok((SELECT deposit_status FROM reservations WHERE id = r) = 'paid', 'P3 partial refund keeps deposit_status paid');
+  PERFORM t.ok(reservation_billing_state(r) @> '{"deposit_gross": 200, "deposit_refunded": 80, "deposit_refund_in_flight": false}',
+    'P3 billing state shows only the 80 actually refunded');
+  PERFORM t.raises(format('SELECT t.refund(%L, 121, %L)', r, 'p3-b'), 'refund_exceeds_refundable',
+    'P3 cannot refund more than the 120 left');
+  f := t.refund(r, 20, 'p3-c');
+  PERFORM t.mark(f, 'succeeded');
+  s := t.settle(r, 300);
+  PERFORM t.ok(s.deposit_credit = 100, 'P3 checkout credits 200 − 80 − 20 = 100');
+  -- 實收金額上限（API 從 Stripe 讀到的那筆付款剩多少沒退）：可退 = min(帳本上限, 實收上限)
+  r := t.mk(p_status => 'cancelled');
+  f := t.refund(r, NULL, 'p3-cap', 'stripe', 'owner', NULL, 'deposit', 150);
+  PERFORM t.ok((f->>'amount')::int = 150, 'P3 refund is clamped to the captured amount still on the charge');
+  PERFORM t.raises(format('SELECT t.refund(%L, 10, %L, %L, %L, NULL, %L, 0)', r, 'p3-cap2', 'stripe', 'owner', 'deposit'),
+    'nothing_to_refund', 'P3 nothing refundable once the captured charge is used up');
+END $$;
+
+-- ===========================================================================
+-- 原則 4：失敗或處理中的退款不能當成已退
+-- ===========================================================================
+DO $$
+DECLARE r uuid; f jsonb; s reservation_settlements;
+BEGIN
+  -- 4a 處理中：不算已退、也不能拿訂金折抵 → 結帳擋下
+  r := t.mk();
+  f := t.refund(r, 200, 'p4-a');
+  PERFORM t.ok(reservation_deposit_refunded(r) = 0, 'P4a requested refund counts as 0 refunded');
+  PERFORM t.ok(reservation_billing_state(r) @> '{"deposit_refunded": 0, "deposit_refund_in_flight": true}',
+    'P4a billing state reports the refund as in flight, not refunded');
+  PERFORM t.raises(format('SELECT t.settle(%L, 200)', r), 'refund_in_flight', 'P4a checkout blocked while refund requested');
+  f := t.mark(f, 'pending');
+  PERFORM t.ok(reservation_deposit_refunded(r) = 0, 'P4a pending refund counts as 0 refunded');
+  PERFORM t.ok((SELECT deposit_status FROM reservations WHERE id = r) = 'paid', 'P4a pending refund leaves deposit_status paid');
+  PERFORM t.raises(format('SELECT t.settle(%L, 400)', r), 'refund_in_flight', 'P4a checkout blocked while refund pending');
+  -- 4b 失敗 → 訂金照常折抵
+  f := t.mark(f, 'failed');
+  s := t.settle(r, 200);
+  PERFORM t.ok(s.deposit_credit = 200, 'P4b failed refund leaves the full deposit creditable');
+
+  -- 4c 成功後金流商回報失敗 → 回到未退、deposit_status 改回 paid
+  r := t.mk();
+  f := t.refund(r, 200, 'p4-c');
+  PERFORM t.mark(f, 'succeeded');
+  PERFORM t.ok((SELECT deposit_status FROM reservations WHERE id = r) = 'refunded', 'P4c succeeded → refunded');
+  PERFORM t.mark(f, 'failed');
+  PERFORM t.ok((SELECT deposit_status FROM reservations WHERE id = r) = 'paid', 'P4c succeeded → failed reverts to paid');
+  PERFORM t.ok(reservation_deposit_refunded(r) = 0, 'P4c failed refund no longer counts');
+
+  -- 4d 結帳退訂金差額：一律先 pending（A6-3：現金也要交還並確認後才算完成）
+  r := t.mk();
+  PERFORM extend_reservation_stay(r, '2026-10-14 16:00+08', '2026-10-14 14:30+08', 'user-1');
+  s := t.settle(r, 0, 100, 'transfer');
+  PERFORM t.ok((SELECT status FROM reservation_refund_current WHERE settlement_id = s.id) = 'pending',
+    'P4d non-cash checkout deposit-excess refund starts pending');
+  r := t.mk();
+  PERFORM extend_reservation_stay(r, '2026-10-14 16:00+08', '2026-10-14 14:30+08', 'user-1');
+  s := t.settle(r, 0, 100, 'cash');
+  PERFORM t.ok((SELECT status FROM reservation_refund_current WHERE settlement_id = s.id) = 'pending',
+    'P4d cash checkout deposit-excess refund also starts pending (A6-3)');
+
+  -- 4f（審閱 P1-a）Stripe 結果不明的請求：店長／老闆不能取消，結帳一直擋著，直到金流商或對帳給出結果
+  r := t.mk();
+  f := t.refund(r, 200, 'p4-f', 'stripe');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L)', f, 'canceled'), 'provider_outcome_only',
+    'P4f owner cannot cancel a Stripe refund whose outcome is unknown');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L, %L, %L)', f, 'canceled', 'branch_manager', t.b1()), 'provider_outcome_only',
+    'P4f manager cannot cancel a Stripe refund whose outcome is unknown');
+  PERFORM t.raises(format('SELECT t.settle(%L, 200)', r), 'refund_in_flight', 'P4f checkout stays blocked until Stripe answers');
+  -- Stripe 回報成功 → 算已退，結帳不再折抵
+  PERFORM sync_provider_refund(r, (f->>'id')::uuid, 're_p4f', 200, 'succeeded');
+  s := t.settle(r, 400);
+  PERFORM t.ok(s.deposit_credit = 0, 'P4f a Stripe success after the uncertain window is never credited at checkout');
+  -- 對帳確認 Stripe 沒有這筆退款 → provider 取消；之後若金流商仍回報成功，照算已退並留警示
+  r := t.mk();
+  f := t.refund(r, 200, 'p4-f2', 'stripe');
+  PERFORM record_reservation_refund_status((f->>'id')::uuid, 'canceled', NULL, 'reconcile: no Stripe refund', 'reconcile', 'provider', NULL);
+  s := t.settle(r, 200);
+  PERFORM t.ok(s.deposit_credit = 200, 'P4f after reconcile confirms no refund, the deposit is credited');
+  f := sync_provider_refund(r, (f->>'id')::uuid, 're_p4f2', 200, 'succeeded');
+  PERFORM t.ok(f->>'status' = 'succeeded' AND (f->>'deposit_refunded')::int = 200, 'P4f a later provider success still counts');
+  PERFORM t.ok(EXISTS (SELECT 1 FROM reservation_refund_alerts WHERE reservation_id = r AND kind = 'provider_succeeded_after_cancel'
+    AND (detail->>'deposit_credit_at_checkout')::int = 200), 'P4f success-after-cancel raises a visible alert with the checkout credit');
+
+  -- 4e Stripe 退款的結果只能由金流商回報
+  r := t.mk(p_status => 'cancelled');
+  f := t.refund(r, 200, 'p4-e', 'stripe');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L)', f, 'succeeded'), 'provider_outcome_only',
+    'P4e owner cannot mark a Stripe refund succeeded');
+  f := sync_provider_refund(r, (f->>'id')::uuid, 're_1', 200, 'pending');
+  PERFORM t.ok(f->>'status' = 'pending' AND (f->>'deposit_refunded')::int = 0, 'P4e Stripe pending is not refunded');
+  f := sync_provider_refund(r, NULL, 're_1', 200, 'succeeded');
+  PERFORM t.ok(f->>'status' = 'succeeded' AND (f->>'deposit_refunded')::int = 200, 'P4e Stripe succeeded found by provider ref');
+END $$;
+
+-- ===========================================================================
+-- 原則 5：每筆退款都有持久紀錄，只能新增
+-- ===========================================================================
+DO $$
+DECLARE r uuid; f jsonb; f2 jsonb; row reservation_refund_current%ROWTYPE;
+BEGIN
+  r := t.mk(p_status => 'cancelled');
+  f := t.refund(r, 60, 'p5-key', 'transfer', 'branch_manager', t.b1());
+  SELECT * INTO row FROM reservation_refund_current WHERE id = (f->>'id')::uuid;
+  PERFORM t.ok(row.requested_by = 'user-1' AND row.requested_by_role = 'branch_manager' AND row.amount = 60
+    AND row.reason = '客人取消' AND row.status = 'requested' AND row.reservation_id = r AND row.created_at IS NOT NULL
+    AND row.branch_id = '00000000-0000-0000-0000-0000000000b1', 'P5 record has who, when, amount, reason, status, reservation');
+
+  f2 := t.refund(r, 60, 'p5-key', 'transfer', 'branch_manager', t.b1());
+  PERFORM t.ok(f2->>'id' = f->>'id', 'P5 same idempotency key returns the same refund');
+  f2 := t.refund(r, NULL, 'p5-key', 'transfer', 'branch_manager', t.b1());
+  PERFORM t.ok(f2->>'id' = f->>'id', 'P5 replay without amount returns the same refund');
+  PERFORM t.raises(format('SELECT t.refund(%L, 70, %L)', r, 'p5-key'), 'idempotency_conflict',
+    'P5 same key with a different amount is a conflict');
+  PERFORM t.ok((SELECT count(*) FROM reservation_refunds WHERE reservation_id = r) = 1, 'P5 replays did not add rows');
+
+  PERFORM t.mark(f, 'pending');
+  PERFORM t.mark(f, 'pending');  -- 重送同一狀態：不多記
+  PERFORM t.mark(f, 'succeeded');
+  PERFORM t.ok((SELECT array_agg(status ORDER BY seq) FROM reservation_refund_events WHERE refund_id = (f->>'id')::uuid)
+    = ARRAY['requested', 'pending', 'succeeded'], 'P5 history keeps every transition once');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L)', f, 'pending'), 'invalid_refund_transition',
+    'P5 succeeded cannot go back to pending');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L)', f, 'requested'), 'invalid_refund_transition',
+    'P5 cannot re-enter requested');
+
+  PERFORM t.raises(format('UPDATE reservation_refunds SET amount = 1 WHERE id = %L', f->>'id'),
+    'refund_ledger_append_only', 'P5 refunds cannot be updated');
+  PERFORM t.raises(format('DELETE FROM reservation_refunds WHERE id = %L', f->>'id'),
+    'refund_ledger_append_only', 'P5 refunds cannot be deleted');
+  PERFORM t.raises(format('UPDATE reservation_refund_events SET status = %L WHERE refund_id = %L', 'failed', f->>'id'),
+    'refund_ledger_append_only', 'P5 refund events cannot be updated');
+  PERFORM t.raises(format('DELETE FROM reservation_refund_events WHERE refund_id = %L', f->>'id'),
+    'refund_ledger_append_only', 'P5 refund events cannot be deleted');
+  PERFORM t.raises('TRUNCATE reservation_refund_events', 'refund_ledger_append_only', 'P5 refund events cannot be truncated');
+  PERFORM t.raises('TRUNCATE reservation_refunds CASCADE', 'refund_ledger_append_only', 'P5 refunds cannot be truncated');
+  PERFORM t.raises(format('DELETE FROM reservations WHERE id = %L', r), '%violates foreign key%',
+    'P5 a reservation with refunds cannot be deleted');
+
+  -- Stripe 後台直接退：webhook 補記一筆，重送不會重複
+  r := t.mk(p_status => 'cancelled');
+  f := sync_provider_refund(r, NULL, 're_ext', 150, 'succeeded');
+  f2 := sync_provider_refund(r, NULL, 're_ext', 150, 'succeeded');
+  PERFORM t.ok(f->>'id' = f2->>'id' AND (SELECT count(*) FROM reservation_refunds WHERE reservation_id = r) = 1,
+    'P5 provider refund recorded once');
+  PERFORM t.ok((SELECT requested_by_role FROM reservation_refunds WHERE id = (f->>'id')::uuid) = 'provider',
+    'P5 provider refund is marked as provider-originated');
+  PERFORM t.ok(NOT EXISTS (SELECT 1 FROM reservation_refund_alerts WHERE reservation_id = r), 'P5 an in-cap dashboard refund raises no alert');
+  -- 結帳已折抵訂金之後，才在 Stripe 後台退款 → 照實記，並留警示
+  r := t.mk();
+  PERFORM t.settle(r, 200);
+  f := sync_provider_refund(r, NULL, 're_late', 200, 'succeeded');
+  PERFORM t.ok(f->>'status' = 'succeeded', 'P5 a dashboard refund after checkout is still recorded');
+  PERFORM t.ok(EXISTS (SELECT 1 FROM reservation_refund_alerts WHERE reservation_id = r AND kind = 'provider_after_checkout_credit'),
+    'P5 a dashboard refund after checkout credit raises an alert');
+  r := t.mk(p_status => 'cancelled');
+  PERFORM sync_provider_refund(r, NULL, 're_big', 500, 'succeeded');
+  PERFORM t.ok(EXISTS (SELECT 1 FROM reservation_refund_alerts WHERE reservation_id = r AND kind = 'provider_over_cap'),
+    'P5 a dashboard refund above the cap raises an alert');
+  PERFORM t.raises('UPDATE reservation_refund_alerts SET kind = kind', 'refund_ledger_append_only', 'P5 alerts cannot be edited');
+  INSERT INTO reservation_refund_alerts (reservation_id, kind, detail)
+  VALUES (r, 'provider_reservation_mismatch', '{"provider_ref": "re_x"}');
+  PERFORM t.ok(EXISTS (SELECT 1 FROM reservation_refund_alerts WHERE reservation_id = r AND kind = 'provider_reservation_mismatch'),
+    'P5 a provider/reservation mismatch alert can be recorded');
+  PERFORM t.raises(format('SELECT sync_provider_refund(%L, NULL, %L, 150, %L)', t.mk(), 're_ext', 'succeeded'),
+    'refund_reservation_mismatch', 'P5 provider ref cannot be re-attached to another reservation');
+END $$;
+
+-- ===========================================================================
+-- D6（Founder 2026-10-15）：一般員工可處理現金結帳的正常找零並留紀錄；退款不可包成找零
+-- ===========================================================================
+DO $$
+DECLARE r uuid; s reservation_settlements;
+BEGIN
+  -- D6a 一般員工現金結帳：應收 200（400 − 訂金 200），客人給 500 → 找 300，留下金額、誰、何時
+  r := t.mk();
+  s := t.settle_cash(r, 200, 500);
+  PERFORM t.ok(s.amount_collected = 200 AND s.cash_tendered = 500 AND s.change_given = 300,
+    'D6a staff cash checkout records tendered 500, collected 200, change 300');
+  PERFORM t.ok(s.change_given_by = 'user-1' AND s.change_given_by_role = 'staff' AND s.change_given_at IS NOT NULL,
+    'D6a change records actor, role and time');
+  PERFORM t.ok(NOT EXISTS (SELECT 1 FROM reservation_refunds WHERE reservation_id = r), 'D6a change writes no refund ledger row');
+
+  -- D6b 剛好付清：找零 0 也照記
+  r := t.mk();
+  s := t.settle_cash(r, 200, 200);
+  PERFORM t.ok(s.change_given = 0, 'D6b exact cash records change 0');
+
+  -- D6c 付的現金比要收的少 → 擋下
+  r := t.mk();
+  PERFORM t.raises(format('SELECT t.settle_cash(%L, 200, 150)', r), 'cash_tendered_short', 'D6c tendered below the bill is rejected');
+
+  -- D6d 現金以外的方式不能有找零
+  r := t.mk();
+  PERFORM t.raises(format('SELECT t.settle_cash(%L, 200, 500, 0, %L)', r, 'card'), 'change_cash_only',
+    'D6d change on a card checkout is rejected');
+  PERFORM t.raises(format('SELECT t.settle_cash(%L, 200, 500, 0, %L)', r, 'transfer'), 'change_cash_only',
+    'D6d change on a transfer checkout is rejected');
+
+  -- D6e 訂金比帳單多（提早離開要退 100）：不能用找零的名義退，不論角色；也沒有留下任何紀錄
+  r := t.mk();
+  PERFORM extend_reservation_stay(r, '2026-10-14 16:00+08', '2026-10-14 14:30+08', 'user-1');
+  PERFORM t.raises(format('SELECT t.settle_cash(%L, 0, 100, 100)', r), 'change_not_refund',
+    'D6e staff cannot hand back the deposit excess as change');
+  PERFORM t.raises(format('SELECT t.settle_cash(%L, 0, 100, 100, %L, %L)', r, 'cash', 'owner'), 'change_not_refund',
+    'D6e even the owner cannot record a deposit refund as change');
+  PERFORM t.raises(format('SELECT t.settle_cash(%L, 0, NULL, 100)', r), 'refund_not_allowed',
+    'D6e staff still cannot refund the deposit excess without change');
+  PERFORM t.raises(format('SELECT t.settle_cash(%L, 0, 100, 0)', r), 'amount_changed',
+    'D6e hiding the refund (expected_refund 0) is caught by the server recompute');
+  PERFORM t.ok(NOT EXISTS (SELECT 1 FROM reservation_settlements WHERE reservation_id = r)
+    AND NOT EXISTS (SELECT 1 FROM reservation_refunds WHERE reservation_id = r), 'D6e rejected attempts leave no rows');
+
+  -- D6f 沒有要收的錢（訂金剛好抵掉）：給現金「找零」= 把錢送出去 → 擋下
+  r := t.mk();
+  PERFORM extend_reservation_stay(r, '2026-10-14 16:00+08', '2026-10-14 15:00+08', 'user-1');
+  PERFORM t.raises(format('SELECT t.settle_cash(%L, 0, 100)', r), 'change_not_refund', 'D6f change with nothing collected is rejected');
+
+  -- D6g 一般員工不能用找零夾帶折扣
+  r := t.mk();
+  PERFORM t.raises(format('SELECT t.settle_cash(%L, 200, 200, 0, %L, %L, NULL, 50)', r, 'cash', 'staff'), 'discount_not_allowed',
+    'D6g staff cannot add a discount alongside change');
+  -- 店長打折後找零：找零照折扣後的金額算
+  s := t.settle_cash(r, 200, 200, 0, 'cash', 'branch_manager', t.b1(), 50);
+  PERFORM t.ok(s.amount_collected = 150 AND s.change_given = 50, 'D6g manager discount then change is computed on the discounted amount');
+
+  -- D6h 已結束的組補收餐費（food_only）也能現金找零
+  r := t.mk(p_status => 'completed', p_food => 120);
+  s := t.settle_cash(r, 120, 200);
+  PERFORM t.ok(s.kind = 'food_only' AND s.change_given = 80, 'D6h food-only cash settle records change 80');
+
+  -- D6i 資料表本身也擋：直接寫入不合規則的找零會被 CHECK 擋下
+  r := t.mk(p_status => 'cancelled');
+  PERFORM t.raises(format($q$INSERT INTO reservation_settlements (reservation_id, kind, room_fee, food_total, deposit_credit,
+      amount_before_discount, amount_due, amount_collected, payment_method, cash_tendered, change_given, change_given_at)
+    VALUES (%L, 'food_only', 0, 100, 0, 100, 100, 100, 'card', 500, 400, now())$q$, r), '%check constraint%',
+    'D6i table rejects change on a non-cash settlement');
+  PERFORM t.raises(format($q$INSERT INTO reservation_settlements (reservation_id, kind, room_fee, food_total, deposit_credit,
+      amount_before_discount, amount_due, amount_collected, payment_method, cash_tendered, change_given, change_given_at)
+    VALUES (%L, 'food_only', 0, 100, 0, 100, 100, 100, 'cash', 500, 450, now())$q$, r), '%check constraint%',
+    'D6i table rejects change larger than tendered minus collected');
+  PERFORM t.raises(format($q$INSERT INTO reservation_settlements (reservation_id, kind, room_fee, food_total, deposit_credit,
+      amount_before_discount, amount_due, amount_collected, payment_method, cash_tendered, change_given, change_given_at)
+    VALUES (%L, 'food_only', 0, 100, 0, 100, 100, 100, 'cash', 500, 400, now())$q$, r), '%check constraint%',
+    'D6i table rejects change > 0 with no change-giver recorded');
+  PERFORM t.raises(format($q$INSERT INTO reservation_settlements (reservation_id, kind, room_fee, food_total, deposit_credit,
+      amount_before_discount, amount_due, amount_collected, payment_method, cash_tendered, change_given, change_given_by,
+      change_given_by_role, change_given_at)
+    VALUES (%L, 'food_only', 0, 100, 0, 100, 100, 100, 'cash', 500, 400, '  ', 'staff', now())$q$, r), '%check constraint%',
+    'D6i table rejects change > 0 with a blank change-giver');
+  PERFORM t.raises(format($q$INSERT INTO reservation_settlements (reservation_id, kind, room_fee, food_total, deposit_credit,
+      amount_before_discount, amount_due, amount_collected, payment_method, cash_tendered, change_given, change_given_by,
+      change_given_by_role, change_given_at)
+    VALUES (%L, 'food_only', 0, 100, 0, 100, 100, 100, 'cash', 100001, 100001 - 100, 'u', 'staff', now())$q$, r), '%check constraint%',
+    'D6i table rejects a tendered amount above 100000');
+
+  -- D6k 現金、有要收的錢：客人給的現金必填（A6-7）；0 元與純退款不需要
+  r := t.mk();
+  PERFORM t.raises(format($q$SELECT settle_reservation_checkout(%L, 200, 0, 'cash', 200, 0, NULL, 'u', 'staff', %L, NULL)$q$, r, t.b1()),
+    'cash_tendered_required', 'D6k cash checkout with money due requires the tendered amount');
+  s := settle_reservation_checkout(r, 200, 0, 'card', 200, 0, NULL, 'u', 'staff', t.b1(), NULL);
+  PERFORM t.ok(s.cash_tendered IS NULL, 'D6k card checkout needs no tendered amount');
+  r := t.mk();
+  PERFORM extend_reservation_stay(r, '2026-10-14 16:00+08', '2026-10-14 15:00+08', 'user-1');
+  s := settle_reservation_checkout(r, 0, 0, 'cash', 0, 0, NULL, 'u', 'staff', t.b1(), NULL);
+  PERFORM t.ok(s.payment_method = 'none' AND s.cash_tendered IS NULL, 'D6k zero-amount checkout needs no tendered amount');
+  r := t.mk();
+  PERFORM extend_reservation_stay(r, '2026-10-14 16:00+08', '2026-10-14 14:30+08', 'user-1');
+  s := t.settle(r, 0, 100, 'cash');
+  PERFORM t.ok(s.refund_amount = 100 AND s.cash_tendered IS NULL AND s.change_given IS NULL,
+    'D6k pure deposit refund in cash needs no tendered amount and records no change');
+  r := t.mk(p_status => 'cancelled');
+  PERFORM t.raises(format($q$INSERT INTO reservation_settlements (reservation_id, kind, room_fee, food_total, deposit_credit,
+      amount_before_discount, amount_due, amount_collected, payment_method)
+    VALUES (%L, 'food_only', 0, 100, 0, 100, 100, 100, 'cash')$q$, r), '%check constraint%',
+    'D6k table rejects a cash settlement that collected money without a tendered amount');
+
+  -- D6j 函式也擋：超過上限、沒有操作者
+  r := t.mk();
+  PERFORM t.raises(format('SELECT t.settle_cash(%L, 200, 100001)', r), 'invalid_cash_tendered', 'D6j tendered above 100000 is rejected');
+  PERFORM t.raises(format($q$SELECT settle_reservation_checkout(%L, 200, 0, 'cash', 200, 0, NULL, NULL, 'staff', %L, 500)$q$, r, t.b1()),
+    'change_actor_required', 'D6j change without an actor is rejected');
+  PERFORM t.raises(format($q$SELECT settle_reservation_checkout(%L, 200, 0, 'cash', 200, 0, NULL, 'u', ' ', %L, 500)$q$, r, t.b1()),
+    'change_actor_required', 'D6j change without a role is rejected');
+END $$;
+
+-- ===========================================================================
+-- D7（Founder 2026-10-15）：人工退款要有實際證據才能標成功；解除「退款處理中」只能走可追查的
+-- 完成／失敗／取消，不能繞過檢查
+-- ===========================================================================
+DO $$
+DECLARE r uuid; f jsonb; s reservation_settlements; ev reservation_refund_events;
+BEGIN
+  -- D7a 轉帳退款：沒有轉帳序號、或沒有說明 → 不能標成功；退款仍在處理中、結帳仍被擋
+  r := t.mk();
+  f := t.refund(r, 100, 'd7a', 'transfer');
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'succeeded', NULL, '已轉', 'user-1', 'owner', NULL, NULL)$q$, f->>'id'),
+    'refund_evidence_required', 'D7a transfer refund cannot succeed without a transfer reference');
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'succeeded', NULL, NULL, 'user-1', 'owner', NULL, 'TX-9')$q$, f->>'id'),
+    'refund_evidence_required', 'D7a transfer refund cannot succeed without a note');
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'succeeded', NULL, '已轉', 'user-1', 'owner', NULL, '   ')$q$, f->>'id'),
+    'refund_evidence_required', 'D7a a blank reference is not evidence');
+  PERFORM t.ok(reservation_refund_in_flight(r, 'deposit'), 'D7a without evidence the refund stays in flight');
+  PERFORM t.raises(format('SELECT t.settle(%L, 300)', r), 'refund_in_flight', 'D7a checkout stays blocked while the refund is unproven');
+
+  -- D7b 有證據 → 成功；事件列記下證據、說明、誰；結帳解除封鎖且只折抵剩下的訂金
+  f := t.mark(f, 'succeeded', 'branch_manager', t.b1(), '已轉帳，客人確認收到', 'TX-20261015-001');
+  SELECT * INTO ev FROM reservation_refund_events WHERE refund_id = (f->>'id')::uuid ORDER BY seq DESC LIMIT 1;
+  PERFORM t.ok(ev.status = 'succeeded' AND ev.evidence_ref = 'TX-20261015-001' AND ev.note = '已轉帳，客人確認收到'
+    AND ev.actor_role = 'branch_manager', 'D7b success event keeps the reference, note and actor');
+  PERFORM t.ok((SELECT evidence_ref FROM reservation_refund_current WHERE id = (f->>'id')::uuid) = 'TX-20261015-001',
+    'D7b the current-status view shows the evidence');
+  s := t.settle(r, 300);
+  PERFORM t.ok(s.deposit_credit = 100, 'D7b after a proven partial refund checkout credits only the remaining 100');
+
+  -- D7c 現金退訂金：要寫說明，並確認現金已交還（A6-3），不需要轉帳序號
+  r := t.mk(p_status => 'cancelled');
+  f := t.refund(r, 80, 'd7c', 'cash');
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'succeeded', NULL, NULL, 'user-1', 'owner', NULL, NULL)$q$, f->>'id'),
+    'refund_evidence_required', 'D7c cash refund needs a note to succeed');
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'succeeded', NULL, '店長當面交給客人', 'user-1', 'owner', NULL, NULL, false)$q$, f->>'id'),
+    'cash_handback_required', 'D7c cash refund is not complete until the operator confirms the cash was handed back');
+  f := t.mark(f, 'succeeded', 'owner', NULL, '店長當面交給客人', NULL);
+  PERFORM t.ok(f->>'status' = 'succeeded', 'D7c cash refund succeeds with a note and the hand-back confirmation');
+
+  -- D7d 標失敗、取消都要寫原因；寫了之後解除處理中（可追查的結束）
+  r := t.mk();
+  f := t.refund(r, 50, 'd7d', 'line_pay');
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'failed', NULL, NULL, 'user-1', 'owner', NULL, NULL)$q$, f->>'id'),
+    'refund_reason_required', 'D7d failing a refund needs a reason');
+  f := t.mark(f, 'failed', 'owner', NULL, 'LINE Pay 退款被拒', NULL);
+  PERFORM t.ok(NOT reservation_refund_in_flight(r, 'deposit'), 'D7d a failed refund clears the in-flight block');
+  PERFORM t.ok(reservation_deposit_refunded(r) = 0, 'D7d a failed refund is not counted as refunded');
+  f := t.refund(r, 50, 'd7d2', 'transfer');
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'canceled', NULL, '  ', 'user-1', 'owner', NULL, NULL)$q$, f->>'id'),
+    'refund_reason_required', 'D7d canceling a refund needs a reason');
+  f := t.mark(f, 'canceled', 'owner', NULL, '客人改要留抵', NULL);
+  PERFORM t.ok(NOT reservation_refund_in_flight(r, 'deposit'), 'D7d a canceled refund clears the in-flight block');
+  PERFORM t.ok((SELECT count(*) FROM reservation_refund_events WHERE refund_id = (f->>'id')::uuid) = 2,
+    'D7d the cancel is one more append-only event (requested → canceled)');
+
+  -- D7e pending（例如已送出轉帳、等銀行）不需要證據，但仍算處理中
+  r := t.mk();
+  f := t.refund(r, 60, 'd7e', 'transfer');
+  PERFORM record_reservation_refund_status((f->>'id')::uuid, 'pending', NULL, NULL, 'user-1', 'owner', NULL, NULL);
+  PERFORM t.ok(reservation_refund_in_flight(r, 'deposit'), 'D7e pending still blocks checkout');
+
+  -- D7f 人工不能填金流商編號（Stripe 的結果只能由 Stripe 回報）
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'succeeded', 're_fake', '已退', 'user-1', 'owner', NULL, 'TX')$q$, f->>'id'),
+    'provider_outcome_only', 'D7f staff cannot write a provider refund id');
+
+  -- D7g Stripe 退款：老闆／店長不能標成功、失敗或取消（只能由 Stripe 回報或對帳）
+  r := t.mk(p_status => 'cancelled');
+  f := t.refund(r, NULL, 'd7g', 'stripe');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L)', f, 'succeeded'), 'provider_outcome_only', 'D7g owner cannot confirm a Stripe refund');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L)', f, 'canceled'), 'provider_outcome_only', 'D7g owner cannot cancel a Stripe refund');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L)', f, 'failed'), 'provider_outcome_only', 'D7g owner cannot fail a Stripe refund');
+  PERFORM record_reservation_refund_status((f->>'id')::uuid, 'canceled', NULL, 'reconcile: Stripe 沒有這筆退款', 'reconcile', 'provider', NULL);
+  PERFORM t.ok(NOT reservation_refund_in_flight(r, 'deposit'), 'D7g reconcile (provider) may cancel when Stripe has no refund');
+
+  -- D7h 權限：一般員工、其他分店店長、沒有分店清單的店長都不能標任何結果
+  r := t.mk();
+  f := t.refund(r, 40, 'd7h', 'transfer');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L, %L, %L)', f, 'succeeded', 'staff', t.b1()), 'refund_not_allowed', 'D7h staff cannot confirm');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L, %L, %L)', f, 'failed', 'staff', t.b1()), 'refund_not_allowed', 'D7h staff cannot fail');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L, %L, %L)', f, 'canceled', 'branch_manager', t.b2()), 'refund_not_allowed',
+    'D7h another branch manager cannot cancel');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L, %L, NULL)', f, 'succeeded', 'branch_manager'), 'refund_not_allowed',
+    'D7h a manager with no branch list cannot confirm');
+  PERFORM t.raises(format('SELECT t.mark(%L::jsonb, %L, %L, NULL)', f, 'succeeded', 'finance'), 'refund_not_allowed', 'D7h finance cannot confirm');
+
+  -- D7i 結帳時用轉帳退訂金差額 → pending；確認也要證據
+  r := t.mk();
+  PERFORM extend_reservation_stay(r, '2026-10-14 16:00+08', '2026-10-14 14:30+08', 'user-1');
+  s := t.settle(r, 0, 100, 'transfer');
+  SELECT to_jsonb(c) INTO f FROM reservation_refund_current c WHERE c.settlement_id = s.id;
+  PERFORM t.ok(f->>'status' = 'pending' AND f->>'kind' = 'checkout_deposit_excess', 'D7i transfer deposit-excess refund starts pending');
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'succeeded', NULL, '已轉', 'user-1', 'owner', NULL, NULL)$q$, f->>'id'),
+    'refund_evidence_required', 'D7i deposit-excess transfer needs a reference too');
+  f := t.mark(f, 'succeeded');
+  PERFORM t.ok(f->>'status' = 'succeeded', 'D7i deposit-excess transfer succeeds with evidence');
+  -- 現金退差額（A6-3）：結帳時先記 pending，交還現金並確認後才算完成
+  r := t.mk();
+  PERFORM extend_reservation_stay(r, '2026-10-14 16:00+08', '2026-10-14 14:30+08', 'user-1');
+  s := t.settle(r, 0, 100, 'cash');
+  SELECT to_jsonb(c) INTO f FROM reservation_refund_current c WHERE c.settlement_id = s.id;
+  PERFORM t.ok(f->>'status' = 'pending' AND f->>'status_note' LIKE '結帳時應以現金交還客人%',
+    'D7i cash deposit-excess refund at checkout stays pending with a hand-back note');
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'succeeded', NULL, '已交還', 'user-1', 'owner', NULL, NULL, false)$q$, f->>'id'),
+    'cash_handback_required', 'D7i the cash deposit-excess refund needs the hand-back confirmation');
+  f := t.mark(f, 'succeeded', 'owner', NULL, '店長當面交還 100', NULL);
+  PERFORM t.ok(f->>'status' = 'succeeded' AND (SELECT cash_handed_back FROM reservation_refund_events
+    WHERE refund_id = (f->>'id')::uuid ORDER BY seq DESC LIMIT 1), 'D7i confirmed hand-back is recorded on the event');
+
+  -- D7j 事件表本身也擋：人工的成功／失敗／取消沒有說明就寫不進去
+  r := t.mk();
+  f := t.refund(r, 30, 'd7j', 'transfer');
+  PERFORM t.raises(format($q$INSERT INTO reservation_refund_events (refund_id, status, actor, actor_role) VALUES (%L, 'succeeded', 'x', 'owner')$q$, f->>'id'),
+    '%check constraint%', 'D7j table rejects a manual success event without a note');
+  -- 審閱 P2：用 service key 直接寫事件也繞不過證據
+  PERFORM t.raises(format($q$INSERT INTO reservation_refund_events (refund_id, status, note, actor, actor_role)
+      VALUES (%L, 'succeeded', '已轉', 'x', 'owner')$q$, f->>'id'),
+    '%check constraint%', 'D7j table rejects a manual non-cash success without a reference');
+  PERFORM t.raises(format($q$INSERT INTO reservation_refund_events (refund_id, status, note, evidence_ref, actor, actor_role)
+      VALUES (%L, 'succeeded', '已轉', '  ', 'x', 'owner')$q$, f->>'id'),
+    '%check constraint%', 'D7j table rejects a blank reference');
+  PERFORM t.raises(format($q$INSERT INTO reservation_refund_events (refund_id, status, note, refund_method, actor, actor_role)
+      VALUES (%L, 'succeeded', '已轉', 'cash', 'x', 'owner')$q$, f->>'id'),
+    '%check constraint%', 'D7j a spoofed refund_method is overwritten from the refund row');
+  PERFORM t.raises(format($q$INSERT INTO reservation_refund_events (refund_id, status, note, evidence_ref, actor, actor_role)
+      VALUES (%L, 'failed', '原因', NULL, 'x', NULL)$q$, f->>'id'),
+    '%check constraint%', 'D7j table rejects a manual transition with no role');
+  PERFORM t.raises(format($q$INSERT INTO reservation_refund_events (refund_id, status, note, actor, actor_role)
+      VALUES (%L, 'canceled', '原因', 'x', '  ')$q$, f->>'id'),
+    '%check constraint%', 'D7j table rejects a manual transition with a blank role');
+  PERFORM t.raises(format($q$INSERT INTO reservation_refund_events (refund_id, status, actor, actor_role)
+      VALUES (%L, 'succeeded', 'x', 'provider')$q$, f->>'id'),
+    '%check constraint%', 'D7j table rejects posing as the provider on a manual refund');
+  PERFORM t.raises(format($q$INSERT INTO reservation_refund_events (refund_id, status, note, evidence_ref, actor, actor_role)
+      VALUES (%L, 'succeeded', '已轉', 'TX-77', 'x', 'owner')$q$, f->>'id'),
+    '%check constraint%', 'D7j table rejects a malformed transfer reference (A6-8)');
+  PERFORM t.raises(format($q$INSERT INTO reservation_refund_events (refund_id, status, note, evidence_ref, actor, actor_role, cash_handed_back)
+      VALUES (%L, 'succeeded', '已轉', 'TX20261015077', 'x', 'owner', true)$q$, f->>'id'),
+    '%check constraint%', 'D7j table rejects a cash hand-back flag on a non-cash refund');
+  INSERT INTO reservation_refund_events (refund_id, status, note, evidence_ref, actor, actor_role)
+    VALUES ((f->>'id')::uuid, 'succeeded', '已轉', 'TX20261015077', 'x', 'owner');
+  PERFORM t.ok((SELECT refund_method FROM reservation_refund_events WHERE refund_id = (f->>'id')::uuid ORDER BY seq DESC LIMIT 1) = 'transfer',
+    'D7j a complete manual success with a reference is accepted and carries the refund method');
+  r := t.mk(p_status => 'cancelled');
+  f := t.refund(r, NULL, 'd7j-stripe', 'stripe');
+  PERFORM t.raises(format($q$INSERT INTO reservation_refund_events (refund_id, status, note, evidence_ref, actor, actor_role)
+      VALUES (%L, 'canceled', '原因', NULL, 'x', 'owner')$q$, f->>'id'),
+    '%check constraint%', 'D7j table rejects a non-provider outcome on a Stripe refund');
+END $$;
+
+-- ===========================================================================
+-- Founder A6（2026-10-15）退款政策 B2
+-- ===========================================================================
+DO $$
+DECLARE r uuid; f jsonb; g jsonb; s reservation_settlements; a uuid; a2 uuid; k jsonb;
+BEGIN
+  -- A6-8 證據編號格式：任意文字不算證據
+  PERFORM t.ok(refund_reference_valid('transfer', 'TX20261015001') AND refund_reference_valid('transfer', '123456')
+    AND refund_reference_valid('transfer', '0012-3456-7890'), 'A6-8 transfer references with >= 6 digits pass');
+  PERFORM t.ok(NOT refund_reference_valid('transfer', 'TX-77') AND NOT refund_reference_valid('transfer', '已轉帳')
+    AND NOT refund_reference_valid('transfer', 'abcdefgh') AND NOT refund_reference_valid('transfer', NULL)
+    AND NOT refund_reference_valid('transfer', 'TX 2026101500'), 'A6-8 free text, short or spaced transfer references fail');
+  PERFORM t.ok(refund_reference_valid('line_pay', '2026101500000000001') AND NOT refund_reference_valid('line_pay', '202610150000000001')
+    AND NOT refund_reference_valid('line_pay', '20261015000000000012'), 'A6-8 LINE Pay transactionId must be exactly 19 digits');
+  PERFORM t.ok(refund_reference_valid('card', 'A1B2C3') AND refund_reference_valid('card', '123456789012')
+    AND NOT refund_reference_valid('card', 'A1B2C') AND NOT refund_reference_valid('card', '12345678901'),
+    'A6-8 card: 6-char approval code or 12-digit RRN');
+  PERFORM t.ok(refund_reference_valid('other', 'JKOPAY:20261015001') AND NOT refund_reference_valid('other', '街口退款'),
+    'A6-8 other needs a CHANNEL:id reference');
+  PERFORM t.ok(NOT refund_reference_valid('cash', 'anything') AND NOT refund_reference_valid('stripe', 're_123456789'),
+    'A6-8 cash and stripe have no manual reference');
+  r := t.mk(p_status => 'cancelled');
+  f := t.refund(r, 50, 'a6-8', 'line_pay');
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'succeeded', NULL, '已退', 'user-1', 'owner', NULL, '12345')$q$, f->>'id'),
+    'invalid_refund_reference', 'A6-8 a malformed LINE Pay reference is not evidence');
+  PERFORM t.ok(reservation_refund_in_flight(r, 'deposit'), 'A6-8 the refund stays in flight');
+
+  -- A6-9 已退 → 失敗：要有退回的實際證據（格式正確的編號＋原因）
+  f := t.mark(f, 'succeeded');
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'failed', NULL, '客人說沒收到', 'user-1', 'owner', NULL, NULL)$q$, f->>'id'),
+    'refund_failure_evidence_required', 'A6-9 succeeded → failed without a reference is refused');
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'failed', NULL, '客人說沒收到', 'user-1', 'owner', NULL, '沒收到')$q$, f->>'id'),
+    'refund_failure_evidence_required', 'A6-9 succeeded → failed with free text is refused');
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'failed', NULL, NULL, 'user-1', 'owner', NULL, '2026101500000000009')$q$, f->>'id'),
+    'refund_reason_required', 'A6-9 succeeded → failed needs a reason');
+  f := record_reservation_refund_status((f->>'id')::uuid, 'failed', NULL, 'LINE Pay 退款被退回', 'user-1', 'owner', NULL, '2026101500000000009');
+  PERFORM t.ok(f->>'status' = 'failed' AND reservation_deposit_refunded(r) = 0, 'A6-9 succeeded → failed with evidence restores the deposit');
+  PERFORM t.raises(format($q$INSERT INTO reservation_refund_events (refund_id, status, note, actor, actor_role)
+      VALUES (%L, 'succeeded', '再退一次', 'x', 'owner')$q$, f->>'id'),
+    '%check constraint%', 'A6-9 the table refuses transitions the ledger does not allow (failed → succeeded)');
+  r := t.mk(p_status => 'cancelled');
+  f := t.refund(r, 40, 'a6-9c', 'cash');
+  f := t.mark(f, 'succeeded', 'owner', NULL, '當面交還', NULL);
+  PERFORM t.raises(format($q$SELECT record_reservation_refund_status(%L, 'failed', NULL, '弄錯了', 'user-1', 'owner', NULL, 'TX20261015001')$q$, f->>'id'),
+    'invalid_refund_transition', 'A6-9 a handed-back cash refund cannot be turned into failed');
+
+  -- A6-9 取消退款申請不會讓欠客人的訂金差額消失
+  r := t.mk();
+  PERFORM extend_reservation_stay(r, '2026-10-14 16:00+08', '2026-10-14 14:30+08', 'user-1');
+  s := t.settle(r, 0, 100, 'transfer');
+  SELECT to_jsonb(c) INTO f FROM reservation_refund_current c WHERE c.settlement_id = s.id;
+  f := t.mark(f, 'canceled', 'owner', NULL, '客人帳號錯，改天再退', NULL);
+  PERFORM t.ok((SELECT unrequested = 100 AND refunded = 0 FROM reservation_refund_obligations WHERE settlement_id = s.id),
+    'A6-9 after cancel the 100 owed is still on the to-do list as unrequested');
+  g := t.refund(r, NULL, 'a6-9-redo', 'transfer', 'owner', NULL, 'checkout_deposit_excess');
+  PERFORM t.ok((g->>'amount')::int = 100 AND (SELECT in_flight = 100 AND unrequested = 0 FROM reservation_refund_obligations
+    WHERE settlement_id = s.id), 'A6-9 a follow-up refund request takes over the open obligation');
+  PERFORM t.mark(g, 'succeeded');
+  PERFORM t.ok(NOT EXISTS (SELECT 1 FROM reservation_refund_obligations WHERE settlement_id = s.id),
+    'A6-9 the obligation closes only when a refund actually succeeds');
+
+  -- A6-4 每一個警示都要有人認領
+  r := t.mk(p_status => 'cancelled');
+  PERFORM sync_provider_refund(r, NULL, 're_a64', 500, 'succeeded');
+  SELECT id INTO a FROM reservation_refund_alerts WHERE reservation_id = r AND kind = 'provider_over_cap';
+  PERFORM t.ok((SELECT acknowledged_at IS NULL FROM reservation_refund_alerts_with_ack WHERE id = a), 'A6-4 a new alert is unacknowledged');
+  PERFORM t.raises(format('SELECT acknowledge_refund_alert(%L, %L, %L, %L, %L)', a, '我處理', 's-1', 'staff', t.b1()),
+    'refund_not_allowed', 'A6-4 staff cannot take an alert');
+  PERFORM t.raises(format('SELECT acknowledge_refund_alert(%L, %L, %L, %L, %L)', a, '我處理', 'm-2', 'branch_manager', t.b2()),
+    'refund_not_allowed', 'A6-4 another branch manager cannot take an alert');
+  PERFORM t.raises(format('SELECT acknowledge_refund_alert(%L, %L, %L, %L, %L)', a, 'finance 看看', 'f-1', 'finance', NULL),
+    'refund_not_allowed', 'A6-4 finance (read-only) cannot take an alert');
+  PERFORM t.raises(format('SELECT acknowledge_refund_alert(%L, NULL, %L, %L, %L)', a, 'm-1', 'branch_manager', t.b1()),
+    'alert_note_required', 'A6-4 taking an alert needs a note');
+  k := acknowledge_refund_alert(a, '已向 Stripe 確認，聯絡客人補收', 'm-1', 'branch_manager', t.b1());
+  PERFORM t.ok(k->>'acknowledged_by' = 'm-1' AND (SELECT acknowledged_by_role = 'branch_manager'
+    FROM reservation_refund_alerts_with_ack WHERE id = a), 'A6-4 the branch manager owns the alert');
+  PERFORM t.ok((acknowledge_refund_alert(a, '再按一次', 'own-1', 'owner', NULL))->>'acknowledged_by' = 'm-1',
+    'A6-4 acknowledging twice keeps the first owner');
+  PERFORM t.raises(format('UPDATE reservation_refund_alert_acks SET note = note WHERE alert_id = %L', a), 'refund_ledger_append_only',
+    'A6-4 acknowledgements are append-only');
+
+  -- A6-6 Stripe 結果不明：留在處理中（不取消、不解鎖），開一個警示；重按不重複
+  r := t.mk();
+  f := t.refund(r, 200, 'a6-6', 'stripe');
+  a := raise_refund_alert((f->>'id')::uuid, 'provider_outcome_unknown', '{"reason": "not found after 23h"}');
+  a2 := raise_refund_alert((f->>'id')::uuid, 'provider_outcome_unknown', '{"reason": "again"}');
+  PERFORM t.ok(a = a2, 'A6-6 repeated reconcile keeps one open unknown-outcome alert');
+  PERFORM t.ok(reservation_refund_in_flight(r, 'deposit'), 'A6-6 the unknown Stripe refund still blocks checkout');
+  PERFORM t.raises(format('SELECT t.settle(%L, 200)', r), 'refund_in_flight', 'A6-6 checkout stays locked');
+  PERFORM acknowledge_refund_alert(a, '我去 Stripe 後台查', 'own-1', 'owner', NULL);
+  PERFORM t.ok(reservation_refund_in_flight(r, 'deposit'), 'A6-6 acknowledging the alert does not unlock the refund');
+  a2 := raise_refund_alert((f->>'id')::uuid, 'provider_outcome_unknown', '{}');
+  PERFORM t.ok(a2 <> a, 'A6-6 a later unknown outcome after acknowledgement opens a new alert');
+
+  -- A6-2 系統外退款補登：舊流程結帳的訂位系統退款被擋，但可以在人工核對後補記
+  r := t.mk(p_status => 'completed');
+  PERFORM t.raises(format('SELECT t.refund(%L, 100, %L)', r, 'a6-2-sys'), 'nothing_to_refund',
+    'A6-2 the system refund for a legacy-completed stay stays blocked');
+  PERFORM t.raises(format($q$SELECT record_offsystem_refund(%L, 100, 'transfer', '人工核對：舊結帳沒折抵訂金', 'TX20261015123', false, 'os-1', 's-1', 'staff', %L)$q$, r, t.b1()),
+    'refund_not_allowed', 'A6-2 staff cannot record an off-system refund');
+  PERFORM t.raises(format($q$SELECT record_offsystem_refund(%L, 100, 'transfer', '人工核對', 'TX20261015123', false, 'os-1', 'f-1', 'finance', NULL)$q$, r),
+    'refund_not_allowed', 'A6-2 finance cannot record an off-system refund');
+  PERFORM t.raises(format($q$SELECT record_offsystem_refund(%L, 100, 'transfer', ' ', 'TX20261015123', false, 'os-1', 'm-1', 'branch_manager', %L)$q$, r, t.b1()),
+    'refund_reason_required', 'A6-2 an off-system refund needs a reason');
+  PERFORM t.raises(format($q$SELECT record_offsystem_refund(%L, 100, 'transfer', '人工核對', NULL, false, 'os-1', 'm-1', 'branch_manager', %L)$q$, r, t.b1()),
+    'refund_evidence_required', 'A6-2 an off-system refund needs a transaction reference');
+  PERFORM t.raises(format($q$SELECT record_offsystem_refund(%L, 100, 'transfer', '人工核對', '已轉帳', false, 'os-1', 'm-1', 'branch_manager', %L)$q$, r, t.b1()),
+    'invalid_refund_reference', 'A6-2 free text is not a transaction reference');
+  PERFORM t.raises(format($q$SELECT record_offsystem_refund(%L, 100, 'cash', '人工核對', NULL, false, 'os-1', 'm-1', 'branch_manager', %L)$q$, r, t.b1()),
+    'cash_handback_required', 'A6-2 an off-system cash refund needs the hand-back confirmation');
+  PERFORM t.raises(format($q$SELECT record_offsystem_refund(%L, 100, 'stripe', '人工核對', 're_12345678', false, 'os-1', 'm-1', 'branch_manager', %L)$q$, r, t.b1()),
+    'invalid_refund_method', 'A6-2 Stripe refunds are never recorded off-system (the webhook records them)');
+  PERFORM t.raises(format($q$SELECT record_offsystem_refund(%L, 250, 'transfer', '人工核對', 'TX20261015123', false, 'os-1', 'm-1', 'branch_manager', %L)$q$, r, t.b1()),
+    'refund_exceeds_refundable', 'A6-2 an off-system refund cannot exceed the deposit');
+  f := record_offsystem_refund(r, 100, 'transfer', '人工核對：舊結帳沒折抵訂金', 'TX20261015123', false, 'os-1', 'm-1', 'branch_manager', t.b1());
+  PERFORM t.ok(f->>'status' = 'succeeded' AND (SELECT off_system FROM reservation_refunds WHERE id = (f->>'id')::uuid),
+    'A6-2 the off-system refund is recorded as succeeded and flagged off_system');
+  PERFORM t.ok((SELECT evidence_ref = 'TX20261015123' AND actor_role = 'branch_manager' FROM reservation_refund_events
+    WHERE refund_id = (f->>'id')::uuid AND status = 'succeeded'), 'A6-2 the reference and the actor are on the ledger');
+  PERFORM t.ok((SELECT acknowledged_at IS NULL FROM reservation_refund_alerts_with_ack
+    WHERE refund_id = (f->>'id')::uuid AND kind = 'offsystem_refund_recorded'), 'A6-2 every off-system refund opens an audit alert');
+  PERFORM t.ok((record_offsystem_refund(r, 100, 'transfer', '人工核對：舊結帳沒折抵訂金', 'TX20261015123', false, 'os-1', 'm-1',
+    'branch_manager', t.b1()))->>'id' = f->>'id', 'A6-2 the same idempotency key returns the same record');
+  PERFORM t.raises(format($q$SELECT record_offsystem_refund(%L, 150, 'transfer', '再補', 'TX20261015124', false, 'os-2', 'm-1', 'branch_manager', %L)$q$, r, t.b1()),
+    'refund_exceeds_refundable', 'A6-2 the off-system cap counts what was already refunded');
+  r := t.mk(p_status => 'completed', p_deposit_status => 'refunded');
+  PERFORM t.raises(format($q$SELECT record_offsystem_refund(%L, 50, 'transfer', '人工核對', 'TX20261015125', false, 'os-3', 'own-1', 'owner', NULL)$q$, r),
+    'legacy_refund_status_unverified', 'A6-2/A6-5 legacy refunded rows wait for the inventory decision');
+  PERFORM t.raises(format($q$INSERT INTO reservation_refunds (reservation_id, kind, amount, method, reason, requested_by_role, idempotency_key, off_system)
+      VALUES (%L, 'deposit', 10, 'stripe', 'x', 'owner', 'os-bad', true)$q$, r),
+    '%check constraint%', 'A6-2 the table refuses an off-system Stripe refund');
+END $$;
+
+SET ROLE service_role;
+SELECT t.raises('UPDATE reservation_refunds SET reason = reason', 'permission denied%', 'P5 service_role has no UPDATE on refunds');
+SELECT t.raises('DELETE FROM reservation_refund_events', 'permission denied%', 'P5 service_role has no DELETE on refund events');
+RESET ROLE;
+
+SELECT t.ok(NOT EXISTS (
+  SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.prosecdef
+     AND NOT EXISTS (SELECT 1 FROM unnest(p.proconfig) c WHERE c = 'search_path=public, pg_temp')),
+  'every SECURITY DEFINER function pins search_path = public, pg_temp');
+
+\echo 'refund-ledger.test.sql: ALL PASSED'

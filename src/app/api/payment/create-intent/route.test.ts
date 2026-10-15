@@ -126,7 +126,8 @@ describe("POST /api/payment/create-intent - amount validation", () => {
     expect(body.paymentIntentId).toBe("pi_test_123");
     expect(body.amount).toBe(500);
     expect(mockStripePaymentIntentsCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ amount: 500 }),
+      // Stripe 的 TWD 是兩位小數：NT$500 → 50000
+      expect.objectContaining({ amount: 50000, currency: "twd" }),
       expect.objectContaining({
         idempotencyKey: "reservation_res-1_deposit",
       })

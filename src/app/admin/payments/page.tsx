@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Check, X, RefreshCw, Upload, AlertTriangle, Keyboard } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
@@ -282,6 +283,8 @@ export default function AdminPaymentsPage() {
       title="付款審核"
       subtitle={migrationOk === false ? "功能尚未開通" : `待審核 ${items.length} 筆`}
       actions={
+        <>
+        <Link href="/admin/refunds" className="flex h-10 items-center rounded-xl px-3 text-sm text-stone-600 hover:bg-stone-100">退款處理</Link>
         <button
           type="button"
           onClick={() => void load()}
@@ -290,6 +293,7 @@ export default function AdminPaymentsPage() {
         >
           <RefreshCw className="h-4 w-4" strokeWidth={1.5} />
         </button>
+        </>
       }
     >
       <div className="space-y-6">

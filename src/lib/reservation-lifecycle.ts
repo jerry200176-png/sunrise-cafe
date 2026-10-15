@@ -263,6 +263,23 @@ export async function transitionReservation(
   return { ok: true, status: nextStatus, lineResult };
 }
 
+/**
+ * 結帳 RPC（settle_reservation_checkout，#444）已在資料庫裡把訂位轉成 completed：
+ * 這裡補做 complete 的附帶動作（記稽核、鎖預點單、邀評價）。失敗不影響已完成的結帳。
+ */
+export async function afterSettledComplete(id: string, actor: Actor, from: string, effects: Effects = supabaseEffects) {
+  const snap = await effects.load(id);
+  if (!snap) return;
+  effects.audit({
+    reservation_id: id, booking_code: snap.booking_code, intent: "complete", from, to: "completed",
+    actor: actor.kind, actor_id: actorLabel(actor), via: "settle_reservation_checkout",
+  });
+  await effects.lockPreorder(id);
+  if (snap.line_user_id && !snap.review_invited_at) {
+    await safely("review invite", () => effects.sendReviewInvite(snap));
+  }
+}
+
 async function reschedule(
   snap: Snapshot,
   intent: Extract<Intent, { type: "reschedule" }>,
