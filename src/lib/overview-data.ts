@@ -20,7 +20,11 @@ export async function fetchAll<T>(page: (from: number, to: number) => Page<T>) {
 }
 
 export type RoomInfo = { id: string; name: string; branch_id: string; branch: { name: string } | { name: string }[] | null };
-export type ReportReservation = MetricReservation & { room: RoomInfo | RoomInfo[] | null };
+export type ReportReservation = MetricReservation & {
+  room: RoomInfo | RoomInfo[] | null;
+  /** 結帳紀錄（#444）的包廂費，含延長；還沒結帳或 migration 未套用時沒有 */
+  settlement?: { room_fee: number } | { room_fee: number }[] | null;
+};
 export type ReportOrder = MetricOrder & { created_at: string };
 
 /**
@@ -29,16 +33,22 @@ export type ReportOrder = MetricOrder & { created_at: string };
  */
 export async function fetchReportRows(db: SupabaseClient, scope: string[] | null, from: string, to: string) {
   if (scope !== null && scope.length === 0) return { reservations: [] as ReportReservation[], orders: [] as ReportOrder[] };
-  const reservations = await fetchAll<ReportReservation>((a, b) => {
+  const base = "status,total_price,is_deposit_paid,guest_count,start_time,room:rooms!inner(id,name,branch_id,branch:branches(name))";
+  const readReservations = (columns: string) => fetchAll<ReportReservation>((a, b) => {
     let q = db
       .from("reservations")
-      .select("status,total_price,is_deposit_paid,guest_count,start_time,room:rooms!inner(id,name,branch_id,branch:branches(name))")
+      .select(columns)
       .gte("start_time", from)
       .lt("start_time", to)
       .order("start_time")
       .range(a, b);
     if (scope) q = q.in("rooms.branch_id", scope);
     return q as unknown as Page<ReportReservation>;
+  });
+  // 結帳紀錄表還不存在（migration 未套用）時，退回只讀訂位總價
+  const reservations = await readReservations(`${base},settlement:reservation_settlements(room_fee)`).catch((error: Error) => {
+    if (/reservation_settlements/.test(error.message)) return readReservations(base);
+    throw error;
   });
   const orders = await fetchAll<ReportOrder>((a, b) => {
     let q = db
