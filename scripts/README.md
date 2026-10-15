@@ -3,7 +3,7 @@
 ## 資料庫備份 — 現行：GitHub Actions（2026-10-15 起）
 
 每週自動備份改由 [`.github/workflows/backup-db.yml`](../.github/workflows/backup-db.yml) 執行
-（age 公鑰加密、artifact 保留 7 天）。設定、還原演練與停用本機排程的步驟見
+（age 公鑰加密、artifact 保留 35 天≈5 份週備份；還原演練用 `scripts/restore-drill-cloud-backup.sh`）。設定、還原演練與停用本機排程的步驟見
 [`docs/RUNBOOK_DB_BACKUP.md`](../docs/RUNBOOK_DB_BACKUP.md)。
 
 ## backup-db.ps1 — 資料庫備份（legacy）

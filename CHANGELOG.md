@@ -7,7 +7,8 @@
 ## [Unreleased]
 
 ### Ops — 每週資料庫備份改在 GitHub Actions 執行 (2026-10-15)
-- 新 workflow `backup-db.yml`：每週日 03:10（台北）`pg_dump` → age 公鑰加密 → artifact 保留 7 天；未設 `BACKUP_AGE_RECIPIENT` 時在 dump 前失敗
+- 新 workflow `backup-db.yml`：每週日 03:10（台北）`pg_dump` → age 公鑰加密 → artifact 保留 35 天（約 5 份）；未設 `BACKUP_AGE_RECIPIENT` 時在碰資料庫前失敗；DB URL 不上命令列、全遮蔽
+- 還原演練腳本 `scripts/restore-drill-cloud-backup.sh`：先建角色與 `btree_gist`，`--exit-on-error`，檢查防重複訂位 constraint、RLS policy 與筆數
 - Founder 設定與還原演練：`docs/RUNBOOK_DB_BACKUP.md`；`scripts/backup-db.ps1`＋Windows 工作排程器改為 legacy
 - 無 DB migration、不寫入正式資料庫
 
