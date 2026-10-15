@@ -496,6 +496,7 @@
       { "type": "table", "name": "reservation_settlements", "introspect": "rest" },
       { "type": "table", "name": "reservation_extensions", "introspect": "rest" },
       { "type": "column", "table": "reservation_settlements", "name": "payment_method", "introspect": "rest" },
+      { "type": "column", "table": "reservation_settlements", "name": "change_given", "introspect": "rest" },
       {
         "type": "function",
         "name": "settle_reservation_checkout",

@@ -5,7 +5,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { computeCheckoutBill, newEndProblem, nextBlockingStart } from "@/lib/room-checkout";
 import { isPostgresExclusionViolation } from "@/lib/slot-conflict";
 import { afterSettledComplete, transitionHttp, transitionReservation } from "@/lib/reservation-lifecycle";
-import { canAdjustMoney, isPaymentMethod, isSettlementSchemaMissing, moneyActor, settlementFailure, summarizeDepositRefunds,
+import { canAdjustMoney, cashChange, cashChangeMessage, isPaymentMethod, isSettlementSchemaMissing, moneyActor, settlementFailure, summarizeDepositRefunds,
   type RefundLedgerRow } from "@/lib/room-settlement";
 import { canAccessBranch, type AdminContext } from "@/lib/rbac";
 import { logOps } from "@/lib/ops-log";
@@ -107,19 +107,25 @@ async function updateStatus(orderId: string) {
 async function settle(
   id: string,
   branchId: string,
-  body: { payment_method?: string; discount_amount?: number; discount_reason?: string | null },
+  body: { payment_method?: string; discount_amount?: number; discount_reason?: string | null; cash_tendered?: number | null },
   expectedBeforeDiscount: number,
   expectedRefund: number,
   ctx: AdminContext
-): Promise<{ id: string } | { response: NextResponse }> {
+): Promise<{ id: string; change: number | null } | { response: NextResponse }> {
   const discount = body.discount_amount ?? 0;
   if (!Number.isInteger(discount) || discount < 0) return { response: NextResponse.json({ error: "折扣金額不對" }, { status: 400 }) };
+  const collected = Math.max(0, expectedBeforeDiscount - discount);
+  const method = body.payment_method ?? null;
+  // 現金找零（D6）：任何能結帳的店員都可以，但只限現金、有收錢。放在權限檢查之前：
+  // 想把退款包成找零的請求，不論是誰送的都直接說清楚「找零不能用來退錢」（SQL 會再檢查一次）
+  const change = cashChange({ tendered: body.cash_tendered, method, collected, refund: expectedRefund });
+  if ("problem" in change) {
+    return { response: NextResponse.json({ error: cashChangeMessage(change.problem) }, { status: 400 }) };
+  }
   // 角色只看登入 session（ctx），前端送什麼都不採信；資料庫函式會再檢查一次
   if ((discount > 0 || expectedRefund > 0) && !canAdjustMoney(ctx.role, canAccessBranch(ctx, branchId), ctx.branch_ids)) {
     return { response: NextResponse.json({ error: discount > 0 ? "只有老闆或店長可以打折" : "退錢要請老闆或店長操作" }, { status: 403 }) };
   }
-  const collected = Math.max(0, expectedBeforeDiscount - discount);
-  const method = body.payment_method ?? null;
   if ((collected > 0 || expectedRefund > 0) && !isPaymentMethod(method)) {
     return { response: NextResponse.json({ error: "請選付款方式" }, { status: 400 }) };
   }
@@ -132,13 +138,14 @@ async function settle(
     p_discount_amount: discount,
     p_discount_reason: body.discount_reason ?? null,
     ...moneyActor(ctx),
+    p_cash_tendered: change.change === null ? null : body.cash_tendered,
   });
   if (result.error) {
     const failure = settlementFailure(result.error);
     if (failure) return { response: NextResponse.json({ error: failure.error }, { status: failure.status }) };
     throw result.error;
   }
-  return { id: (result.data as { id: string }).id };
+  return { id: (result.data as { id: string }).id, change: change.change };
 }
 
 export async function GET(request: NextRequest, { params }: Params) {
@@ -160,7 +167,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const body = await request.json() as {
       action: Action; item?: DraftItemInput; items?: DraftItemInput[];
       item_id?: string; notes?: string | null; quantity?: number; end_time?: string; expected_due?: number; expected_refund?: number;
-      payment_method?: string; discount_amount?: number; discount_reason?: string | null;
+      payment_method?: string; discount_amount?: number; discount_reason?: string | null; cash_tendered?: number | null;
     };
     const db = supabaseAdmin();
     const { order, billing: current, settlementsReady } = await load(id);
@@ -250,8 +257,13 @@ export async function POST(request: NextRequest, { params }: Params) {
           logOps("admin", "admin.room_checkout_side_effect_failed", { reservation_id: id, error: error instanceof Error ? error.message : String(error) });
         }
         await updateStatus(order.id);
-        logOps("admin", "admin.room_checked_out", { reservation_id: id, due, actor: ctx.user_id ?? ctx.role, settlement_id: settled.id });
+        logOps("admin", "admin.room_checked_out", { reservation_id: id, due, actor: ctx.user_id ?? ctx.role, settlement_id: settled.id,
+          change_given: settled.change });
         return NextResponse.json({ ok: true, ...(await load(id)) });
+      }
+      // 舊流程沒有結帳紀錄可以記找零：不收找零資料（畫面在舊流程也不會送）
+      if (body.cash_tendered != null) {
+        return NextResponse.json({ error: "結帳紀錄還沒啟用，暫時不能記找零；請直接收款結帳" }, { status: 409 });
       }
       // 舊流程也一樣：退錢只限老闆／本分店店長（角色取自 session）
       if (refund > 0 && auth.reservation!.status !== "completed"
