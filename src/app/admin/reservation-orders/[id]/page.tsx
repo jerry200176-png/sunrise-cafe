@@ -26,6 +26,7 @@ export default function ReservationOrderPage() {
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   const load = useCallback(async () => {
     const response = await fetch(`/api/admin/reservation-orders/${encodeURIComponent(id)}`);
@@ -46,7 +47,7 @@ export default function ReservationOrderPage() {
   useEffect(() => { load().catch((cause) => setError(thrownMessage(cause, "載入失敗，請重新整理"))); }, [load]);
 
   async function act(action: string, extra: Record<string, unknown> = {}) {
-    setBusy(true); setError("");
+    setBusy(true); setError(""); setNotice("");
     try {
       const response = await fetch(`/api/admin/reservation-orders/${encodeURIComponent(id)}`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...extra }),
@@ -54,7 +55,9 @@ export default function ReservationOrderPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(friendlyMessage(data.error, response.status));
       // 加點已成功，重新載入失敗不能保留選餐讓店員重複送出。
-      if (action === "add_items") await load().catch(() => undefined);
+      if (action === "add_items") await load().catch(() => {
+        setNotice("已加入訂單，但畫面未能更新。請重新整理頁面確認，請勿再次加點。");
+      });
       else await load();
       return true;
     } catch (cause) { setError(thrownMessage(cause)); return false; }
@@ -73,6 +76,7 @@ export default function ReservationOrderPage() {
         <h1 className="text-2xl font-semibold">訂位餐點管理</h1>
         {view && <p className="mt-2 text-sm text-stone-600">{view.reservation.customer_name} · {room?.name ?? "包廂"} · 代碼 {view.reservation.booking_code} · {new Date(view.reservation.start_time).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}</p>}
       </header>
+      <p role="status" aria-atomic="true" className={notice ? "rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900" : "sr-only"}>{notice}</p>
       {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-rose-800">{error}</p>}
       {!view && !error && <p>載入中…</p>}
       {view && !view.order && <>

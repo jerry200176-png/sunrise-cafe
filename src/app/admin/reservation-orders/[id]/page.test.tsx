@@ -59,11 +59,20 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
     await waitFor(() => expect((screen.getByRole("checkbox", { name: "選擇咖啡" }) as HTMLInputElement).checked).toBe(false));
     expect((screen.getByRole("button", { name: "加入訂單" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe("已加入訂單，但畫面未能更新。請重新整理頁面確認，請勿再次加點。");
+    expect(screen.getByRole("status").getAttribute("aria-atomic")).toBe("true");
     expect(getCount).toBe(2);
     expect(posts).toEqual([submitted]);
     // An additional click without a new selection cannot repeat the committed add.
     fireEvent.click(screen.getByRole("button", { name: "加入訂單" }));
     expect(posts).toEqual([submitted]);
+    // Clear the prior success notice as soon as a new explicit action starts,
+    // even if that new action fails. It must not mask a genuine POST error.
+    postStatus = 500;
+    fireEvent.click(screen.getByRole("button", { name: "記錄現場已結帳" }));
+    expect(screen.getByRole("status").textContent).toBe("");
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(posts).toEqual([submitted, { action: "settle" }]);
   });
 
   it("still refreshes the displayed order and clears selection after a successful GET", async () => {
