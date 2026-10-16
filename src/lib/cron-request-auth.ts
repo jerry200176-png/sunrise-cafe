@@ -1,10 +1,15 @@
 /**
- * Auth for Vercel Cron GET handlers under /api/admin/reminders/*.
+ * Auth for cron GET handlers (Vercel Cron and the GitHub Actions backup).
  *
- * - If CRON_SECRET is set: require Authorization Bearer (Vercel injects this).
- * - If CRON_SECRET is unset: allow requests that carry Vercel's
- *   `x-vercel-cron-schedule` header so production cron is not silently 401'd
- *   when the env var was never configured. Manual callers still need admin session.
+ * Fail closed:
+ * - CRON_SECRET set: require `Authorization: Bearer <CRON_SECRET>`. Vercel Cron
+ *   injects this header automatically when the env var exists.
+ * - CRON_SECRET unset in a production runtime (NODE_ENV or VERCEL_ENV is
+ *   "production"): reject with 500. The `x-vercel-cron-schedule` header is
+ *   never trusted for auth, because any client can send it.
+ * - CRON_SECRET unset in local dev/test: allow, so crons can be exercised locally.
+ *
+ * Manual callers use POST (admin session, enforced in middleware).
  */
 import { NextRequest, NextResponse } from "next/server";
 
@@ -20,26 +25,42 @@ export function isAdminCronGetPath(pathname: string): boolean {
   return (ADMIN_CRON_GET_PATHS as readonly string[]).includes(pathname);
 }
 
-/** True when Vercel Cron invoked this request (schedule header is always set). */
+/**
+ * True when the request carries Vercel's cron schedule header. Informational
+ * only (trigger-source labelling); it is NOT an authentication signal.
+ */
 export function isVercelCronRequest(request: NextRequest): boolean {
   const schedule = request.headers.get("x-vercel-cron-schedule");
   return Boolean(schedule && schedule.trim());
 }
 
 export type CronAuthResult =
-  | { ok: true; via: "cron_secret" | "vercel_cron_header" | "cron_secret_unset_dev" }
+  | { ok: true; via: "cron_secret" | "cron_secret_unset_dev" }
   | { ok: false; response: NextResponse };
+
+function isProductionRuntime(): boolean {
+  return process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production";
+}
+
+/** Length-independent constant-time compare (works in the Edge runtime). */
+function safeEqual(a: string, b: string): boolean {
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  }
+  return diff === 0;
+}
 
 /**
  * Authorize a cron GET. Does not grant admin session access — callers that
  * fail should fall through to requireAdminApiAuth in middleware.
  */
 export function authorizeCronGet(request: NextRequest): CronAuthResult {
-  const cronSecret = process.env.CRON_SECRET;
-  const authHeader = request.headers.get("authorization");
+  const cronSecret = process.env.CRON_SECRET?.trim();
 
   if (cronSecret) {
-    if (authHeader === `Bearer ${cronSecret}`) {
+    const authHeader = request.headers.get("authorization") ?? "";
+    if (safeEqual(authHeader, `Bearer ${cronSecret}`)) {
       return { ok: true, via: "cron_secret" };
     }
     return {
@@ -48,19 +69,16 @@ export function authorizeCronGet(request: NextRequest): CronAuthResult {
     };
   }
 
-  // No CRON_SECRET: trust Vercel Cron schedule header only (not forgeable as
-  // strongly as a secret, but better than hard-blocking all production crons).
-  if (isVercelCronRequest(request)) {
-    return { ok: true, via: "vercel_cron_header" };
+  if (isProductionRuntime()) {
+    console.error("[cron-auth] CRON_SECRET is not configured; rejecting cron GET");
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: "Cron authentication is not configured" },
+        { status: 500 }
+      ),
+    };
   }
 
-  // Local/dev without secret: allow (route handlers historically skipped auth).
-  if (process.env.NODE_ENV !== "production" && process.env.VERCEL_ENV !== "production") {
-    return { ok: true, via: "cron_secret_unset_dev" };
-  }
-
-  return {
-    ok: false,
-    response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
-  };
+  return { ok: true, via: "cron_secret_unset_dev" };
 }
