@@ -1,0 +1,339 @@
+name: DB backup + isolated restore drill
+
+# Cloud-only, dispatch-only recovery evidence for the Sunrise Postgres `public`
+# schema (CG-011). Produces an age-encrypted custom-format dump that has been
+# restored into a throwaway Postgres service on the job network and whose
+# per-table row counts match the source exactly.
+#
+# Safety contract (asserted by src/lib/db-backup-restore-drill-workflow.test.ts):
+# - workflow_dispatch only; job refuses any ref other than refs/heads/main.
+# - SUPABASE_DB_URL is passed via env to the source steps only, never echoed,
+#   and every source session runs with default_transaction_read_only=on.
+# - The restore target has no published ports (reachable only as
+#   `restore-db` on the job network) and never receives the secret.
+# - Only the encrypted dump, its checksum and the manifest are uploaded.
+#   Plaintext lives outside the workspace and is shredded, even on failure.
+# - Logs and the step summary carry table names, counts and hashes only —
+#   never row data, the connection URL or SQL text.
+#
+# Deliberately does NOT call scripts/backup-db.sh or scripts/restore-drill.sh.
+# Runbook: docs/ops/CLOUD_BACKUP_RESTORE_DRILL.md
+
+on:
+  workflow_dispatch:
+    inputs:
+      age_recipient:
+        description: "age public key (age1...) that will be able to decrypt the backup"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sunrise-db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup-drill:
+    name: Backup, restore drill, encrypt
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: postgres:17
+    services:
+      restore-db:
+        image: postgres:17
+        env:
+          # Ephemeral, unpublished throwaway database; not a real credential.
+          POSTGRES_PASSWORD: drill-only
+          POSTGRES_DB: drill
+        options: >-
+          --health-cmd "pg_isready -U postgres -d drill"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      PLAIN_DIR: /drill-plain
+      OUT_DIR: drill-out
+      DUMP_NAME: sunrise-public.dump
+      MIGRATION_FILE: supabase/migration-reservation-settlements.sql
+    steps:
+      - name: Validate inputs and secret presence
+        env:
+          AGE_RECIPIENT: ${{ inputs.age_recipient }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${AGE_RECIPIENT}" =~ ^age1[0-9a-z]{58}$ ]]; then
+            echo "::error::age_recipient must match ^age1[0-9a-z]{58}\$ (an age X25519 public key)"
+            exit 1
+          fi
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "::error::Repository secret SUPABASE_DB_URL is not set"
+            exit 1
+          fi
+          echo "inputs ok"
+
+      - name: Install age and jq; assert pg client major >= 17
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq >/dev/null
+          apt-get install -y -qq --no-install-recommends age jq ca-certificates >/dev/null
+          age --version
+          jq --version
+          pg_version="$(pg_dump --version)"
+          echo "${pg_version}"
+          major="$(printf '%s' "${pg_version}" | sed -E 's/^pg_dump \(PostgreSQL\) ([0-9]+).*/\1/')"
+          if [[ ! "${major}" =~ ^[0-9]+$ ]] || (( major < 17 )); then
+            echo "::error::pg_dump major version must be >= 17 (got '${major}')"
+            exit 1
+          fi
+          for bin in psql pg_restore sha256sum shred; do command -v "${bin}" >/dev/null; done
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Prepare count query and work dirs
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "${PLAIN_DIR}" "${OUT_DIR}"
+          # Emits only `table=count` lines; one REPEATABLE READ READ ONLY snapshot.
+          cat > "${PLAIN_DIR}/counts.sql" <<'SQL'
+          SET default_transaction_read_only = on;
+          BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
+          SELECT format('SELECT %L || ''='' || count(*) FROM public.%I', table_name, table_name)
+          FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+          ORDER BY table_name \gexec
+          COMMIT;
+          SQL
+          cat > "${PLAIN_DIR}/run-counts.sh" <<'SH'
+          #!/usr/bin/env bash
+          # usage: run-counts.sh <out-file>; connection comes from env (PG* / DB_URL)
+          set -euo pipefail
+          out="$1"
+          raw="$(mktemp)"
+          if [ -n "${DB_URL:-}" ]; then
+            psql "${DB_URL}" -X -q -A -t -v ON_ERROR_STOP=1 -f "${PLAIN_DIR}/counts.sql" > "${raw}"
+          else
+            psql -X -q -A -t -v ON_ERROR_STOP=1 -f "${PLAIN_DIR}/counts.sql" > "${raw}"
+          fi
+          grep -v '^$' "${raw}" | LC_ALL=C sort > "${out}" || true
+          rm -f "${raw}"
+          n="$(wc -l < "${out}")"
+          if [ "${n}" -eq 0 ]; then
+            echo "::error::no tables found in schema public"
+            exit 1
+          fi
+          # Every line must be name=integer; never print an offending line.
+          if grep -qvE '^[A-Za-z0-9_$]+=[0-9]+$' "${out}"; then
+            echo "::error::count output had an unexpected line shape; refusing to continue"
+            exit 1
+          fi
+          echo "counted ${n} tables"
+          SH
+          chmod 700 "${PLAIN_DIR}/run-counts.sh"
+
+      - name: Source — read-only counts, pg_dump, read-only counts
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PGSSLMODE: require
+          PGOPTIONS: "-c default_transaction_read_only=on"
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          DB_URL="${SUPABASE_DB_URL}" "${PLAIN_DIR}/run-counts.sh" "${PLAIN_DIR}/source-before.counts"
+
+          server_version="$(psql "${SUPABASE_DB_URL}" -X -q -A -t -v ON_ERROR_STOP=1 -c 'SHOW server_version')"
+          printf '%s\n' "${server_version}" | awk '{print $1}' > "${PLAIN_DIR}/server_version"
+          echo "source server_version: $(cat "${PLAIN_DIR}/server_version")"
+
+          pg_dump --dbname="${SUPABASE_DB_URL}" \
+            --schema=public \
+            --format=custom \
+            --no-owner \
+            --file="${PLAIN_DIR}/${DUMP_NAME}"
+
+          DB_URL="${SUPABASE_DB_URL}" "${PLAIN_DIR}/run-counts.sh" "${PLAIN_DIR}/source-after.counts"
+
+          # The dump snapshot lies between the two count snapshots. If they
+          # disagree, the counts cannot be attributed to the dump: fail closed.
+          if ! cmp -s "${PLAIN_DIR}/source-before.counts" "${PLAIN_DIR}/source-after.counts"; then
+            echo "::error::source row counts changed during pg_dump; re-dispatch at a quieter time. Tables:"
+            diff "${PLAIN_DIR}/source-before.counts" "${PLAIN_DIR}/source-after.counts" \
+              | sed -nE 's/^[<>] ([^=]+)=.*/\1/p' | sort -u
+            exit 1
+          fi
+          cp "${PLAIN_DIR}/source-after.counts" "${PLAIN_DIR}/source.counts"
+
+          sha256sum "${PLAIN_DIR}/${DUMP_NAME}" | awk '{print $1}' > "${PLAIN_DIR}/dump.sha256"
+          stat -c '%s' "${PLAIN_DIR}/${DUMP_NAME}" > "${PLAIN_DIR}/dump.bytes"
+          echo "dump sha256: $(cat "${PLAIN_DIR}/dump.sha256") bytes: $(cat "${PLAIN_DIR}/dump.bytes")"
+
+      - name: Restore drill into isolated service DB
+        env:
+          PGHOST: restore-db
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: drill-only
+          PGDATABASE: drill
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          if [ -n "${SUPABASE_DB_URL:-}" ] || [ "${PGHOST}" != "restore-db" ]; then
+            echo "::error::restore step must only target the isolated restore-db service"
+            exit 1
+          fi
+          # Supabase-managed roles and out-of-`public` dependencies the dump
+          # may reference (ACLs / RLS policies / extensions / realtime).
+          psql -X -q -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE anon NOLOGIN;
+          CREATE ROLE authenticated NOLOGIN;
+          CREATE ROLE service_role NOLOGIN BYPASSRLS;
+          CREATE ROLE supabase_admin NOLOGIN;
+          CREATE SCHEMA IF NOT EXISTS extensions;
+          CREATE EXTENSION IF NOT EXISTS btree_gist SCHEMA extensions;
+          CREATE EXTENSION IF NOT EXISTS pgcrypto SCHEMA extensions;
+          CREATE EXTENSION IF NOT EXISTS "uuid-ossp" SCHEMA extensions;
+          CREATE PUBLICATION supabase_realtime;
+          SQL
+
+          # `public` already exists in the target; drop only its CREATE SCHEMA
+          # TOC entry (if pg_dump emitted one). The list holds object names only.
+          pg_restore --list "${PLAIN_DIR}/${DUMP_NAME}" > "${PLAIN_DIR}/toc.list"
+          grep -vE '^[0-9]+; [0-9]+ [0-9]+ SCHEMA - public ' "${PLAIN_DIR}/toc.list" > "${PLAIN_DIR}/toc.filtered"
+
+          pg_restore \
+            --no-owner \
+            --exit-on-error \
+            --single-transaction \
+            --use-list="${PLAIN_DIR}/toc.filtered" \
+            --dbname=drill \
+            "${PLAIN_DIR}/${DUMP_NAME}"
+
+          "${PLAIN_DIR}/run-counts.sh" "${PLAIN_DIR}/restore.counts"
+
+          if ! cmp -s "${PLAIN_DIR}/source.counts" "${PLAIN_DIR}/restore.counts"; then
+            echo "::error::restored row counts differ from source. Tables:"
+            diff "${PLAIN_DIR}/source.counts" "${PLAIN_DIR}/restore.counts" \
+              | sed -nE 's/^[<>] ([^=]+)=.*/\1/p' | sort -u
+            exit 1
+          fi
+          echo "pass" > "${PLAIN_DIR}/drill_result"
+          echo "drill_result=pass ($(wc -l < "${PLAIN_DIR}/restore.counts") tables match)"
+
+      - name: Encrypt dump, shred plaintext, write manifest
+        env:
+          AGE_RECIPIENT: ${{ inputs.age_recipient }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$(cat "${PLAIN_DIR}/drill_result")" = "pass"
+          age_file="${OUT_DIR}/${DUMP_NAME}.age"
+          age --encrypt --recipient "${AGE_RECIPIENT}" --output "${age_file}" "${PLAIN_DIR}/${DUMP_NAME}"
+          (cd "${OUT_DIR}" && sha256sum "${DUMP_NAME}.age" > "${DUMP_NAME}.age.sha256")
+          age_sha256="$(awk '{print $1}' "${OUT_DIR}/${DUMP_NAME}.age.sha256")"
+          age_bytes="$(stat -c '%s' "${age_file}")"
+
+          shred -u "${PLAIN_DIR}/${DUMP_NAME}"
+          if [ -e "${PLAIN_DIR}/${DUMP_NAME}" ]; then
+            echo "::error::plaintext dump still present after shred"
+            exit 1
+          fi
+
+          migration_sha256="$(sha256sum "${MIGRATION_FILE}" | awk '{print $1}')"
+          tables_json="$(jq -R -n '[inputs | capture("^(?<k>[^=]+)=(?<v>[0-9]+)$") | {(.k): (.v | tonumber)}] | add' < "${PLAIN_DIR}/source.counts")"
+
+          jq -n \
+            --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg git_sha "${GITHUB_SHA}" \
+            --arg run_id "${GITHUB_RUN_ID}" \
+            --arg pg_dump_version "$(pg_dump --version)" \
+            --arg source_server_version "$(cat "${PLAIN_DIR}/server_version")" \
+            --arg dump_sha256 "$(cat "${PLAIN_DIR}/dump.sha256")" \
+            --argjson dump_bytes "$(cat "${PLAIN_DIR}/dump.bytes")" \
+            --arg age_file "${DUMP_NAME}.age" \
+            --arg age_sha256 "${age_sha256}" \
+            --argjson age_bytes "${age_bytes}" \
+            --arg age_recipient "${AGE_RECIPIENT}" \
+            --argjson tables "${tables_json}" \
+            --arg drill_result "$(cat "${PLAIN_DIR}/drill_result")" \
+            --arg migration_file "${MIGRATION_FILE}" \
+            --arg migration_sha256 "${migration_sha256}" \
+            '{
+              manifest_version: 1,
+              created_at: $created_at,
+              git_sha: $git_sha,
+              run_id: $run_id,
+              pg_dump_version: $pg_dump_version,
+              source_server_version: $source_server_version,
+              dump_scope: "schema public",
+              dump_format: "custom (pg_dump -Fc --no-owner)",
+              dump_sha256: $dump_sha256,
+              dump_bytes: $dump_bytes,
+              age_file: $age_file,
+              age_sha256: $age_sha256,
+              age_bytes: $age_bytes,
+              age_recipient: $age_recipient,
+              table_count: ($tables | length),
+              tables: $tables,
+              restore_target: "postgres:17 service container, no published ports, job network only",
+              drill_result: $drill_result,
+              context_migration_file: $migration_file,
+              context_migration_sha256: $migration_sha256,
+              artifact_retention_days: 14
+            }' > "${OUT_DIR}/manifest.json"
+          ls -l "${OUT_DIR}"
+
+      - name: Upload encrypted backup evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sunrise-db-backup-${{ github.run_id }}
+          path: |
+            drill-out/sunrise-public.dump.age
+            drill-out/sunrise-public.dump.age.sha256
+            drill-out/manifest.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Step summary (manifest fields only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          m="${OUT_DIR}/manifest.json"
+          {
+            echo "## Sunrise DB backup + restore drill"
+            echo
+            echo "| field | value |"
+            echo "|---|---|"
+            jq -r 'to_entries[] | select(.key != "tables") | "| \(.key) | `\(.value)` |"' "${m}"
+            echo
+            echo "### Row counts (source = restored)"
+            echo
+            echo "| table | rows |"
+            echo "|---|---:|"
+            jq -r '.tables | to_entries[] | "| \(.key) | \(.value) |"' "${m}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Shred any plaintext left behind
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          if [ -d "${PLAIN_DIR}" ]; then
+            find "${PLAIN_DIR}" -type f -exec shred -u {} + 2>/dev/null || true
+            rm -rf "${PLAIN_DIR}"
+          fi
+          echo "plaintext workspace cleared"
