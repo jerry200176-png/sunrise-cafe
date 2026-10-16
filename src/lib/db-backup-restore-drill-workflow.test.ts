@@ -174,7 +174,7 @@ describe("db-backup-restore-drill workflow (static)", () => {
     expect(raw).toContain(". scripts/db-drill/lib.sh");
   });
 
-  it("asserts Sunrise identity (required tables + migration markers) on source and restore", () => {
+  it("validates source identity and schema BEFORE pg_dump; restore re-checked after", () => {
     const env = (job as unknown as { env: Record<string, string> }).env;
     expect(env.REQUIRED_TABLES.split(" ")).toEqual([
       "reservations",
@@ -184,13 +184,28 @@ describe("db-backup-restore-drill workflow (static)", () => {
       "schema_migrations",
     ]);
     expect(env.IDENTITY_MARKERS).toMatch(/^\d{8}-[a-z0-9-]+(,\d{8}-[a-z0-9-]+)*$/);
+    const validate = steps.find((s) => s.name === "Validate inputs and secret presence");
     const source = steps.find((s) => s.name?.startsWith("Source"));
     const restore = steps.find((s) => s.name === "Restore drill into isolated service DB");
-    for (const st of [source, restore]) {
-      expect(st?.run).toMatch(/drill_require_tables "\$\{PLAIN_DIR\}\/(source|restore)\.counts" \$\{REQUIRED_TABLES\}/);
-      expect(st?.run).toContain("drill_identity ");
+    // Expected identity is a non-secret repo variable, required up front.
+    for (const st of [validate, source]) {
+      expect(st?.env?.EXPECTED_SOURCE_REF_SHA256).toBe(
+        "${{ vars.SUNRISE_SOURCE_PROJECT_REF_SHA256 }}"
+      );
     }
-    expect(source?.run).toContain("markers_found=${expected_markers}");
+    expect(validate?.run).toContain('"${EXPECTED_SOURCE_REF_SHA256:-}" =~ ^[0-9a-f]{64}$');
+    const run = source?.run ?? "";
+    const idGate = run.indexOf('drill_assert_source_identity "${SUPABASE_DB_URL}" "${EXPECTED_SOURCE_REF_SHA256}"');
+    const schemaGate = run.indexOf('drill_schema_preflight source-preflight "${REQUIRED_TABLES}" "${IDENTITY_MARKERS}"');
+    const firstPsql = run.indexOf("drill_counts source-counts-before");
+    const dump = run.indexOf("pg_dump --dbname=");
+    expect(idGate).toBeGreaterThan(-1);
+    expect(schemaGate).toBeGreaterThan(idGate);
+    expect(firstPsql).toBeGreaterThan(schemaGate);
+    expect(dump).toBeGreaterThan(firstPsql);
+    expect(run).toMatch(/drill_require_tables "\$\{PLAIN_DIR\}\/source\.counts" \$\{REQUIRED_TABLES\}/);
+    expect(restore?.run).toMatch(/drill_require_tables "\$\{PLAIN_DIR\}\/restore\.counts" \$\{REQUIRED_TABLES\}/);
+    expect(restore?.run).toContain("drill_identity restore-identity ");
   });
 
   it("public manifest and summary carry totals/checksums only, and state public-schema scope", () => {

@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { spawnSync } from "child_process";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
+import { createHash } from "crypto";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "fs";
+import { createRequire } from "module";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -188,5 +198,198 @@ describe("scripts/db-drill/lib.sh log safety", () => {
       const bad = runLib(dir, `drill_identity s "${out}" "x'); DROP TABLE y; --"`, bin);
       expect(bad.status).toBe(64);
       expect(bad.out).not.toContain("DROP");
+    }));
+});
+
+// ---------------------------------------------------------------------------
+// Source gate: identity + schema must be validated BEFORE any pg_dump.
+// All URLs/refs below are synthetic; nothing connects anywhere.
+
+const PROD_REF = "aaaabbbbccccddddeeee";
+const STAGING_REF = "stagingrefstagingref";
+const sha = (v: string) => createHash("sha256").update(v).digest("hex");
+const PROD_SHA = sha(PROD_REF);
+const PW = "hunter2";
+const urlFor = (ref: string) =>
+  `postgresql://postgres:${PW}@db.${ref}.supabase.co:5432/postgres?sslmode=require`;
+const poolerFor = (ref: string) =>
+  `postgres://postgres.${ref}:${PW}@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres`;
+
+function expectNoSourceLeak(out: string) {
+  expect(out).not.toContain(PW);
+  expect(out).not.toContain(PROD_REF);
+  expect(out).not.toContain(STAGING_REF);
+  expect(out).not.toContain(PROD_SHA);
+  expect(out).not.toContain("supabase.co");
+  expect(out).not.toContain("pooler");
+}
+
+describe("scripts/db-drill/lib.sh source identity gate", () => {
+  it("accepts the expected project via direct and pooler URLs, printing no URL/ref/hash", () =>
+    withSandbox((dir) => {
+      for (const url of [urlFor(PROD_REF), poolerFor(PROD_REF)]) {
+        const r = runLib(dir, `drill_assert_source_identity '${url}' '${PROD_SHA}'`);
+        expect(r.status).toBe(0);
+        expect(r.out.trim()).toBe("source identity: project ref matches expected sha256");
+        expectNoSourceLeak(r.out);
+      }
+    }));
+
+  it("fails closed on a staging-like / wrong project, missing expectation, or odd URL shapes", () =>
+    withSandbox((dir) => {
+      const cases: Array<[string, string, RegExp]> = [
+        [urlFor(STAGING_REF), PROD_SHA, /identity mismatch/],
+        [poolerFor(STAGING_REF), PROD_SHA, /identity mismatch/],
+        [urlFor(PROD_REF), "", /missing or malformed/],
+        [urlFor(PROD_REF), "not-a-hash", /missing or malformed/],
+        [`postgresql://postgres:${PW}@db.example.com:5432/postgres`, PROD_SHA, /not a Supabase project host/],
+        [`postgresql://postgres.${STAGING_REF}:${PW}@db.${PROD_REF}.supabase.co/postgres`, PROD_SHA, /different projects/],
+        [`postgresql://postgres:${PW}@aws-0-x.pooler.supabase.com/postgres`, PROD_SHA, /cannot derive/],
+        [`${urlFor(PROD_REF)}&hostaddr=10.0.0.1`, PROD_SHA, /disallowed parameter/],
+        [`host=db.${PROD_REF}.supabase.co password=${PW}`, PROD_SHA, /not a postgres:\/\/ URL/],
+      ];
+      for (const [url, expected, msg] of cases) {
+        const r = runLib(dir, `drill_assert_source_identity '${url}' '${expected}'`);
+        expect(r.status).toBe(1);
+        expect(r.out).toMatch(msg);
+        expectNoSourceLeak(r.out);
+      }
+    }));
+
+  it("refuses PGHOSTADDR / PGSERVICE redirection", () =>
+    withSandbox((dir) => {
+      const r = runLib(
+        dir,
+        `PGHOSTADDR=10.0.0.1 drill_assert_source_identity '${urlFor(PROD_REF)}' '${PROD_SHA}'`
+      );
+      expect(r.status).toBe(1);
+      expect(r.out).toMatch(/overrides are not allowed/);
+    }));
+});
+
+// Workflow-level fixture: run the real "Source" step script from the
+// workflow with fake psql / pg_dump on PATH that record every invocation.
+
+const ROOT = join(__dirname, "../..");
+const yaml = createRequire(join(ROOT, "package.json"))("js-yaml") as {
+  load(src: string): unknown;
+};
+const wf = yaml.load(
+  readFileSync(join(ROOT, ".github/workflows/db-backup-restore-drill.yml"), "utf8")
+) as {
+  jobs: Record<
+    string,
+    { env: Record<string, string>; steps: Array<{ name?: string; run?: string }> }
+  >;
+};
+const wfJob = Object.values(wf.jobs)[0];
+const SOURCE_RUN = wfJob.steps.find((s) => s.name?.startsWith("Source"))?.run ?? "";
+
+type FakeDb = { tables: number; markers: number };
+
+function fakeDbTools(dir: string, db: FakeDb) {
+  const bin = join(dir, "bin");
+  const calls = join(dir, "calls.log");
+  spawnSync("mkdir", ["-p", bin]);
+  writeFileSync(
+    join(bin, "psql"),
+    `#!/usr/bin/env bash
+echo "psql" >> "${calls}"
+case "$*" in
+  *tables_found*) echo "tables_found=${db.tables}" ;;
+  *markers_found*) echo "markers_found=${db.markers}" ;;
+  *counts.sql*) printf "order_items=4\norders=2\nreservations=3\nrooms=1\nschema_migrations=9\n" ;;
+  *server_version*) echo "17.4" ;;
+  *) exit 9 ;;
+esac
+`
+  );
+  writeFileSync(
+    join(bin, "pg_dump"),
+    `#!/usr/bin/env bash
+echo "pg_dump" >> "${calls}"
+for a in "$@"; do case "$a" in --file=*) echo dump > "\${a#--file=}" ;; esac; done
+`
+  );
+  chmodSync(join(bin, "psql"), 0o755);
+  chmodSync(join(bin, "pg_dump"), 0o755);
+  return { bin, calls };
+}
+
+function runSourceStep(dir: string, url: string, expected: string, db: FakeDb) {
+  const { bin, calls } = fakeDbTools(dir, db);
+  const plain = join(dir, "plain");
+  const r = spawnSync("bash", ["-c", SOURCE_RUN], {
+    cwd: ROOT,
+    encoding: "utf8",
+    env: {
+      NODE_ENV: "test",
+      PATH: `${bin}:${process.env.PATH ?? ""}`,
+      HOME: dir,
+      RUNNER_TEMP: join(dir, "rtemp"),
+      PLAIN_DIR: plain,
+      OUT_DIR: join(dir, "out"),
+      DUMP_NAME: wfJob.env.DUMP_NAME,
+      REQUIRED_TABLES: wfJob.env.REQUIRED_TABLES,
+      IDENTITY_MARKERS: wfJob.env.IDENTITY_MARKERS,
+      SUPABASE_DB_URL: url,
+      EXPECTED_SOURCE_REF_SHA256: expected,
+    },
+  });
+  const log = existsSync(calls) ? readFileSync(calls, "utf8").trim().split("\n") : [];
+  return {
+    status: r.status,
+    out: `${r.stdout}${r.stderr}`,
+    calls: log.filter(Boolean),
+    dumped: existsSync(join(plain, wfJob.env.DUMP_NAME)),
+  };
+}
+
+describe("workflow Source step: wrong source fails before any dump", () => {
+  const goodDb: FakeDb = { tables: 5, markers: 2 };
+
+  it("positive control: the expected project with the Sunrise schema is dumped", () =>
+    withSandbox((dir) => {
+      const r = runSourceStep(dir, urlFor(PROD_REF), PROD_SHA, goodDb);
+      expect(r.status).toBe(0);
+      expect(r.calls).toContain("pg_dump");
+      expect(r.dumped).toBe(true);
+      // Gates (2 psql queries) come before the first count and the dump.
+      expect(r.calls.indexOf("pg_dump")).toBeGreaterThanOrEqual(3);
+      expectNoSourceLeak(r.out);
+    }));
+
+  it("staging-like source (same schema, different project ref): no psql, no pg_dump", () =>
+    withSandbox((dir) => {
+      const r = runSourceStep(dir, urlFor(STAGING_REF), PROD_SHA, goodDb);
+      expect(r.status).not.toBe(0);
+      expect(r.out).toMatch(/identity mismatch/);
+      expect(r.calls).toEqual([]);
+      expect(r.dumped).toBe(false);
+      expectNoSourceLeak(r.out);
+    }));
+
+  it("missing expected identity variable: fails closed before connecting", () =>
+    withSandbox((dir) => {
+      const r = runSourceStep(dir, urlFor(PROD_REF), "", goodDb);
+      expect(r.status).not.toBe(0);
+      expect(r.calls).toEqual([]);
+      expect(r.dumped).toBe(false);
+    }));
+
+  it("right project but missing Sunrise tables or markers: pg_dump never invoked", () =>
+    withSandbox((dir) => {
+      for (const db of [
+        { tables: 3, markers: 2 },
+        { tables: 5, markers: 1 },
+      ]) {
+        const r = runSourceStep(dir, urlFor(PROD_REF), PROD_SHA, db);
+        expect(r.status).not.toBe(0);
+        expect(r.out).toMatch(/refusing to continue/);
+        expect(r.calls).not.toContain("pg_dump");
+        expect(r.dumped).toBe(false);
+        expectNoSourceLeak(r.out);
+        rmSync(join(dir, "calls.log"), { force: true });
+      }
     }));
 });

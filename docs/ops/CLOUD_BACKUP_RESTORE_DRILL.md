@@ -25,14 +25,29 @@ not authorize exporting production data.
   `manifest.json` (not encrypted) show the table count, the total row count
   and checksums. Approve publishing those numbers.
 - **Key owner.** Name the single person who holds the age private key.
+- **Expected source identity.** Set the repository **variable** (not a
+  secret) `SUNRISE_SOURCE_PROJECT_REF_SHA256` to the sha256 of the
+  production Supabase project ref (the 20-character id in
+  `db.<ref>.supabase.co`). Compute it on your own machine, e.g.
+  `printf '%s' '<ref>' | sha256sum`. Without it, every run fails closed
+  before connecting.
 
 ## What one run produces
 
-1. **Source identity check.** The source must contain the required Sunrise
-   tables (`reservations`, `orders`, `order_items`, `rooms`,
-   `schema_migrations`). Its `schema_migrations` must also contain the fixed
-   migration markers (`IDENTITY_MARKERS` in the workflow). Otherwise the run
-   fails closed. The URL is never printed.
+1. **Source gate, before any dump.** Two checks, in this order:
+   1. **Project identity (no network).** The project ref is taken from
+      `SUPABASE_DB_URL` (host `db.<ref>.supabase.co`, or pooler user
+      `postgres.<ref>`). Its sha256 must equal
+      `SUNRISE_SOURCE_PROJECT_REF_SHA256`. Unrecognized URL shapes,
+      `hostaddr`/`host`/`service` overrides and `PGHOSTADDR`/`PGSERVICE` all
+      fail closed. The URL, host, ref and hash are never printed. This is what
+      stops a staging clone: it has the same schema, but a different ref.
+   2. **Schema (one read-only query).** The source must contain the required
+      Sunrise tables (`reservations`, `orders`, `order_items`, `rooms`,
+      `schema_migrations`). Its `schema_migrations` must also contain the
+      fixed migration markers (`IDENTITY_MARKERS` in the workflow).
+
+   If either check fails, the run stops and `pg_dump` is never called.
 2. **Dump.** `pg_dump` of schema `public` (custom format, `--no-owner`), with
    every session forced to `default_transaction_read_only=on`. Exact
    per-table row counts are taken right before and right after the dump. They
@@ -87,8 +102,10 @@ set `age_recipient` to the key owner's `age1...` public key.
 The run fails closed if any of these happen:
 - the key is malformed;
 - `SUPABASE_DB_URL` is unset;
+- `SUNRISE_SOURCE_PROJECT_REF_SHA256` is unset, or doesn't match the URL's
+  project (checked before any connection);
 - `pg_dump` major is below 17;
-- the source is not the Sunrise DB (tables or markers missing);
+- the source is missing Sunrise tables or markers (checked before the dump);
 - counts change during the dump;
 - the restore errors;
 - restored counts or markers differ from the source.
@@ -144,6 +161,11 @@ what lives outside `public`:
   `ALTER PUBLICATION supabase_realtime ADD TABLE reservations, orders;`
 
 ## Known limits and follow-ups
+
+- **What the identity gate proves.** It proves the URL names the expected
+  project, and that the project has the Sunrise schema. It cannot detect a
+  DNS or network-level redirect. TLS (`PGSSLMODE=require`) encrypts the
+  connection but does not verify the server certificate.
 
 - **Write-capable credential.** The run uses the write-capable
   `SUPABASE_DB_URL` and makes it read-only per session. A dedicated read-only

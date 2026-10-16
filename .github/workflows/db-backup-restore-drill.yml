@@ -15,8 +15,11 @@ name: DB backup + isolated restore drill
 #   mode-600 files under $RUNNER_TEMP/drill-logs (never uploaded, shredded in
 #   the always() cleanup); failures print only stage + exit + SQLSTATE class
 #   (scripts/db-drill/lib.sh).
-# - Fails closed unless the source AND restore contain the required Sunrise
-#   tables and schema_migrations identity markers.
+# - BEFORE any pg_dump, fails closed unless (1) the project ref derived from
+#   SUPABASE_DB_URL hashes to vars.SUNRISE_SOURCE_PROJECT_REF_SHA256 (the URL,
+#   host and ref are never printed) and (2) a read-only query finds the
+#   required Sunrise tables and schema_migrations identity markers on the
+#   source. The restore is checked again after pg_restore.
 # - The restore target has no published ports (reachable only as
 #   `restore-db` on the job network) and never receives the secret.
 # - Only the encrypted bundle, its checksum and a totals-only manifest are
@@ -76,6 +79,7 @@ jobs:
         env:
           AGE_RECIPIENT: ${{ inputs.age_recipient }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          EXPECTED_SOURCE_REF_SHA256: ${{ vars.SUNRISE_SOURCE_PROJECT_REF_SHA256 }}
         shell: bash
         run: |
           set -euo pipefail
@@ -85,6 +89,10 @@ jobs:
           fi
           if [ -z "${SUPABASE_DB_URL:-}" ]; then
             echo "::error::Repository secret SUPABASE_DB_URL is not set"
+            exit 1
+          fi
+          if [[ ! "${EXPECTED_SOURCE_REF_SHA256:-}" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::Repository variable SUNRISE_SOURCE_PROJECT_REF_SHA256 must be set to sha256(project ref) (64 hex)"
             exit 1
           fi
           echo "inputs ok"
@@ -115,6 +123,7 @@ jobs:
       - name: Source — identity, read-only counts, pg_dump, read-only counts
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          EXPECTED_SOURCE_REF_SHA256: ${{ vars.SUNRISE_SOURCE_PROJECT_REF_SHA256 }}
           PGSSLMODE: require
           PGOPTIONS: "-c default_transaction_read_only=on"
         shell: bash
@@ -125,6 +134,13 @@ jobs:
           . scripts/db-drill/lib.sh
           mkdir -p "${PLAIN_DIR}" "${OUT_DIR}"
           chmod 700 "${PLAIN_DIR}"
+
+          # Gate 1 (no network): the connection must name the expected project.
+          drill_assert_source_identity "${SUPABASE_DB_URL}" "${EXPECTED_SOURCE_REF_SHA256}"
+          # Gate 2 (read-only query): required tables + migration markers.
+          # Both gates run before pg_dump, so a wrong source is never exported.
+          drill_schema_preflight source-preflight "${REQUIRED_TABLES}" "${IDENTITY_MARKERS}" \
+            "${PLAIN_DIR}/source.identity" "${SUPABASE_DB_URL}"
 
           drill_counts source-counts-before "${PLAIN_DIR}/source-before.counts" "${SUPABASE_DB_URL}"
 
@@ -154,15 +170,9 @@ jobs:
           fi
           mv "${PLAIN_DIR}/source-after.counts" "${PLAIN_DIR}/source.counts"
 
-          # Source identity: required Sunrise tables + applied-migration markers.
+          # Belt and braces: the counted snapshot must also hold the tables.
           # shellcheck disable=SC2086 # intentional word split of the fixed list
           drill_require_tables "${PLAIN_DIR}/source.counts" ${REQUIRED_TABLES}
-          drill_identity source-identity "${PLAIN_DIR}/source.identity" "${IDENTITY_MARKERS}" "${SUPABASE_DB_URL}"
-          expected_markers="$(awk -F, '{print NF}' <<< "${IDENTITY_MARKERS}")"
-          if ! grep -qx "markers_found=${expected_markers}" "${PLAIN_DIR}/source.identity"; then
-            echo "::error::source is not the expected Sunrise database (identity markers missing)"
-            exit 1
-          fi
 
           sha256sum "${PLAIN_DIR}/${DUMP_NAME}" | awk '{print $1}' > "${PLAIN_DIR}/dump.sha256"
           stat -c '%s' "${PLAIN_DIR}/${DUMP_NAME}" > "${PLAIN_DIR}/dump.bytes"
