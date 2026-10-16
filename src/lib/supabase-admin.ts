@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { depositReminderStartWindow } from "@/lib/deposit-deadline";
 import crypto from "crypto";
 import { phonesMatch } from "@/lib/phone-utils";
 import {
@@ -601,34 +602,50 @@ export async function fetchReservationsIn7Days() {
   return data;
 }
 
-// 取得尚未付訂金、待處理中的訂位（pending / confirmed，供到期提醒；ADR-012 起不自動取消）
-export async function fetchUnpaidDepositDueReservations() {
-  const { data, error } = await supabaseAdmin()
-    .from("reservations")
-    .select(
-      "id, booking_code, customer_name, phone, start_time, end_time, created_at, status, line_user_id, deposit_reminder_sent_at, deposit_urgent_reminder_sent_at, room:rooms(id, name, branch:branches(name))"
-    )
-    .in("status", ["pending", "confirmed"])
-    .eq("is_deposit_paid", false)
-    .order("start_time", { ascending: true });
+const UNPAID_DEPOSIT_SELECT =
+  "id, booking_code, customer_name, phone, start_time, end_time, created_at, status, line_user_id, deposit_reminder_sent_at, deposit_urgent_reminder_sent_at, room:rooms(id, name, branch:branches(name))";
+const UNPAID_DEPOSIT_SELECT_LEGACY =
+  "id, booking_code, customer_name, phone, start_time, end_time, created_at, status, line_user_id, deposit_reminder_sent_at, room:rooms(id, name, branch:branches(name))";
+/** At or below Supabase/PostgREST `max-rows` (default 1000), so a short page means the end. */
+export const UNPAID_DEPOSIT_PAGE_SIZE = 1000;
 
-  if (error) {
-    // migration 未套用時降級：略過 deposit_urgent_reminder_sent_at
-    if (/deposit_urgent_reminder_sent_at/i.test(error.message)) {
-      const fallback = await supabaseAdmin()
+/**
+ * 尚未付訂金（pending / confirmed）且「現在可能需要提醒」的訂位，供訂金期限 Cron。
+ * ADR-012 起逾期未付的訂位不會被取消，會永遠留在 pending/confirmed；因此只取
+ * start_time 落在 depositReminderStartWindow(now) 內的列，並以 (start_time, id)
+ * 穩定排序分頁讀完，避免被 API 回傳上限截斷（#468 review）。不修改任何訂位。
+ */
+export async function fetchUnpaidDepositDueReservations(now: Date = new Date()) {
+  const { startAfter, startAtOrBefore } = depositReminderStartWindow(now);
+  const readAll = async (columns: string) => {
+    const rows: Record<string, unknown>[] = [];
+    for (let from = 0; ; from += UNPAID_DEPOSIT_PAGE_SIZE) {
+      const { data, error } = await supabaseAdmin()
         .from("reservations")
-        .select(
-          "id, booking_code, customer_name, phone, start_time, end_time, created_at, status, line_user_id, deposit_reminder_sent_at, room:rooms(id, name, branch:branches(name))"
-        )
+        .select(columns)
         .in("status", ["pending", "confirmed"])
         .eq("is_deposit_paid", false)
-        .order("start_time", { ascending: true });
-      if (fallback.error) throw fallback.error;
-      return fallback.data;
+        .gt("start_time", startAfter.toISOString())
+        .lte("start_time", startAtOrBefore.toISOString())
+        .order("start_time", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, from + UNPAID_DEPOSIT_PAGE_SIZE - 1);
+      if (error) return { rows, error };
+      const page = (data ?? []) as unknown as Record<string, unknown>[];
+      rows.push(...page);
+      if (page.length < UNPAID_DEPOSIT_PAGE_SIZE) return { rows, error: null };
     }
-    throw error;
+  };
+
+  const primary = await readAll(UNPAID_DEPOSIT_SELECT);
+  if (!primary.error) return primary.rows;
+  // migration 未套用時降級：略過 deposit_urgent_reminder_sent_at
+  if (/deposit_urgent_reminder_sent_at/i.test(primary.error.message)) {
+    const fallback = await readAll(UNPAID_DEPOSIT_SELECT_LEGACY);
+    if (fallback.error) throw fallback.error;
+    return fallback.rows;
   }
-  return data;
+  throw primary.error;
 }
 
 /**

@@ -54,6 +54,27 @@ export function depositDeadlineRemainingMs(deadline: Date, now: Date = new Date(
 }
 
 /**
+ * 目前「可能」需要發訂金提醒的訂位，其 start_time 一定落在 (now, now + 30h]。
+ * 供 Cron 查詢縮小範圍，避免逾期未付（ADR-012 起永遠不會被取消）的舊訂位
+ * 塞滿 API 回傳上限，餓死真正該提醒的訂位（#468 review）。
+ *
+ * 推導（只用本檔的規則，常數改了範圍會跟著變）：
+ * - deadline = min(max(created + 48h, start − 6h), start)，所以
+ *   start − MIN_GRACE_HOURS_BEFORE_START ≤ deadline ≤ start。
+ * - 首次提醒與迫近提醒都要求 0 < deadline − now ≤ REMINDER_WINDOW_HOURS
+ *   （迫近的 URGENCY_SOON_HOURS 視窗更小）。
+ * - deadline > now ⇒ start > now；deadline ≤ now + 24h ⇒ start ≤ now + 24h + 6h。
+ * 此範圍是必要條件，不是充分條件；最終仍由 shouldSend* 判斷。
+ */
+export function depositReminderStartWindow(now: Date = new Date()): { startAfter: Date; startAtOrBefore: Date } {
+  const horizonHours = Math.max(REMINDER_WINDOW_HOURS, URGENCY_SOON_HOURS) + MIN_GRACE_HOURS_BEFORE_START;
+  return {
+    startAfter: new Date(now.getTime()),
+    startAtOrBefore: new Date(now.getTime() + horizonHours * HOUR_MS),
+  };
+}
+
+/**
  * 是否已過訂金期限。只供顯示與 LINE Pay 線上付款的既有限制使用；
  * 逾期不代表要取消訂位（ADR-012）。
  */

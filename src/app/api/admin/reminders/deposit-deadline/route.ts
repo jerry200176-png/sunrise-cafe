@@ -101,8 +101,9 @@ async function handleRun() {
   }
 
   try {
-  const rows = (await fetchUnpaidDepositDueReservations()) as unknown as Row[];
   const now = new Date();
+  // Bounded to bookings that can still get a reminder now, read page by page.
+  const rows = (await fetchUnpaidDepositDueReservations(now)) as unknown as Row[];
   // Kept in the response (always 0) so job_runs metadata and dashboards that
   // read `released` keep their shape after ADR-012.
   const released = 0;
