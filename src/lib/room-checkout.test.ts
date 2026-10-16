@@ -3,6 +3,7 @@ import { getDepositAmount } from "@/lib/booking-utils";
 import { SLOT_STEP_MS } from "@/lib/slot-grid";
 import {
   EXTEND_STEPS_MINUTES,
+  foodStillOwed,
   addMinutes,
   computeCheckoutBill,
   newEndProblem,
@@ -61,6 +62,27 @@ describe("roomFloorState", () => {
 });
 
 describe("computeCheckoutBill", () => {
+  it("with extension records, bills the booked total plus the recorded fees (rate changes don't matter)", () => {
+    const input = { startTime: at("14:00"), endTime: at("17:00"), bookedTotal: 400, isDepositPaid: true, foodTotal: 120,
+      extensions: { minutes: 60, fee: 230 } };
+    const a = computeCheckoutBill({ ...input, room: { price_weekday: 200, price_weekend: 300 } });
+    const b = computeCheckoutBill({ ...input, room: { price_weekday: 999, price_weekend: 999 } });
+    expect(a).toMatchObject({ bookedRoomFee: 400, extensionFee: 230, roomFee: 630, due: 630 + 120 - getDepositAmount(400) });
+    expect(b.roomFee).toBe(a.roomFee);
+  });
+
+  it("an early leave lowers the room fee and can turn into a refund", () => {
+    const bill = computeCheckoutBill({ room: { price_weekday: 300, price_weekend: 300 }, startTime: at("14:00"), endTime: at("14:30"),
+      bookedTotal: 600, isDepositPaid: true, foodTotal: 0, extensions: { minutes: -90, fee: -450 } });
+    expect(bill).toMatchObject({ roomFee: 150, due: 0, refund: getDepositAmount(600) - 150 });
+  });
+
+  it("without a booked total, prices only the originally booked minutes at the current rate", () => {
+    const bill = computeCheckoutBill({ room: { price_weekday: 200, price_weekend: 200 }, startTime: at("14:00"), endTime: at("17:00"),
+      bookedTotal: null, isDepositPaid: false, foodTotal: 0, extensions: { minutes: 60, fee: 150 } });
+    expect(bill).toMatchObject({ bookedRoomFee: 400, roomFee: 550 });
+  });
+
   it("bills the room from the current times and follows the room rates", () => {
     const base = { startTime: at("14:00"), endTime: at("17:00"), bookedTotal: null, isDepositPaid: false, foodTotal: 360 };
     const a = computeCheckoutBill({ ...base, room: { price_weekday: 200, price_weekend: 300 } });
@@ -113,6 +135,13 @@ describe("extension", () => {
     ];
     expect(nextBlockingStart(current, others)).toBe(at("17:00"));
     expect(nextBlockingStart(current, [])).toBeNull();
+  });
+
+  it("treats the released statuses it is given as free slots (no_show after #444)", () => {
+    const current = res({ status: "checked_in" });
+    const others = [res({ id: "ns", status: "no_show", start_time: at("16:30") }), res({ id: "n1", start_time: at("18:00") })];
+    expect(nextBlockingStart(current, others)).toBe(at("16:30"));
+    expect(nextBlockingStart(current, others, ["cancelled", "no_show"])).toBe(at("18:00"));
   });
 
   it("validates a new end time", () => {
@@ -194,5 +223,20 @@ describe("overdue waiting reservations", () => {
     const state = roomFloorState([res({ status: "confirmed" })], Date.parse(at("17:30")));
     expect(state.status).toBe("awaiting");
     expect(state.current?.status).toBe("confirmed");
+  });
+});
+
+describe("foodStillOwed (#447 P2-2)", () => {
+  it("asks for leftover food only when an ended stay has unpaid food above zero", () => {
+    expect(foodStillOwed("completed", null, 360)).toBe(true);
+    expect(foodStillOwed("cancelled", null, "120")).toBe(true);
+    expect(foodStillOwed("no_show", null, 50)).toBe(true);
+  });
+  it("never asks for NT$0 food, already-paid food, or a group still in the room", () => {
+    expect(foodStillOwed("completed", null, 0)).toBe(false);
+    expect(foodStillOwed("cancelled", null, "0")).toBe(false);
+    expect(foodStillOwed("no_show", null, null)).toBe(false);
+    expect(foodStillOwed("completed", "2026-10-15T08:00:00Z", 360)).toBe(false);
+    expect(foodStillOwed("checked_in", null, 360)).toBe(false);
   });
 });

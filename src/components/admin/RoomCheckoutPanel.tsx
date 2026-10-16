@@ -8,13 +8,16 @@ import { MenuPicker } from "@/components/MenuPicker";
 import { selectionProblem } from "@/lib/option-sets";
 import type { DraftItemInput } from "@/lib/reservation-preorder";
 import type { MenuCategory, MenuItem, Order, OrderItem } from "@/types";
-import { EXTEND_STEPS_MINUTES, addMinutes, newEndProblem, overtimeSettledEnd, resolveClockNear, type CheckoutBill } from "@/lib/room-checkout";
+import { EXTEND_STEPS_MINUTES, addMinutes, foodStillOwed, newEndProblem, overtimeSettledEnd, resolveClockNear, type CheckoutBill } from "@/lib/room-checkout";
 import { fmtClock, minutesText } from "@/components/admin/RoomFloor3D";
+import { PAYMENT_METHODS, type PaymentMethod } from "@/lib/room-settlement";
 
 type View = {
   reservation: { customer_name: string; booking_code: string; start_time: string; status: string; guest_count?: number | null };
   preorder: { requires_reconfirmation: boolean } | null;
   order: Order | null;
+  /** 結帳紀錄（#444）已上線：結帳要選付款方式，可打折 */
+  settlementsReady?: boolean;
   billing: { start_time: string; end_time: string; status: string; total_price: number | null; is_deposit_paid: boolean;
     next_start: string | null; bill: CheckoutBill | null };
 };
@@ -43,6 +46,9 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   const [picking, setPicking] = useState<DraftItemInput[] | null>(null);
   const [customEnd, setCustomEnd] = useState("");
   const [confirmCheckout, setConfirmCheckout] = useState(false);
+  const [method, setMethod] = useState<PaymentMethod>("cash");
+  const [discount, setDiscount] = useState("");
+  const [discountReason, setDiscountReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const api = `/api/admin/reservation-orders/${encodeURIComponent(reservationId)}`;
@@ -66,6 +72,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
 
   useEffect(() => {
     setView(null); setError(""); setPicking(null); setConfirmCheckout(false);
+    setMethod("cash"); setDiscount(""); setDiscountReason("");
     load().catch((cause) => setError(thrownMessage(cause, "載入失敗，請重新整理")));
   }, [load]);
 
@@ -112,6 +119,12 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   const roomSettled = billing?.status === "completed";
   // 報到後被取消的組：不收包廂費，只剩餐費要補記
   const stayCancelled = billing?.status === "cancelled" || billing?.status === "no_show";
+  const ready = Boolean(view?.settlementsReady);
+  const discountAmount = ready && /^\d+$/.test(discount) ? Number(discount) : 0;
+  const collect = bill ? Math.max(0, bill.due - discountAmount) : 0;
+  const payment = ready ? { payment_method: method } : {};
+  const discountProblem = discountAmount > 0 && !discountReason.trim() ? "打折要填原因"
+    : bill && discountAmount > bill.due ? "折扣不能比要收的多" : "";
   const minutesLeft = billing ? Math.floor((new Date(billing.end_time).getTime() - nowMs) / 60_000) : null;
   const settleEnd = billing && checkedIn ? overtimeSettledEnd(billing.end_time, nowMs) : null;
 
@@ -242,7 +255,9 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
 
       {bill && order && <footer className="sticky-bottom-safe border-t border-ink/10 bg-white/90 px-5 py-4 backdrop-blur">
         <dl className="space-y-1 text-sm">
-          <Row label={`包廂費（${bill.isWeekend ? "假日" : "平日"}每小時 ${money(bill.hourlyRate)}，用了 ${durationText(bill.hours)}）`} value={money(bill.roomFee)} />
+          <Row label={bill.bookedRoomFee != null && bill.extensionFee
+            ? `包廂費（預約 ${money(bill.bookedRoomFee)}，${bill.extensionFee > 0 ? "延長" : "提早離開"} ${bill.extensionFee > 0 ? "+" : "−"} ${money(Math.abs(bill.extensionFee))}，用了 ${durationText(bill.hours)}）`
+            : `包廂費（${bill.isWeekend ? "假日" : "平日"}每小時 ${money(bill.hourlyRate)}，用了 ${durationText(bill.hours)}）`} value={money(bill.roomFee)} />
           <Row label={bill.foodSettled ? "餐費（之前已經收過）" : "餐費"} value={bill.foodSettled ? `${money(bill.foodTotal)} ✓` : money(bill.foodTotal)} />
           {bill.depositCredit > 0 && <Row label="已付訂金" value={`− ${money(bill.depositCredit)}`} />}
         </dl>
@@ -253,15 +268,34 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
         {bill.refund > 0 && !stayCancelled && !roomSettled && <p className="mt-2 rounded-xl border border-sky-300 bg-sky-50 p-2 text-sm text-sky-900">
           時間縮短了，訂金比要收的多：結帳時要退客人 <strong className="tabular-nums">{money(bill.refund)}</strong>。</p>}
         {billing?.total_price != null && billing.total_price !== bill.roomFee && <p className="mt-1 text-[11px] text-ink-faint">預約時是 {money(billing.total_price)}，多出來的是延長的時間</p>}
-        {(roomSettled || stayCancelled) && !paid && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+        {/* 餐費 0 元沒有東西可補記（#447 P2-2） */}
+        {foodStillOwed(billing?.status, order.paid_at, bill.foodTotal) && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
           {stayCancelled ? "這組已經取消" : "這組已經結束"}，但餐費 {money(bill.foodTotal)} 還沒記收款。
-          <button type="button" disabled={busy} onClick={() => act("settle")}
+          {ready && <MethodPicker value={method} onChange={setMethod} />}
+          <button type="button" disabled={busy} onClick={() => act("settle", payment)}
             className="mt-2 block h-11 w-full rounded-xl bg-ink font-semibold text-paper disabled:opacity-50">收到餐費 {money(bill.foodTotal)}，補記</button>
         </div>}
-        {!roomSettled && !stayCancelled && (confirmCheckout ? <div className="mt-3 grid grid-cols-2 gap-2">
-          <button type="button" onClick={() => setConfirmCheckout(false)} className="h-12 rounded-xl border border-ink/15 font-medium">再等等</button>
-          <button type="button" disabled={busy} onClick={async () => { if (await act("checkout", { expected_due: bill.due, expected_refund: bill.refund })) setConfirmCheckout(false); else void load().catch(() => undefined); }}
-            className="h-12 rounded-xl bg-ink font-semibold text-paper disabled:opacity-50">{bill.refund > 0 ? `已退客人 ${money(bill.refund)}，結帳` : `確定收到 ${money(bill.due)}`}</button>
+        {!roomSettled && !stayCancelled && (confirmCheckout ? <div className="mt-3 space-y-2">
+          {ready && (collect > 0 || bill.refund > 0) && <MethodPicker value={method} onChange={setMethod} label={bill.refund > 0 ? "怎麼退" : "怎麼收"} />}
+          {ready && bill.due > 0 && <details className="rounded-xl border border-ink/10 px-3 py-2 text-sm">
+            <summary className="cursor-pointer text-ink-soft">打折（只有老闆或店長可以）</summary>
+            <div className="mt-2 grid grid-cols-[7rem_1fr] gap-2">
+              <input inputMode="numeric" value={discount} onChange={(e) => setDiscount(e.target.value.replace(/\D/g, ""))} placeholder="折多少"
+                aria-label="折扣金額" className="h-11 rounded-xl border border-ink/15 px-3 tabular-nums" />
+              <input value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} placeholder="原因（必填）"
+                aria-label="折扣原因" className="h-11 rounded-xl border border-ink/15 px-3" />
+            </div>
+            {discountProblem && <p className="mt-1 text-xs text-red-700">{discountProblem}</p>}
+          </details>}
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => setConfirmCheckout(false)} className="h-12 rounded-xl border border-ink/15 font-medium">再等等</button>
+            <button type="button" disabled={busy || Boolean(discountProblem)} onClick={async () => {
+              const ok = await act("checkout", { expected_due: bill.due, expected_refund: bill.refund, ...payment,
+                ...(discountAmount > 0 ? { discount_amount: discountAmount, discount_reason: discountReason.trim() } : {}) });
+              if (ok) setConfirmCheckout(false); else void load().catch(() => undefined);
+            }}
+              className="h-12 rounded-xl bg-ink font-semibold text-paper disabled:opacity-50">{bill.refund > 0 ? `已退客人 ${money(bill.refund)}，結帳` : `確定收到 ${money(collect)}`}</button>
+          </div>
         </div> : <button type="button" disabled={busy || !checkedIn} onClick={() => setConfirmCheckout(true)}
           className="mt-3 h-12 w-full rounded-[1.25rem] bg-gradient-to-br from-[#b5742c] to-[#9d6519] font-semibold text-white shadow-[0_10px_30px_-12px_rgba(157,101,25,0.45)] transition-transform duration-150 active:scale-[0.985] disabled:opacity-50">
           收好錢了，結帳
@@ -269,6 +303,15 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
       </footer>}
     </aside>
   );
+}
+
+function MethodPicker({ value, onChange, label = "怎麼收" }: { value: PaymentMethod; onChange: (value: PaymentMethod) => void; label?: string }) {
+  return <div role="radiogroup" aria-label={label} className="mt-2 flex flex-wrap items-center gap-1.5 text-sm">
+    <span className="text-ink-soft">{label}</span>
+    {PAYMENT_METHODS.map((option) => <button key={option.value} type="button" role="radio" aria-checked={value === option.value}
+      onClick={() => onChange(option.value)}
+      className={`h-10 rounded-full border px-3 ${value === option.value ? "border-ink bg-ink text-paper" : "border-ink/15 bg-white"}`}>{option.label}</button>)}
+  </div>;
 }
 
 function Row({ label, value }: { label: string; value: string }) {

@@ -4,7 +4,9 @@ import { getReservationForPreorder, getReservationPreorder, validateAndSnapshotI
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { computeCheckoutBill, newEndProblem, nextBlockingStart } from "@/lib/room-checkout";
 import { isPostgresExclusionViolation } from "@/lib/slot-conflict";
-import { transitionHttp, transitionReservation } from "@/lib/reservation-lifecycle";
+import { afterSettledComplete, transitionHttp, transitionReservation } from "@/lib/reservation-lifecycle";
+import { canAdjustMoney, isPaymentMethod, isSettlementSchemaMissing, settlementFailure } from "@/lib/room-settlement";
+import { canAccessBranch, type AdminContext } from "@/lib/rbac";
 import { logOps } from "@/lib/ops-log";
 
 type Params = { params: Promise<{ id: string }> };
@@ -35,8 +37,10 @@ async function load(id: string) {
     bookedTotal: billing.reservation.total_price, isDepositPaid: Boolean(billing.reservation.is_deposit_paid),
     foodTotal: Number(orderResult.data?.total_amount) || 0,
     foodSettled: Boolean(orderResult.data?.paid_at) && billing.reservation.status !== "completed",
+    extensions: billing.extensions,
   }) : null;
-  return { preorder, order: orderResult.data, billing: { ...billing.reservation, next_start: billing.nextStart, bill } };
+  return { preorder, order: orderResult.data, settlementsReady: billing.extensions !== null,
+    billing: { ...billing.reservation, next_start: billing.nextStart, bill } };
 }
 
 /** 現場結帳需要的包廂費率、訂位金額與同包廂下一組開始時間（延時上限）。 */
@@ -51,6 +55,11 @@ async function loadBilling(id: string) {
     .select("id,room_id,start_time,status").eq("room_id", data.room_id)
     .gte("start_time", data.start_time).neq("status", "cancelled").neq("id", id).order("start_time").limit(5);
   if (sameRoomError) throw sameRoomError;
+  // 延長紀錄（#444）。表還不存在 = migration 尚未套用：extensions 為 null，全部走舊流程
+  const ext = await db.from("reservation_extensions").select("minutes,fee").eq("reservation_id", id);
+  if (ext.error && !isSettlementSchemaMissing(ext.error)) throw ext.error;
+  const extensions = ext.error ? null : (ext.data ?? []).reduce((sum, row) =>
+    ({ minutes: sum.minutes + Number(row.minutes), fee: sum.fee + Number(row.fee) }), { minutes: 0, fee: 0 });
   return {
     reservation: { id: data.id as string, room_id: data.room_id as string, start_time: data.start_time as string,
       end_time: data.end_time as string, status: data.status as string,
@@ -58,7 +67,9 @@ async function loadBilling(id: string) {
       // 退過款的訂金（Stripe 退款只改 deposit_status，is_deposit_paid 仍為 true）不能再扣
       is_deposit_paid: Boolean(data.is_deposit_paid) && data.deposit_status !== "refunded" },
     room: (room ?? null) as { price_weekday: number; price_weekend: number } | null,
-    nextStart: nextBlockingStart(data, sameRoom ?? []),
+    // 套用 migration 後「沒來」不再佔時段，延長上限也跟著放寬
+    nextStart: nextBlockingStart(data, sameRoom ?? [], extensions ? ["cancelled", "no_show"] : ["cancelled"]),
+    extensions,
   };
 }
 
@@ -72,6 +83,45 @@ async function updateStatus(orderId: string) {
     : rows.some((row) => row.served_at) ? "preparing" : order.paid_at && rows.length === 0 ? "completed" : "pending";
   const result = await db.from("orders").update({ status }).eq("id", orderId);
   if (result.error) throw result.error;
+}
+
+/** 呼叫 settle_reservation_checkout：expected 是店員畫面上（打折前）的應收與應退，伺服器會重算核對。 */
+async function settle(
+  id: string,
+  branchId: string,
+  body: { payment_method?: string; discount_amount?: number; discount_reason?: string | null },
+  expectedBeforeDiscount: number,
+  expectedRefund: number,
+  ctx: AdminContext
+): Promise<{ id: string } | { response: NextResponse }> {
+  const discount = body.discount_amount ?? 0;
+  if (!Number.isInteger(discount) || discount < 0) return { response: NextResponse.json({ error: "折扣金額不對" }, { status: 400 }) };
+  // 角色只看登入 session（ctx），前端送什麼都不採信；資料庫函式會再檢查一次
+  if ((discount > 0 || expectedRefund > 0) && !canAdjustMoney(ctx.role, canAccessBranch(ctx, branchId))) {
+    return { response: NextResponse.json({ error: discount > 0 ? "只有老闆或店長可以打折" : "退錢要請老闆或店長操作" }, { status: 403 }) };
+  }
+  const collected = Math.max(0, expectedBeforeDiscount - discount);
+  const method = body.payment_method ?? null;
+  if ((collected > 0 || expectedRefund > 0) && !isPaymentMethod(method)) {
+    return { response: NextResponse.json({ error: "請選付款方式" }, { status: 400 }) };
+  }
+  const result = await supabaseAdmin().rpc("settle_reservation_checkout", {
+    p_reservation_id: id,
+    p_expected_before_discount: expectedBeforeDiscount,
+    p_expected_refund: expectedRefund,
+    p_payment_method: method ?? "none",
+    p_amount_collected: collected,
+    p_discount_amount: discount,
+    p_discount_reason: body.discount_reason ?? null,
+    p_actor: ctx.user_id ?? ctx.role ?? null,
+    p_actor_role: ctx.role ?? null,
+  });
+  if (result.error) {
+    const failure = settlementFailure(result.error);
+    if (failure) return { response: NextResponse.json({ error: failure.error }, { status: failure.status }) };
+    throw result.error;
+  }
+  return { id: (result.data as { id: string }).id };
 }
 
 export async function GET(request: NextRequest, { params }: Params) {
@@ -93,9 +143,10 @@ export async function POST(request: NextRequest, { params }: Params) {
     const body = await request.json() as {
       action: Action; item?: DraftItemInput; items?: DraftItemInput[];
       item_id?: string; notes?: string | null; quantity?: number; end_time?: string; expected_due?: number; expected_refund?: number;
+      payment_method?: string; discount_amount?: number; discount_reason?: string | null;
     };
     const db = supabaseAdmin();
-    const { order, billing: current } = await load(id);
+    const { order, billing: current, settlementsReady } = await load(id);
     if (body.action === "check_in") {
       if (order && ["pending", "confirmed"].includes(auth.reservation!.status)) {
         // 取消後又恢復的訂位：現場訂單還在，activate RPC 看到訂單就直接返回，不會改狀態，所以走狀態轉換保留原訂單
@@ -128,6 +179,19 @@ export async function POST(request: NextRequest, { params }: Params) {
       const { reservation, nextStart } = await loadBilling(id);
       const problem = newEndProblem(reservation.start_time, endTime.toISOString(), nextStart);
       if (problem) return NextResponse.json({ error: problem }, { status: 409 });
+      if (settlementsReady) {
+        // 改時間＋記延長紀錄在同一個 transaction；帶上剛讀到的結束時間，兩台同時延長時後到的會失敗
+        const ctx = await getAdminContext(request);
+        const result = await db.rpc("extend_reservation_stay", { p_reservation_id: id, p_expected_end: reservation.end_time,
+          p_new_end: endTime.toISOString(), p_actor: ctx.user_id ?? ctx.role });
+        if (result.error) {
+          const failure = settlementFailure(result.error);
+          if (failure) return NextResponse.json({ error: failure.error }, { status: failure.status });
+          throw result.error;
+        }
+        logOps("admin", "admin.reservation_extended", { reservation_id: id, from: reservation.end_time, to: endTime.toISOString(), actor: ctx.user_id ?? ctx.role });
+        return NextResponse.json({ ok: true, ...(await load(id)) });
+      }
       // 帶上剛讀到的結束時間：兩台同時延長時，後到的那台會 409，不會蓋掉前一台
       const result = await db.from("reservations").update({ end_time: endTime.toISOString() })
         .eq("id", id).eq("status", "checked_in").eq("end_time", reservation.end_time).select("id");
@@ -154,6 +218,20 @@ export async function POST(request: NextRequest, { params }: Params) {
         return NextResponse.json({ error: `金額剛剛有變動（現在要收 NT$ ${(due ?? 0).toLocaleString()}），請再確認一次`, billing: current }, { status: 409 });
       }
       const ctx = await getAdminContext(request);
+      if (settlementsReady) {
+        if (auth.reservation!.status !== "checked_in") return NextResponse.json({ error: "這組已經結過帳了，請重新整理看結果" }, { status: 409 });
+        const settled = await settle(id, auth.branchId!, body, due ?? 0, refund, ctx);
+        if ("response" in settled) return settled.response;
+        // 訂位已在 RPC 裡轉成 completed；附帶動作失敗不影響已結帳
+        try {
+          await afterSettledComplete(id, { kind: "admin", userId: ctx.user_id, label: ctx.role }, "checked_in");
+        } catch (error) {
+          logOps("admin", "admin.room_checkout_side_effect_failed", { reservation_id: id, error: error instanceof Error ? error.message : String(error) });
+        }
+        await updateStatus(order.id);
+        logOps("admin", "admin.room_checked_out", { reservation_id: id, due, actor: ctx.user_id ?? ctx.role, settlement_id: settled.id });
+        return NextResponse.json({ ok: true, ...(await load(id)) });
+      }
       // 沒有資料庫交易可用：先記已收，再轉「已完成」；轉換被拒絕或出錯就把剛記的已收撤回
       // （只撤回自己寫的那一筆）。萬一撤回也失敗，留下的是「已收但仍在包廂內」，
       // 場控圖上看得到、重按結帳會略過記帳只補轉換，不會卡住。
@@ -210,7 +288,19 @@ export async function POST(request: NextRequest, { params }: Params) {
       // 結帳完（或取消）的組只能補記餐費、標記出餐，不能再加點或改單
       return NextResponse.json({ error: "這組已經結帳離開，不能再加點或改餐點" }, { status: 409 });
     }
-    if (body.action === "settle") {
+    // 餐費 0 元沒有東西可收：RPC 會回 nothing_to_settle，所以不走 food_only 結帳紀錄，
+    // 改走下面的舊流程只標記 paid_at（不動 SQL；#447 P2-2）
+    const leftoverFood = Math.round(Number(order.total_amount) || 0);
+    if (body.action === "settle" && settlementsReady && leftoverFood > 0
+      && ["completed", "cancelled", "no_show"].includes(auth.reservation!.status)) {
+      // 已結束／取消／沒來的組補收餐費：寫一筆只有餐費的結帳紀錄。這些組不能再改餐點，所以金額就是目前的餐費
+      if (order.paid_at) return NextResponse.json({ error: "這組的餐費已經收過了" }, { status: 409 });
+      const food = leftoverFood;
+      const ctx = await getAdminContext(request);
+      // 舊點餐頁的「補記」按鈕沒有付款方式可選：記成「其他」
+      const settled = await settle(id, auth.branchId!, { ...body, payment_method: body.payment_method ?? "other" }, food, 0, ctx);
+      if ("response" in settled) return settled.response;
+    } else if (body.action === "settle") {
       if (!order.paid_at) {
         const result = await db.from("orders").update({ paid_at: new Date().toISOString() }).eq("id", order.id).is("paid_at", null);
         if (result.error) throw result.error;
