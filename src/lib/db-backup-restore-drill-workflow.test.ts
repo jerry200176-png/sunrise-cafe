@@ -85,7 +85,7 @@ describe("db-backup-restore-drill workflow (static)", () => {
     const withSecret = steps.filter((s) => JSON.stringify(s).includes("secrets."));
     expect(withSecret.map((s) => s.name)).toEqual([
       "Validate inputs and secret presence",
-      "Source — read-only counts, pg_dump, read-only counts",
+      "Source — identity, read-only counts, pg_dump, read-only counts",
     ]);
     for (const s of withSecret) {
       expect(s.env?.SUPABASE_DB_URL).toBe("${{ secrets.SUPABASE_DB_URL }}");
@@ -114,6 +114,7 @@ describe("db-backup-restore-drill workflow (static)", () => {
       expect(restore?.run).toContain(`CREATE ROLE ${role} `);
     }
     expect(restore?.run).toContain('cmp -s "${PLAIN_DIR}/source.counts" "${PLAIN_DIR}/restore.counts"');
+    expect(restore?.run).toContain('cmp -s "${PLAIN_DIR}/source.identity" "${PLAIN_DIR}/restore.identity"');
   });
 
   it("never prints dump contents", () => {
@@ -132,8 +133,8 @@ describe("db-backup-restore-drill workflow (static)", () => {
       .map((p) => p.trim())
       .filter(Boolean);
     expect(paths).toEqual([
-      "drill-out/sunrise-public.dump.age",
-      "drill-out/sunrise-public.dump.age.sha256",
+      "drill-out/sunrise-public-bundle.tar.age",
+      "drill-out/sunrise-public-bundle.tar.age.sha256",
       "drill-out/manifest.json",
     ]);
     expect(up.with?.["retention-days"]).toBe(14);
@@ -142,13 +143,64 @@ describe("db-backup-restore-drill workflow (static)", () => {
     }
   });
 
-  it("encrypts with age, shreds plaintext, and cleans up on failure", () => {
-    const enc = steps.find((s) => s.name?.startsWith("Encrypt dump"));
+  it("encrypts the dump + per-table counts as one bundle and cleans up on failure", () => {
+    const enc = steps.find((s) => s.name?.startsWith("Bundle + encrypt"));
     expect(enc?.run).toContain('age --encrypt --recipient "${AGE_RECIPIENT}"');
-    expect(enc?.run).toContain("shred -u");
+    expect(enc?.run).toMatch(/tar -C "\$\{PLAIN_DIR\}" -cf [^\n]*\\\n\s+"\$\{DUMP_NAME\}" source\.counts restore\.counts/);
+    expect(enc?.run).toContain('shred -u "${PLAIN_DIR}/${DUMP_NAME}" "${PLAIN_DIR}/${BUNDLE_NAME}"');
     const cleanup = steps[steps.length - 1];
     expect(cleanup.if).toBe("always()");
     expect(cleanup.run).toContain("shred -u");
+    expect(cleanup.run).toContain("/drill-logs");
+  });
+
+  it("routes every psql / pg_dump / pg_restore call through drill_quiet", () => {
+    // A tool in command position (line start, after $( ; && || |) would write
+    // straight to the Actions log. Only `--version` probes are allowed.
+    const direct = /(^\s*|\$\(\s*|;\s*|&&\s*|\|\|\s*|\|\s*)(psql|pg_dump|pg_restore)\s/;
+    const wrapped = /^\s*drill_quiet [a-z0-9_-]+ \S+\s+(psql|pg_dump|pg_restore) /;
+    let wrappedCount = 0;
+    for (const s of steps) {
+      if (!s.run) continue;
+      const logical = s.run.replace(/\\\n\s*/g, " ").split("\n");
+      for (const line of logical) {
+        if (wrapped.test(line)) wrappedCount += 1;
+        if (/(pg_dump|psql) --version/.test(line)) continue;
+        expect(line).not.toMatch(direct);
+      }
+    }
+    // source-version, source-pg-dump, restore-prepare, restore-toc, restore-pg-restore
+    expect(wrappedCount).toBeGreaterThanOrEqual(5);
+    expect(raw).toContain(". scripts/db-drill/lib.sh");
+  });
+
+  it("asserts Sunrise identity (required tables + migration markers) on source and restore", () => {
+    const env = (job as unknown as { env: Record<string, string> }).env;
+    expect(env.REQUIRED_TABLES.split(" ")).toEqual([
+      "reservations",
+      "orders",
+      "order_items",
+      "rooms",
+      "schema_migrations",
+    ]);
+    expect(env.IDENTITY_MARKERS).toMatch(/^\d{8}-[a-z0-9-]+(,\d{8}-[a-z0-9-]+)*$/);
+    const source = steps.find((s) => s.name?.startsWith("Source"));
+    const restore = steps.find((s) => s.name === "Restore drill into isolated service DB");
+    for (const st of [source, restore]) {
+      expect(st?.run).toMatch(/drill_require_tables "\$\{PLAIN_DIR\}\/(source|restore)\.counts" \$\{REQUIRED_TABLES\}/);
+      expect(st?.run).toContain("drill_identity ");
+    }
+    expect(source?.run).toContain("markers_found=${expected_markers}");
+  });
+
+  it("public manifest and summary carry totals/checksums only, and state public-schema scope", () => {
+    const enc = steps.find((s) => s.name?.startsWith("Bundle + encrypt"));
+    expect(enc?.run).toContain("PUBLIC SCHEMA ONLY - not a full Supabase recovery");
+    expect(enc?.run).not.toMatch(/tables:\s*\$tables/);
+    expect(enc?.run).toContain("total_rows: $total_rows");
+    const summary = steps.find((s) => s.name?.startsWith("Step summary"));
+    expect(summary?.run).not.toContain(".tables");
+    expect(summary?.run).toContain('["drill_result","identity_check","dump_sha256","bundle_sha256","age_sha256","table_count","total_rows"]');
   });
 
   it("does not reuse the known-defective local backup scripts", () => {
