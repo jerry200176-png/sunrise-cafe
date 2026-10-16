@@ -9,14 +9,12 @@ import {
 const origUrl = process.env.UPSTASH_REDIS_REST_URL;
 const origToken = process.env.UPSTASH_REDIS_REST_TOKEN;
 const origDisabled = process.env.RATE_LIMIT_DISABLED;
-const origNode = process.env.NODE_ENV;
 const origVercel = process.env.VERCEL_ENV;
 
 afterEach(() => {
   process.env.UPSTASH_REDIS_REST_URL = origUrl;
   process.env.UPSTASH_REDIS_REST_TOKEN = origToken;
   process.env.RATE_LIMIT_DISABLED = origDisabled;
-  process.env.NODE_ENV = origNode;
   process.env.VERCEL_ENV = origVercel;
   __resetMemoryRateLimitForTests();
 });
