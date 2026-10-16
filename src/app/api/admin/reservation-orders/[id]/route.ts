@@ -288,10 +288,14 @@ export async function POST(request: NextRequest, { params }: Params) {
       // 結帳完（或取消）的組只能補記餐費、標記出餐，不能再加點或改單
       return NextResponse.json({ error: "這組已經結帳離開，不能再加點或改餐點" }, { status: 409 });
     }
-    if (body.action === "settle" && settlementsReady && ["completed", "cancelled", "no_show"].includes(auth.reservation!.status)) {
+    // 餐費 0 元沒有東西可收：RPC 會回 nothing_to_settle，所以不走 food_only 結帳紀錄，
+    // 改走下面的舊流程只標記 paid_at（不動 SQL；#447 P2-2）
+    const leftoverFood = Math.round(Number(order.total_amount) || 0);
+    if (body.action === "settle" && settlementsReady && leftoverFood > 0
+      && ["completed", "cancelled", "no_show"].includes(auth.reservation!.status)) {
       // 已結束／取消／沒來的組補收餐費：寫一筆只有餐費的結帳紀錄。這些組不能再改餐點，所以金額就是目前的餐費
       if (order.paid_at) return NextResponse.json({ error: "這組的餐費已經收過了" }, { status: 409 });
-      const food = Math.round(Number(order.total_amount) || 0);
+      const food = leftoverFood;
       const ctx = await getAdminContext(request);
       // 舊點餐頁的「補記」按鈕沒有付款方式可選：記成「其他」
       const settled = await settle(id, auth.branchId!, { ...body, payment_method: body.payment_method ?? "other" }, food, 0, ctx);

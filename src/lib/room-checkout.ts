@@ -139,6 +139,17 @@ export function computeCheckoutBill(input: {
   };
 }
 
+/** 已經離開包廂（結束／取消／沒來）的狀態：只剩補收餐費可做 */
+export const ENDED_STAY_STATUSES = ["completed", "cancelled", "no_show"] as const;
+
+/**
+ * 結束後還有沒有餐費要補收（#447 P2-2）。餐費 0 元的組沒有東西可收：
+ * 不顯示「還沒記收款」也不給補記按鈕（伺服器也把它當成不用收）。
+ */
+export function foodStillOwed(status: string | null | undefined, paidAt: string | null | undefined, foodTotal: number | string | null | undefined): boolean {
+  return (ENDED_STAY_STATUSES as readonly string[]).includes(status ?? "") && !paidAt && Math.round(Number(foodTotal) || 0) > 0;
+}
+
 export function addMinutes(iso: string, minutes: number): string {
   return new Date(ms(iso) + minutes * 60_000).toISOString();
 }

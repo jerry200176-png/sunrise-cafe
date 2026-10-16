@@ -8,7 +8,7 @@ import { MenuPicker } from "@/components/MenuPicker";
 import { selectionProblem } from "@/lib/option-sets";
 import type { DraftItemInput } from "@/lib/reservation-preorder";
 import type { MenuCategory, MenuItem, Order, OrderItem } from "@/types";
-import { EXTEND_STEPS_MINUTES, addMinutes, newEndProblem, overtimeSettledEnd, resolveClockNear, type CheckoutBill } from "@/lib/room-checkout";
+import { EXTEND_STEPS_MINUTES, addMinutes, foodStillOwed, newEndProblem, overtimeSettledEnd, resolveClockNear, type CheckoutBill } from "@/lib/room-checkout";
 import { fmtClock, minutesText } from "@/components/admin/RoomFloor3D";
 import { PAYMENT_METHODS, type PaymentMethod } from "@/lib/room-settlement";
 
@@ -268,7 +268,8 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
         {bill.refund > 0 && !stayCancelled && !roomSettled && <p className="mt-2 rounded-xl border border-sky-300 bg-sky-50 p-2 text-sm text-sky-900">
           時間縮短了，訂金比要收的多：結帳時要退客人 <strong className="tabular-nums">{money(bill.refund)}</strong>。</p>}
         {billing?.total_price != null && billing.total_price !== bill.roomFee && <p className="mt-1 text-[11px] text-ink-faint">預約時是 {money(billing.total_price)}，多出來的是延長的時間</p>}
-        {(roomSettled || stayCancelled) && !paid && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+        {/* 餐費 0 元沒有東西可補記（#447 P2-2） */}
+        {foodStillOwed(billing?.status, order.paid_at, bill.foodTotal) && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
           {stayCancelled ? "這組已經取消" : "這組已經結束"}，但餐費 {money(bill.foodTotal)} 還沒記收款。
           {ready && <MethodPicker value={method} onChange={setMethod} />}
           <button type="button" disabled={busy} onClick={() => act("settle", payment)}

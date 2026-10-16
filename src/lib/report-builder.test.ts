@@ -36,9 +36,16 @@ describe("buildReport", () => {
     expect(buildReport(rows, [], 2, NOW, true).by_room[0].name).toBe("大安店 A包廂");
   });
   it("room revenue uses the settled room fee (with extensions) when a stay was checked out", () => {
-    const settled = buildReport([res({ status: "completed", settlement: { room_fee: 1450 } }), res({ room: room("r1", "A包廂") })], [], 1, NOW, false);
+    const settled = buildReport([res({ status: "completed", settlement: { room_fee: 1450, kind: "full" } }), res({ room: room("r1", "A包廂") })], [], 1, NOW, false);
     expect(settled.by_room[0]).toMatchObject({ name: "A包廂", bookings: 2, booked_amount: 1450 + 1000 });
     expect(buildReport([res({ settlement: [] })], [], 1, NOW, false).by_room[0].booked_amount).toBe(1000);
+  });
+  it("a food-only settlement (food collected later) keeps the booked room revenue instead of zeroing it", () => {
+    // 沒走結帳就完成的組（舊流程／PATCH checked_in→completed），之後才「收到餐費，補記」：room_fee=0 不代表包廂沒收錢
+    const late = buildReport([res({ status: "completed", settlement: { room_fee: 0, kind: "food_only" } })], [], 1, NOW, false);
+    expect(late.by_room[0].booked_amount).toBe(1000);
+    const cancelled = buildReport([res({ status: "no_show", settlement: [{ room_fee: 0, kind: "food_only" }] })], [], 1, NOW, false);
+    expect(cancelled.by_room[0].booked_amount).toBe(1000);
   });
   it("month list does not skip months at the 31st (no setMonth overflow)", () => {
     const jul31 = buildReport([], [], 6, new Date("2026-07-31T04:00:00Z"), false);

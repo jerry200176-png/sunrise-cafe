@@ -19,11 +19,12 @@ export async function fetchAll<T>(page: (from: number, to: number) => Page<T>) {
   }
 }
 
+export type ReportSettlement = { room_fee: number; kind?: string | null };
 export type RoomInfo = { id: string; name: string; branch_id: string; branch: { name: string } | { name: string }[] | null };
 export type ReportReservation = MetricReservation & {
   room: RoomInfo | RoomInfo[] | null;
-  /** 結帳紀錄（#444）的包廂費，含延長；還沒結帳或 migration 未套用時沒有 */
-  settlement?: { room_fee: number } | { room_fee: number }[] | null;
+  /** 結帳紀錄（#444）：kind=full 才有包廂費（含延長）；food_only 只補收餐費、room_fee 一律 0。還沒結帳或 migration 未套用時沒有 */
+  settlement?: ReportSettlement | ReportSettlement[] | null;
 };
 export type ReportOrder = MetricOrder & { created_at: string };
 
@@ -46,7 +47,7 @@ export async function fetchReportRows(db: SupabaseClient, scope: string[] | null
     return q as unknown as Page<ReportReservation>;
   });
   // 結帳紀錄表還不存在（migration 未套用）時，退回只讀訂位總價
-  const reservations = await readReservations(`${base},settlement:reservation_settlements(room_fee)`).catch((error: Error) => {
+  const reservations = await readReservations(`${base},settlement:reservation_settlements(room_fee,kind)`).catch((error: Error) => {
     if (/reservation_settlements/.test(error.message)) return readReservations(base);
     throw error;
   });

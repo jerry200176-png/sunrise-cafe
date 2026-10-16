@@ -8,6 +8,7 @@ import { MenuPicker } from "@/components/MenuPicker";
 import { selectionProblem } from "@/lib/option-sets";
 import type { MenuItem, Order, OrderItem } from "@/types";
 import type { DraftItemInput } from "@/lib/reservation-preorder";
+import { ENDED_STAY_STATUSES, foodStillOwed } from "@/lib/room-checkout";
 
 type ReservationView = { customer_name: string; booking_code: string; start_time: string; status: string; room?: { name: string; branch_id: string } | { name: string; branch_id: string }[] | null };
 type PreorderView = { status: string; guest_notes: string | null; draft_items: DraftItemInput[];
@@ -139,8 +140,12 @@ export default function ReservationOrderPage() {
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-300 pt-4">
             <strong>餐費 NT$ {Number(view.order.total_amount).toLocaleString()}</strong>
-            <button disabled={busy || Boolean(view.order.paid_at)} onClick={() => act("settle")}
-              className="rounded-lg bg-stone-900 px-4 py-2 font-semibold text-white disabled:opacity-50">{view.order.paid_at ? "已結帳" : "記錄現場已結帳"}</button>
+            {/* 已離開且餐費 0 元：沒有東西可收，不給補記按鈕（#447 P2-2） */}
+            {(view.order.paid_at || !(ENDED_STAY_STATUSES as readonly string[]).includes(view.reservation.status)
+              || foodStillOwed(view.reservation.status, view.order.paid_at, view.order.total_amount))
+              ? <button disabled={busy || Boolean(view.order.paid_at)} onClick={() => act("settle")}
+                className="rounded-lg bg-stone-900 px-4 py-2 font-semibold text-white disabled:opacity-50">{view.order.paid_at ? "已結帳" : "記錄現場已結帳"}</button>
+              : <span className="text-sm text-stone-500">沒有餐費要收</span>}
           </div>
         </section>
         {!view.order.paid_at && <section className="rounded-xl border border-stone-200 bg-white p-4"><h2 className="mb-3 text-lg font-semibold">現場追加餐點</h2>

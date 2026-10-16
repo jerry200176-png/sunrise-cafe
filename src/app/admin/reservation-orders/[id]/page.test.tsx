@@ -103,3 +103,27 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
     expect(getCount).toBe(2);
   });
 });
+
+describe("standalone reservation orders — NT$0 food on an ended stay (#447 P2-2)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function stub(status: string, total: number) {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.startsWith("/api/menu?")) return Response.json(menu);
+      return Response.json({ ...view, reservation: { ...view.reservation, status }, order: { ...view.order, total_amount: total } });
+    }));
+  }
+
+  it.each(["completed", "cancelled", "no_show"])("does not offer to record zero food on a %s stay", async (status) => {
+    stub(status, 0);
+    render(<ReservationOrderPage />);
+    expect(await screen.findByText("沒有餐費要收")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "記錄現場已結帳" })).toBeNull();
+  });
+
+  it("still offers it when an ended stay has unpaid food", async () => {
+    stub("completed", 120);
+    render(<ReservationOrderPage />);
+    expect(await screen.findByRole("button", { name: "記錄現場已結帳" })).toBeTruthy();
+  });
+});

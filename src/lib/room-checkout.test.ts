@@ -3,6 +3,7 @@ import { getDepositAmount } from "@/lib/booking-utils";
 import { SLOT_STEP_MS } from "@/lib/slot-grid";
 import {
   EXTEND_STEPS_MINUTES,
+  foodStillOwed,
   addMinutes,
   computeCheckoutBill,
   newEndProblem,
@@ -222,5 +223,20 @@ describe("overdue waiting reservations", () => {
     const state = roomFloorState([res({ status: "confirmed" })], Date.parse(at("17:30")));
     expect(state.status).toBe("awaiting");
     expect(state.current?.status).toBe("confirmed");
+  });
+});
+
+describe("foodStillOwed (#447 P2-2)", () => {
+  it("asks for leftover food only when an ended stay has unpaid food above zero", () => {
+    expect(foodStillOwed("completed", null, 360)).toBe(true);
+    expect(foodStillOwed("cancelled", null, "120")).toBe(true);
+    expect(foodStillOwed("no_show", null, 50)).toBe(true);
+  });
+  it("never asks for NT$0 food, already-paid food, or a group still in the room", () => {
+    expect(foodStillOwed("completed", null, 0)).toBe(false);
+    expect(foodStillOwed("cancelled", null, "0")).toBe(false);
+    expect(foodStillOwed("no_show", null, null)).toBe(false);
+    expect(foodStillOwed("completed", "2026-10-15T08:00:00Z", 360)).toBe(false);
+    expect(foodStillOwed("checked_in", null, 360)).toBe(false);
   });
 });

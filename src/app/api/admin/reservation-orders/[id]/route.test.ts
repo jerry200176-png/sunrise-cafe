@@ -450,6 +450,17 @@ describe("POST /api/admin/reservation-orders/[id] — settlement RPCs (#444 migr
     }));
   });
 
+  it.each(["completed", "cancelled", "no_show"])("treats zero leftover food on a %s stay as a no-op success, not a 409 (#447 P2-2)", async (ended) => {
+    status = ended;
+    order = { ...order, total_amount: 0 };
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: "P0001", message: "nothing_to_settle" } });
+    const response = await post({ action: "settle" });
+    expect(response.status).toBe(200);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    // 舊流程只把 paid_at 補上（條件式更新），畫面上的「還沒記收款」就此消失
+    expect(mocks.calls.some((c) => c.table === "orders" && hasOp(c, "update") && hasOp(c, "is"))).toBe(true);
+  });
+
   it("keeps the in-room food-only payment on the old path so room checkout can follow", async () => {
     const response = await post({ action: "settle" });
     expect(response.status).toBe(200);
