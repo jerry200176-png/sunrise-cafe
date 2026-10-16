@@ -1,7 +1,10 @@
 /**
- * 訂金到期邏輯（自動釋放未付款訂位 + 到期前提醒）
+ * 訂金期限邏輯（到期前提醒；逾期只顯示狀態，不取消訂位）
  *
- * 規則（2026-08-14 調整，見 docs/DECISIONS.md ADR-009）：
+ * ADR-012（Founder 2026-10-16）：未付訂金不再自動取消訂位。期限只用於提醒
+ * 與顯示；逾期後訂位保留為未付訂金，由店家決定是否聯繫或手動取消。
+ *
+ * 期限公式（2026-08-14 調整，見 docs/DECISIONS.md ADR-011）：
  * 訂金繳款期限 = max(建立訂位起 48 小時, 訂位開始前 6 小時)，並以「訂位開始時間」封頂。
  *
  * 舊規則是 min(建立時間+24h, 訂位開始時間)：訂位本身若很臨時（例如開始前 1–3
@@ -50,7 +53,11 @@ export function depositDeadlineRemainingMs(deadline: Date, now: Date = new Date(
   return Math.max(0, deadline.getTime() - now.getTime());
 }
 
-export function shouldAutoRelease(deadline: Date, now: Date = new Date()): boolean {
+/**
+ * 是否已過訂金期限。只供顯示與 LINE Pay 線上付款的既有限制使用；
+ * 逾期不代表要取消訂位（ADR-012）。
+ */
+export function isDepositDeadlinePast(deadline: Date, now: Date = new Date()): boolean {
   return now.getTime() >= deadline.getTime();
 }
 

@@ -601,7 +601,7 @@ export async function fetchReservationsIn7Days() {
   return data;
 }
 
-// 取得尚未付訂金、待處理中的訂位（pending / confirmed，供自動釋放 / 到期提醒）
+// 取得尚未付訂金、待處理中的訂位（pending / confirmed，供到期提醒；ADR-012 起不自動取消）
 export async function fetchUnpaidDepositDueReservations() {
   const { data, error } = await supabaseAdmin()
     .from("reservations")

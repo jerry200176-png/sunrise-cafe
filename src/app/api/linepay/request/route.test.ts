@@ -9,7 +9,7 @@ const { verify, requestProvider, supabaseAdmin, getDepositAmount, isAdminConfigu
 vi.mock("@/lib/guest-auth", () => ({ verifyGuestBookingById: verify }));
 vi.mock("@/lib/line-pay", () => ({ isLinePayConfigured, requestLinePayPayment: requestProvider }));
 vi.mock("@/lib/booking-utils", () => ({ getDepositAmount }));
-vi.mock("@/lib/deposit-deadline", () => ({ computeDepositDeadline: vi.fn(() => new Date(Date.now() + 3600000)), shouldAutoRelease: vi.fn(() => false) }));
+vi.mock("@/lib/deposit-deadline", () => ({ computeDepositDeadline: vi.fn(() => new Date(Date.now() + 3600000)), isDepositDeadlinePast: vi.fn(() => false) }));
 vi.mock("@/lib/supabase-admin", () => ({ isAdminConfigured, supabaseAdmin }));
 vi.mock("@/lib/payment-log", () => ({ logPayment: vi.fn() }));
 

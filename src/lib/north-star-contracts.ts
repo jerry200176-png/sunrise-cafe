@@ -127,7 +127,7 @@ export const NORTH_STAR_CONTRACTS: Record<NorthStarMetricId, MetricContract> = {
     freshness_sla: "≤1h",
     completeness_rule: "denominator ≥ 10",
     truth_source: "reservations",
-    reconciliation: "auto-release cancel subset ≤ deposit-deadline job outcomes",
+    reconciliation: "all cancellations are explicit guest/staff actions (ADR-012: no deposit auto-cancel)",
   },
   core_web_vitals_lcp: {
     id: "core_web_vitals_lcp",

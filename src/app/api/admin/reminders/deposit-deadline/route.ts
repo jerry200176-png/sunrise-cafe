@@ -7,10 +7,7 @@ import {
   supabaseAdmin,
 } from "@/lib/supabase-admin";
 import { sendLineFlexMessage } from "@/lib/line";
-import {
-  buildGuestDepositReminderFlex,
-  buildGuestDepositReleasedFlex,
-} from "@/lib/line-cards";
+import { buildGuestDepositReminderFlex } from "@/lib/line-cards";
 import {
   sendLineFlexBatch,
   sendLineFlexBatchToGroup,
@@ -23,15 +20,13 @@ import {
   computeDepositDeadline,
   formatDepositDeadlineLabel,
   getDepositUrgency,
-  shouldAutoRelease,
   shouldSendDepositReminder,
   shouldSendUrgentDepositReminder,
 } from "@/lib/deposit-deadline";
-import { transitionReservation } from "@/lib/reservation-lifecycle";
 import { toTaipei, taipeiDateString } from "@/lib/datetime";
 import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
-import { logPayment, logDepositStatusChange } from "@/lib/payment-log";
+import { logPayment } from "@/lib/payment-log";
 import { errorToDetail } from "@/lib/cron-alert";
 import { runCronJob } from "@/lib/job-runs";
 import { authorizeCronGet } from "@/lib/cron-request-auth";
@@ -108,7 +103,9 @@ async function handleRun() {
   try {
   const rows = (await fetchUnpaidDepositDueReservations()) as unknown as Row[];
   const now = new Date();
-  let released = 0;
+  // Kept in the response (always 0) so job_runs metadata and dashboards that
+  // read `released` keep their shape after ADR-012.
+  const released = 0;
   let reminded = 0;
   let urgentReminded = 0;
   let errors = 0;
@@ -120,9 +117,9 @@ async function handleRun() {
     contents: Record<string, unknown>;
   }[] = [];
 
-  // Cancelled reservations are intentionally absent from the normal unpaid
-  // query. Recover only failed staff release alerts, with a CAS claim so two
-  // overlapping cron runs cannot resend the same delivery.
+  // Releases made before ADR-012 were real cancellations. Recover only their
+  // failed staff alerts (no new release is created here), with a CAS claim
+  // so two overlapping cron runs cannot resend the same delivery.
   try {
     const failedReleases = await fetchFailedDepositReleaseGroupDeliveries();
     for (const failed of failedReleases) {
@@ -141,95 +138,10 @@ async function handleRun() {
 
   for (const r of rows) {
     const deadline = computeDepositDeadline(r.created_at, r.start_time);
-    const { branchName } = describe(r);
 
-    if (shouldAutoRelease(deadline, now)) {
-      try {
-        const guestClaim = r.line_user_id
-          ? await claimLineReminderDelivery({
-              reminderType: "deposit_release_guest",
-              reminderDate: taipeiDateString(new Date(r.start_time)),
-              reservationId: r.id,
-              recipientType: "guest",
-              recipientId: r.line_user_id,
-            })
-          : null;
-        const groupClaim = await claimLineReminderDelivery({
-          reminderType: "deposit_release_group",
-          reminderDate: taipeiDateString(new Date(r.start_time)),
-          reservationId: r.id,
-          recipientType: "group",
-          recipientId: "legacy-group",
-        });
-        if (
-          groupClaim.available &&
-          !groupClaim.id &&
-          (guestClaim === null || (guestClaim.available && !guestClaim.id))
-        ) {
-          // Another run claimed this release, or the reservation became paid/
-          // inactive between the candidate query and this atomic claim.
-          continue;
-        }
-        // Lifecycle owns status, preorder and waitlist; this job sends its own release cards below.
-        const cancelled = await transitionReservation(
-          r.id,
-          { type: "cancel", reason: "deposit_deadline" },
-          { kind: "system", job: "deposit_deadline" }
-        );
-        if (!cancelled.ok) throw new Error(cancelled.message);
-
-        if (r.line_user_id && (!guestClaim?.available || guestClaim.id)) {
-          try {
-            await sendLineFlexMessage(
-              r.line_user_id,
-              "訂位已釋放",
-              buildGuestDepositReleasedFlex({
-                branchName,
-                bookingCode: r.booking_code,
-                startTime: r.start_time,
-                endTime: r.end_time,
-              }),
-              { reservationId: r.id }
-            );
-            messageCount++;
-            if (guestClaim?.id) await markLineReminderDelivery(guestClaim.id, { status: "sent" });
-          } catch (err) {
-            errors++;
-            if (guestClaim?.id) {
-              await markLineReminderDelivery(guestClaim.id, {
-                status: "failed",
-                error: safeLineDeliveryError(err),
-              });
-            }
-            console.error("[deposit-deadline] 客人通知失敗:", safeLineDeliveryError(err));
-          }
-        }
-
-        if (!groupClaim.available || groupClaim.id) {
-          const groupId = await branchLineGroupIdForReservation(supabaseAdmin(), r.id);
-          pendingGroupReleases.push({ deliveryId: groupClaim.id, groupId, ...buildGroupReleaseNotice(r) });
-        }
-
-        released++;
-        logPayment("deposit_deadline.released", {
-          reservation_id: r.id,
-          booking_code: r.booking_code,
-        });
-        logDepositStatusChange({
-          action: "deposit.auto_released",
-          reservation_id: r.id,
-          booking_code: r.booking_code,
-          actor_type: "cron_deposit_deadline",
-          before: { is_deposit_paid: false, status: r.status },
-          after: { is_deposit_paid: false, status: "cancelled" },
-        });
-      } catch (err) {
-        errors++;
-        console.error(`[deposit-deadline] 釋放失敗 id=${r.id}:`, err);
-      }
-      continue;
-    }
-
+    // ADR-012 (Founder 2026-10-16): an unpaid deposit never cancels the
+    // reservation. Past the deadline the row simply stays unpaid and staff
+    // decide; the reminders below only fire while the deadline is ahead.
     if (!r.line_user_id) continue;
 
     if (shouldSendDepositReminder(deadline, r.deposit_reminder_sent_at, now)) {
@@ -328,7 +240,7 @@ async function handleRun() {
     }
   }
 
-  // A release cron can process several reservations at once. Keep each
+  // Only recovered pre-ADR-012 release alerts reach this point. Keep each
   // reservation as its own actionable Flex card, but send up to five cards in
   // one push request so LINE counts the group recipient once per batch rather
   // than once per reservation. Delivery ledger claims remain per reservation.

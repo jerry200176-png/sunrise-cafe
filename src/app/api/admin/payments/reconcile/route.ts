@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { isAdminConfigured } from "@/lib/supabase-admin";
-import { computeDepositDeadline, shouldAutoRelease } from "@/lib/deposit-deadline";
+import { computeDepositDeadline, isDepositDeadlinePast } from "@/lib/deposit-deadline";
 import { parseBankCsv, matchBankRowsToReservations } from "@/lib/payment-reconcile";
 import { getDepositAmount } from "@/lib/booking-utils";
 import { logPayment } from "@/lib/payment-log";
@@ -14,7 +14,7 @@ function db() {
   );
 }
 
-/** GET: 訂金逾期風險清單（#55 營運檢視，不自動取消） */
+/** GET: 未付訂金清單與是否已過期限（營運檢視；系統不自動取消，ADR-012） */
 export async function GET(request: NextRequest) {
   const denied = await requirePermission(request, "payments:read");
   if (denied) return denied;
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
         start_time: r.start_time,
         created_at: r.created_at,
         deadline: deadline.toISOString(),
-        would_auto_release: shouldAutoRelease(deadline, now),
+        deadline_passed: isDepositDeadlinePast(deadline, now),
       };
     });
     return NextResponse.json({ count: items.length, items });

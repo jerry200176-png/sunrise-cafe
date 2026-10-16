@@ -37,7 +37,7 @@ type RiskItem = {
   phone: string;
   status: string;
   deadline: string;
-  would_auto_release: boolean;
+  deadline_passed: boolean;
 };
 
 type ReconcileResult = {
@@ -444,11 +444,11 @@ export default function AdminPaymentsPage() {
               {risk.map((r) => (
                 <li
                   key={r.booking_code}
-                  className={r.would_auto_release ? "font-medium text-red-700" : "text-stone-700"}
+                  className={r.deadline_passed ? "font-medium text-red-700" : "text-stone-700"}
                 >
                   {r.booking_code} {r.customer_name} · 期限{" "}
                   {format(parseISO(r.deadline), "MM/dd HH:mm", { locale: zhTW })}
-                  {r.would_auto_release ? " · 今晚系統會自動取消" : ""}
+                  {r.deadline_passed ? " · 已過期限，系統不會自動取消，請聯繫客人" : ""}
                 </li>
               ))}
             </ul>

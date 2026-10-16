@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   computeDepositDeadline,
-  shouldAutoRelease,
+  isDepositDeadlinePast,
   shouldSendDepositReminder,
   shouldSendUrgentDepositReminder,
   getDepositUrgency,
@@ -52,15 +52,15 @@ describe("computeDepositDeadline", () => {
   });
 });
 
-describe("shouldAutoRelease", () => {
+describe("isDepositDeadlinePast", () => {
   it("超過期限時回傳 true", () => {
     const deadline = new Date("2026-01-01T00:00:00Z");
-    expect(shouldAutoRelease(deadline, new Date("2026-01-01T00:00:01Z"))).toBe(true);
+    expect(isDepositDeadlinePast(deadline, new Date("2026-01-01T00:00:01Z"))).toBe(true);
   });
 
   it("未到期限時回傳 false", () => {
     const deadline = new Date("2026-01-01T00:00:00Z");
-    expect(shouldAutoRelease(deadline, new Date("2025-12-31T23:59:59Z"))).toBe(false);
+    expect(isDepositDeadlinePast(deadline, new Date("2025-12-31T23:59:59Z"))).toBe(false);
   });
 });
 
