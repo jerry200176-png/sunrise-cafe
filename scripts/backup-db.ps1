@@ -1,3 +1,5 @@
+# LEGACY (2026-10-15): replaced by .github/workflows/backup-db.yml — see docs/RUNBOOK_DB_BACKUP.md.
+# Disable the Windows Task Scheduler job after the first cloud run + restore drill succeed.
 # Supabase 資料庫備份腳本
 # 使用方式：在 PowerShell 執行 .\scripts\backup-db.ps1
 # 需要先安裝 PostgreSQL client（pg_dump）：https://www.postgresql.org/download/windows/

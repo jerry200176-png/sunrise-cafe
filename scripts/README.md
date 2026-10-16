@@ -1,8 +1,18 @@
 # Scripts
 
-## backup-db.ps1 — 資料庫備份
+## 資料庫備份 — 現行：GitHub Actions（2026-10-15 起）
 
-手動備份 Supabase 資料庫到本機，建議每週執行一次。
+每週自動備份改由 [`.github/workflows/backup-db.yml`](../.github/workflows/backup-db.yml) 執行
+（age 公鑰加密、artifact 保留 35 天≈5 份週備份；還原演練用 `scripts/restore-drill-cloud-backup.sh`）。設定、還原演練與停用本機排程的步驟見
+[`docs/RUNBOOK_DB_BACKUP.md`](../docs/RUNBOOK_DB_BACKUP.md)。
+
+## backup-db.ps1 — 資料庫備份（legacy）
+
+> **Legacy（2026-10-15）**：已由 GitHub Actions `backup-db.yml` 取代。完成 runbook 的還原演練後，
+> 請停用 Windows 工作排程器的這個工作。以下內容只保留作為臨時本機備份的參考。
+> `backup-db.sh`（`npm run db:backup`）同樣是本機用的 legacy 工具。
+
+手動備份 Supabase 資料庫到本機。
 
 ### 前置需求
 
@@ -37,7 +47,7 @@ $env:SUPABASE_DB_URL = "postgresql://postgres:你的密碼@db.你的專案ID.sup
 
 備份檔案格式：`sunrise-cafe_20260516_200000.sql`
 
-### 設定自動排程（Windows Task Scheduler）
+### 設定自動排程（Windows Task Scheduler，legacy — 已不需要）
 
 1. 開啟「工作排程器」
 2. 建立基本工作 → 每週一觸發
