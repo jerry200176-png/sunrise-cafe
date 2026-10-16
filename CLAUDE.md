@@ -16,7 +16,7 @@
 | Database | Supabase (PostgreSQL + Realtime) |
 | 部署 | Vercel（含 Cron Job） |
 | 通知 | LINE Messaging API（兩個 channel） |
-| 列印 | print-bridge（獨立 Node.js，非 Vercel） |
+| 列印 | ~~print-bridge~~ **已退役**（Founder 2026-10-15，店內不再列印） |
 
 ---
 
@@ -83,7 +83,7 @@ src/
 supabase/
   schema.sql              # 完整資料庫 schema
   migration-*.sql         # 歷史 migration（依序執行）
-print-bridge/             # 本地列印服務（獨立部署，非 Vercel）
+print-bridge/             # 已退役（2026-10-15）：本地列印服務，程式碼暫留待日後清除
 ```
 
 ---
@@ -148,7 +148,7 @@ sentry.*.config.ts          # Sentry 設定（三個 runtime）
 - **Supabase 免費方案**：閒置 7 天會暫停，需手動到 Dashboard 恢復
 - **Vercel 環境變數更新後**需 Redeploy 才生效
 - `LINE_CHANNEL_SECRET` 同時用於 webhook 簽章驗證，換群組 Bot 後需確認 webhook URL 設定在新 channel
-- `print-bridge/` 是本機 Node.js 服務，不部署到 Vercel，需在店內電腦獨立執行
+- **列印已退役**（Founder 2026-10-15）：`print-bridge/` 與 `/admin/print-station` 不再使用，店內電腦不需執行 bridge。程式碼暫留，之後另開清理 PR 刪除；不要再為列印加功能或修 bug
 - **Rate Limiting**：Upstash 未設定時自動停用（fail-open），設定後立即生效
 - **Sentry**：`NEXT_PUBLIC_SENTRY_DSN` 未設定時靜默，不影響系統運作
 - **後台驗證金鑰**：`ADMIN_PASSWORD` 為登入密碼；`SESSION_SECRET`（選填）為 session 簽章金鑰，未設定時向下相容沿用密碼。建議在 Vercel 設定獨立的 `SESSION_SECRET`，更換密碼才不會讓既有 session 失效

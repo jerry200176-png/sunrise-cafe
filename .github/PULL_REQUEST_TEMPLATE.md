@@ -42,7 +42,6 @@ Closes #<!-- issue-number (若無請填「無」) -->
 - [ ] 需執行 migration（對應 `supabase/` SQL）
 - [ ] 需設定/更新環境變數（Vercel 需 Redeploy）
 - [ ] 需更新 Stripe Webhook endpoint
-- [ ] 需更新 print-bridge（若列印流程有變）
 
 ---
 

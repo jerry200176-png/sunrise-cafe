@@ -121,7 +121,7 @@
 │     Supabase     LINE API     Sentry / Upstash              │
 │   PostgreSQL    雙 Bot 架構    監控 / Rate limit             │
 │                                                             │
-│  店內電腦 ── print-bridge (Node.js) ── 熱感印表機            │
+│  （print-bridge／熱感印表機已退役，2026-10-15）               │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -150,7 +150,7 @@
 | Database | Supabase (PostgreSQL + Realtime) |
 | 部署 | Vercel（含 Cron Job） |
 | 通知 | LINE Messaging API（**群組 Bot** + **客人 Bot**，見 [`docs/LINE.md`](docs/LINE.md)） |
-| 列印 | print-bridge（店內本機 Node.js，不部署 Vercel） |
+| 列印 | 已退役（2026-10-15）：`print-bridge/` 與 `/admin/print-station` 不再使用，程式碼待日後清除 |
 | 觀測 | Sentry · structured ops-log · Executive outcome API |
 
 模組與路由詳解：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
