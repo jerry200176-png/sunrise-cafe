@@ -16,6 +16,8 @@ type Row = Record<string, unknown>;
 const m = vi.hoisted(() => ({
   reservations: [] as Record<string, unknown>[],
   requests: 0,
+  maxRows: 1000,
+  ranges: [] as [number, number][],
   sendLineFlexMessage: vi.fn(async () => undefined),
   updateReservationAdmin: vi.fn(async () => undefined),
   transitionReservation: vi.fn(async () => ({ ok: true })),
@@ -40,6 +42,7 @@ function fakeQuery(table: string) {
     limit: (n: number) => ((to = from + n - 1), q),
     then: (resolve: (v: { data: Row[]; error: null }) => unknown) => {
       m.requests++;
+      m.ranges.push([from, to]);
       const source = table === "reservations" ? (m.reservations as Row[]) : [];
       const rows = source
         .filter((r) => filters.every((f) => f(r)))
@@ -52,7 +55,7 @@ function fakeQuery(table: string) {
           return 0;
         })
         .slice(from, Number.isFinite(to) ? to + 1 : undefined)
-        .slice(0, MAX_ROWS);
+        .slice(0, m.maxRows);
       return Promise.resolve({ data: rows, error: null }).then(resolve);
     },
   };
@@ -113,6 +116,8 @@ describe("deposit-deadline reminders are not starved by expired unpaid bookings"
   beforeEach(() => {
     vi.clearAllMocks();
     m.requests = 0;
+    m.maxRows = MAX_ROWS;
+    m.ranges = [];
   });
 
   it("more than one response page of old expired unpaid rows + one later eligible booking → it is reminded", async () => {
@@ -158,5 +163,27 @@ describe("deposit-deadline reminders are not starved by expired unpaid bookings"
     expect(body).toMatchObject({ ok: true, urgentReminded: 1, released: 0, errors: 0 });
     expect(remindedIds()).toEqual(["zz-urgent"]);
     expect(m.requests).toBeGreaterThanOrEqual(2);
+  });
+
+  it.each([1, 100, 250])("reads every row with server cap %i, including an exact page boundary", async (cap) => {
+    m.maxRows = cap;
+    const inWindow = Array.from({ length: cap * 2 - 1 }, (_, i) =>
+      reservation(`win-${String(i).padStart(5, "0")}`, -40, 2, {
+        deposit_reminder_sent_at: new Date(Date.now() - 10 * H).toISOString(),
+        deposit_urgent_reminder_sent_at: new Date(Date.now() - H).toISOString(),
+      }),
+    );
+    const urgent = reservation("zz-urgent", -45, 2, {
+      deposit_reminder_sent_at: new Date(Date.now() - 10 * H).toISOString(),
+    });
+    m.reservations = [urgent, ...inWindow.reverse()];
+
+    const body = await (await POST()).json();
+
+    expect(body).toMatchObject({ ok: true, urgentReminded: 1, released: 0, errors: 0 });
+    expect(remindedIds()).toEqual(["zz-urgent"]);
+    expect(m.sendLineFlexMessage).toHaveBeenCalledTimes(1);
+    expect(m.transitionReservation).not.toHaveBeenCalled();
+    expect(m.ranges.map(([from]) => from)).toEqual([0, cap, cap * 2]);
   });
 });

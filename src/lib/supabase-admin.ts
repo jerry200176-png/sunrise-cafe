@@ -606,7 +606,7 @@ const UNPAID_DEPOSIT_SELECT =
   "id, booking_code, customer_name, phone, start_time, end_time, created_at, status, line_user_id, deposit_reminder_sent_at, deposit_urgent_reminder_sent_at, room:rooms(id, name, branch:branches(name))";
 const UNPAID_DEPOSIT_SELECT_LEGACY =
   "id, booking_code, customer_name, phone, start_time, end_time, created_at, status, line_user_id, deposit_reminder_sent_at, room:rooms(id, name, branch:branches(name))";
-/** At or below Supabase/PostgREST `max-rows` (default 1000), so a short page means the end. */
+/** Requested page size; the server may enforce a lower response cap. */
 export const UNPAID_DEPOSIT_PAGE_SIZE = 1000;
 
 /**
@@ -619,7 +619,7 @@ export async function fetchUnpaidDepositDueReservations(now: Date = new Date()) 
   const { startAfter, startAtOrBefore } = depositReminderStartWindow(now);
   const readAll = async (columns: string) => {
     const rows: Record<string, unknown>[] = [];
-    for (let from = 0; ; from += UNPAID_DEPOSIT_PAGE_SIZE) {
+    for (let from = 0; ;) {
       const { data, error } = await supabaseAdmin()
         .from("reservations")
         .select(columns)
@@ -633,7 +633,10 @@ export async function fetchUnpaidDepositDueReservations(now: Date = new Date()) 
       if (error) return { rows, error };
       const page = (data ?? []) as unknown as Record<string, unknown>[];
       rows.push(...page);
-      if (page.length < UNPAID_DEPOSIT_PAGE_SIZE) return { rows, error: null };
+      // A short page may reflect the server cap, not exhaustion. Advance only
+      // by returned rows and keep reading until an empty page.
+      if (page.length === 0) return { rows, error: null };
+      from += page.length;
     }
   };
 
