@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getAdminContext: vi.fn(),
   getReservationForPreorder: vi.fn(),
   getReservationPreorder: vi.fn(),
+  validateAndSnapshotItems: vi.fn(),
   transitionReservation: vi.fn(),
   logOps: vi.fn(),
   afterSettledComplete: vi.fn(),
@@ -35,7 +36,7 @@ vi.mock("@/lib/supabase-admin", () => ({ supabaseAdmin: () => ({ from: builder, 
 vi.mock("@/lib/reservation-preorder", () => ({
   getReservationForPreorder: mocks.getReservationForPreorder,
   getReservationPreorder: mocks.getReservationPreorder,
-  validateAndSnapshotItems: vi.fn(),
+  validateAndSnapshotItems: mocks.validateAndSnapshotItems,
   canonicalDraftItems: vi.fn(),
 }));
 vi.mock("@/lib/reservation-lifecycle", () => ({
@@ -70,6 +71,8 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
     mocks.requirePermission.mockResolvedValue(null);
     mocks.getAdminContext.mockResolvedValue({ user_id: "staff-1", role: "staff" });
     mocks.getReservationPreorder.mockResolvedValue(null);
+    mocks.validateAndSnapshotItems.mockResolvedValue([{ source_menu_item_id: "m1", item_name_snapshot: "Coffee",
+      quantity: 1, unit_price_snapshot: 100, selected_options_snapshot: [], special_notes: "" }]);
     mocks.getReservationForPreorder.mockResolvedValue({ id: "res-1", status: "checked_in", room: { name: "A", branch_id: "b1" } });
     mocks.transitionReservation.mockResolvedValue({ ok: true, status: "completed" });
     mocks.respond = (call) => {
@@ -82,6 +85,56 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
       if (call.table === "reservation_extensions") return { data: null, error: { code: "PGRST205", message: "missing" } };
       return { data: null, error: null };
     };
+  });
+
+  describe("add_items committed response (#441)", () => {
+    const body = { action: "add_items", items: [{ menu_item_id: "m1", quantity: 1 }] };
+    const inserts = () => mocks.calls.filter((call) => call.table === "order_items" && hasOp(call, "insert"));
+
+    it.each(["status read", "status write", "reload"])("returns committed success when %s fails after insertion", async (failure) => {
+      const base = mocks.respond;
+      mocks.respond = (call) => {
+        const select = call.ops.find(([op]) => op === "select")?.[1][0];
+        const failed = call.table === "orders" && (
+          (failure === "status read" && select === "paid_at,order_items(served_at)") ||
+          (failure === "status write" && hasOp(call, "update")) ||
+          (failure === "reload" && select === "*, order_items(*)" && inserts().length > 0)
+        );
+        return failed ? { data: null, error: new Error("temporary read/write failure") } : base(call);
+      };
+      const response = await post(body);
+      expect(inserts()).toHaveLength(1);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ ok: true, committed: true, refresh_failed: true });
+    });
+
+    it("preserves the full successful response and catalogue snapshots", async () => {
+      const response = await post(body);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ ok: true, order, preorder: null, billing: { id: "res-1" } });
+      expect(inserts()).toHaveLength(1);
+      expect(inserts()[0].ops).toContainEqual(["insert", [[{ order_id: "ord-1", menu_item_id: "m1", item_name: "Coffee",
+        quantity: 1, unit_price: 100, selected_options: [], special_notes: "" }]]]);
+      expect(mocks.validateAndSnapshotItems).toHaveBeenCalledWith(expect.objectContaining({ id: "res-1" }), body.items, false);
+    });
+
+    it("keeps insert failures as errors instead of claiming committed success", async () => {
+      const base = mocks.respond;
+      mocks.respond = (call) => call.table === "order_items" && hasOp(call, "insert")
+        ? { data: null, error: new Error("insert failed") } : base(call);
+      const response = await post(body);
+      expect(response.status).toBe(500);
+      expect(await response.json()).toEqual({ error: "insert failed" });
+      expect(mocks.calls.some((call) => call.table === "orders" && hasOp(call, "update"))).toBe(false);
+    });
+
+    it("does not insert when catalogue validation fails", async () => {
+      mocks.validateAndSnapshotItems.mockRejectedValue(new Error("cannot order unavailable item"));
+      const response = await post(body);
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ error: "cannot order unavailable item" });
+      expect(inserts()).toHaveLength(0);
+    });
   });
 
   it("extends the end time within the next group's start and returns the recomputed bill", async () => {
