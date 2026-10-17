@@ -61,5 +61,13 @@ documented there. A separate clean `npm ci --ignore-scripts` install now exists 
 the preflight worktree for broader baseline verification. This patch does not
 alter `package.json` or `package-lock.json` to work around local dependencies.
 
-No remote branch, PR body/comment, merge, deployment, workflow run, production
-SQL, backup/export/restore, secret or setting was changed by this packet.
+The existing draft PR may receive this reviewed repair under the current closeout
+scope. This packet grants no merge, deployment, workflow dispatch, production SQL,
+backup/export/restore, secret or setting authorization. HOLD6220318833 remains in force.
+
+Two pre-existing test fixtures (guest lookup payment status and cron summaries)
+were also isolated from Supabase and fetch. Their tests now assert zero client
+or fetch calls where external access is not intended. An earlier broad run
+inherited integration configuration and may have attempted read requests through
+those fixtures; the outcome is unconfirmed and no live result is used as evidence.
+Subsequent full-suite checks use a cleared environment with synthetic configuration.

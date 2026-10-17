@@ -57,11 +57,12 @@ removed or weakened, and this standalone command is not wired into deployment.
   result. A read-only transaction's database enforcement is not simulated proof
   that the deployed database is ready.
 - package-lock.json and package.json both declare @react-three/fiber 9.8.1,
-  @react-three/drei 10.7.9, three 0.185.1, @types/three 0.185.0. All four are absent
-  from the shared node_modules used here. This explains the missing module errors
+  @react-three/drei 10.7.9, three 0.185.1, @types/three 0.185.0. All four were absent
+  from the original shared node_modules. This explained the missing module errors
   and related JSX/implicit-any cascade in RoomFloorScene.tsx. No dependency or
   unrelated app changes were made. A clean install from the unchanged lockfile
-  is the next local setup step; it is not a production prerequisite claim.
+  subsequently succeeded using a task-local npm cache. The baseline gate now
+  reports new=0. No dependency files changed; this is not a production readiness claim.
 
 ## Remaining effort and decisions
 
