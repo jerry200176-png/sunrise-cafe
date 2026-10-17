@@ -1,6 +1,25 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { lookupGuestBookingsByDate, lookupGuestBookingByToken } from "./guest-booking-lookup";
 import { signLookupToken } from "./lookup-token";
+
+const paymentFixture = vi.hoisted(() => {
+  const query = {
+    select: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    order: vi.fn().mockReturnThis(),
+    limit: vi.fn().mockReturnThis(),
+    maybeSingle: vi.fn(),
+  };
+  const from = vi.fn(() => query);
+  return {
+    query,
+    from,
+    createClient: vi.fn(() => ({ from })),
+    fetch: vi.fn(() => { throw new Error("Unexpected network access in guest lookup fixture"); }),
+  };
+});
+
+vi.mock("@supabase/supabase-js", () => ({ createClient: paymentFixture.createClient }));
 
 vi.mock("@/lib/supabase-admin", () => ({
   isAdminConfigured: vi.fn(() => true),
@@ -32,9 +51,17 @@ function taipeiDateOffset(days: number): string {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks();
+  vi.stubGlobal("fetch", paymentFixture.fetch);
+  paymentFixture.query.maybeSingle.mockResolvedValue({ data: { status: "pending_review" }, error: null });
   mockFetchByDate.mockReset();
   mockFetchRoom.mockReset();
   mockFetchBranch.mockReset();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  expect(paymentFixture.fetch).not.toHaveBeenCalled();
 });
 
 describe("lookupGuestBookingsByDate", () => {
@@ -94,8 +121,14 @@ describe("lookupGuestBookingsByDate", () => {
       expect(r.items).toHaveLength(1);
       expect(r.items[0].booking_code).toBe("ABC123");
       expect(r.items[0].room_name).toBe("包廂 A");
+      expect(r.items[0].payment_review_status).toBe("pending_review");
     }
     expect(mockFetchByDate).toHaveBeenCalledWith("0912345678", date);
+    expect(paymentFixture.createClient).toHaveBeenCalledTimes(1);
+    expect(paymentFixture.from).toHaveBeenCalledWith("payment_events");
+    expect(paymentFixture.query.select).toHaveBeenCalledWith("status");
+    expect(paymentFixture.query.eq).toHaveBeenCalledWith("reservation_id", "res-1");
+    expect(paymentFixture.query.maybeSingle).toHaveBeenCalledTimes(1);
   });
 });
 

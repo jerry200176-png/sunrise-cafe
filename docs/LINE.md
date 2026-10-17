@@ -44,7 +44,7 @@
 
 運作方式：發送群組通知時，程式先問 LINE「哪個 Bot 在這個群組裡」（group summary API，不耗額度），用那個 Bot 的 token 發送；結果快取 10 分鐘。分店 Bot 的 webhook 只處理「加入群組」事件，店員在群組裡的對話不會被當成客人付款回報。
 
-依分店發送的通知：新訂位、付款待確認、已付訂金（含 LINE Pay）、改期、候補轉訂位、訂金逾期釋放、明日提醒、出席確認。
+依分店發送的通知：新訂位、付款待確認、已付訂金（含 LINE Pay）、改期、候補轉訂位、訂金逾期釋放（僅補送 ADR-012 前的歷史通知）、明日提醒、出席確認。
 
 ---
 
@@ -101,7 +101,7 @@
 | 對象 | 情境 | 建構器 |
 |------|------|--------|
 | 客人 | 訂金、提醒、候補、綁定、付款回覆 | `src/lib/line-cards.ts` |
-| 群組 | 新訂位、付款待審、逾期釋放、改期 | `src/lib/line-cards.ts` |
+| 群組 | 新訂位、付款待審、逾期釋放（歷史補送）、改期 | `src/lib/line-cards.ts` |
 | 共用版型 | header / rows / CTA | `src/lib/line-flex.ts` → `flexBubble()` |
 
 **仍為純文字**：診斷測試、明日無訂位時的貓咪彩蛋（`CAT_MESSAGES`）。
@@ -151,8 +151,8 @@ GET /api/admin/test-line-group
 `LINE_MONTHLY_MESSAGE_BUDGET`、`LINE_EXPECTED_DAILY_MESSAGES` 啟用異常暴增保護。訂位、付款、逾期釋放、等位與
 到店確認等 critical/actionable 通知不會因「本地 quota guard」被抑制；這不代表 LINE
 額度耗盡、provider rejection 或終端送達有任何保證。quota guard 預設停用，需先設定
-`LINE_USAGE_GUARD_ENABLED=1` 並完成 production quota threshold review。逾期釋放 cron
-同一批最多將 5 張群組 Flex 卡放進一次 push request；每筆仍有獨立 delivery claim，失敗
+`LINE_USAGE_GUARD_ENABLED=1` 並完成 production quota threshold review。訂金期限 cron
+補送 ADR-012 前失敗的逾期釋放通知時，同一批最多將 5 張群組 Flex 卡放進一次 push request；每筆仍有獨立 delivery claim，失敗
 仍寫回各筆 ledger。LINE provider rejection 會保留錯誤狀態、寫入 operational logs，並
 由 cron failure handling path escalation。
 

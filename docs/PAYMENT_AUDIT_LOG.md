@@ -23,7 +23,7 @@
 | `deposit.note_updated` | `deposit_payment_note` change without status flip | note diff |
 | `payment_event.approved` | Already logged — link `payment_event_id` | event `pending_review` → `approved` |
 | `payment_event.rejected` | Reject API | event → `rejected` |
-| `deposit.auto_released` | Deposit deadline cron | `status` → `cancelled`, unpaid |
+| `deposit.auto_released` | Deposit deadline cron (historical; no longer written since ADR-012, 2026-10-16) | `status` → `cancelled`, unpaid |
 
 **Not in scope:** CSV reconcile (read-only), migration-status probes.
 
@@ -37,7 +37,7 @@
 | `line_webhook_text` | Guest text keyword auto-mark | `line_user_id` |
 | `line_webhook_image` | Screenshot → `payment_events` only | `line_user_id` |
 | `admin_payment_review` | `/api/admin/payments/:id/approve` | `"admin"` |
-| `cron_deposit_deadline` | Auto-release job | `"deposit-deadline"` |
+| `cron_deposit_deadline` | Deposit deadline job (reminders only since ADR-012) | `"deposit-deadline"` |
 | `system` | Internal batch / script | `"system"` |
 
 ---
@@ -124,7 +124,7 @@ Payload:
 1. `src/app/api/reservations/[id]/route.ts` — when `patch.is_deposit_paid` defined
 2. `src/app/api/webhooks/line/route.ts` — text auto-mark branch
 3. `src/lib/payment-events-admin.ts` — `approvePaymentEvent`
-4. `src/app/api/admin/reminders/deposit-deadline/route.ts` — auto-release loop
+4. `src/app/api/admin/reminders/deposit-deadline/route.ts` — auto-release loop (removed by ADR-012)
 
 Helper: `logDepositStatusChange({ ... })` in `payment-log.ts` to avoid duplication.
 

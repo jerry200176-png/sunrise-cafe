@@ -165,7 +165,31 @@ new Date(new Date(s).toLocaleString("en-US", { timeZone: "Asia/Taipei" }))
 - ✅ 修正兩種客人都被舊制誤傷的情況，不需引入「先聯絡客人再決定」的人工審核流程（維持自動化，符合單店人力）
 - ✅ 不影響 `shouldAutoRelease`/`shouldSendDepositReminder` 等下游邏輯，只改 `computeDepositDeadline` 一個純函式
 - ⚠️ 仍是自動取消（非店主原本考慮的「整個拿掉」選項）——若之後發現誤取消率仍偏高，下一步可考慮改為「標記待審核」而非直接 `cancelled`（比照 inline 的人工確認模型）
+- **2026-10-16 更新：自動取消已由 ADR-012 拿掉**；本 ADR 的期限公式仍用於提醒與顯示。
 
 **實作**：`src/lib/deposit-deadline.ts`（`computeDepositDeadline`）+ 三處客服話術 fallback 文案（`src/lib/booking-policy.ts`、`src/lib/payment-message.ts`、`src/lib/line-cards.ts`）。
 
 **Rollback**：改回 `Math.min(createdMs + 24 * HOUR_MS, startMs)` 並回復三處文案；純函式改動，無 migration、無資料遷移。
+
+---
+
+## ADR-012：未付訂金不再自動取消訂位（取代 ADR-011 的取消條款）
+
+**日期**：2026-10-16　**決策者**：Founder（Jerry）
+
+**決策**：訂金期限 Cron（`/api/admin/reminders/deposit-deadline`）不再因為客人未付訂金而取消訂位。逾期後訂位維持原狀態（`pending`／`confirmed`）與 `is_deposit_paid = false`。
+
+**保留**：
+- ADR-011 的期限公式（提醒、客人頁面與後台顯示用）
+- 期限前 24 小時首次提醒、≤6 小時迫近提醒
+- 客人自行取消（`/api/cancel-booking`）、後台取消，以及這兩者觸發的等位通知
+- LINE Pay 線上付款在逾期後仍不開放（既有付款規則，未變更）
+
+**拿掉**：逾期自動 `cancelled`、客人「訂位已釋放」卡、群組新的「訂金逾期釋放」卡、`deposit.auto_released` 稽核紀錄。ADR-012 前已發生的釋放若群組通知失敗，仍會補送那則歷史通知。
+
+**不做**：不還原歷史上已被自動取消的訂位；不新增其他自動取消或保留時長規則。
+
+**取捨（待 Founder 決定）**：未付訂金的訂位會一直佔住包廂時段，直到店家手動處理；候補不再因逾期而被通知；「未付訂金取消」報表只剩手動取消。
+
+**Rollback**：revert 此 PR（純程式與文案，無 migration、無資料變更）。
+

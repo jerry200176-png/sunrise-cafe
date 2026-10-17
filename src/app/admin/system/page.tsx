@@ -493,9 +493,9 @@ export default function ExecutiveDashboardPage() {
                 />
                 <Metric
                   icon={XCircle}
-                  label="自動釋放 (7d)"
+                  label="未付訂金取消 (7d)"
                   value={String(data.cancellation.auto_release_proxy_7d)}
-                  sub="未付訂金取消 proxy"
+                  sub="含手動取消；系統不自動取消"
                 />
                 <Metric
                   icon={TrendingUp}

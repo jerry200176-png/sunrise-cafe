@@ -1,11 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
   computeDepositDeadline,
-  shouldAutoRelease,
+  isDepositDeadlinePast,
   shouldSendDepositReminder,
   shouldSendUrgentDepositReminder,
   getDepositUrgency,
   formatDepositDeadlineLabel,
+  depositReminderStartWindow,
 } from "./deposit-deadline";
 
 describe("computeDepositDeadline", () => {
@@ -52,15 +53,15 @@ describe("computeDepositDeadline", () => {
   });
 });
 
-describe("shouldAutoRelease", () => {
+describe("isDepositDeadlinePast", () => {
   it("超過期限時回傳 true", () => {
     const deadline = new Date("2026-01-01T00:00:00Z");
-    expect(shouldAutoRelease(deadline, new Date("2026-01-01T00:00:01Z"))).toBe(true);
+    expect(isDepositDeadlinePast(deadline, new Date("2026-01-01T00:00:01Z"))).toBe(true);
   });
 
   it("未到期限時回傳 false", () => {
     const deadline = new Date("2026-01-01T00:00:00Z");
-    expect(shouldAutoRelease(deadline, new Date("2025-12-31T23:59:59Z"))).toBe(false);
+    expect(isDepositDeadlinePast(deadline, new Date("2025-12-31T23:59:59Z"))).toBe(false);
   });
 });
 
@@ -149,5 +150,35 @@ describe("formatDepositDeadlineLabel", () => {
     const label = formatDepositDeadlineLabel(new Date("2026-06-19T16:00:00Z"));
     expect(label).toMatch(/2026\/06\/20/);
     expect(label).toMatch(/00:00/);
+  });
+});
+
+describe("depositReminderStartWindow (#468: query bound never drops a due reminder)", () => {
+  it("every reservation the reminder rules would remind now has start_time inside the window", () => {
+    const HOUR = 60 * 60 * 1000;
+    const now = new Date("2026-10-16T12:00:00Z");
+    const { startAfter, startAtOrBefore } = depositReminderStartWindow(now);
+    let due = 0;
+    // created from 10 days ago to now; start from 5 days ago to 10 days ahead, 30-min steps.
+    for (let c = -240; c <= 0; c += 1.5) {
+      for (let s = c; s <= 240; s += 0.5) {
+        const createdAt = new Date(now.getTime() + c * HOUR).toISOString();
+        const startTime = new Date(now.getTime() + s * HOUR);
+        const deadline = computeDepositDeadline(createdAt, startTime.toISOString());
+        const first = shouldSendDepositReminder(deadline, null, now);
+        const urgent = shouldSendUrgentDepositReminder(deadline, "2026-10-15T00:00:00Z", null, now);
+        if (!first && !urgent) continue;
+        due++;
+        expect(startTime.getTime()).toBeGreaterThan(startAfter.getTime());
+        expect(startTime.getTime()).toBeLessThanOrEqual(startAtOrBefore.getTime());
+      }
+    }
+    expect(due).toBeGreaterThan(0);
+  });
+
+  it("excludes bookings that have already started (their deadline has passed)", () => {
+    const now = new Date("2026-10-16T12:00:00Z");
+    const { startAfter } = depositReminderStartWindow(now);
+    expect(startAfter.getTime()).toBe(now.getTime());
   });
 });

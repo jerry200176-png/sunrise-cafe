@@ -4,7 +4,6 @@ import {
   buildGuestAttendanceConfirmedFlex,
   buildGuestAttendanceConfirmedGroupFlex,
   buildGuestBindErrorFlex,
-  buildGuestDepositReleasedFlex,
   buildGuestDepositReminderFlex,
   buildGuestPaymentApprovedFlex,
   buildGuestPaymentPendingFlex,
@@ -59,11 +58,6 @@ describe("line-cards LINE API shape", () => {
     });
     assertValidBubble(approvedWithToken, "payment-approved-token");
     expect(JSON.stringify(approvedWithToken)).toContain("token=token-abc-123");
-    assertValidBubble(buildGuestDepositReleasedFlex({
-      branchName: "昇昇咖啡",
-      bookingCode: "ABC123",
-      ...times,
-    }), "deposit-released");
     assertValidBubble(buildGuestBindErrorFlex("not_found"), "bind-error");
     assertValidBubble(buildWaitlistFlex({ ...times, confirmToken: "tok123" }), "waitlist");
     assertValidBubble(buildReviewInviteFlex({

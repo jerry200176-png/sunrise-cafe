@@ -89,8 +89,8 @@ export function buildPaymentFlex(params: {
 
   const paragraphs = [`${params.customerName} 您好，已為您保留包廂`];
   let note = deadlineLabel
-    ? `請於 ${deadlineLabel} 前完成訂金付款，逾期座位將自動釋放。`
-    : "請於期限內（最晚建立後 48 小時或訂位開始前 6 小時，以較晚者為準）完成訂金付款，逾期座位將自動釋放。";
+    ? `請於 ${deadlineLabel} 前完成訂金付款；如無法如期付款，請與店家聯繫。`
+    : "請於期限內（最晚建立後 48 小時或訂位開始前 6 小時，以較晚者為準）完成訂金付款；如無法如期付款，請與店家聯繫。";
   if (paymentInfo) {
     note = `${paymentInfo.replace(/\n/g, " · ")}\n\n${
       code
@@ -318,8 +318,8 @@ export function buildGuestDepositReminderFlex(params: {
 }): LineFlexContainer {
   const urgent = params.urgency === "soon";
   const deadlineNote = params.deadlineLabel
-    ? `繳款期限：${params.deadlineLabel}。逾期座位將自動釋放。`
-    : "請盡快完成匯款或 LINE Pay（資訊請參考先前訊息），逾期座位將自動釋放。";
+    ? `繳款期限：${params.deadlineLabel}。如無法如期付款，請與店家聯繫。`
+    : "請盡快完成匯款或 LINE Pay（資訊請參考先前訊息）；如無法如期付款，請與店家聯繫。";
   return flexBubble({
     icon: urgent ? "🚨" : "⏰",
     title: urgent ? "訂金即將逾期" : "訂金提醒",
@@ -342,28 +342,6 @@ export function buildGuestDepositReminderFlex(params: {
       label: "查看付款資訊",
       uri: `${LINE_QUERY_URL}?code=${encodeURIComponent(params.bookingCode)}`,
     },
-  });
-}
-
-export function buildGuestDepositReleasedFlex(params: {
-  branchName: string;
-  bookingCode: string;
-  startTime: string;
-  endTime: string;
-}): LineFlexContainer {
-  return flexBubble({
-    icon: "😔",
-    title: "訂位已釋放",
-    subtitle: params.branchName,
-    accentColor: LINE_BRAND.danger,
-    paragraphs: ["很抱歉，因逾期未收到訂金，座位已自動釋放。"],
-    rows: [
-      { label: "訂位碼", value: params.bookingCode },
-      ...dateTimeRows(params.startTime, params.endTime),
-    ],
-    note: "如仍需訂位，歡迎重新預約。",
-    primaryAction: { label: "重新預約", uri: LINE_BOOK_URL },
-    showSiteLink: true,
   });
 }
 

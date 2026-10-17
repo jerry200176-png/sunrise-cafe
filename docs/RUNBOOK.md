@@ -179,9 +179,9 @@ curl -s https://sunrise-cafe-six.vercel.app/api/admin/payments/migration-status 
 
 ### #55 訂金 Cron 營運檢視
 
-`GET /api/admin/payments/reconcile`（GET 部分）列出 **未付訂金且可能被 Cron 釋放** 的訂位，**不會自動取消**。
+`GET /api/admin/payments/reconcile`（GET 部分）列出未付訂金訂位與是否已過期限（`deadline_passed`），**不會自動取消**。
 
-每日 20:00（台灣）Cron 會對 `pending` + `confirmed` 且未付訂金者執行到期釋放。部署 #55 前請先檢視此清單並手動處理歷史訂位。
+ADR-012（2026-10-16）起，訂金期限 Cron 只發提醒，逾期也不取消；逾期未付的訂位請店家聯繫客人，必要時在後台手動取消（會照常通知候補）。
 
 ---
 
