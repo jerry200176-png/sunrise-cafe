@@ -227,7 +227,14 @@ function expectNoSourceLeak(out: string) {
 describe("scripts/db-drill/lib.sh source identity gate", () => {
   it("accepts the expected project via direct and pooler URLs, printing no URL/ref/hash", () =>
     withSandbox((dir) => {
-      for (const url of [urlFor(PROD_REF), poolerFor(PROD_REF)]) {
+      for (const url of [
+        urlFor(PROD_REF),
+        poolerFor(PROD_REF),
+        ...["require", "verify-ca", "verify-full"].map(
+          (mode) => `${poolerFor(PROD_REF)}?sslmode=${mode}`
+        ),
+        `${urlFor(PROD_REF)}&connect_timeout=10&application_name=drill@source/path`,
+      ]) {
         const r = runLib(dir, `drill_assert_source_identity '${url}' '${PROD_SHA}'`);
         expect(r.status).toBe(0);
         expect(r.out.trim()).toBe("source identity: project ref matches expected sha256");
@@ -279,11 +286,15 @@ const wf = yaml.load(
 ) as {
   jobs: Record<
     string,
-    { env: Record<string, string>; steps: Array<{ name?: string; run?: string }> }
+    {
+      env: Record<string, string>;
+      steps: Array<{ name?: string; run?: string; env?: Record<string, string> }>;
+    }
   >;
 };
 const wfJob = Object.values(wf.jobs)[0];
-const SOURCE_RUN = wfJob.steps.find((s) => s.name?.startsWith("Source"))?.run ?? "";
+const SOURCE_STEP = wfJob.steps.find((s) => s.name?.startsWith("Source"));
+const SOURCE_RUN = SOURCE_STEP?.run ?? "";
 
 type FakeDb = { tables: number; markers: number };
 
@@ -334,6 +345,7 @@ function runSourceStep(dir: string, url: string, expected: string, db: FakeDb) {
       IDENTITY_MARKERS: wfJob.env.IDENTITY_MARKERS,
       SUPABASE_DB_URL: url,
       EXPECTED_SOURCE_REF_SHA256: expected,
+      PGSSLMODE: SOURCE_STEP?.env?.PGSSLMODE,
     },
   });
   const log = existsSync(calls) ? readFileSync(calls, "utf8").trim().split("\n") : [];
@@ -366,6 +378,44 @@ describe("workflow Source step: wrong source fails before any dump", () => {
       expect(r.out).toMatch(/identity mismatch/);
       expect(r.calls).toEqual([]);
       expect(r.dumped).toBe(false);
+      expectNoSourceLeak(r.out);
+    }));
+
+  it.each([
+    [
+      "project host hidden after @ in query",
+      `postgresql://postgres:${PW}@unrelated.invalid/postgres?application_name=@db.${PROD_REF}.supabase.co/x`,
+    ],
+    [
+      "project host hidden after @ in path",
+      `postgresql://postgres:${PW}@unrelated.invalid/postgres/@db.${PROD_REF}.supabase.co/x`,
+    ],
+    [
+      "userinfo supplied only by query",
+      `postgresql://unrelated.invalid/postgres?application_name=@db.${PROD_REF}.supabase.co/x`,
+    ],
+    [
+      "multiple authority userinfo delimiters",
+      `postgresql://postgres:${PW}@unrelated.invalid@db.${PROD_REF}.supabase.co/postgres`,
+    ],
+    ...["disable", "allow", "prefer", "", "require%00disable"].map((mode) => [
+      `unsafe sslmode ${mode || "empty"}`,
+      urlFor(PROD_REF).replace("sslmode=require", `sslmode=${mode}`),
+    ]),
+    ["duplicate sslmode downgrade", `${urlFor(PROD_REF)}&sslmode=disable`],
+    ["duplicate sslmode encrypted", `${urlFor(PROD_REF)}&sslmode=verify-full`],
+    ["encoded sslmode key", `${urlFor(PROD_REF)}&%73slmode=disable`],
+    ["parameter without value separator", `${urlFor(PROD_REF)}&sslmode`],
+    ["newline before downgrade", `${urlFor(PROD_REF)}\n&sslmode=disable`],
+  ])("rejects %s before any psql or pg_dump call", (_name, url) =>
+    withSandbox((dir) => {
+      const r = runSourceStep(dir, url, PROD_SHA, goodDb);
+      expect(r.status).toBe(1);
+      expect(r.calls).toEqual([]);
+      expect(r.dumped).toBe(false);
+      expect(r.out).toMatch(/::error::source identity:/);
+      expect(r.out).not.toContain(url);
+      expect(r.out).not.toContain("unrelated.invalid");
       expectNoSourceLeak(r.out);
     }));
 

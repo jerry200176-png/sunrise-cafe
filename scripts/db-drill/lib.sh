@@ -130,12 +130,13 @@ drill_identity() {
 #   postgres[ql]://<user>[:pw]@db.<ref>.supabase.co[:port]/<db>[?params]
 #   postgres[ql]://postgres.<ref>[:pw]@<x>.pooler.supabase.com[:port]/<db>[?params]
 # Anything else (keyword/value conninfo, multiple hosts, non-Supabase host,
-# hostaddr/host/service overrides in the query string or env, user and host
-# naming different projects) returns 1 with a fixed message.
+# hostaddr/host/service overrides in the query string or env, TLS downgrades,
+# duplicate query parameters, user and host naming different projects)
+# returns 1 with a fixed message.
 drill_source_ref_sha256() {
-  local url="$1" rest userinfo hostpart host user query ref="" uref="" href=""
+  local url="$1" rest authority userinfo hostpart host user query ref="" uref="" href=""
   local -a kv=()
-  local pair key
+  local pair key value seen="&"
   if [ -n "${PGHOSTADDR:-}" ] || [ -n "${PGSERVICE:-}" ] || [ -n "${PGSERVICEFILE:-}" ]; then
     echo "::error::source identity: PGHOSTADDR/PGSERVICE overrides are not allowed"
     return 1
@@ -145,28 +146,49 @@ drill_source_ref_sha256() {
     return 1
   fi
   rest="${url#*://}"
-  if [[ "${rest}" != *@* ]]; then
+  # Only the authority can contain userinfo. An @ in a path or query must
+  # never replace the host that libpq will connect to.
+  authority="${rest%%[/?]*}"
+  if [[ "${authority}" != *@* ]]; then
     echo "::error::source identity: connection URL has no user"
     return 1
   fi
-  userinfo="${rest%@*}"
-  hostpart="${rest##*@}"
+  userinfo="${authority%@*}"
+  hostpart="${authority##*@}"
+  if [[ "${userinfo}" == *@* ]] || [[ "${url}" == *[[:space:]]* ]]; then
+    echo "::error::source identity: connection URL has an ambiguous authority or whitespace"
+    return 1
+  fi
   query=""
-  if [[ "${hostpart}" == *\?* ]]; then query="${hostpart#*\?}"; fi
-  host="${hostpart%%[/?]*}"
-  host="${host%:*}"
+  if [[ "${rest}" == *\?* ]]; then query="${rest#*\?}"; fi
+  host="${hostpart%:*}"
   user="${userinfo%%:*}"
   if [ -n "${query}" ]; then
     IFS='&' read -r -a kv <<< "${query}"
     for pair in "${kv[@]}"; do
       key="${pair%%=*}"
+      value="${pair#*=}"
+      if [[ "${pair}" != *=* ]] || [[ "${seen}" == *"&${key}&"* ]]; then
+        echo "::error::source identity: connection URL has an ambiguous parameter"
+        return 1
+      fi
       case "${key}" in
-        sslmode|connect_timeout|application_name) ;;
+        sslmode)
+          case "${value}" in
+            require|verify-ca|verify-full) ;;
+            *)
+              echo "::error::source identity: connection URL must require TLS"
+              return 1
+              ;;
+          esac
+          ;;
+        connect_timeout|application_name) ;;
         *)
           echo "::error::source identity: connection URL has a disallowed parameter"
           return 1
           ;;
       esac
+      seen="${seen}${key}&"
     done
   fi
   if [[ "${host}" =~ ^db\.([a-z0-9]{20})\.supabase\.co$ ]]; then

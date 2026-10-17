@@ -40,7 +40,9 @@ not authorize exporting production data.
       `postgres.<ref>`). Its sha256 must equal
       `SUNRISE_SOURCE_PROJECT_REF_SHA256`. Unrecognized URL shapes,
       `hostaddr`/`host`/`service` overrides and `PGHOSTADDR`/`PGSERVICE` all
-      fail closed. The URL, host, ref and hash are never printed. This is what
+      fail closed. URL `sslmode`, when present, must be `require`, `verify-ca`,
+      or `verify-full`; duplicate or encoded parameter names are rejected.
+      The URL, host, ref and hash are never printed. This is what
       stops a staging clone: it has the same schema, but a different ref.
    2. **Schema (one read-only query).** The source must contain the required
       Sunrise tables (`reservations`, `orders`, `order_items`, `rooms`,
