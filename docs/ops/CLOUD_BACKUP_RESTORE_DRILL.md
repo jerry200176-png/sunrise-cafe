@@ -147,6 +147,7 @@ CREATE SCHEMA IF NOT EXISTS extensions;
 CREATE EXTENSION IF NOT EXISTS btree_gist SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS pgcrypto SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp" SCHEMA extensions;
+CREATE PUBLICATION supabase_realtime;
 ```
 
 ```bash

@@ -296,7 +296,7 @@ const wfJob = Object.values(wf.jobs)[0];
 const SOURCE_STEP = wfJob.steps.find((s) => s.name?.startsWith("Source"));
 const SOURCE_RUN = SOURCE_STEP?.run ?? "";
 
-type FakeDb = { tables: number; markers: number };
+type FakeDb = { tables: number; markers: number; tablesExtra?: string; markersExtra?: string };
 
 function fakeDbTools(dir: string, db: FakeDb) {
   const bin = join(dir, "bin");
@@ -307,8 +307,8 @@ function fakeDbTools(dir: string, db: FakeDb) {
     `#!/usr/bin/env bash
 echo "psql" >> "${calls}"
 case "$*" in
-  *tables_found*) echo "tables_found=${db.tables}" ;;
-  *markers_found*) echo "markers_found=${db.markers}" ;;
+  *tables_found*) printf '%s\\n' 'tables_found=${db.tables}' ${db.tablesExtra ? `'${db.tablesExtra}'` : ""} ;;
+  *markers_found*) printf '%s\\n' 'markers_found=${db.markers}' ${db.markersExtra ? `'${db.markersExtra}'` : ""} ;;
   *counts.sql*) printf "order_items=4\norders=2\nreservations=3\nrooms=1\nschema_migrations=9\n" ;;
   *server_version*) echo "17.4" ;;
   *) exit 9 ;;
@@ -426,6 +426,21 @@ describe("workflow Source step: wrong source fails before any dump", () => {
       expect(r.calls).toEqual([]);
       expect(r.dumped).toBe(false);
     }));
+
+  it.each(["tablesExtra", "markersExtra"] as const)(
+    "rejects multiline %s without leaking unexpected output or dumping",
+    (field) => withSandbox((dir) => {
+      const extra = "SYNTHETIC_CUSTOMER_alice@example.invalid 王小明 0912-345-678";
+      const r = runSourceStep(dir, urlFor(PROD_REF), PROD_SHA, { ...goodDb, [field]: extra });
+      expect(r.status).toBe(1);
+      expect(r.out).toContain("unexpected output shape");
+      expect(r.out).not.toContain(extra);
+      expectNoLeak(r.out);
+      expectNoSourceLeak(r.out);
+      expect(r.calls).not.toContain("pg_dump");
+      expect(r.dumped).toBe(false);
+    })
+  );
 
   it("right project but missing Sunrise tables or markers: pg_dump never invoked", () =>
     withSandbox((dir) => {

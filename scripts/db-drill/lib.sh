@@ -118,7 +118,9 @@ drill_identity() {
   local -a args=(-X -q -A -t -v ON_ERROR_STOP=1 -v VERBOSITY=sqlstate -c "${sql}")
   if [ -n "${conn}" ]; then args=("${conn}" "${args[@]}"); fi
   drill_quiet "${stage}" "${out}" psql "${args[@]}" || return $?
-  if ! grep -qxE 'markers_found=[0-9]+' "${out}"; then
+  # Validate the whole result, not just any matching line. Extra tool output
+  # must never become accepted identity evidence or reach an error message.
+  if [[ ! "$(cat "${out}")" =~ ^markers_found=[0-9]+$ ]]; then
     echo "::error::drill stage '${stage}': unexpected output shape"
     return 1
   fi
@@ -257,11 +259,12 @@ drill_schema_preflight() {
   local -a args=(-X -q -A -t -v ON_ERROR_STOP=1 -v VERBOSITY=sqlstate -c "${sql}")
   if [ -n "${conn}" ]; then args=("${conn}" "${args[@]}"); fi
   drill_quiet "${stage}-tables" "${out}" psql "${args[@]}" || return $?
-  if ! grep -qxE 'tables_found=[0-9]+' "${out}"; then
+  found="$(cat "${out}")"
+  if [[ ! "${found}" =~ ^tables_found=[0-9]+$ ]]; then
     echo "::error::drill stage '${stage}': unexpected output shape"
     return 1
   fi
-  found="$(sed -E 's/^tables_found=//' "${out}")"
+  found="${found#tables_found=}"
   if [ "${found}" != "${n}" ]; then
     echo "::error::${stage}: required Sunrise tables missing (found ${found} of ${n}); refusing to continue"
     return 1
