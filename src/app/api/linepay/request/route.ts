@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
     // Existing payment rule kept as-is: no online LINE Pay past the deadline.
     // The booking itself is no longer cancelled (ADR-012); see decision item.
     if (isDepositDeadlinePast(deadline)) {
-      return NextResponse.json({ error: "訂金期限已過，請聯繫店家確認訂位" }, { status: 409 });
+      return NextResponse.json({ error: "訂金期限已過，無法使用 LINE Pay；訂位不會因此自動取消。請依頁面匯款資訊轉帳並回報；若無匯款資訊或需協助，請聯繫店家。" }, { status: 409 });
     }
 
     const amount = getDepositAmount(Number(reservation.total_price));

@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-const { verify, requestProvider, supabaseAdmin, getDepositAmount, isAdminConfigured, isLinePayConfigured } = vi.hoisted(() => ({
+const { verify, requestProvider, supabaseAdmin, getDepositAmount, isAdminConfigured, isLinePayConfigured, isDepositDeadlinePast } = vi.hoisted(() => ({
   verify: vi.fn(), requestProvider: vi.fn(), supabaseAdmin: vi.fn(), getDepositAmount: vi.fn(),
-  isAdminConfigured: vi.fn(), isLinePayConfigured: vi.fn(),
+  isAdminConfigured: vi.fn(), isLinePayConfigured: vi.fn(), isDepositDeadlinePast: vi.fn(),
 }));
 
 vi.mock("@/lib/guest-auth", () => ({ verifyGuestBookingById: verify }));
 vi.mock("@/lib/line-pay", () => ({ isLinePayConfigured, requestLinePayPayment: requestProvider }));
 vi.mock("@/lib/booking-utils", () => ({ getDepositAmount }));
-vi.mock("@/lib/deposit-deadline", () => ({ computeDepositDeadline: vi.fn(() => new Date(Date.now() + 3600000)), isDepositDeadlinePast: vi.fn(() => false) }));
+vi.mock("@/lib/deposit-deadline", () => ({ computeDepositDeadline: vi.fn(() => new Date(Date.now() + 3600000)), isDepositDeadlinePast }));
 vi.mock("@/lib/supabase-admin", () => ({ isAdminConfigured, supabaseAdmin }));
 vi.mock("@/lib/payment-log", () => ({ logPayment: vi.fn() }));
 
@@ -48,6 +48,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   isAdminConfigured.mockReturnValue(true);
   isLinePayConfigured.mockReturnValue(true);
+  isDepositDeadlinePast.mockReturnValue(false);
   getDepositAmount.mockReturnValue(300);
   verify.mockResolvedValue({ ok: true, reservation });
   requestProvider.mockResolvedValue({ returnCode: "0000", info: { transactionId: "tx-1", paymentUrl: { web: "https://pay.example/web", app: "https://pay.example/app" } } });
@@ -55,6 +56,25 @@ beforeEach(() => {
 });
 
 describe("LINE Pay request route", () => {
+  it.each(["pending", "confirmed"])("keeps the LINE Pay cutoff for an overdue %s booking and explains transfer fallback", async (status) => {
+    const overdueReservation = { ...reservation, status };
+    verify.mockResolvedValue({ ok: true, reservation: overdueReservation });
+    isDepositDeadlinePast.mockReturnValue(true);
+
+    const response = await POST(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error).toContain("無法使用 LINE Pay");
+    expect(body.error).toContain("訂位不會因此自動取消");
+    expect(body.error).toContain("匯款資訊轉帳並回報");
+    expect(body.error).toContain("若無匯款資訊或需協助，請聯繫店家");
+    expect(body.paymentUrl).toBeUndefined();
+    expect(requestProvider).not.toHaveBeenCalled();
+    expect(supabaseAdmin).not.toHaveBeenCalled();
+    expect(overdueReservation).toMatchObject({ status, is_deposit_paid: false });
+  });
+
   it("reuses the same unexpired payment instead of creating a duplicate", async () => {
     supabaseAdmin.mockReturnValue(client({ order_id: "old-order", transaction_id: "tx-old", amount: 300, payment_url_web: "https://pay.example/existing", payment_url_app: null, expires_at: new Date(Date.now() + 60000).toISOString(), status: "pending" }));
     const response = await POST(request());
