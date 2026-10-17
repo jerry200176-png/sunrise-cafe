@@ -95,7 +95,7 @@ async function migrationApplied(sql) {
   return rows.length > 0;
 }
 
-async function verify(sql) {
+export async function verify(sql) {
   const missingRelations = [];
   for (const relation of ["payment_events", "reservations", "ops_events", "schema_migrations"]) {
     if (!(await relationExists(sql, relation))) missingRelations.push(relation);
@@ -138,8 +138,18 @@ async function verify(sql) {
 
   const privileges = await sql`
     SELECT
-      has_function_privilege('public', 'public.record_bank_transfer_report(uuid,text,numeric)', 'EXECUTE') AS public_report,
-      has_function_privilege('public', 'public.confirm_bank_transfer_payment(uuid,text,text)', 'EXECUTE') AS public_confirm,
+      EXISTS (
+        SELECT 1 FROM pg_proc p,
+          LATERAL aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a
+        WHERE p.oid = 'public.record_bank_transfer_report(uuid,text,numeric)'::regprocedure
+          AND a.grantee = 0 AND a.privilege_type = 'EXECUTE'
+      ) AS public_report,
+      EXISTS (
+        SELECT 1 FROM pg_proc p,
+          LATERAL aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a
+        WHERE p.oid = 'public.confirm_bank_transfer_payment(uuid,text,text)'::regprocedure
+          AND a.grantee = 0 AND a.privilege_type = 'EXECUTE'
+      ) AS public_confirm,
       has_function_privilege('anon', 'public.record_bank_transfer_report(uuid,text,numeric)', 'EXECUTE') AS anon_report,
       has_function_privilege('anon', 'public.confirm_bank_transfer_payment(uuid,text,text)', 'EXECUTE') AS anon_confirm,
       has_function_privilege('authenticated', 'public.record_bank_transfer_report(uuid,text,numeric)', 'EXECUTE') AS authenticated_report,
@@ -167,16 +177,12 @@ async function verify(sql) {
       function_acl: functionAcl,
     })
   );
-  if (
-    privilege.public_report ||
-    privilege.public_confirm ||
-    privilege.anon_report ||
-    privilege.anon_confirm ||
-    privilege.authenticated_report ||
-    privilege.authenticated_confirm ||
-    !privilege.service_report ||
-    !privilege.service_confirm
-  ) {
+  const denied = ["public_report", "public_confirm", "anon_report", "anon_confirm",
+    "authenticated_report", "authenticated_confirm"];
+  const allowed = ["service_report", "service_confirm"];
+  if (privileges.length !== 1 || !privilege ||
+      denied.some((name) => privilege[name] !== false) ||
+      allowed.some((name) => privilege[name] !== true)) {
     throw new Error("Bank-transfer RPC permission verification failed");
   }
   if (!(await migrationApplied(sql))) throw new Error(`${VERSION} missing from schema_migrations`);
@@ -204,7 +210,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error?.message ?? error);
-  process.exit(1);
-});
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  main().catch((error) => {
+    console.error(error?.message ?? error);
+    process.exitCode = 1;
+  });
+}
