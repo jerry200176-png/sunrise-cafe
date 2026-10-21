@@ -22,11 +22,22 @@ const rows = [
   { ...base, id: "done", booking_code: "DONE01", customer_name: "丁", status: "completed" },
 ];
 
+/** 模擬伺服器：active 範圍沒有未結案訂位；history 依 status 篩選（auto_cancelled 由伺服器判斷）。 */
+function listBody(url: string) {
+  const params = new URL(url, "http://localhost").searchParams;
+  if (params.get("scope") !== "history") return { items: [], nextCursor: null, total: 0, warnings: [] };
+  const status = params.get("status") ?? "all";
+  const items = rows.filter((r) =>
+    status === "all" ? true : status === "auto_cancelled" ? (r as { deposit_auto_cancelled?: boolean }).deposit_auto_cancelled === true : r.status === status
+  );
+  return { items, nextCursor: null, total: items.length, warnings: [] };
+}
+
 function mockFetch() {
   const calls: { url: string; init?: RequestInit }[] = [];
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     calls.push({ url, init });
-    const body = url.startsWith("/api/reservations?") ? rows : init?.method === "PATCH" ? { ok: true } : [];
+    const body = url.startsWith("/api/reservations?") ? listBody(url) : init?.method === "PATCH" ? { ok: true } : [];
     return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -52,9 +63,11 @@ describe("ReservationList history restore (一鍵還原)", () => {
   });
 
   it("filters to bookings auto-cancelled for an unpaid deposit", async () => {
-    mockFetch();
+    const calls = mockFetch();
     await openHistory();
-    fireEvent.click(await screen.findByRole("button", { name: /只看未付訂金自動取消（1）/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /只看未付訂金自動取消/ }));
+    await waitFor(() => expect(calls.some((c) => c.url.includes("status=auto_cancelled"))).toBe(true));
+    expect(await screen.findByRole("button", { name: /只看未付訂金自動取消（1）/ })).toBeTruthy();
     await waitFor(() => expect(screen.getAllByRole("button", { name: /一鍵還原/ })).toHaveLength(1));
     expect(screen.getByText("AUTO01")).toBeTruthy();
     expect(screen.queryByText("MANU01")).toBeNull();
@@ -74,7 +87,7 @@ describe("ReservationList history restore (一鍵還原)", () => {
     expect(patches[0].url).toBe("/api/reservations/auto");
     expect(JSON.parse(String(patches[0].init?.body))).toEqual({ intent: "restore" });
     await waitFor(() =>
-      expect(calls.filter((c) => c.url.startsWith("/api/reservations?")).length).toBeGreaterThanOrEqual(2)
+      expect(calls.filter((c) => c.url.includes("scope=active")).length).toBeGreaterThanOrEqual(2)
     );
   });
 });
