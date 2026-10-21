@@ -12,7 +12,8 @@
  *      defers (exit 0, nothing written) so daytime deploys stay green;
  *   3. a verified, persisted recovery point from THIS job exists: the manifest written by
  *      scripts/pre-migration-backup.sh (PR #475) for this phase, fresh, encrypted, with
- *      its .dump.age file on disk. A plaintext dump that dies with the runner is not a
+ *      its .dump.age file on disk and its upload confirmed (BACKUP_ARTIFACT_ID from the
+ *      workflow's upload step). A plaintext dump that dies with the runner is not a
  *      recovery point. Missing/invalid = exit 1, nothing written;
  *   4. in-transaction pre-checks: no unknown statuses, an overlap constraint present, no
  *      overlapping active rows; lock_timeout so a busy table aborts instead of queueing.
@@ -75,7 +76,7 @@ function parseStamp(stamp) {
 
 /**
  * Proves scripts/pre-migration-backup.sh ran and verified a dump in this job, and that the
- * dump survives the runner (age-encrypted copy for the upload step). Returns safe metadata only.
+ * dump left the runner (age-encrypted copy uploaded, artifact id confirmed). Returns safe metadata only.
  * @param {{ env?: Record<string, string | undefined>, now?: Date, phase?: string }} [options]
  */
 export function assertRecoveryPoint({ env = process.env, now = new Date(), phase = PHASE } = {}) {
@@ -104,9 +105,17 @@ export function assertRecoveryPoint({ env = process.env, now = new Date(), phase
   } else {
     const artifact = join(dir, `sunrise-cafe_${phase}_${manifest.created_at_utc}.dump.age`);
     if (!existsSync(artifact) || statSync(artifact).size < 1) problems.push("encrypted dump file missing");
+    // production-deploy-migrate.yml passes steps.upload.outputs.artifact-id: the ciphertext
+    // left the runner (backup -> upload -> verify upload) before this migration may start.
+    if (!/^\d+$/.test(String(env.BACKUP_ARTIFACT_ID ?? ""))) problems.push("encrypted backup upload not confirmed (no BACKUP_ARTIFACT_ID)");
   }
   if (problems.length) throw new Error(`Pre-migration backup is not a usable recovery point: ${problems.join("; ")}`);
-  return { backup_sha256: manifest.sha256, backup_bytes: Number(manifest.bytes), backup_created_at_utc: manifest.created_at_utc };
+  return {
+    backup_sha256: manifest.sha256,
+    backup_bytes: Number(manifest.bytes),
+    backup_created_at_utc: manifest.created_at_utc,
+    backup_artifact_id: String(env.BACKUP_ARTIFACT_ID),
+  };
 }
 
 async function hasVersion(sql) {

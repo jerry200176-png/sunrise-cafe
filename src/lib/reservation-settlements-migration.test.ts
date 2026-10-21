@@ -115,11 +115,16 @@ describe("reservation settlements migration (Founder F1, 2026-10-21)", () => {
 
   it("accepts only a fresh, encrypted, on-disk backup from this phase", () => {
     const now = new Date("2026-10-21T16:00:00Z");
-    expect(assertRecoveryPoint({ env: { BACKUP_OUT_DIR: backupDir(goodManifest) }, now })).toEqual({
+    const good = backupDir(goodManifest);
+    expect(assertRecoveryPoint({ env: { BACKUP_OUT_DIR: good, BACKUP_ARTIFACT_ID: "4242" }, now })).toEqual({
       backup_sha256: "a".repeat(64),
       backup_bytes: 123456,
       backup_created_at_utc: "20261021T155500Z",
+      backup_artifact_id: "4242",
     });
+    // backup -> upload -> confirm: an on-disk ciphertext whose upload was not confirmed is refused
+    expect(() => assertRecoveryPoint({ env: { BACKUP_OUT_DIR: good }, now })).toThrow(/upload not confirmed/);
+    expect(() => assertRecoveryPoint({ env: { BACKUP_OUT_DIR: good, BACKUP_ARTIFACT_ID: "" }, now })).toThrow(/upload not confirmed/);
     const runnerTemp = mkdtempSync(join(tmpdir(), "settle-rt-"));
     expect(() => assertRecoveryPoint({ env: { RUNNER_TEMP: runnerTemp }, now })).toThrow(/No pre-migration backup manifest/);
     const cases: Array<[Record<string, unknown>, boolean, RegExp]> = [
@@ -131,7 +136,9 @@ describe("reservation settlements migration (Founder F1, 2026-10-21)", () => {
       [{ ...goodManifest, sha256: "" }, true, /sha256/],
     ];
     for (const [manifest, artifact, error] of cases) {
-      expect(() => assertRecoveryPoint({ env: { BACKUP_OUT_DIR: backupDir(manifest, artifact) }, now })).toThrow(error);
+      expect(() =>
+        assertRecoveryPoint({ env: { BACKUP_OUT_DIR: backupDir(manifest, artifact), BACKUP_ARTIFACT_ID: "4242" }, now })
+      ).toThrow(error);
     }
   });
 });

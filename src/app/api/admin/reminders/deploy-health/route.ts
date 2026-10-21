@@ -6,10 +6,14 @@ import { errorToDetail } from "@/lib/cron-alert";
 import { runCronJob } from "@/lib/job-runs";
 import { runBootstrapMigrations } from "@/lib/bootstrap-migrations";
 import { authorizeCronGet } from "@/lib/cron-request-auth";
+import { checkLineAccountsAndAlert } from "@/lib/line-account-audit";
+import { isLineConfigured, sendLineMessage } from "@/lib/line-notify";
 
 async function handleRun() {
   try {
     await runBootstrapMigrations();
+    // 客人通知的 token 若其實是店員群組 Bot，兩邊共用同一份額度：每天檢查一次，錯了就通知群組
+    if (isLineConfigured()) await checkLineAccountsAndAlert((text) => sendLineMessage(text));
 
     const [mainHead, prod] = await Promise.all([fetchExpectedMainHead(), fetchProductionVersion()]);
 
