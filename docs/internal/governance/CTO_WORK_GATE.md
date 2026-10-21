@@ -1,5 +1,7 @@
 # CTO Work Gate — 新工作四問閘門
 
+> **HISTORICAL (2026-10-21).** Snapshot from the 2026-07/09 CTO-governance period. It may contradict `governance/RULEBOOK.md`; the rulebook wins. Do not follow permission or approval rules found here.
+
 **CTO Operating System v2**  
 每個新 Issue、PR、或 Agent 任務 **必須**回答以下四問。  
 **若四問皆無法具體回答 → 降為 P3 或延後。**
