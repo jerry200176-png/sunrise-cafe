@@ -13,6 +13,15 @@ export const RULES = [
   { id: "drop", re: /\bDROP\b/gi, hint: "DROP (table/column/constraint/policy/index/function)" },
   { id: "rename", re: /\bRENAME\b/gi, hint: "RENAME" },
   { id: "alter-type", re: /\bALTER\s+(?:COLUMN\s+)?"?[\w.]+"?\s+(?:SET\s+DATA\s+)?TYPE\b/gi, hint: "ALTER COLUMN ... TYPE" },
+  { id: "alter-set-not-null", re: /\bALTER\s+(?:COLUMN\s+)?"?[\w.]+"?\s+SET\s+NOT\s+NULL\b/gi, hint: "ALTER COLUMN ... SET NOT NULL" },
+  { id: "alter-set-default", re: /\bALTER\s+(?:COLUMN\s+)?"?[\w.]+"?\s+SET\s+DEFAULT\b/gi, hint: "ALTER COLUMN ... SET DEFAULT" },
+  { id: "alter-policy", re: /\bALTER\s+POLICY\b/gi, hint: "ALTER POLICY" },
+  { id: "disable-security", re: /\b(?:DISABLE\s+ROW\s+LEVEL\s+SECURITY|NO\s+FORCE\s+ROW\s+LEVEL\s+SECURITY|DISABLE\s+TRIGGER)\b/gi, hint: "DISABLE ROW LEVEL SECURITY / NO FORCE / DISABLE TRIGGER" },
+  { id: "revoke", re: /\bREVOKE\b/gi, hint: "REVOKE" },
+  { id: "create-or-replace", re: /\bCREATE\s+OR\s+REPLACE\b/gi, hint: "CREATE OR REPLACE (rewrites an existing object)" },
+  // Dynamic SQL hides any statement from this linter: fail closed. Trigger syntax
+  // "EXECUTE FUNCTION/PROCEDURE" is not dynamic SQL.
+  { id: "dynamic-sql", re: /\bEXECUTE\b(?!\s+(?:FUNCTION|PROCEDURE)\b)|\bdblink_exec\b/gi, hint: "EXECUTE / dynamic SQL (cannot be verified additive)" },
   { id: "truncate", re: /\bTRUNCATE\b/gi, hint: "TRUNCATE" },
   { id: "delete", re: /\bDELETE\s+FROM\b/gi, hint: "DELETE FROM" },
   {
@@ -34,8 +43,10 @@ export function stripSql(input) {
     const c = input[i];
     const n = input[i + 1];
     if (c === "-" && n === "-") {
+      out += " ";
       while (i < input.length && input[i] !== "\n") i++;
     } else if (c === "/" && n === "*") {
+      out += " ";
       i += 2;
       while (i < input.length && !(input[i] === "*" && input[i + 1] === "/")) {
         if (input[i] === "\n") out += "\n";

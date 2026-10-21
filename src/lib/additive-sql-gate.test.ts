@@ -19,6 +19,20 @@ describe("additive-only SQL linter", () => {
     ["TRUNCATE t;", "truncate"],
     ["DELETE FROM t WHERE a = 1;", "delete"],
     ["UPDATE t SET a = 1;", "update"],
+    ["DO $$ BEGIN EXECUTE 'DROP TABLE t'; END $$;", "dynamic-sql"],
+    ["DO $$ BEGIN EXECUTE format('DELETE FROM %I', 't'); END $$;", "dynamic-sql"],
+    ["DELETE/**/FROM t;", "delete"],
+    ["DROP/* x */TABLE t;", "drop"],
+    ["DELETE--c\nFROM t;", "delete"],
+    ["ALTER TABLE t DISABLE ROW LEVEL SECURITY;", "disable-security"],
+    ["ALTER TABLE t NO FORCE ROW LEVEL SECURITY;", "disable-security"],
+    ["ALTER TABLE t DISABLE TRIGGER x;", "disable-security"],
+    ["ALTER POLICY p ON t USING (true);", "alter-policy"],
+    ["REVOKE ALL ON t FROM anon;", "revoke"],
+    ["ALTER TABLE t ALTER COLUMN a SET NOT NULL;", "alter-set-not-null"],
+    ["ALTER TABLE t ALTER a SET DEFAULT 1;", "alter-set-default"],
+    ["CREATE OR REPLACE FUNCTION f() RETURNS int AS $$ SELECT 1 $$ LANGUAGE sql;", "create-or-replace"],
+    ["CREATE OR REPLACE VIEW v AS SELECT 1;", "create-or-replace"],
     ["INSERT INTO t VALUES (1) ON CONFLICT (id) DO UPDATE\n SET a = 2;", "update"],
   ])("flags %s", (sql, rule) => {
     expect(rules(sql)).toContain(rule);
@@ -34,9 +48,15 @@ describe("additive-only SQL linter", () => {
       GRANT UPDATE, DELETE ON t TO service_role;
       INSERT INTO t (id) VALUES (gen_random_uuid()) ON CONFLICT DO NOTHING;
       SELECT * FROM t FOR UPDATE;
+      CREATE TRIGGER trg BEFORE INSERT ON t FOR EACH ROW EXECUTE FUNCTION f();
+      CREATE TRIGGER trg2 BEFORE INSERT ON t FOR EACH ROW EXECUTE PROCEDURE f();
+      ALTER TABLE t ENABLE ROW LEVEL SECURITY;
+      ALTER TABLE t ADD COLUMN IF NOT EXISTS z int NOT NULL DEFAULT 0;
+      ALTER TABLE t ADD CONSTRAINT fk FOREIGN KEY (r) REFERENCES o(id) ON DELETE SET DEFAULT;
+      GRANT SELECT ON t TO anon;
     `;
     expect(lintSql(sql)).toEqual([]);
-    expect(stripSql("a -- c\nb 'x''y' c")).toBe("a \nb '' c");
+    expect(stripSql("a -- c\nb 'x''y' c")).toBe("a  \nb '' c");
   });
 
   it("exempts UPDATE only inside an allow-update marker", () => {
@@ -86,7 +106,7 @@ describe("plan SQL gate", () => {
 
   it("the grandfathered set is frozen: new entries cannot join it", () => {
     const frozen = plan.entries.filter((e: { sql_class?: string }) => e.sql_class === "grandfathered").map((e: { file: string }) => e.file).sort();
-    expect(frozen).toHaveLength(17);
+    expect(frozen).toHaveLength(18);
     expect(frozen).toContain("migration-booking-meals.sql");
     expect(frozen).toContain("migration-no-show-advice.sql");
   });
@@ -99,5 +119,15 @@ describe("wiring", () => {
     expect(ci).toMatch(/run-production-migration-phase\.mjs --check/);
     expect(ci).toMatch(/founder-approved-sql/);
     expect(ci).toMatch(/check-additive-sql\.mjs/);
+  });
+});
+
+describe("CLI diff selection", () => {
+  it("includes renamed SQL files (AMR)", () => {
+    expect(readFileSync(join(root, "scripts/check-additive-sql.mjs"), "utf8")).toMatch(/--diff-filter=AMR/);
+  });
+  it("a founder_approved plan entry (with approval) passes the plan gate despite non-additive SQL", () => {
+    const p = { entries: [{ version: "v", file: "f.sql", runner: "r", phase: "postdeploy", sql_class: "founder_approved", approval: "Founder 2026-10-21 chat + label founder-approved-sql" }] };
+    expect(() => assertPlanSqlGate(p, () => "DELETE FROM t; DROP TABLE x;")).not.toThrow();
   });
 });

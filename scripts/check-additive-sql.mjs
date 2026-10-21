@@ -14,7 +14,7 @@ const baseIdx = args.indexOf("--base");
 const base = baseIdx >= 0 ? args.splice(baseIdx, 2)[1] : "origin/main";
 
 function changedSqlFiles() {
-  const names = execFileSync("git", ["diff", "--name-only", "--diff-filter=AM", `${base}...HEAD`], { encoding: "utf8" })
+  const names = execFileSync("git", ["diff", "--name-only", "--diff-filter=AMR", `${base}...HEAD`], { encoding: "utf8" })
     .split("\n").filter(Boolean);
   const files = new Set(names.filter((f) => /^supabase\/.*\.sql$/.test(f)));
   // A changed runner re-checks the SQL the plan ties to it (plan edits themselves: `run-production-migration-phase.mjs --check`).
