@@ -34,6 +34,11 @@ describe("LINE Messaging API X-Line-Retry-Key & 409 reconciliation", () => {
     expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/);
   });
 
+  it("rejects staff 409 without provider acceptance evidence", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("conflict", { status: 409 })));
+    await expect(sendLineFlex("test", dummyFlex, { retryKey: "key" })).rejects.toThrow("409");
+  });
+
   it("attaches X-Line-Retry-Key header to staff group push request", async () => {
     const fetchSpy = vi.fn().mockResolvedValue({
       ok: true,

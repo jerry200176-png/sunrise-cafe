@@ -52,3 +52,21 @@ describe("customer push picks the store's own LINE account", () => {
     expect(authOf().Authorization).toBe("Bearer daan-token");
   });
 });
+
+
+describe("customer provider acceptance", () => {
+  it("rejects a bare 409 instead of marking it accepted", async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response("conflict", { status: 409 }));
+    await expect(sendLineFlexMessage("U1", "alt", { type: "bubble" } as never, { retryKey: "key" })).rejects.toThrow("409");
+  });
+  it("accepts a duplicate only with LINE's accepted request id", async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response("", { status: 409, headers: { "x-line-accepted-request-id": "accepted" } }));
+    await expect(sendLineFlexMessage("U1", "alt", { type: "bubble" } as never, { retryKey: "key" })).resolves.toBeUndefined();
+  });
+  it("never falls back to the group token when customer credentials are missing", async () => {
+    vi.stubEnv("LINE_CUSTOMER_ACCESS_TOKEN", "");
+    vi.stubEnv("LINE_CHANNEL_ACCESS_TOKEN", "staff-token");
+    await expect(sendLineFlexMessage("U1", "alt", { type: "bubble" } as never)).rejects.toThrow("LINE_CUSTOMER_ACCESS_TOKEN");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});

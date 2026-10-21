@@ -440,9 +440,6 @@ export async function runSendLineReminder(
       }
     }
 
-    const branches = (await fetchBranches()) as BranchRow[];
-    const activeBranches = branches.filter((b) => b.line_group_id);
-    const useLegacyMode = activeBranches.length === 0;
     const allRows = (await fetchReservationsForReminder(force)) as Record<string, unknown>[];
     let totalSent = 0;
     let line_rejected = 0;
@@ -450,152 +447,150 @@ export async function runSendLineReminder(
     const heartbeat_keys: string[] = [];
     let skipped_count = 0;
 
-    if (useLegacyMode) {
-      if (!isLineConfigured()) {
-        const observability = finalizeObs(
-          {
-            ...base,
-            reservation_count: allRows.length,
-            sent_count: 0,
-            skipped_count: 0,
-            guest_sent_count: 0,
-            result: "error",
-            heartbeat: "none",
-            duplicate: false,
-            error: "未設定 LINE_CHANNEL_ACCESS_TOKEN 或 LINE_GROUP_ID",
-          },
-          started
-        );
-        return NextResponse.json({ ok: false, ...observability }, { status: 503 });
-      }
-
-      if (allRows.length === 0) {
-        if (sendHeartbeatOnEmpty) {
-          const allTomorrow = await fetchTomorrowsReservations();
-          const tomorrowRows = (allTomorrow ?? []) as Record<string, unknown>[];
-          const tomorrowCount = tomorrowRows.length;
-          skipped_count = tomorrowCount;
-          if (tomorrowRows.length === 0) {
-            if (await sendInformationalMessage(emptyCatMessage(), "legacy-group:empty_cat", started)) {
-              heartbeat = "cat";
-              heartbeat_keys.push("legacy-group:empty_cat");
-            }
-          } else {
-            const heartbeatCount = await pushTextToGroups(
-              alreadyNotifiedCronMessage(tomorrowCount, started),
-              activeBranches,
-              true,
-              "legacy-group:already_notified",
-              started
-            );
-            if (heartbeatCount > 0) {
-              heartbeat = "already_notified";
-              heartbeat_keys.push("legacy-group:already_notified");
-            }
-          }
+    // A staff provider/claim/settlement failure must not abort independent guest claims.
+    // Do not reset an uncertain group claim or retry its provider request here.
+    try {
+      const branches = (await fetchBranches()) as BranchRow[];
+      const activeBranches = branches.filter((b) => b.line_group_id);
+      const useLegacyMode = activeBranches.length === 0;
+      if (useLegacyMode) {
+        if (!isLineConfigured()) {
+          // Staff configuration is independent of the customer's Official Account.
+          throw new Error("未設定 LINE_CHANNEL_ACCESS_TOKEN 或 LINE_GROUP_ID");
         }
-        const result =
-          heartbeat === "cat"
-            ? "empty_cat"
-            : heartbeat === "already_notified"
-              ? "already_notified"
-              : "already_notified";
-        const heartbeatSent = heartbeat === "cat" || heartbeat === "already_notified" ? 1 : 0;
-        const observability = finalizeObs(
-          {
-            ...base,
-            reservation_count: skipped_count,
-            sent_count: heartbeatSent,
-            skipped_count,
-            guest_sent_count: 0,
-            result,
-            heartbeat: heartbeat === "none" ? "already_notified" : heartbeat,
-            heartbeat_keys,
-            duplicate: false,
-          },
-          started
-        );
-        return NextResponse.json({
-          ok: true,
-          sent: heartbeatSent,
-          message_count: heartbeatSent,
-          message: "沒有尚未通知的明日訂位（可能已全部發送過）",
-          ...observability,
-        });
-      }
 
-      const result = await pushDigestToGroup(allRows, null, "📅 明日訂位提醒");
-      totalSent = result.sent;
-      line_rejected += result.errors;
-      heartbeat = result.sent > 0 ? "digest" : "none";
-    } else {
-      const matchedIds = new Set<string>();
-      const allTomorrow = sendHeartbeatOnEmpty ? await fetchTomorrowsReservations() : null;
-
-      for (const branch of activeBranches) {
-        const groupId = branch.line_group_id!;
-        const branchRows = allRows.filter((r) =>
-          reservationMatchesBranch(r as ReminderReservationShape, branch)
-        );
-
-        if (branchRows.length === 0) {
-          if (sendHeartbeatOnEmpty && allTomorrow) {
-            const branchTomorrow = allTomorrow.filter((r: Record<string, unknown>) =>
-              reservationMatchesBranch(r as ReminderReservationShape, branch)
-            );
-            if (branchTomorrow.length === 0) {
-              const sent = await sendInformationalMessageToGroup(
-                emptyCatMessage(),
-                groupId,
-                branch.name,
-                `${groupId}:empty_cat`,
-                started
-              );
-              if (sent) {
-                heartbeat = heartbeat === "digest" ? "digest" : "cat";
-                heartbeat_keys.push(`${groupId}:empty_cat`);
+        if (allRows.length === 0) {
+          if (sendHeartbeatOnEmpty) {
+            const allTomorrow = await fetchTomorrowsReservations();
+            const tomorrowRows = (allTomorrow ?? []) as Record<string, unknown>[];
+            const tomorrowCount = tomorrowRows.length;
+            skipped_count = tomorrowCount;
+            if (tomorrowRows.length === 0) {
+              if (await sendInformationalMessage(emptyCatMessage(), "legacy-group:empty_cat", started)) {
+                heartbeat = "cat";
+                heartbeat_keys.push("legacy-group:empty_cat");
               }
             } else {
-              skipped_count += branchTomorrow.length;
-              const sent = await sendInformationalMessageToGroup(
-                alreadyNotifiedCronMessage(branchTomorrow.length, started),
-                groupId,
-                branch.name,
-                `${groupId}:already_notified`,
+              const heartbeatCount = await pushTextToGroups(
+                alreadyNotifiedCronMessage(tomorrowCount, started),
+                activeBranches,
+                true,
+                "legacy-group:already_notified",
                 started
               );
-              if (sent) {
-                if (heartbeat !== "digest") heartbeat = "already_notified";
-                heartbeat_keys.push(`${groupId}:already_notified`);
+              if (heartbeatCount > 0) {
+                heartbeat = "already_notified";
+                heartbeat_keys.push("legacy-group:already_notified");
               }
             }
           }
-          continue;
+          const result =
+            heartbeat === "cat"
+              ? "empty_cat"
+              : heartbeat === "already_notified"
+                ? "already_notified"
+                : "already_notified";
+          const heartbeatSent = heartbeat === "cat" || heartbeat === "already_notified" ? 1 : 0;
+          const observability = finalizeObs(
+            {
+              ...base,
+              reservation_count: skipped_count,
+              sent_count: heartbeatSent,
+              skipped_count,
+              guest_sent_count: 0,
+              result,
+              heartbeat: heartbeat === "none" ? "already_notified" : heartbeat,
+              heartbeat_keys,
+              duplicate: false,
+            },
+            started
+          );
+          return NextResponse.json({
+            ok: true,
+            sent: heartbeatSent,
+            message_count: heartbeatSent,
+            message: "沒有尚未通知的明日訂位（可能已全部發送過）",
+            ...observability,
+          });
         }
 
-        const result = await pushDigestToGroup(branchRows, groupId, "📅 明日訂位提醒");
-        for (const r of result.handled) matchedIds.add(r.id as string);
-        totalSent += result.sent;
+        const result = await pushDigestToGroup(allRows, null, "📅 明日訂位提醒");
+        totalSent = result.sent;
         line_rejected += result.errors;
-        heartbeat = result.sent > 0 ? "digest" : heartbeat;
-      }
+        heartbeat = result.sent > 0 ? "digest" : "none";
+      } else {
+        const matchedIds = new Set<string>();
+        const allTomorrow = sendHeartbeatOnEmpty ? await fetchTomorrowsReservations() : null;
 
-      const unmatched = allRows.filter((r) => !matchedIds.has(r.id as string));
-      if (unmatched.length > 0) {
-        if (isLineConfigured()) {
-          const result = await pushDigestToGroup(unmatched, null, "📅 明日訂位提醒（未設定分店群組）");
+        for (const branch of activeBranches) {
+          const groupId = branch.line_group_id!;
+          const branchRows = allRows.filter((r) =>
+            reservationMatchesBranch(r as ReminderReservationShape, branch)
+          );
+
+          if (branchRows.length === 0) {
+            if (sendHeartbeatOnEmpty && allTomorrow) {
+              const branchTomorrow = allTomorrow.filter((r: Record<string, unknown>) =>
+                reservationMatchesBranch(r as ReminderReservationShape, branch)
+              );
+              if (branchTomorrow.length === 0) {
+                const sent = await sendInformationalMessageToGroup(
+                  emptyCatMessage(),
+                  groupId,
+                  branch.name,
+                  `${groupId}:empty_cat`,
+                  started
+                );
+                if (sent) {
+                  heartbeat = heartbeat === "digest" ? "digest" : "cat";
+                  heartbeat_keys.push(`${groupId}:empty_cat`);
+                }
+              } else {
+                skipped_count += branchTomorrow.length;
+                const sent = await sendInformationalMessageToGroup(
+                  alreadyNotifiedCronMessage(branchTomorrow.length, started),
+                  groupId,
+                  branch.name,
+                  `${groupId}:already_notified`,
+                  started
+                );
+                if (sent) {
+                  if (heartbeat !== "digest") heartbeat = "already_notified";
+                  heartbeat_keys.push(`${groupId}:already_notified`);
+                }
+              }
+            }
+            continue;
+          }
+
+          const result = await pushDigestToGroup(branchRows, groupId, "📅 明日訂位提醒");
+          for (const r of result.handled) matchedIds.add(r.id as string);
           totalSent += result.sent;
           line_rejected += result.errors;
           heartbeat = result.sent > 0 ? "digest" : heartbeat;
-          console.warn(
-            `[send-line] multi-branch: ${unmatched.length} row(s) fell back to LINE_GROUP_ID`
-          );
-        } else {
-          console.error(
-            `[send-line] multi-branch: ${unmatched.length} pending tomorrow reservation(s) matched no line_group_id and LINE_GROUP_ID unset`
-          );
+        }
+
+        const unmatched = allRows.filter((r) => !matchedIds.has(r.id as string));
+        if (unmatched.length > 0) {
+          if (isLineConfigured()) {
+            const result = await pushDigestToGroup(unmatched, null, "📅 明日訂位提醒（未設定分店群組）");
+            totalSent += result.sent;
+            line_rejected += result.errors;
+            heartbeat = result.sent > 0 ? "digest" : heartbeat;
+            console.warn(
+              `[send-line] multi-branch: ${unmatched.length} row(s) fell back to LINE_GROUP_ID`
+            );
+          } else {
+            console.error(
+              `[send-line] multi-branch: ${unmatched.length} pending tomorrow reservation(s) matched no line_group_id and LINE_GROUP_ID unset`
+            );
+          }
         }
       }
+    } catch (error) {
+      if (allRows.length === 0) throw error;
+      line_rejected++;
+      console.error(`[send-line] staff reminder failed: ${safeLineDeliveryError(error)}`);
     }
 
     // Paid guest reminders are batched per recipient. The separate marker prevents
