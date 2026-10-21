@@ -20,11 +20,11 @@ jobs:
       pull-requests: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: "npm"
@@ -51,17 +51,20 @@ jobs:
       - name: Verify production workflow contract
         run: npm run verify:production-workflow
 
-      # Advisory only — high-noise transitive advisories must not be a merge gate until fail-closed baseline exists.
-      - name: npm audit (high+) [advisory]
-        run: npm audit --audit-level=high
-        continue-on-error: true
+      # Blocking for high/critical (Gap #8). False positives go in .github/audit-allowlist.json
+      # with a reason and an expiry; expired entries fail again.
+      - name: npm audit (high+) [blocking]
+        run: node scripts/npm-audit-gate.mjs
+
+      - name: Actions pinned to commit SHAs
+        run: node scripts/check-actions-pinned.mjs
 
       # Fail-closed secret scan — required for merge safety (do not continue-on-error).
       # GITLEAKS_ENABLE_COMMENTS=false skips the PR-review-comment API call
       # entirely (belt-and-suspenders on top of the job's `permissions:`
       # above); the scan itself needs no token permissions at all.
       - name: Secret scan (gitleaks)
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: "false"
@@ -82,8 +85,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: lint-and-build
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: "npm"

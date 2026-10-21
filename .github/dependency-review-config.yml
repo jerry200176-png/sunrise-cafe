@@ -1,0 +1,9 @@
+# Blocking dependency review for PRs (Gap #8). Keep allow-ghsas in sync with
+# .github/audit-allowlist.json (a test enforces it).
+fail-on-severity: high
+fail-on-scopes:
+  - runtime
+  - development
+comment-summary-in-pr: never
+allow-ghsas:
+  - GHSA-vfj7-8cjw-p6xm
