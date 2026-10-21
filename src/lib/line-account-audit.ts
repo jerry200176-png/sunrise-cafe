@@ -89,12 +89,12 @@ export async function auditLineAccounts(
       botInfo(slot.token, fetchImpl),
       fetchLineQuotaAudit(slot.token, now, fetchImpl),
     ]);
-    return { slot, userId: "userId" in info ? info.userId : null, report: {
+    return { slot, userId: "userId" in info ? info.userId ?? null : null, report: {
       role: slot.role,
       source: slot.source,
       configured: true,
-      displayName: "displayName" in info ? info.displayName : null,
-      basicId: "basicId" in info ? info.basicId : null,
+      displayName: "displayName" in info ? info.displayName ?? null : null,
+      basicId: "basicId" in info ? info.basicId ?? null : null,
       error: "error" in info ? info.error ?? null : null,
       usage: {
         status: quota.status,
