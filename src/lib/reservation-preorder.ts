@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { logOps } from "@/lib/ops-log";
+import { chunk } from "@/lib/chunk";
 import { checkOptionSelection, type RuleOption } from "@/lib/option-sets";
 
 export type PreorderStatus = "draft" | "submitted" | "locked" | "cancelled";
@@ -226,16 +227,24 @@ export async function lockReservationPreorder(reservationId: string) {
 }
 
 export async function fetchPreorderSummaries(reservationIds: string[]) {
-  if (reservationIds.length === 0) return new Map();
-  const { data, error } = await supabaseAdmin()
-    .from("reservation_preorders")
-    .select("reservation_id,status,requires_reconfirmation,guest_notes,reservation_preorder_items(item_name_snapshot,quantity)")
-    .in("reservation_id", reservationIds);
-  if (error) throw error;
-  return new Map((data ?? []).map((row) => {
-    const items = (row.reservation_preorder_items ?? []) as { item_name_snapshot: string; quantity: number }[];
-    return [row.reservation_id, { status: row.status, requires_reconfirmation: Boolean(row.requires_reconfirmation), guest_notes: row.guest_notes ?? null, item_summary: items.map((item) => `${item.item_name_snapshot} ×${item.quantity}`).join("、") }];
-  }));
+  const summaries = new Map();
+  // 切批：每批最多 100 個 id，避免 URL 過長整批失敗（失敗往上拋，由呼叫端顯示警告）
+  for (const ids of chunk([...new Set(reservationIds)])) {
+    const { data, error } = await supabaseAdmin()
+      .from("reservation_preorders")
+      .select("reservation_id,status,requires_reconfirmation,guest_notes,reservation_preorder_items(item_name_snapshot,quantity)")
+      .in("reservation_id", ids);
+    if (error) {
+      // 預點餐 migration 尚未套用時（沿用本檔其他函式的判斷）視為沒有預點餐，不算錯誤
+      if (/relation|schema cache/i.test(error.message)) return summaries;
+      throw error;
+    }
+    for (const row of data ?? []) {
+      const items = (row.reservation_preorder_items ?? []) as { item_name_snapshot: string; quantity: number }[];
+      summaries.set(row.reservation_id, { status: row.status, requires_reconfirmation: Boolean(row.requires_reconfirmation), guest_notes: row.guest_notes ?? null, item_summary: items.map((item) => `${item.item_name_snapshot} ×${item.quantity}`).join("、") });
+    }
+  }
+  return summaries;
 }
 
 export async function fetchDailyPrep(branchId: string, date: string) {
