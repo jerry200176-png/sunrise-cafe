@@ -13,6 +13,7 @@ import {
   encodeCursor,
   enrichReservationRows,
   fetchPhoneVisitCounts,
+  fetchReservationsOverlapping,
   historyRangeStartIso,
   listReservationsForAdmin,
   parseReservationListParams,
@@ -38,7 +39,7 @@ function fakeDb(resolve: Resolver) {
       const q: Query = { table, calls: [] };
       queries.push(q);
       const builder: Record<string, unknown> = {};
-      for (const m of ["select", "eq", "neq", "in", "not", "or", "gte", "lt", "order", "limit"]) {
+      for (const m of ["select", "eq", "neq", "in", "not", "or", "gte", "lt", "gt", "order", "limit", "range"]) {
         builder[m] = (...args: unknown[]) => {
           q.calls.push([m, ...args]);
           return builder;
@@ -334,5 +335,45 @@ describe("fetchPhoneVisitCounts", () => {
     expect(queries).toHaveLength(3);
     expect(has(queries[0], "neq", "status", "cancelled")).toBe(true);
     expect(counts.get("090")).toBe(6);
+  });
+});
+
+describe("fetchReservationsOverlapping", () => {
+  const W1 = { fromIso: "2026-10-14T16:00:00.000Z", toIso: "2026-10-21T16:00:00.000Z" };
+  const W2 = { fromIso: "2026-10-25T05:00:00.000Z", toIso: "2026-10-25T05:00:00.001Z" };
+
+  it("only reads rows overlapping each window, inside the branch's rooms, paging past 1000 rows", async () => {
+    const page1 = Array.from({ length: 1000 }, (_, i) => res(i + 1, "confirmed", new Date(Date.parse("2026-10-15T00:00:00Z") + i * 60000).toISOString()));
+    const page2 = [res(5000, "confirmed", "2026-10-21T06:00:00.000Z")];
+    const nowRow = res(6000, "checked_in", "2026-10-25T04:00:00.000Z");
+    const { db, queries } = fakeDb((q) => {
+      if (q.table === "rooms") return { data: rooms };
+      if (has(q, "gt", "end_time", W2.fromIso)) return { data: [nowRow, page2[0]] };
+      const [, from] = callOf(q, "range") as [string, number, number];
+      return { data: from === 0 ? page1 : page2 };
+    });
+    const out = await fetchReservationsOverlapping("b1", [W1, W2], { db });
+    const reads = queries.filter((q) => q.table === "reservations");
+    expect(reads).toHaveLength(3);
+    expect(has(reads[0], "in", "room_id", ["r1", "r2"])).toBe(true);
+    expect(has(reads[0], "lt", "start_time", W1.toIso)).toBe(true);
+    expect(has(reads[0], "gt", "end_time", W1.fromIso)).toBe(true);
+    expect(has(reads[0], "range", 0, 999)).toBe(true);
+    expect(has(reads[1], "range", 1000, 1999)).toBe(true);
+    // 兩個窗重疊到的同一筆只出現一次，整體舊到新
+    expect(out).toHaveLength(1002);
+    expect(out[out.length - 1].id).toBe(nowRow.id);
+    expect(out.filter((r) => r.id === page2[0].id)).toHaveLength(1);
+  });
+
+  it("returns nothing without querying reservations when the branch has no rooms", async () => {
+    const { db, queries } = fakeDb((q) => (q.table === "rooms" ? { data: [] } : { data: [res(1, "confirmed", "2026-10-20T06:00:00Z")] }));
+    expect(await fetchReservationsOverlapping("b1", [W1], { db })).toEqual([]);
+    expect(queries.some((q) => q.table === "reservations")).toBe(false);
+  });
+
+  it("surfaces a query error instead of returning a partial list", async () => {
+    const { db } = fakeDb((q) => (q.table === "rooms" ? { data: rooms } : { error: { message: "boom" } }));
+    await expect(fetchReservationsOverlapping("b1", [W1], { db })).rejects.toThrow("boom");
   });
 });

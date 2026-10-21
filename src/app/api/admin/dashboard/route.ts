@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchDashboardBundle } from "@/lib/admin-dashboard-data";
+import { fetchDashboardBundle, isDashboardDate } from "@/lib/admin-dashboard-data";
 import { isAdminConfigured } from "@/lib/supabase-admin";
 import { requirePermission } from "@/lib/admin-api-auth";
 import { taipeiDateString } from "@/lib/datetime";
@@ -21,6 +21,10 @@ export async function GET(request: NextRequest) {
       { error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY" },
       { status: 503 }
     );
+  }
+
+  if (!isDashboardDate(date)) {
+    return NextResponse.json({ error: "日期格式不正確（YYYY-MM-DD）" }, { status: 400 });
   }
 
   try {

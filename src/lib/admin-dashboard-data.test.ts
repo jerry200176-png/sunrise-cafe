@@ -3,6 +3,8 @@ import {
   buildDashboardStats,
   buildDashboardTimeline,
   buildDashboardTrend,
+  dashboardWindows,
+  isDashboardDate,
   type DashboardReservation,
   type DashboardRoom,
 } from "./admin-dashboard-data";
@@ -85,5 +87,41 @@ describe("admin-dashboard-data", () => {
     expect(points[6]?.count).toBe(1);
     expect(points[5]?.date).toBe("2026-07-09");
     expect(points[5]?.count).toBe(1);
+  });
+});
+
+describe("dashboard time windows (bounded queries instead of the whole branch history)", () => {
+  // 2026-07-10 台北一整天 = 2026-07-09T16:00Z ~ 2026-07-10T16:00Z
+  const DAY = { fromIso: "2026-07-09T16:00:00.000Z", toIso: "2026-07-10T16:00:00.000Z" };
+  const TREND = { fromIso: "2026-07-03T16:00:00.000Z", toIso: "2026-07-10T16:00:00.000Z" };
+  const inDay = new Date("2026-07-10T05:00:00Z");
+  const later = new Date("2026-10-21T05:00:00Z");
+
+  it("timeline is the Taipei day; trend is the 7 Taipei days ending on endDate", () => {
+    expect(dashboardWindows("timeline", "2026-07-10", later)).toEqual([DAY]);
+    expect(dashboardWindows("trend", "2026-07-10", later)).toEqual([TREND]);
+  });
+
+  it("stats and bundle add a 'now' window only when now is outside the day / trend window", () => {
+    expect(dashboardWindows("stats", "2026-07-10", inDay)).toEqual([DAY]);
+    expect(dashboardWindows("bundle", "2026-07-10", inDay)).toEqual([TREND]);
+    const nowWindow = { fromIso: "2026-10-21T05:00:00.000Z", toIso: "2026-10-21T05:00:00.001Z" };
+    expect(dashboardWindows("stats", "2026-07-10", later)).toEqual([DAY, nowWindow]);
+    expect(dashboardWindows("bundle", "2026-07-10", later)).toEqual([TREND, nowWindow]);
+  });
+
+  it("every reservation the builders count falls inside the fetched windows", () => {
+    const windows = dashboardWindows("bundle", "2026-07-10", inDay);
+    const overlaps = (r: DashboardReservation) => windows.some((w) => r.start_time < w.toIso && r.end_time > w.fromIso);
+    const kept = reservations.filter(overlaps);
+    expect(buildDashboardStats("2026-07-10", kept, rooms, inDay)).toEqual(buildDashboardStats("2026-07-10", reservations, rooms, inDay));
+    expect(buildDashboardTrend("2026-07-10", kept)).toEqual(buildDashboardTrend("2026-07-10", reservations));
+  });
+
+  it("validates the date parameter", () => {
+    expect(isDashboardDate("2026-07-10")).toBe(true);
+    expect(isDashboardDate("2026-7-10")).toBe(false);
+    expect(isDashboardDate("2026-13-45")).toBe(false);
+    expect(isDashboardDate("")).toBe(false);
   });
 });

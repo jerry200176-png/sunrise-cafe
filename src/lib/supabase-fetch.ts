@@ -231,27 +231,6 @@ export async function deleteRoom(id: string): Promise<void> {
   }
 }
 
-/**
- * @deprecated Prefer fetchReservationsAdmin — anon RLS denies reservation SELECT.
- * Kept for rare tooling; uses service role.
- */
-export async function fetchReservations(branchId: string): Promise<unknown[]> {
-  const rooms = (await fetchRooms(branchId)) as { id: string }[];
-  if (rooms.length === 0) return [];
-  const ids = rooms.map((r) => r.id);
-  const { url: baseUrl } = base();
-  const inFilter = ids.map((id) => encodeURIComponent(id)).join(",");
-  const res = await fetch(
-    `${baseUrl}/rest/v1/reservations?select=*&room_id=in.(${inFilter})&order=start_time.asc`,
-    { method: "GET", headers: adminHeaders(), cache: "no-store" }
-  );
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Supabase reservations: ${res.status} ${text || res.statusText}`);
-  }
-  return res.json();
-}
-
 /** @deprecated Prefer insertReservationAdmin */
 export async function insertReservation(body: {
   room_id: string;
