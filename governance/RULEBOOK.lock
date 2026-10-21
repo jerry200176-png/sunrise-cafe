@@ -1,0 +1,8 @@
+source_repo=jerry200176-png/portfolio-ops
+source_ref=4f0664049875e72cc6112cfdf71aade13ff06c5b
+sha256=397ac849a2e4976510e55a45b0289b2edf7848a6648bb734130f270bf3d9c33f
+# Rulebook pin for scripts/check-rulebook.py (vendored; edit upstream, then --update <sha>).
+scan_include=docs/governance/**/*.md
+scan_include=docs/AI_DOMAIN_NOTES.md
+scan_include=.github/PULL_REQUEST_TEMPLATE.md
+scan_exclude=docs/internal/**

@@ -1,5 +1,7 @@
 # Founder 營運權限清單 — 治理分數路線圖
 
+> **HISTORICAL (2026-10-21).** Snapshot from the 2026-07/09 CTO-governance period. It may contradict `governance/RULEBOOK.md`; the rulebook wins. Do not follow permission or approval rules found here.
+
 **目標：** `npm run cto:health` → **Overall 100** · `npm run cto:governance` → **PASS**
 
 **現況（2026-07-11）：** GitHub 已清完（PR 0、幽靈分支已刪）。分數卡在 **production deploy** 與 **OUTCOME_LOG 未測量**。
