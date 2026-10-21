@@ -72,11 +72,12 @@ printf '{"label":"%s","created_at_utc":"%s","bytes":%s,"sha256":"%s","tables_wit
 
 MSG="pre-migration backup OK: label=$LABEL bytes=$BYTES sha256=$SHA tables_with_data=$TABLES encrypted=$ENCRYPTED"
 echo "$MSG"
+[[ "$ENCRYPTED" == "true" ]] || echo "::warning::no retained backup: dump is verified but deleted at job end (set BACKUP_AGE_RECIPIENT to keep an encrypted recovery point)"
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   {
     echo "### Pre-migration backup ($LABEL)"
     echo "- size: $BYTES bytes, sha256 \`$SHA\`, tables with data: $TABLES"
-    if [[ "$ENCRYPTED" == "true" ]]; then echo "- encrypted (age) artifact uploaded, 3-day retention"; else echo "- no \`BACKUP_AGE_RECIPIENT\` secret: dump kept on the ephemeral runner only, not uploaded"; fi
+    if [[ "$ENCRYPTED" == "true" ]]; then echo "- encrypted (age) artifact uploaded before migrations run, 3-day retention"; else echo "- **NO RETAINED BACKUP.** The dump was verified but is deleted when this job ends (no \`BACKUP_AGE_RECIPIENT\` secret), so it is NOT a recovery point. Only size and sha256 above are kept."; fi
   } >>"$GITHUB_STEP_SUMMARY"
 fi
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then

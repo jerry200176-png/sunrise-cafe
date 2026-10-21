@@ -53,7 +53,7 @@ describe("pre-migration-backup.sh", () => {
     expect(r.all).toMatch(/bytes=4096 sha256=[0-9a-f]{64} tables_with_data=2 encrypted=false/);
     expect(readdirSync(r.out).some((f) => f.endsWith(".dump"))).toBe(true);
     expect(readFileSync(join(r.dir, "gh-output"), "utf8")).toContain("encrypted=false");
-    expect(readFileSync(r.summary, "utf8")).toMatch(/not uploaded/);
+    expect(readFileSync(r.summary, "utf8")).toMatch(/NO RETAINED BACKUP/);
   });
 
   it.each(["dump_fail", "tiny", "bad_toc", "no_reservations"])("fails closed on %s and leaves no dump", (mode) => {
@@ -98,17 +98,24 @@ describe("production-deploy-migrate.yml wiring", () => {
     return workflow.slice(i, next < 0 ? undefined : i + 5 + next);
   };
 
-  it.each([["predeploy_migrate", "predeploy"], ["postdeploy_migrate", "postdeploy"]])("%s dumps before the runner and under set -e", (job, phase) => {
+  it.each([["predeploy_migrate", "predeploy"], ["postdeploy_migrate", "postdeploy"]])("%s orders backup -> upload -> verify -> migrate", (job, phase) => {
     const block = phaseBlock(job);
-    const dump = block.indexOf(`bash scripts/pre-migration-backup.sh ${phase}`);
-    const run = block.indexOf(`node scripts/run-production-migration-phase.mjs ${phase}`);
-    expect(dump).toBeGreaterThan(-1);
-    expect(dump).toBeLessThan(run);
-    expect(block).toMatch(/set -euo pipefail/);
+    const at = (needle: string) => block.indexOf(needle);
+    const order = [
+      "source scripts/resolve-db-url.sh",
+      `bash scripts/pre-migration-backup.sh ${phase}`,
+      "uses: actions/upload-artifact@v4",
+      "Verify backup upload completed",
+      `node scripts/run-production-migration-phase.mjs ${phase}`,
+    ].map(at);
+    expect(order.every((n) => n > -1)).toBe(true);
+    expect([...order].sort((x, y) => x - y)).toEqual(order);
+    expect(block).not.toMatch(/if: \$\{\{ always\(\)/); // no always(): a failed upload must stop the migration step
+    expect(block.match(/set -euo pipefail/g)?.length).toBeGreaterThan(1);
   });
 
   it("uploads only the age-encrypted artifact, short retention, gated on the key secret", () => {
-    expect(workflow.match(/steps\.apply\.outputs\.encrypted == 'true'/g)).toHaveLength(2);
+    expect(workflow.match(/steps\.backup\.outputs\.encrypted == 'true'/g)).toHaveLength(4);
     expect(workflow.match(/retention-days: 3/g)).toHaveLength(2);
     expect(workflow).toMatch(/BACKUP_AGE_RECIPIENT: \$\{\{ secrets\.BACKUP_AGE_RECIPIENT \}\}/);
     expect(readFileSync(script, "utf8")).not.toMatch(/echo[^\n]*SUPABASE_DB_URL/);
