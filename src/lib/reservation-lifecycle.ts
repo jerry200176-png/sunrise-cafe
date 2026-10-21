@@ -142,6 +142,8 @@ export function guestAllowedActions(
 export type Effects = {
   load(id: string): Promise<Snapshot | null>;
   update(id: string, patch: Record<string, unknown>): Promise<void>;
+  /** Compare-and-set: write only while status still equals `expected`; false when another writer won. */
+  updateIfStatus?(id: string, expected: string, patch: Record<string, unknown>): Promise<boolean>;
   cancelPreorder(id: string, reason: string): Promise<void>;
   lockPreorder(id: string): Promise<void>;
   requirePreorderReconfirmation(id: string, reason: string, actor: string): Promise<void>;
@@ -196,6 +198,11 @@ export async function transitionReservation(
     }
   }
 
+  // 還原是冪等的：已是有效訂位（重複點擊、別的店員剛還原過）就回成功、不重寫。
+  if (intent.type === "restore" && isActive(snap.status)) {
+    return { ok: true, status: snap.status, already: true };
+  }
+
   const target = ADMIN_TABLE[snap.status]?.[intent.type];
   if (!target) {
     const msg =
@@ -220,7 +227,16 @@ export async function transitionReservation(
 
   const restoredStatus: ReservationStatus = snap.is_deposit_paid ? "confirmed" : "pending";
   const nextStatus = intent.type === "restore" ? restoredStatus : target;
-  await effects.update(id, { status: nextStatus });
+  if (intent.type === "restore" && effects.updateIfStatus) {
+    const won = await effects.updateIfStatus(id, snap.status, { status: nextStatus });
+    if (!won) {
+      const latest = await effects.load(id);
+      if (latest && isActive(latest.status)) return { ok: true, status: latest.status, already: true };
+      return fail("invalid_transition", "訂位狀態剛被變更，請重新整理後再試", 409);
+    }
+  } else {
+    await effects.update(id, { status: nextStatus });
+  }
   effects.audit({
     reservation_id: id,
     booking_code: snap.booking_code,
@@ -342,6 +358,10 @@ async function reschedule(
   return { ok: true, status: snap.status };
 }
 
+function isActive(status: string): boolean {
+  return status === "pending" || status === "confirmed";
+}
+
 function notBookable(reason: BookableReason): Failure {
   const { status, error } = BOOKABLE_HTTP[reason];
   return fail("not_bookable", error, status);
@@ -405,6 +425,16 @@ export const supabaseEffects: Effects = {
   },
   async update(id, patch) {
     await updateReservationAdmin(id, patch);
+  },
+  async updateIfStatus(id, expected, patch) {
+    const { data, error } = await db()
+      .from("reservations")
+      .update(patch)
+      .eq("id", id)
+      .eq("status", expected)
+      .select("id");
+    if (error) throw error;
+    return (data ?? []).length > 0;
   },
   async cancelPreorder(id, reason) {
     await cancelReservationPreorder(id, reason);
