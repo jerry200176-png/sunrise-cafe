@@ -1,4 +1,4 @@
-import { fetchLineQuotaAudit } from "../src/lib/line-usage";
+import { fetchCustomerLineQuotaAudits, fetchLineQuotaAudit } from "../src/lib/line-usage";
 import { createClient } from "@supabase/supabase-js";
 
 type UsageRow = {
@@ -209,8 +209,9 @@ async function main() {
   const quotaRows = rows.filter((row) => row.channel !== "reply");
   const baseline = sumQuotaUnits(quotaRows, "baselineRequests", groupMembers);
   const optimized = sumQuotaUnits(quotaRows, "optimizedRequests", groupMembers);
-  const [quotaAudit, sourceAudit] = await Promise.all([
+  const [quotaAudit, customerQuotaAudits, sourceAudit] = await Promise.all([
     process.argv.includes("--quota") ? fetchLineQuotaAudit() : Promise.resolve(null),
+    process.argv.includes("--quota") ? fetchCustomerLineQuotaAudits() : Promise.resolve(null),
     process.argv.includes("--source") ? fetchProductionSourceAudit() : Promise.resolve(null),
   ]);
   console.log(
@@ -236,6 +237,7 @@ async function main() {
         group_only_baseline_units: sumQuotaUnits(rows.filter((row) => row.channel === "group"), "baselineRequests", groupMembers),
         group_only_optimized_units: sumQuotaUnits(rows.filter((row) => row.channel === "group"), "optimizedRequests", groupMembers),
         quota_audit: quotaAudit,
+        customer_quota_audits: customerQuotaAudits,
         source_audit: sourceAudit,
         caveat:
           "This is a simulation of LINE recipient units: each push request is multiplied by its recipient count. Group membership and source mix are not production evidence until the operator supplies read-only LINE/Supabase results.",
