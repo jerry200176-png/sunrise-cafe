@@ -65,7 +65,7 @@ describe("admin transition table", () => {
 
   it.each([
     ["completed", "cancel"], ["completed", "confirm"], ["cancelled", "confirm"],
-    ["cancelled", "complete"], ["confirmed", "confirm"], ["pending", "restore"], ["checked_in", "confirm"],
+    ["cancelled", "complete"], ["confirmed", "confirm"], ["completed", "restore"], ["checked_in", "confirm"],
   ])("%s + %s is refused and writes nothing", async (from, type) => {
     const w = world({ status: from });
     const r = await run(w, T(type as Intent["type"]), admin);
@@ -146,6 +146,46 @@ describe("no_show (沒來)", () => {
 });
 
 describe("restore (還原)", () => {
+  it.each(["pending", "confirmed"])("is idempotent: already %s returns ok without writing", async (status) => {
+    const w = world({ status });
+    expect(await run(w, { type: "restore" }, admin)).toMatchObject({ ok: true, status, already: true });
+    expect(w.calls).toEqual([]);
+    expect(w.audits).toEqual([]);
+  });
+  it("restores an auto-cancelled unpaid booking to pending, audits who did it, sends no LINE", async () => {
+    const w = world({ status: "cancelled" });
+    expect(await run(w, { type: "restore" }, admin)).toMatchObject({ ok: true, status: "pending" });
+    expect(w.audits[0]).toMatchObject({ intent: "restore", from: "cancelled", to: "pending", actor: "admin", actor_id: "u1" });
+    expect(w.calls).toEqual(["update"]);
+  });
+  it("uses compare-and-set; a concurrent restore that lost the race still reports success once", async () => {
+    const w = world({ status: "cancelled" });
+    w.fx.updateIfStatus = async () => {
+      w.row.status = "pending"; // another admin restored first
+      return false;
+    };
+    expect(await run(w, { type: "restore" }, admin)).toMatchObject({ ok: true, status: "pending", already: true });
+    expect(w.audits).toEqual([]);
+  });
+  it("compare-and-set refuses when the booking moved somewhere else meanwhile", async () => {
+    const w = world({ status: "cancelled" });
+    w.fx.updateIfStatus = async () => {
+      w.row.status = "completed";
+      return false;
+    };
+    expect(await run(w, { type: "restore" }, admin)).toMatchObject({ ok: false, code: "invalid_transition", httpStatus: 409 });
+  });
+  it("compare-and-set writes only while the status is still cancelled", async () => {
+    const w = world({ status: "cancelled" });
+    const seen: string[] = [];
+    w.fx.updateIfStatus = async (_id, expected, patch) => {
+      seen.push(`${expected}->${String(patch.status)}`);
+      Object.assign(w.row, patch);
+      return true;
+    };
+    expect(await run(w, { type: "restore" }, admin)).toMatchObject({ ok: true, status: "pending" });
+    expect(seen).toEqual(["cancelled->pending"]);
+  });
   it("returns to confirmed when the deposit is already paid", async () => {
     const w = world({ status: "cancelled", is_deposit_paid: true });
     expect(await run(w, { type: "restore" }, admin)).toMatchObject({ ok: true, status: "confirmed" });

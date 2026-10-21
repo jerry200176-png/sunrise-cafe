@@ -169,3 +169,29 @@ new Date(new Date(s).toLocaleString("en-US", { timeZone: "Asia/Taipei" }))
 **實作**：`src/lib/deposit-deadline.ts`（`computeDepositDeadline`）+ 三處客服話術 fallback 文案（`src/lib/booking-policy.ts`、`src/lib/payment-message.ts`、`src/lib/line-cards.ts`）。
 
 **Rollback**：改回 `Math.min(createdMs + 24 * HOUR_MS, startMs)` 並回復三處文案；純函式改動，無 migration、無資料遷移。
+
+---
+
+## ADR-012：未付訂金預設不再自動取消；歷史紀錄一鍵還原（取代 ADR-011 的取消條款）
+
+**日期**：2026-10-21　**決策者**：Founder（Jerry）——「沒付訂金也不要給人家取消」「對 就這樣 做完直接上線」。延續 2026-10-16 #467 的指示；與 #437 的還原入口合併成一個 PR。
+
+**決策**：
+- 訂金期限 Cron（`/api/admin/reminders/deposit-deadline`）不再因未付訂金取消訂位，逾期後訂位維持 `pending`／`confirmed` 與 `is_deposit_paid = false`，由店家決定。
+- 開關：環境變數 `DEPOSIT_DEADLINE_AUTO_CANCEL`。**未設定＝不取消**（部署即生效）；設成 `true` 並 Redeploy 才恢復 ADR-011 的逾期自動取消、客人「訂位已釋放」卡、群組「訂金逾期釋放」卡。
+- 期限前 24 小時提醒、≤6 小時迫近提醒照舊（ADR-011 公式不變）；對客文案依開關顯示，開關關閉時不承諾「自動釋放」。
+- 後台「歷史紀錄」可對 `cancelled`／`no_show` 一鍵還原，並可篩選「未付訂金自動取消」。
+
+**還原語意**（`transitionReservation` restore）：
+- 原時段須仍可訂（`checkBookable` 排除自己；DB exclusion constraint 為最後防線），被新訂位佔走回 409，不覆蓋。
+- 已付回 `confirmed`、未付回 `pending`；不改付款旗標、不復活已取消的先點餐（需重新確認）。
+- 冪等：已是 `pending`／`confirmed` 回成功不重寫；寫入採 compare-and-set（`status` 仍為原值才寫）。
+- 稽核：`ops_events` `reservation.transitioned`（intent=restore、from/to、actor_id＝操作者、時間）。
+- 不自動傳 LINE 給客人或群組（見待決事項）。
+
+**辨識「未付訂金自動取消」**：不加欄位，沿用既有紀錄——`line_reminder_deliveries` 的 `deposit_release_group`／`deposit_release_guest` 認領，或 `ops_events` 中 `reason = deposit_deadline` 的取消稽核；查詢失敗只影響標示。
+
+**取捨**：未付訂金的訂位會佔住包廂時段直到店家處理；候補不會因逾期被通知；逾期後 LINE Pay 線上付款仍不開放（既有規則，未改）。
+
+**Rollback**：在 Vercel 設 `DEPOSIT_DEADLINE_AUTO_CANCEL=true` 後 Redeploy 即恢復自動取消（不需回滾程式）；或 revert 本 PR。無 migration、無資料變更。
+

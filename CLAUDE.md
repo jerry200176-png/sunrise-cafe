@@ -100,15 +100,16 @@ print-bridge/             # 本地列印服務（獨立部署，非 Vercel）
 
 付款關鍵字排除問句（含「嗎」「？」「如何」等），避免誤判。
 
-### 訂金到期自動釋放（`src/lib/deposit-deadline.ts`）
+### 訂金到期（`src/lib/deposit-deadline.ts`）——預設不自動取消（ADR-012）
 
 `/api/admin/reminders/deposit-deadline`（**每日 4 次** Cron：UTC 01/07/13/19 ≈ 台灣 09/15/21/隔日 03，Hobby 合規；可手動觸發）：
 
-- 期限 = `max(建立訂位時間 +48hr, 訂位開始時間 −6hr)`，並以「訂位開始時間」封頂（見 ADR-011，2026-08-14 從舊制 `min(+24hr, 訂位開始時間)` 調整——舊制對提前多天訂位的客人反而逼他們隔天就要繳訂金，對臨時訂位又幾乎沒有繳費空間，太狠）
+- 期限 = `max(建立訂位時間 +48hr, 訂位開始時間 −6hr)`，並以「訂位開始時間」封頂（ADR-011）
 - 適用對象：`status IN (pending, confirmed)` 且 `is_deposit_paid = false`（見 ADR-007）
 - 期限前 24 小時內且未提醒過 → 推播客人提醒一次（寫入 `deposit_reminder_sent_at`）
 - 期限 ≤6 小時且已發過首次提醒 → 再推迫近提醒一次（寫入 `deposit_urgent_reminder_sent_at`）
-- 超過期限仍未付訂金 → 自動將 `status` 改為 `cancelled`，通知客人與群組，並觸發等位通知
+- **超過期限：預設不取消**（Founder 2026-10-21）。回應的 `deadline_passed` 計數逾期筆數。只有 Vercel 環境變數 `DEPOSIT_DEADLINE_AUTO_CANCEL=true`（Redeploy 後）才恢復舊行為：改 `cancelled`、通知客人與群組、觸發等位通知
+- 已取消／沒來的訂位可在後台「歷史紀錄」一鍵還原（時段須仍空閒；不傳 LINE；稽核在 `ops_events`）；「只看未付訂金自動取消」篩選以 `line_reminder_deliveries` 釋放認領或 `ops_events` reason=deposit_deadline 辨識
 
 > **注意：** Vercel Hobby 禁止 `0 * * * *`（每小時）。升級 Pro 後可改回每小時。
 

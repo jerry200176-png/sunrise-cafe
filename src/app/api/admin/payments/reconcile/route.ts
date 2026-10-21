@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { isAdminConfigured } from "@/lib/supabase-admin";
-import { computeDepositDeadline, shouldAutoRelease } from "@/lib/deposit-deadline";
+import { computeDepositDeadline, isDepositAutoCancelEnabled, shouldAutoRelease } from "@/lib/deposit-deadline";
 import { parseBankCsv, matchBankRowsToReservations } from "@/lib/payment-reconcile";
 import { getDepositAmount } from "@/lib/booking-utils";
 import { logPayment } from "@/lib/payment-log";
@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
       .order("start_time", { ascending: true });
     if (error) throw error;
     const now = new Date();
+    const autoCancel = isDepositAutoCancelEnabled();
     const items = (rows ?? []).map((r) => {
       const deadline = computeDepositDeadline(r.created_at, r.start_time);
       return {
@@ -42,7 +43,9 @@ export async function GET(request: NextRequest) {
         start_time: r.start_time,
         created_at: r.created_at,
         deadline: deadline.toISOString(),
-        would_auto_release: shouldAutoRelease(deadline, now),
+        deadline_passed: shouldAutoRelease(deadline, now),
+        // ADR-012：開關關閉時逾期不會自動取消
+        would_auto_release: autoCancel && shouldAutoRelease(deadline, now),
       };
     });
     return NextResponse.json({ count: items.length, items });

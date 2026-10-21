@@ -601,34 +601,50 @@ export async function fetchReservationsIn7Days() {
   return data;
 }
 
-// 取得尚未付訂金、待處理中的訂位（pending / confirmed，供自動釋放 / 到期提醒）
-export async function fetchUnpaidDepositDueReservations() {
-  const { data, error } = await supabaseAdmin()
-    .from("reservations")
-    .select(
-      "id, booking_code, customer_name, phone, start_time, end_time, created_at, status, line_user_id, deposit_reminder_sent_at, deposit_urgent_reminder_sent_at, room:rooms(id, name, branch:branches(name))"
-    )
-    .in("status", ["pending", "confirmed"])
-    .eq("is_deposit_paid", false)
-    .order("start_time", { ascending: true });
+// 取得尚未付訂金、待處理中的訂位（pending / confirmed，供到期提醒；開關開啟時也供逾期自動取消）
+const UNPAID_DEPOSIT_SELECT =
+  "id, booking_code, customer_name, phone, start_time, end_time, created_at, status, line_user_id, deposit_reminder_sent_at, deposit_urgent_reminder_sent_at, room:rooms(id, name, branch:branches(name))";
+const UNPAID_DEPOSIT_SELECT_LEGACY =
+  "id, booking_code, customer_name, phone, start_time, end_time, created_at, status, line_user_id, deposit_reminder_sent_at, room:rooms(id, name, branch:branches(name))";
+/** Requested page size; the server may enforce a lower response cap. */
+export const UNPAID_DEPOSIT_PAGE_SIZE = 1000;
 
-  if (error) {
-    // migration 未套用時降級：略過 deposit_urgent_reminder_sent_at
-    if (/deposit_urgent_reminder_sent_at/i.test(error.message)) {
-      const fallback = await supabaseAdmin()
+/**
+ * @param opts.startAfter 只取開始時間晚於此時間的訂位。逾期不取消時（ADR-012），
+ *   已開始的未付訂位不會再提醒，排除後才不會隨時間累積、擠掉該提醒的訂位。
+ */
+export async function fetchUnpaidDepositDueReservations(opts: { startAfter?: string } = {}) {
+  const readAll = async (columns: string) => {
+    const rows: Record<string, unknown>[] = [];
+    for (let from = 0; ; ) {
+      let query = supabaseAdmin()
         .from("reservations")
-        .select(
-          "id, booking_code, customer_name, phone, start_time, end_time, created_at, status, line_user_id, deposit_reminder_sent_at, room:rooms(id, name, branch:branches(name))"
-        )
+        .select(columns)
         .in("status", ["pending", "confirmed"])
-        .eq("is_deposit_paid", false)
-        .order("start_time", { ascending: true });
-      if (fallback.error) throw fallback.error;
-      return fallback.data;
+        .eq("is_deposit_paid", false);
+      if (opts.startAfter) query = query.gt("start_time", opts.startAfter);
+      const { data, error } = await query
+        .order("start_time", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, from + UNPAID_DEPOSIT_PAGE_SIZE - 1);
+      if (error) return { rows, error };
+      const page = (data ?? []) as unknown as Record<string, unknown>[];
+      // A short page may reflect the server cap; stop only on an empty page.
+      if (page.length === 0) return { rows, error: null };
+      rows.push(...page);
+      from += page.length;
     }
-    throw error;
+  };
+
+  const primary = await readAll(UNPAID_DEPOSIT_SELECT);
+  if (!primary.error) return primary.rows;
+  // migration 未套用時降級：略過 deposit_urgent_reminder_sent_at
+  if (/deposit_urgent_reminder_sent_at/i.test(primary.error.message)) {
+    const fallback = await readAll(UNPAID_DEPOSIT_SELECT_LEGACY);
+    if (fallback.error) throw fallback.error;
+    return fallback.rows;
   }
-  return data;
+  throw primary.error;
 }
 
 /**
