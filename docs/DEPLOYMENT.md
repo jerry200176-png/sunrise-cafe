@@ -151,3 +151,15 @@
 - 自訂網域（例如 `booking.yourdomain.com`）可在 Vercel 專案 **Settings → Domains** 設定。
 
 完成以上步驟後，其他人即可透過 Vercel 提供的網址訪問「昇咖啡訂位系統」，且不依賴你的電腦開機。
+
+## Supply chain gates (Gap #8)
+
+- All `uses:` in `.github/workflows` are pinned to full commit SHAs with the version in a trailing comment;
+  `scripts/check-actions-pinned.mjs` (CI step "Actions pinned to commit SHAs") fails on tags or branches.
+  Dependabot (`github-actions` ecosystem, weekly) proposes the bumps.
+- `npm audit` is blocking for high/critical (`scripts/npm-audit-gate.mjs`). A false positive goes in
+  `.github/audit-allowlist.json` (`id` GHSA, `reason`, `expires`); expired entries fail again. Mirror the id in
+  `.github/dependency-review-config.yml` `allow-ghsas` (a test checks both lists match).
+- PRs touching `package*.json` also run `Dependency review` (fail on high). Neither check is a required status
+  context yet; making them required is a ruleset change for the Founder. Until then `Lint & Build` (required) already
+  contains the audit and pin checks.
