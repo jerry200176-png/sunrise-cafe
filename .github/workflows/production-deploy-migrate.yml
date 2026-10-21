@@ -32,6 +32,9 @@ jobs:
     name: Apply predeploy migrations
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # age PUBLIC key; optional. Absent = backup never leaves the runner.
+      BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -39,7 +42,11 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      - name: Install age (only when BACKUP_AGE_RECIPIENT secret exists)
+        if: ${{ env.BACKUP_AGE_RECIPIENT != '' }}
+        run: sudo apt-get install -y -qq --no-install-recommends age
       - name: Apply canonical predeploy phase
+        id: apply
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -60,7 +67,23 @@ jobs:
               fi
             fi
           fi
+          # Recovery point first. Fails closed: if the dump or its verification fails,
+          # set -e stops here and no migration runner starts (Gap #4).
+          bash scripts/pre-migration-backup.sh predeploy
           node scripts/run-production-migration-phase.mjs predeploy
+      # Only an age-encrypted copy is ever uploaded (the dump holds customer PII).
+      # Without the BACKUP_AGE_RECIPIENT secret the dump stays on this ephemeral
+      # runner and only size + sha256 are recorded in the job summary.
+      - name: Upload encrypted predeploy backup
+        if: ${{ always() && steps.apply.outputs.encrypted == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-predeploy-${{ github.run_id }}
+          path: |
+            ${{ steps.apply.outputs.artifact_path }}
+            ${{ steps.apply.outputs.manifest_path }}
+          retention-days: 3
+          if-no-files-found: error
 
   predeploy_verify:
     name: Verify predeploy migrations
@@ -148,6 +171,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: deploy
     timeout-minutes: 15
+    env:
+      # age PUBLIC key; optional. Absent = backup never leaves the runner.
+      BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -155,7 +181,11 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      - name: Install age (only when BACKUP_AGE_RECIPIENT secret exists)
+        if: ${{ env.BACKUP_AGE_RECIPIENT != '' }}
+        run: sudo apt-get install -y -qq --no-install-recommends age
       - name: Apply canonical postdeploy phase
+        id: apply
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -184,6 +214,9 @@ jobs:
               fi
             fi
           fi
+          # Recovery point first. Fails closed: if the dump or its verification fails,
+          # set -e stops here and no migration runner starts (Gap #4).
+          bash scripts/pre-migration-backup.sh postdeploy
           node scripts/run-production-migration-phase.mjs postdeploy
 
       - name: Verify ops_events
@@ -276,6 +309,19 @@ jobs:
             exit 1
           fi
           [ "$RPC_CODE" -lt 500 ]
+      # Only an age-encrypted copy is ever uploaded (the dump holds customer PII).
+      # Without the BACKUP_AGE_RECIPIENT secret the dump stays on this ephemeral
+      # runner and only size + sha256 are recorded in the job summary.
+      - name: Upload encrypted postdeploy backup
+        if: ${{ always() && steps.apply.outputs.encrypted == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-postdeploy-${{ github.run_id }}
+          path: |
+            ${{ steps.apply.outputs.artifact_path }}
+            ${{ steps.apply.outputs.manifest_path }}
+          retention-days: 3
+          if-no-files-found: error
 
   postdeploy_verify:
     name: Verify postdeploy migrations
