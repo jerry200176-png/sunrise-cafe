@@ -196,12 +196,20 @@ async function restGet<T>(
   return { ok: false, status: 0, error: lastErr, transport: true };
 }
 
+/**
+ * Select value that probes table existence without assuming any column
+ * (composite-PK tables such as admin_user_branches have no `id`).
+ */
+export const TABLE_PROBE_SELECT = "*";
+
 /** Probe a single REST-readable table/column. null = inconclusive. */
 export async function probeRestReadable(
   table: string,
   select: string
 ): Promise<boolean | null> {
-  const result = await restGet<unknown[]>(`${table}?select=${select}&limit=1`, {
+  // limit=0 for table-existence probes: no row data is transferred.
+  const limit = select === TABLE_PROBE_SELECT ? 0 : 1;
+  const result = await restGet<unknown[]>(`${table}?select=${select}&limit=${limit}`, {
     retries: 1,
   });
   if (result.ok) return true;
@@ -243,7 +251,7 @@ export function resolveEvidenceResults(
       return { ...spec, status: "unsupported" as const };
     }
     if (spec.type === "table" && spec.name) {
-      const key = `${spec.name}.id`;
+      const key = `${spec.name}.${TABLE_PROBE_SELECT}`;
       const alt = Object.keys(restProbes).find((k) => k.startsWith(`${spec.name}.`));
       const v = restProbes[key] ?? (alt ? restProbes[alt] : null);
       if (v === true) return { ...spec, status: "present" as const };
@@ -359,8 +367,8 @@ export function evaluateMigrationDrift(input: {
     classifications,
     closed_dates_column: closedOk,
     overlap_constraint_active: applied.includes("20260710-reservations-no-overlap"),
-    rbac_tables: restProbes["admin_users.id"] === true,
-    ops_events_table: restProbes["ops_events.id"] === true,
+    rbac_tables: restProbes["admin_users.*"] === true,
+    ops_events_table: restProbes["ops_events.*"] === true,
     errors,
   };
 }
@@ -373,7 +381,7 @@ export async function collectRestProbes(
   for (const m of contracts) {
     for (const e of m.evidence) {
       if (e.introspect !== "rest") continue;
-      if (e.type === "table" && e.name) keys.add(`${e.name}.id`);
+      if (e.type === "table" && e.name) keys.add(`${e.name}.${TABLE_PROBE_SELECT}`);
       if (e.type === "column" && e.table && e.name) keys.add(`${e.table}.${e.name}`);
     }
   }
