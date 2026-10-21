@@ -4,6 +4,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { logPayment } from "@/lib/payment-log";
 import { taipeiDateString } from "@/lib/datetime";
+import { chunk } from "@/lib/chunk";
 import { markDepositPaid } from "@/lib/deposit-paid";
 import { getDepositAmount } from "@/lib/booking-utils";
 import type { NotifyPaymentApprovedResult } from "@/lib/payment-notify";
@@ -74,16 +75,19 @@ export async function fetchPendingPaymentCountsByReservation(
   const ready = await isPaymentEventsTableReady();
   if (!ready) return counts;
 
-  const { data, error } = await admin()
-    .from("payment_events")
-    .select("reservation_id")
-    .in("reservation_id", reservationIds)
-    .eq("status", "pending_review");
-  if (error) throw error;
+  // 切批：每批最多 100 個 id，避免 URL 過長整批失敗（任何一批失敗就往上拋，由呼叫端顯示警告）
+  for (const ids of chunk([...new Set(reservationIds)])) {
+    const { data, error } = await admin()
+      .from("payment_events")
+      .select("reservation_id")
+      .in("reservation_id", ids)
+      .eq("status", "pending_review");
+    if (error) throw error;
 
-  for (const row of data ?? []) {
-    const id = row.reservation_id as string;
-    counts.set(id, (counts.get(id) ?? 0) + 1);
+    for (const row of data ?? []) {
+      const id = row.reservation_id as string;
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
   }
   return counts;
 }
