@@ -17,8 +17,8 @@ function changedSqlFiles() {
   const names = execFileSync("git", ["diff", "--name-only", "--diff-filter=AM", `${base}...HEAD`], { encoding: "utf8" })
     .split("\n").filter(Boolean);
   const files = new Set(names.filter((f) => /^supabase\/.*\.sql$/.test(f)));
-  // A changed runner or plan re-checks every SQL file the plan ties to a runner.
-  if (names.some((f) => f === "scripts/production-migration-plan.json" || /^scripts\/apply-migration-.*\.mjs$/.test(f))) {
+  // A changed runner re-checks the SQL the plan ties to it (plan edits themselves: `run-production-migration-phase.mjs --check`).
+  if (names.some((f) => /^scripts\/apply-migration-.*\.mjs$/.test(f))) {
     const plan = JSON.parse(readFileSync("scripts/production-migration-plan.json", "utf8"));
     for (const e of plan.entries) {
       if (e.runner && names.includes(e.runner)) files.add(`supabase/${e.file}`);
