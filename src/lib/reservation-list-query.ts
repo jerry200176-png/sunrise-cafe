@@ -9,6 +9,7 @@
  * 現在分兩個範圍（參考 OpenTable / SevenRooms 的「即將到來 / 歷史」與 Stripe Dashboard 的列表分頁）：
  *   - active：所有「未結案」訂位（待確認、已確認、已到店…），不限日期，舊到新。
  *     過期但沒結案的訂位也留在這裡，店員才能補標「沒來／完成」（#469）。
+ *     超過上限時優先保留今天以後的訂位，再補最近的過期未結案訂位（截掉的是最舊的過期列）。
  *   - history：已完成／已取消／沒來，預設近 30 天、新到舊，每頁 50 筆，以 (start_time, id) keyset 分頁。
  */
 import { supabaseAdmin } from "@/lib/supabase-admin";
@@ -83,11 +84,18 @@ export function encodeCursor(row: { start_time: string; id: string }): string {
   return Buffer.from(JSON.stringify({ t: row.start_time, id: row.id })).toString("base64url");
 }
 
+/**
+ * 游標時間必須是 Postgres timestamptz 的 ISO-8601 字串（保留到微秒，不經 toISOString 以免精度遺失）。
+ * 嚴格比對是因為它會被放進 PostgREST 的 `or=(...)` 語法；寬鬆的 Date.parse 會放行
+ * `2026-10-20T06:00:00Z",id.neq.x` 之類的注入字串。
+ */
+const CURSOR_TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/;
+
 export function decodeCursor(raw: string): ReservationCursor | null {
   try {
     const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as Partial<ReservationCursor>;
     if (typeof parsed.t !== "string" || typeof parsed.id !== "string") return null;
-    if (Number.isNaN(Date.parse(parsed.t)) || !UUID_RE.test(parsed.id)) return null;
+    if (!CURSOR_TIME_RE.test(parsed.t) || Number.isNaN(Date.parse(parsed.t)) || !UUID_RE.test(parsed.id)) return null;
     return { t: parsed.t, id: parsed.id };
   } catch {
     return null;
@@ -156,10 +164,19 @@ function quote(value: string): string {
   return `"${value}"`;
 }
 
+/**
+ * LIKE 的單字元萬用字元 `_` 要跳脫成字面底線。值放在 PostgREST 雙引號裡，引號內的反斜線本身也要跳脫，
+ * 所以送出 `\\_`，PostgREST 解開成 `\_` 交給 Postgres（LIKE 預設跳脫字元是反斜線）。
+ * `%`、`*`、反斜線、引號已在 sanitizeSearch 移除。
+ */
+export function likePattern(q: string): string {
+  return quote(`*${q.replace(/_/g, "\\\\_")}*`);
+}
+
 /** `or` 條件：姓名／電話／訂位代號／備註模糊比對，加上包廂名稱命中的 room_id。 */
 export function searchExpression(q: string, matchingRoomIds: string[]): string | null {
   if (!q) return null;
-  const like = `*${q}*`;
+  const like = likePattern(q);
   const parts = [
     `customer_name.ilike.${like}`,
     `phone.ilike.${like}`,
@@ -201,29 +218,57 @@ async function fetchBranchRooms(db: Db, branchId: string): Promise<{ id: string;
   return (data ?? []) as { id: string; name: string }[];
 }
 
-async function fetchActive(db: Db, roomIds: string[], warnings: string[]) {
+/**
+ * 依 keyset 一批批撈未結案訂位，最多 `max` 筆；多撈 1 筆判斷是否被截斷
+ * （剛好 `max` 筆時不會誤報超過上限）。
+ */
+async function fetchActiveSegment(
+  db: Db,
+  roomIds: string[],
+  bound: { op: "gte" | "lt"; iso: string },
+  direction: "asc" | "desc",
+  max: number
+): Promise<{ rows: ReservationRow[]; truncated: boolean }> {
   const rows: ReservationRow[] = [];
   let cursor: ReservationCursor | null = null;
-  while (rows.length < ACTIVE_CAP) {
-    let query = db
+  for (;;) {
+    const want = Math.min(ACTIVE_BATCH, max + 1 - rows.length);
+    if (want <= 0) break;
+    const base = db
       .from("reservations")
       .select(RESERVATION_SELECT)
       .in("room_id", roomIds)
       .not("status", "in", `(${HISTORY_STATUSES.join(",")})`);
-    if (cursor) query = query.or(cursorExpression(cursor, "asc"));
+    let query = bound.op === "gte" ? base.gte("start_time", bound.iso) : base.lt("start_time", bound.iso);
+    if (cursor) query = query.or(cursorExpression(cursor, direction));
     const { data, error } = await query
-      .order("start_time", { ascending: true })
-      .order("id", { ascending: true })
-      .limit(ACTIVE_BATCH);
+      .order("start_time", { ascending: direction === "asc" })
+      .order("id", { ascending: direction === "asc" })
+      .limit(want);
     if (error) throw new Error("Supabase reservations error: " + error.message);
     const batch = (data ?? []) as ReservationRow[];
     rows.push(...batch);
-    if (batch.length < ACTIVE_BATCH) return rows;
+    if (batch.length < want) return { rows, truncated: false };
     const last = batch[batch.length - 1];
     cursor = { t: last.start_time, id: last.id };
   }
-  warnings.push(`未結案訂位超過 ${ACTIVE_CAP} 筆，只顯示最早的 ${ACTIVE_CAP} 筆；請把過期訂位標為完成或沒來。`);
-  return rows.slice(0, ACTIVE_CAP);
+  return { rows: rows.slice(0, max), truncated: rows.length > max };
+}
+
+/**
+ * 未結案訂位：先撈今天（台北）以後的（舊到新），剩下的額度再撈最近的過期未結案（新到舊），
+ * 所以超過上限時被截掉的是最舊的過期列，不是即將到來的訂位。回傳整體舊到新。
+ */
+async function fetchActive(db: Db, roomIds: string[], warnings: string[], now = new Date()) {
+  const todayStartIso = new Date(`${taipeiDatePlusDays(0, now)}T00:00:00+08:00`).toISOString();
+  const upcoming = await fetchActiveSegment(db, roomIds, { op: "gte", iso: todayStartIso }, "asc", ACTIVE_CAP);
+  const past = await fetchActiveSegment(db, roomIds, { op: "lt", iso: todayStartIso }, "desc", ACTIVE_CAP - upcoming.rows.length);
+  if (upcoming.truncated || past.truncated) {
+    warnings.push(
+      `未結案訂位超過 ${ACTIVE_CAP} 筆，已優先顯示今天以後的訂位，較早的過期訂位只顯示最近的部分；請把過期訂位標為完成或沒來。`
+    );
+  }
+  return [...past.rows.reverse(), ...upcoming.rows];
 }
 
 async function fetchHistoryPage(
@@ -394,7 +439,7 @@ export async function listReservationsForAdmin(
     const items = (data ?? []) as ReservationRow[];
     page = { items, nextCursor: null, total: items.length };
   } else if (params.scope === "active") {
-    const items = await fetchActive(db, roomIds, warnings);
+    const items = await fetchActive(db, roomIds, warnings, options.now);
     page = { items, nextCursor: null, total: items.length };
   } else {
     const q = params.q.toLowerCase();

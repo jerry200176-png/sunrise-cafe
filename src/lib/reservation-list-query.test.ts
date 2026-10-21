@@ -6,6 +6,7 @@ vi.mock("@/lib/reservation-preorder", () => ({ fetchPreorderSummaries: vi.fn() }
 
 import {
   ACTIVE_BATCH,
+  ACTIVE_CAP,
   combineOr,
   cursorExpression,
   decodeCursor,
@@ -16,6 +17,7 @@ import {
   listReservationsForAdmin,
   parseReservationListParams,
   sanitizeSearch,
+  searchExpression,
   SCOPE_REQUIRED_MESSAGE,
   type EnrichDeps,
   type ReservationListParams,
@@ -36,7 +38,7 @@ function fakeDb(resolve: Resolver) {
       const q: Query = { table, calls: [] };
       queries.push(q);
       const builder: Record<string, unknown> = {};
-      for (const m of ["select", "eq", "neq", "in", "not", "or", "gte", "order", "limit"]) {
+      for (const m of ["select", "eq", "neq", "in", "not", "or", "gte", "lt", "order", "limit"]) {
         builder[m] = (...args: unknown[]) => {
           q.calls.push([m, ...args]);
           return builder;
@@ -87,15 +89,42 @@ describe("parseReservationListParams", () => {
     expect(parseReservationListParams(new URLSearchParams("branchId=b1&scope=history&id=x")).ok).toBe(false);
   });
 
-  it("round-trips the keyset cursor", () => {
+  it("round-trips the keyset cursor, keeping microseconds", () => {
     const c = encodeCursor({ start_time: "2026-10-20T06:00:00+00:00", id: uuid(1) });
     expect(decodeCursor(c)).toEqual({ t: "2026-10-20T06:00:00+00:00", id: uuid(1) });
+    const micro = encodeCursor({ start_time: "2026-10-20T06:00:00.123456+00:00", id: uuid(2) });
+    expect(decodeCursor(micro)?.t).toBe("2026-10-20T06:00:00.123456+00:00");
+    expect(decodeCursor(encodeCursor({ start_time: "2026-10-20T06:00:00Z", id: uuid(3) }))?.t).toBe("2026-10-20T06:00:00Z");
+  });
+
+  it("rejects a cursor whose timestamp would inject PostgREST syntax (400)", () => {
+    const forge = (t: string) => Buffer.from(JSON.stringify({ t, id: uuid(1) })).toString("base64url");
+    const malicious = [
+      '2026-10-20T06:00:00Z",id.neq.x',
+      "2026-10-20T06:00:00Z),or(status.eq.completed",
+      "2026-10-20",
+      "Tue, 20 Oct 2026 06:00:00 GMT",
+      "2026-10-20 06:00:00+00:00",
+      "2026-10-20T06:00:00.1234567+00:00",
+    ];
+    for (const t of malicious) {
+      expect(decodeCursor(forge(t))).toBeNull();
+      const parsed = parseReservationListParams(new URLSearchParams(`branchId=b1&scope=history&cursor=${forge(t)}`));
+      expect(parsed).toEqual({ ok: false, error: "cursor 不正確，請重新整理" });
+    }
   });
 });
 
 describe("query building", () => {
   it("strips PostgREST syntax and wildcards from search text", () => {
     expect(sanitizeSearch(" 王 小明,(x)*%:.\"' ")).toBe("王小明x");
+  });
+
+  it("escapes the LIKE single-character wildcard `_` and quotes the pattern", () => {
+    expect(searchExpression("a_b", [])).toBe(
+      'customer_name.ilike."*a\\\\_b*",phone.ilike."*a\\\\_b*",booking_code.ilike."*a\\\\_b*",notes.ilike."*a\\\\_b*"'
+    );
+    expect(searchExpression("", [])).toBeNull();
   });
 
   it("starts the 30-day window at Taipei midnight", () => {
@@ -136,27 +165,83 @@ describe("listReservationsForAdmin", () => {
     const main = queries.find((q) => q.table === "reservations")!;
     expect(callOf(main, "gte")).toBeUndefined();
     const or = String(callOf(main, "or")?.[1]);
-    expect(or.startsWith("and(or(customer_name.ilike.*大包廂*")).toBe(true);
+    expect(or.startsWith('and(or(customer_name.ilike."*大包廂*"')).toBe(true);
     expect(or).toContain("room_id.in.(r2)");
     expect(or).toContain(`id.lt.${uuid(9)}`);
     expect(out.nextCursor).toBeNull();
     expect(out.total).toBeNull();
   });
 
-  it("active: every unfinished booking regardless of date, oldest first, fetched in keyset batches", async () => {
-    const batch1 = Array.from({ length: ACTIVE_BATCH }, (_, i) => res(i + 1, "confirmed", `2025-01-01T${String(i % 24).padStart(2, "0")}:00:00+00:00`));
-    const batch2 = [res(9999, "pending", "2027-01-01T06:00:00+00:00")];
-    let n = 0;
-    const { db, queries } = fakeDb((q) => (q.table === "rooms" ? { data: rooms } : { data: n++ === 0 ? batch1 : batch2 }));
-    const out = await listReservationsForAdmin(params({ scope: "active" }), { db, enrichDeps: noEnrich });
+  // 2026-10-21 12:00 台北；今天起點 = 2026-10-20T16:00:00.000Z
+  const NOW = new Date("2026-10-21T04:00:00Z");
+  const TODAY_START = "2026-10-20T16:00:00.000Z";
+  const upcomingRows = (n: number, from = 1) =>
+    Array.from({ length: n }, (_, i) => res(from + i, "confirmed", new Date(Date.parse("2026-10-22T00:00:00Z") + (from + i) * 60000).toISOString()));
+  const pastRows = (n: number, from = 1) =>
+    Array.from({ length: n }, (_, i) => res(from + i, "confirmed", new Date(Date.parse("2026-10-19T00:00:00Z") - (from + i) * 60000).toISOString()));
+  /** 依 limit 與 gte／lt 從兩組資料切出該批，模擬 keyset 分頁。 */
+  function activeDb(upcoming: ReturnType<typeof res>[], past: ReturnType<typeof res>[]) {
+    const served = { gte: 0, lt: 0 };
+    return fakeDb((q) => {
+      if (q.table === "rooms") return { data: rooms };
+      const side = callOf(q, "gte") ? "gte" : "lt";
+      const src = side === "gte" ? upcoming : past;
+      const limit = callOf(q, "limit")?.[1] as number;
+      const data = src.slice(served[side], served[side] + limit);
+      served[side] += data.length;
+      return { data };
+    });
+  }
+
+  it("active: every unfinished booking regardless of date, upcoming first then recent past, oldest first overall", async () => {
+    const up = upcomingRows(ACTIVE_BATCH + 1);
+    const past = pastRows(3, 5000);
+    const { db, queries } = activeDb(up, past);
+    const out = await listReservationsForAdmin(params({ scope: "active" }), { db, now: NOW, enrichDeps: noEnrich });
     const reads = queries.filter((q) => q.table === "reservations");
-    expect(reads).toHaveLength(2);
+    expect(reads).toHaveLength(3);
     expect(has(reads[0], "not", "status", "in", "(completed,cancelled,no_show)")).toBe(true);
-    expect(callOf(reads[0], "gte")).toBeUndefined();
+    expect(has(reads[0], "gte", "start_time", TODAY_START)).toBe(true);
     expect(has(reads[0], "order", "start_time", { ascending: true })).toBe(true);
-    expect(String(callOf(reads[1], "or")?.[1])).toContain(`id.gt.${batch1[ACTIVE_BATCH - 1].id}`);
-    expect(out.items).toHaveLength(ACTIVE_BATCH + 1);
+    expect(String(callOf(reads[1], "or")?.[1])).toContain(`id.gt.${up[ACTIVE_BATCH - 1].id}`);
+    expect(has(reads[2], "lt", "start_time", TODAY_START)).toBe(true);
+    expect(has(reads[2], "order", "start_time", { ascending: false })).toBe(true);
+    expect(out.items).toHaveLength(ACTIVE_BATCH + 4);
+    // 舊到新：過期的在前，最舊的過期列排第一，即將到來的在後
+    expect(out.items[0].id).toBe(past[2].id);
+    expect(out.items[3].id).toBe(up[0].id);
     expect(out.warnings).toEqual([]);
+  });
+
+  it("active: exactly the cap is not reported as truncated", async () => {
+    const { db } = activeDb(upcomingRows(ACTIVE_CAP - 10), pastRows(10, 9000));
+    const out = await listReservationsForAdmin(params({ scope: "active" }), { db, now: NOW, enrichDeps: noEnrich });
+    expect(out.items).toHaveLength(ACTIVE_CAP);
+    expect(out.warnings).toEqual([]);
+  });
+
+  it("active: past the cap keeps every upcoming booking and trims the oldest past rows", async () => {
+    const up = upcomingRows(ACTIVE_CAP - 5);
+    const past = pastRows(20, 9000); // past[0] 最近，past[19] 最舊
+    const { db } = activeDb(up, past);
+    const out = await listReservationsForAdmin(params({ scope: "active" }), { db, now: NOW, enrichDeps: noEnrich });
+    expect(out.items).toHaveLength(ACTIVE_CAP);
+    const ids = new Set(out.items.map((r) => r.id));
+    expect(up.every((r) => ids.has(r.id))).toBe(true);
+    expect(past.slice(0, 5).every((r) => ids.has(r.id))).toBe(true);
+    expect(ids.has(past[5].id)).toBe(false);
+    expect(out.warnings).toHaveLength(1);
+    expect(out.warnings[0]).toContain("優先顯示今天以後");
+  });
+
+  it("active: more upcoming than the cap keeps the nearest upcoming ones", async () => {
+    const up = upcomingRows(ACTIVE_CAP + 3);
+    const { db } = activeDb(up, pastRows(4, 9000));
+    const out = await listReservationsForAdmin(params({ scope: "active" }), { db, now: NOW, enrichDeps: noEnrich });
+    expect(out.items).toHaveLength(ACTIVE_CAP);
+    expect(out.items[0].id).toBe(up[0].id);
+    expect(out.items[ACTIVE_CAP - 1].id).toBe(up[ACTIVE_CAP - 1].id);
+    expect(out.warnings).toHaveLength(1);
   });
 
   it("auto-cancelled filter: candidate ids are queried in chunks of 100 and paged in memory", async () => {
