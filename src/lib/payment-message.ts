@@ -10,6 +10,7 @@ import { zhTW } from "date-fns/locale";
 import { toTaipei } from "@/lib/datetime";
 import {
   computeDepositDeadline,
+  depositOverdueNote,
   formatDepositDeadlineLabel,
 } from "@/lib/deposit-deadline";
 
@@ -56,8 +57,8 @@ export function buildPaymentMessage(opts: {
     ? formatDepositDeadlineLabel(computeDepositDeadline(createdAt, startTime))
     : null;
   const deadlinePhrase = deadlineLabel
-    ? `請於 ${deadlineLabel} 前匯款訂金 $${deposit}（總額一半）以保留座位；逾期將自動釋出時段。`
-    : `請在期限內（最晚為建立訂位後 48 小時或訂位開始前 6 小時，以較晚者為準）匯款訂金 $${deposit}（總額一半）以保留座位；逾期將自動釋出時段。`;
+    ? `請於 ${deadlineLabel} 前匯款訂金 $${deposit}（總額一半）以保留座位；${depositOverdueNote()}`
+    : `請在期限內（最晚為建立訂位後 48 小時或訂位開始前 6 小時，以較晚者為準）匯款訂金 $${deposit}（總額一半）以保留座位；${depositOverdueNote()}`;
 
   const lines: string[] = [
     `您好，這裡是${storeName}。`,

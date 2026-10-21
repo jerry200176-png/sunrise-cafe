@@ -191,7 +191,9 @@ new Date(new Date(s).toLocaleString("en-US", { timeZone: "Asia/Taipei" }))
 
 **辨識「未付訂金自動取消」**：不加欄位，沿用既有紀錄——`line_reminder_deliveries` 的 `deposit_release_group`／`deposit_release_guest` 認領，或 `ops_events` 中 `reason = deposit_deadline` 的取消稽核；查詢失敗只影響標示。
 
-**取捨**：未付訂金的訂位會佔住包廂時段直到店家處理；候補不會因逾期被通知；逾期後 LINE Pay 線上付款仍不開放（既有規則，未改）。
+**取捨**：未付訂金的訂位會佔住包廂時段直到店家處理；候補不會因逾期被通知。開關關閉時，LINE Pay 線上付款開放到訂位開始時間為止（開關開啟時維持期限後拒絕）。
+
+**已知限制**：還原不會重設期限或提醒欄位。若日後重新開啟自動取消，已還原的未付訂位可能再被釋放，也可能永遠不再釋放，取決於既有的釋放認領紀錄。
 
 **Rollback**：在 Vercel 設 `DEPOSIT_DEADLINE_AUTO_CANCEL=true` 後 Redeploy 即恢復自動取消（不需回滾程式）；或 revert 本 PR。無 migration、無資料變更。
 

@@ -300,7 +300,8 @@ export async function hasSlotConflict(
     .from("reservations")
     .select("id")
     .eq("room_id", roomId)
-    .neq("status", "cancelled")
+    // Same set as the DB exclusion constraint: cancelled and no_show do not hold the slot.
+    .not("status", "in", "(cancelled,no_show)")
     .lt("start_time", endTime)
     .gt("end_time", startTime);
 
