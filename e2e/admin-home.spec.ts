@@ -7,7 +7,7 @@ test.describe("後台首頁", () => {
     await page.route(/\/api\/branches(\?.*)?$/, (r) =>
       r.fulfill({ json: [{ id: "b1", name: "E2E 店", closed_dates: [] }] })
     );
-    await page.route("**/api/reservations**", (r) => r.fulfill({ json: [] }));
+    await page.route("**/api/reservations**", (r) => r.fulfill({ json: { items: [], nextCursor: null, total: 0, warnings: [] } }));
     await page.goto("/admin");
     const list = page.getByRole("heading", { name: "訂位列表" });
     const tiles = page.getByText("今日營運", { exact: true });

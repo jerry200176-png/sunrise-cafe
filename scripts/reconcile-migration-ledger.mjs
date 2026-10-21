@@ -76,8 +76,13 @@ async function restGet(url, key, path) {
   return { status: res.status, text, ok: res.status >= 200 && res.status < 300 };
 }
 
+// Table-existence probe selects "*" (not "id"): composite-PK tables such as
+// admin_user_branches have no id column and would be misreported as absent (42703).
+const TABLE_PROBE_SELECT = "*";
+
 async function probeColumn(url, key, table, column) {
-  const r = await restGet(url, key, `${table}?select=${column}&limit=1`);
+  const limit = column === TABLE_PROBE_SELECT ? 0 : 1;
+  const r = await restGet(url, key, `${table}?select=${column}&limit=${limit}`);
   if (r.ok) return "present";
   if (/PGRST205|42P01|42703|does not exist/i.test(r.text)) return "absent";
   if (r.status === 401 || r.status === 403 || r.status === 0) return "unknown";
@@ -92,7 +97,7 @@ async function evaluateEvidence(url, key, evidence) {
       continue;
     }
     if (spec.type === "table" && spec.name) {
-      const status = await probeColumn(url, key, spec.name, "id");
+      const status = await probeColumn(url, key, spec.name, TABLE_PROBE_SELECT);
       results.push({ ...spec, status });
       continue;
     }

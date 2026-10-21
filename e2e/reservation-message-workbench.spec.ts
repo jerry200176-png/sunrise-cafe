@@ -111,7 +111,13 @@ async function mockReservationApis(
       });
       return;
     }
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(reservations) });
+    // GET /api/reservations 回傳 { items, nextCursor, total, warnings }；這些訂位都是未結案（scope=active）
+    const items = url.searchParams.get("scope") === "active" ? reservations : [];
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items, nextCursor: null, total: items.length, warnings: [] }),
+    });
   });
 }
 

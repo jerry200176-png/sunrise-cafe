@@ -5,8 +5,9 @@ import dynamic from "next/dynamic";
 import { Box, LayoutList, RefreshCw } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { RoomCheckoutPanel } from "@/components/admin/RoomCheckoutPanel";
+import { FallbackBoundary } from "@/components/admin/FallbackBoundary";
 import { RoomFloor3D, STATUS_STYLE, fmtClock, tileHeadline, type FloorTile } from "@/components/admin/RoomFloor3D";
-import { friendlyMessage } from "@/lib/friendly-error";
+import { friendlyMessage, responseError, thrownMessage } from "@/lib/friendly-error";
 import { roomFloorState, type RoomFloorStatus } from "@/lib/room-checkout";
 import type { FloorBundle } from "@/app/api/admin/floor/route";
 import { assignRoomsToPlan, floorPlanForBranch } from "@/lib/floor-plan";
@@ -84,14 +85,15 @@ export default function FloorConsolePage() {
     setLoading(true);
     try {
       const response = await fetch(`/api/admin/floor?branchId=${encodeURIComponent(requested)}`, { credentials: "include" });
-      const json = await response.json();
+      // 逾時等情況回的是網頁不是 JSON：一樣要變成看得懂的錯誤
+      const json = response.ok ? await response.json() : null;
       // 切換分店後，舊分店晚回來的資料直接丟掉，避免在 B 店畫面操作到 A 店的客人
       if (currentBranch.current !== requested || seq !== loadSeq.current) return;
-      if (!response.ok) throw new Error(friendlyMessage(json.error, response.status));
+      if (!response.ok) throw new Error(await responseError(response));
       setData(json as FloorBundle);
       setError(null);
     } catch (cause) {
-      if (currentBranch.current === requested && seq === loadSeq.current) setError(cause instanceof Error ? cause.message : "載入失敗，請重試");
+      if (currentBranch.current === requested && seq === loadSeq.current) setError(thrownMessage(cause, "包廂資料載入失敗"));
     } finally {
       if (currentBranch.current === requested) { setLoading(false); setNow(Date.now()); }
     }
@@ -191,14 +193,20 @@ export default function FloorConsolePage() {
           </div>
         </div>
 
-        {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>}
+        {error && <div role="alert" className="flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+          <span>{error}{data ? "（畫面是上一次的資料）" : ""}</span>
+          <button type="button" onClick={() => void (branchId ? load() : loadBranches())} disabled={loading}
+            className="h-9 shrink-0 rounded-lg border border-rose-300 bg-white px-3 font-medium disabled:opacity-50">重試</button>
+        </div>}
         {branchesLoaded && branches.length === 0 && <p className="py-10 text-center text-sm text-stone-500">你的帳號目前沒有負責的分店，請找老闆設定。</p>}
         {!data && !error && !(branchesLoaded && branches.length === 0) && <p className="py-10 text-center text-sm text-stone-500">載入中…</p>}
         {data && tiles.length === 0 && <p className="py-10 text-center text-sm text-stone-500">此分店尚未建立包廂。</p>}
 
         {tiles.length > 0 && (view === "3d"
           ? plan && slots && webgl
-            ? <RoomFloorScene plan={plan} tiles={tiles} slots={slots} selectedId={selectedRoom} onSelect={setSelectedRoom} />
+            ? <FallbackBoundary fallback={<RoomFloor3D tiles={tiles} selectedId={selectedRoom} onSelect={setSelectedRoom} />}>
+              <RoomFloorScene plan={plan} tiles={tiles} slots={slots} selectedId={selectedRoom} onSelect={setSelectedRoom} />
+            </FallbackBoundary>
             : <RoomFloor3D tiles={tiles} selectedId={selectedRoom} onSelect={setSelectedRoom} />
           : <ul className="grid gap-2 sm:grid-cols-2">
             {sortedTiles.map((tile) => {
@@ -234,8 +242,13 @@ export default function FloorConsolePage() {
           </div>}
           <div className="min-h-0 flex-1">
           {selectedReservation
-            ? <RoomCheckoutPanel reservationId={selectedReservation.id} roomName={selected.name} branchId={branchId} nowMs={now}
-              onClose={() => setSelectedRoom(null)} onChanged={() => void load()} />
+            ? <FallbackBoundary key={selectedReservation.id} fallback={<div role="alert" className="flex h-full flex-col items-center justify-center gap-3 bg-paper p-8 text-center">
+                <p className="text-sm text-rose-800">這組的畫面顯示失敗，請關閉後重新打開；一直失敗請截圖給工程人員。</p>
+                <button type="button" onClick={() => setSelectedRoom(null)} className="h-11 rounded-xl border border-ink/15 px-4 text-sm">關閉</button>
+              </div>}>
+              <RoomCheckoutPanel reservationId={selectedReservation.id} roomName={selected.name} branchId={branchId} nowMs={now}
+                onClose={() => setSelectedRoom(null)} onChanged={() => void load()} />
+            </FallbackBoundary>
             : <div className="flex h-full flex-col items-center justify-center gap-3 bg-paper p-8 text-center">
               <p className="font-serif text-xl">{selected.name}</p>
               <p className="text-sm text-ink-soft">這間今天沒有預約。現場來的客人，請先到「訂位」幫他登記。</p>

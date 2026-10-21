@@ -96,7 +96,13 @@ describe("post_deploy_watch job wiring", () => {
     expect(job).toMatch(/node scripts\/post-deploy-watch\.mjs/);
   });
 
+  it("tells operators how to promote after a rollback (issue text and runbook)", () => {
+    expect(job).toMatch(/stops auto-assigning the production domain/);
+    expect(job).toMatch(/vercel promote/);
+    expect(readFileSync(join(root, "docs/RUNBOOK.md"), "utf8")).toMatch(/vercel promote/);
+  });
+
   it("is not defined as a second production deploy writer (verify:production-workflow contract)", () => {
-    expect(job).not.toMatch(/vercel\s+(deploy|redeploy|alias|promote)/);
+    expect(job).not.toMatch(/vercel\s+(deploy|redeploy|alias)/);
   });
 });

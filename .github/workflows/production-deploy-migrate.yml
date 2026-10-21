@@ -32,13 +32,57 @@ jobs:
     name: Apply predeploy migrations
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # age PUBLIC key; optional. Absent = NO retained backup (dump verified, then deleted at job end).
+      BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: npm
       - run: npm ci
+      - name: Install age (only when BACKUP_AGE_RECIPIENT secret exists)
+        if: ${{ env.BACKUP_AGE_RECIPIENT != '' }}
+        run: sudo apt-get install -y -qq --no-install-recommends age
+      - name: Resolve database URL for the backup
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          trap 'rm -f .env.vercel.prod' EXIT
+          source scripts/resolve-db-url.sh
+          [ -n "${SUPABASE_DB_URL:-}" ] || { echo "::error::no database URL available: migrations will not run"; exit 1; }
+          echo "::add-mask::$SUPABASE_DB_URL"
+          echo "SUPABASE_DB_URL=$SUPABASE_DB_URL" >>"$GITHUB_ENV"
+
+      # Fail-closed ordering (Gap #4): backup -> upload -> verify upload -> migrate.
+      # Any failing step stops the job before the migration step starts.
+      - name: Pre-migration backup (predeploy)
+        id: backup
+        run: bash scripts/pre-migration-backup.sh predeploy
+
+      - name: Upload encrypted predeploy backup
+        id: upload
+        if: ${{ steps.backup.outputs.encrypted == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: db-backup-predeploy-${{ github.run_id }}
+          path: |
+            ${{ steps.backup.outputs.artifact_path }}
+            ${{ steps.backup.outputs.manifest_path }}
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Verify backup upload completed
+        if: ${{ steps.backup.outputs.encrypted == 'true' }}
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+        run: |
+          [ -n "$ARTIFACT_ID" ] || { echo "::error::backup artifact upload not confirmed: migrations will not run"; exit 1; }
+          echo "backup artifact id $ARTIFACT_ID uploaded"
+
       - name: Apply canonical predeploy phase
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -68,8 +112,8 @@ jobs:
     needs: predeploy_migrate
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: npm
@@ -103,10 +147,10 @@ jobs:
     needs: predeploy_verify
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "20"
           cache: npm
@@ -148,13 +192,57 @@ jobs:
     runs-on: ubuntu-latest
     needs: deploy
     timeout-minutes: 15
+    env:
+      # age PUBLIC key; optional. Absent = NO retained backup (dump verified, then deleted at job end).
+      BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: npm
       - run: npm ci
+      - name: Install age (only when BACKUP_AGE_RECIPIENT secret exists)
+        if: ${{ env.BACKUP_AGE_RECIPIENT != '' }}
+        run: sudo apt-get install -y -qq --no-install-recommends age
+      - name: Resolve database URL for the backup
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          trap 'rm -f .env.vercel.prod' EXIT
+          source scripts/resolve-db-url.sh
+          [ -n "${SUPABASE_DB_URL:-}" ] || { echo "::error::no database URL available: migrations will not run"; exit 1; }
+          echo "::add-mask::$SUPABASE_DB_URL"
+          echo "SUPABASE_DB_URL=$SUPABASE_DB_URL" >>"$GITHUB_ENV"
+
+      # Fail-closed ordering (Gap #4): backup -> upload -> verify upload -> migrate.
+      # Any failing step stops the job before the migration step starts.
+      - name: Pre-migration backup (postdeploy)
+        id: backup
+        run: bash scripts/pre-migration-backup.sh postdeploy
+
+      - name: Upload encrypted postdeploy backup
+        id: upload
+        if: ${{ steps.backup.outputs.encrypted == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: db-backup-postdeploy-${{ github.run_id }}
+          path: |
+            ${{ steps.backup.outputs.artifact_path }}
+            ${{ steps.backup.outputs.manifest_path }}
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Verify backup upload completed
+        if: ${{ steps.backup.outputs.encrypted == 'true' }}
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+        run: |
+          [ -n "$ARTIFACT_ID" ] || { echo "::error::backup artifact upload not confirmed: migrations will not run"; exit 1; }
+          echo "backup artifact id $ARTIFACT_ID uploaded"
+
       - name: Apply canonical postdeploy phase
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -283,8 +371,8 @@ jobs:
     needs: postdeploy_migrate
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: npm
@@ -327,8 +415,8 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: npm
@@ -390,6 +478,11 @@ jobs:
 
           Per RULEBOOK D8 stop further releases to production until this is fixed. If the rollback result is not
           \`rolled_back\`, run the rollback in docs/RUNBOOK.md now. Database migrations are additive and are not reverted.
+
+          **After a rollback Vercel stops auto-assigning the production domain.** Pushes to main will NOT go live until a
+          deployment is promoted manually. Once the fix is merged and its deployment is READY, promote it:
+          \`npx vercel promote <deployment-url> --token "\$VERCEL_TOKEN"\` (or Vercel dashboard > Deployments > Promote to Production),
+          then confirm \`/api/version\` shows the fixed SHA. See docs/RUNBOOK.md "Post-deploy watch".
           Migration drift (Verify Production) is a separate issue and is not part of this watch.
           MD
           EXISTING=$(gh issue list --state open --search "Incident: production runtime health failed in:title" --json number --jq '.[0].number // empty')

@@ -27,6 +27,43 @@ function getPricePerHour(room: Room, dateStr: string): number {
 }
 
 const RESERVATIONS_API = "/api/reservations";
+/** 歷史紀錄每頁筆數（伺服器上限 200）。 */
+const HISTORY_PAGE_SIZE = 50;
+const HISTORY_REFRESH_MAX = 200;
+
+type HistoryRange = "7d" | "30d" | "90d" | "all";
+type HistoryStatus = "all" | "completed" | "cancelled" | "no_show" | "auto_cancelled";
+
+const HISTORY_RANGE_OPTIONS: { value: HistoryRange; label: string }[] = [
+  { value: "7d", label: "近 7 天" },
+  { value: "30d", label: "近 30 天" },
+  { value: "90d", label: "近 90 天" },
+  { value: "all", label: "全部" },
+];
+
+const HISTORY_STATUS_OPTIONS: { value: Exclude<HistoryStatus, "auto_cancelled">; label: string }[] = [
+  { value: "all", label: "全部狀態" },
+  { value: "completed", label: "已完成" },
+  { value: "cancelled", label: "已取消" },
+  { value: "no_show", label: "沒來" },
+];
+
+const TERMINAL_STATUSES = ["cancelled", "completed", "no_show"];
+
+interface ReservationListResponse {
+  items?: Reservation[];
+  nextCursor?: string | null;
+  total?: number | null;
+  warnings?: string[];
+  error?: string;
+}
+
+/** 依 id 合併（後面的覆蓋前面的），未結案與已載入的歷史紀錄共用同一份列表狀態。 */
+function mergeById(...lists: Reservation[][]): Reservation[] {
+  const map = new Map<string, Reservation>();
+  for (const list of lists) for (const r of list) map.set(r.id, r);
+  return [...map.values()];
+}
 
 
 const STATUS_OPTIONS: { value: ReservationStatus; label: string }[] = [
@@ -85,7 +122,23 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   const [editError, setEditError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"pending" | "upcoming" | "history">("pending");
   const [searchTerm, setSearchTerm] = useState("");
-  const [onlyDepositAutoCancelled, setOnlyDepositAutoCancelled] = useState(false);
+  const [historySearch, setHistorySearch] = useState("");
+  const [historyRange, setHistoryRange] = useState<HistoryRange>("30d");
+  const [historyStatus, setHistoryStatus] = useState<HistoryStatus>("all");
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
+  const [historyTotal, setHistoryTotal] = useState<number | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [activeWarnings, setActiveWarnings] = useState<string[]>([]);
+  const [historyWarnings, setHistoryWarnings] = useState<string[]>([]);
+  const activeRowsRef = useRef<Reservation[]>([]);
+  const historyRowsRef = useRef<Reservation[]>([]);
+  const extraRowsRef = useRef<Reservation[]>([]);
+  /** 目前已載入的歷史篩選條件（null = 尚未載入）；切換分頁回來不重抓。 */
+  const historyKeyRef = useRef<string | null>(null);
+  const historyRequest = useRef(0);
+  const focusLookupRef = useRef<string | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"time_desc" | "time_asc" | "price_desc" | "price_asc">(
     "time_asc"
@@ -303,8 +356,76 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     setConfirmDialog(null);
   }, []);
 
+  const publishRows = useCallback(() => {
+    setReservations(mergeById(extraRowsRef.current, activeRowsRef.current, historyRowsRef.current));
+  }, []);
+
+  const historyKey = `${branchId}|${historyRange}|${historyStatus}|${historySearch}`;
+  // 篩選條件與游標放在 ref：fetchHistory 保持穩定，才不會連帶讓未結案列表與即時訂閱重跑
+  const historyFiltersRef = useRef({ range: historyRange, status: historyStatus, q: historySearch, key: historyKey });
+  historyFiltersRef.current = { range: historyRange, status: historyStatus, q: historySearch, key: historyKey };
+  const historyCursorRef = useRef<string | null>(null);
+
+  /** 載入歷史紀錄：mode=replace 重抓第一頁（或目前已載入的筆數），append 為「載入更多」。 */
+  const fetchHistory = useCallback(
+    async (mode: "replace" | "append" | "refresh") => {
+      if (!branchId) return;
+      const requestId = ++historyRequest.current;
+      const limit =
+        mode === "refresh"
+          ? Math.min(HISTORY_REFRESH_MAX, Math.max(HISTORY_PAGE_SIZE, historyRowsRef.current.length))
+          : HISTORY_PAGE_SIZE;
+      if (mode === "append") setHistoryLoadingMore(true);
+      if (mode === "replace") {
+        setHistoryLoading(true);
+        historyRowsRef.current = [];
+        publishRows();
+      }
+      setHistoryError(null);
+      try {
+        const filters = historyFiltersRef.current;
+        const params = new URLSearchParams({
+          branchId,
+          scope: "history",
+          range: filters.range,
+          status: filters.status,
+          limit: String(limit),
+        });
+        if (filters.q) params.set("q", filters.q);
+        if (mode === "append" && historyCursorRef.current) params.set("cursor", historyCursorRef.current);
+        const res = await fetch(`${RESERVATIONS_API}?${params.toString()}`);
+        const data = (await res.json().catch(() => ({}))) as ReservationListResponse;
+        if (requestId !== historyRequest.current) return;
+        if (!res.ok) {
+          setHistoryError(data.error ?? "無法載入歷史紀錄");
+          return;
+        }
+        const items = data.items ?? [];
+        historyRowsRef.current =
+          mode === "append" ? mergeById(historyRowsRef.current, items) : items;
+        historyKeyRef.current = filters.key;
+        historyCursorRef.current = data.nextCursor ?? null;
+        setHistoryCursor(data.nextCursor ?? null);
+        if (mode !== "append") setHistoryTotal(data.total ?? null);
+        setHistoryWarnings(data.warnings ?? []);
+        publishRows();
+      } catch (e) {
+        if (requestId === historyRequest.current) {
+          setHistoryError(e instanceof Error ? e.message : "連線失敗");
+        }
+      } finally {
+        if (requestId === historyRequest.current) {
+          setHistoryLoading(false);
+          setHistoryLoadingMore(false);
+        }
+      }
+    },
+    [branchId, publishRows]
+  );
+
   const fetchReservations = useCallback(async (showLoading = true) => {
     if (!branchId) {
+      activeRowsRef.current = [];
       setReservations([]);
       setLoading(false);
       return;
@@ -312,21 +433,58 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     if (showLoading) setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${RESERVATIONS_API}?branchId=${encodeURIComponent(branchId)}&_t=${Date.now()}`);
-      const data = await res.json();
+      const params = new URLSearchParams({ branchId, scope: "active", _t: String(Date.now()) });
+      const res = await fetch(`${RESERVATIONS_API}?${params.toString()}`);
+      const data = (await res.json().catch(() => ({}))) as ReservationListResponse;
       if (!res.ok) {
-        setError((data as { error?: string })?.error ?? "無法載入訂位");
-        if (showLoading) setReservations([]);
+        setError(data.error ?? "無法載入訂位");
+        if (showLoading) {
+          activeRowsRef.current = [];
+          publishRows();
+        }
       } else {
-        setReservations((data as Reservation[]) ?? []);
+        activeRowsRef.current = data.items ?? [];
+        setActiveWarnings(data.warnings ?? []);
+        publishRows();
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "連線失敗");
-      if (showLoading) setReservations([]);
+      if (showLoading) {
+        activeRowsRef.current = [];
+        publishRows();
+      }
     } finally {
       if (showLoading) setLoading(false);
     }
+    // 歷史紀錄已載入過才一起刷新（保留已載入的筆數）
+    if (historyKeyRef.current !== null) void fetchHistory("refresh");
+  }, [branchId, fetchHistory, publishRows]);
+
+  // 換分店：清掉歷史紀錄狀態
+  useEffect(() => {
+    historyRowsRef.current = [];
+    extraRowsRef.current = [];
+    historyKeyRef.current = null;
+    focusLookupRef.current = null;
+    historyCursorRef.current = null;
+    setHistoryCursor(null);
+    setHistoryTotal(null);
+    setHistoryWarnings([]);
   }, [branchId]);
+
+  // 搜尋字輸入停 300ms 才送到伺服器（只用於歷史紀錄；未結案列表已全部載入，在本機篩選）
+  useEffect(() => {
+    const timer = setTimeout(() => setHistorySearch(searchTerm.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // 第一次打開歷史紀錄、或篩選條件改變時，才向伺服器要第一頁
+  useEffect(() => {
+    if (activeTab !== "history" || !branchId) return;
+    if (historyKeyRef.current === historyKey) return;
+    void fetchHistory("replace");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在分頁或篩選條件改變時觸發
+  }, [activeTab, branchId, historyKey]);
 
   useEffect(() => {
     fetchReservations();
@@ -419,10 +577,25 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       return;
     }
     const target = reservations.find((reservation) => reservation.id === focusReservationId);
-    if (!target) return;
+    if (!target) {
+      // 連結指到的訂位不在目前範圍（例如較早的歷史紀錄）：單獨向伺服器要這一筆
+      if (!branchId || focusLookupRef.current === focusReservationId) return;
+      focusLookupRef.current = focusReservationId;
+      const params = new URLSearchParams({ branchId, scope: "history", id: focusReservationId });
+      void fetch(`${RESERVATIONS_API}?${params.toString()}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: ReservationListResponse | null) => {
+          const row = data?.items?.[0];
+          if (!row) return;
+          extraRowsRef.current = mergeById(extraRowsRef.current, [row]);
+          publishRows();
+        })
+        .catch(() => undefined);
+      return;
+    }
     openedFocusReservationId.current = focusReservationId;
     openEdit(target);
-  }, [editing, focusReservationId, loading, openEdit, reservations]);
+  }, [branchId, editing, focusReservationId, loading, openEdit, publishRows, reservations]);
 
   const submitEdit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -488,6 +661,13 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     } finally {
       setRestoringId(null);
     }
+  };
+
+  /** 切換分頁；歷史紀錄預設新到舊，其他分頁預設早到晚（使用者之後仍可自行改排序）。 */
+  const selectTab = (tab: "pending" | "upcoming" | "history") => {
+    if (tab === activeTab) return;
+    setActiveTab(tab);
+    setSortBy(tab === "history" ? "time_desc" : "time_asc");
   };
 
   const updateStatus = async (id: string, status: ReservationStatus) => {
@@ -646,25 +826,20 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     );
   }
 
-  if (reservations.length === 0) {
-    return (
-      <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-gray-500">
-        尚無訂位資料
-      </div>
-    );
-  }
-
   const pendingList = reservations.filter((r) => r.status === "pending");
   const upcomingList = reservations.filter((r) =>
     ["confirmed", "paid", "checked_in"].includes(r.status)
   );
+  // 歷史紀錄的範圍、狀態與搜尋已在伺服器端套用；這裡再套一次狀態，讓剛在畫面上改狀態的訂位也守同樣的篩選
   const historyList = reservations.filter(
     (r) =>
-      ["cancelled", "completed", "no_show"].includes(r.status) &&
-      (!onlyDepositAutoCancelled || Boolean(r.deposit_auto_cancelled))
+      TERMINAL_STATUSES.includes(r.status) &&
+      (historyStatus === "all" ||
+        (historyStatus === "auto_cancelled" ? Boolean(r.deposit_auto_cancelled) : r.status === historyStatus))
   );
-  const depositAutoCancelledCount = reservations.filter((r) => r.deposit_auto_cancelled).length;
+  const onlyDepositAutoCancelled = historyStatus === "auto_cancelled";
   const pendingCount = pendingList.length;
+  const listWarnings = [...activeWarnings, ...(activeTab === "history" ? historyWarnings : [])];
 
   const listForTab =
     activeTab === "pending" ? pendingList : activeTab === "upcoming" ? upcomingList : historyList;
@@ -675,6 +850,8 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     if (r.status === "cancelled" || !r.phone) return;
     phoneCounts.set(r.phone, (phoneCounts.get(r.phone) ?? 0) + 1);
   });
+  // 伺服器有算整個分店的次數（visit_count）就用它；只看已載入的列表會低估
+  const visitCountOf = (r: Reservation) => r.visit_count ?? phoneCounts.get(r.phone) ?? 0;
 
   const roomNameMap = new Map(rooms.map((r) => [r.id, r.name]));
   const query = normalizeText(searchTerm.trim());
@@ -729,7 +906,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-gray-200 bg-gray-50 px-4 py-2">
         <button
           type="button"
-          onClick={() => setActiveTab("pending")}
+          onClick={() => selectTab("pending")}
           className={`rounded-full px-3 py-1 text-xs font-medium ${activeTab === "pending"
             ? "bg-amber-600 text-white"
             : "bg-gray-100 text-gray-700 hover:bg-gray-200"
@@ -744,7 +921,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab("upcoming")}
+          onClick={() => selectTab("upcoming")}
           className={`rounded-full px-3 py-1 text-xs font-medium ${activeTab === "upcoming"
             ? "bg-amber-600 text-white"
             : "bg-gray-100 text-gray-700 hover:bg-gray-200"
@@ -754,7 +931,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab("history")}
+          onClick={() => selectTab("history")}
           className={`rounded-full px-3 py-1 text-xs font-medium ${activeTab === "history"
             ? "bg-amber-600 text-white"
             : "bg-gray-100 text-gray-700 hover:bg-gray-200"
@@ -762,19 +939,6 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         >
           歷史紀錄
         </button>
-        {activeTab === "history" && (
-          <button
-            type="button"
-            onClick={() => setOnlyDepositAutoCancelled((v) => !v)}
-            aria-pressed={onlyDepositAutoCancelled}
-            className={`rounded-full px-3 py-1 text-xs font-medium ${onlyDepositAutoCancelled
-              ? "bg-red-600 text-white"
-              : "bg-red-50 text-red-700 hover:bg-red-100"
-              }`}
-          >
-            只看未付訂金自動取消（{depositAutoCancelledCount}）
-          </button>
-        )}
         <button
           type="button"
           onClick={handleSendLine}
@@ -785,6 +949,60 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
           {sendingLine ? "發送中..." : "發送 LINE 明日提醒"}
         </button>
       </div>
+      {activeTab === "history" && (
+        <div className="mb-3 space-y-2 px-4" aria-label="歷史紀錄篩選">
+          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="期間">
+            {HISTORY_RANGE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setHistoryRange(option.value)}
+                aria-pressed={historyRange === option.value}
+                className={`min-h-9 rounded-full px-3 py-1 text-xs font-medium ${historyRange === option.value
+                  ? "bg-stone-800 text-white"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="狀態">
+            {HISTORY_STATUS_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setHistoryStatus(option.value)}
+                aria-pressed={historyStatus === option.value}
+                className={`min-h-9 rounded-full px-3 py-1 text-xs font-medium ${historyStatus === option.value
+                  ? "bg-amber-600 text-white"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
+              >
+                {option.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setHistoryStatus((v) => (v === "auto_cancelled" ? "all" : "auto_cancelled"))}
+              aria-pressed={onlyDepositAutoCancelled}
+              className={`min-h-9 rounded-full px-3 py-1 text-xs font-medium ${onlyDepositAutoCancelled
+                ? "bg-red-600 text-white"
+                : "bg-red-50 text-red-700 hover:bg-red-100"
+                }`}
+            >
+              只看未付訂金自動取消{onlyDepositAutoCancelled && historyTotal != null ? `（${historyTotal}）` : ""}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {listWarnings.length > 0 && (
+        <p className="mx-4 mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900" role="status">
+          部分資料暫時無法載入：{listWarnings.join("、")}。列表仍可使用，可稍後重新整理。
+        </p>
+      )}
+
       <div className="mb-3 flex flex-wrap items-center gap-2 px-4">
         <label className="flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700">
           <input
@@ -802,6 +1020,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
           onChange={(e) => setSearchTerm(e.target.value)}
           className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm sm:w-64"
           placeholder="搜尋姓名/電話/代號/包廂/備註"
+          aria-label="搜尋訂位"
         />
         <select
           value={sortBy}
@@ -813,7 +1032,11 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
           <option value="price_desc">金額：高 → 低</option>
           <option value="price_asc">金額：低 → 高</option>
         </select>
-        <span className="text-xs text-gray-500">共 {sortedList.length} 筆</span>
+        <span className="text-xs text-gray-500">
+          {activeTab === "history" && historyTotal != null && historyTotal > sortedList.length
+            ? `已顯示 ${sortedList.length}／共 ${historyTotal} 筆`
+            : `共 ${sortedList.length} 筆`}
+        </span>
       </div>
 
       {selectedReservationIds.length > 0 && (
@@ -844,10 +1067,44 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         </div>
       )}
 
-      {query && sortedList.length === 0 && (
-        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          找不到符合「{searchTerm.trim()}」的訂位，請調整關鍵字或切換分頁。
+      {activeTab === "history" && historyError && (
+        <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          {historyError}
+          <button
+            type="button"
+            onClick={() => void fetchHistory("replace")}
+            className="ml-2 font-semibold underline"
+          >
+            重試
+          </button>
         </p>
+      )}
+
+      {query && sortedList.length === 0 && !historyLoading && (
+        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          找不到符合「{searchTerm.trim()}」的訂位，請調整關鍵字或切換分頁
+          {activeTab === "history" && historyRange !== "all" ? "；較早的紀錄請把期間改成「全部」" : ""}。
+        </p>
+      )}
+
+      {!query && sortedList.length === 0 && !(activeTab === "history" && (historyLoading || historyError)) && (
+        <div className="mb-3 rounded-xl border border-gray-200 bg-white p-8 text-center text-gray-500">
+          {activeTab === "history"
+            ? historyRange === "all"
+              ? "尚無歷史紀錄"
+              : "這段期間沒有歷史紀錄，可改選較長的期間或「全部」"
+            : reservations.length === 0
+              ? "尚無訂位資料"
+              : activeTab === "pending"
+                ? "目前沒有待審核的訂位"
+                : "目前沒有即將到來的訂位"}
+        </div>
+      )}
+
+      {activeTab === "history" && historyLoading && (
+        <div className="mb-3 rounded-xl border border-gray-200 bg-white p-8 text-center text-gray-500" role="status">
+          載入中…
+        </div>
       )}
 
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
@@ -862,7 +1119,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
             }
             const r = row.item;
             const roomName = roomNameMap.get(r.room_id) ?? "—";
-            const visitCount = phoneCounts.get(r.phone) ?? 0;
+            const visitCount = visitCountOf(r);
             return (
               <li key={r.id} className="space-y-2 p-4 hover:bg-gray-50/80">
                 {/* Row 1: Name · Phone · Status */}
@@ -1259,6 +1516,19 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
           })}
         </ul>
       </div>
+
+      {activeTab === "history" && historyCursor && !historyLoading && (
+        <div className="mt-3 flex justify-center px-4">
+          <button
+            type="button"
+            onClick={() => void fetchHistory("append")}
+            disabled={historyLoadingMore}
+            className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 sm:w-auto"
+          >
+            {historyLoadingMore ? "載入中…" : "載入更多"}
+          </button>
+        </div>
+      )}
 
       {messageWorkbench && (
         <div
