@@ -64,6 +64,7 @@ import {
   buildReminderDigestFlexChunks,
 } from "@/lib/line-notify";
 import { sendLineFlexMessage } from "@/lib/line";
+import { REMINDER_DIGEST_CAROUSEL_MAX } from "@/lib/line-cards";
 import { claimLineReminderDelivery, markLineReminderDelivery } from "@/lib/line-delivery";
 import { findRecentSendLineHeartbeat, findSuccessfulSendLineRunToday } from "@/lib/job-runs";
 
@@ -438,7 +439,40 @@ describe("independent staff and customer reminder delivery", () => {
     expect(result.guest_sent_count).toBe(1);
     expect(result.ok).toBe(false);
     expect(result.result).toBe("partial");
+    if (failure === "settlement") {
+      expect(result.accepted_count).toBe(2);
+      expect(result.rejected_count).toBe(0);
+      expect(result.error).toContain("group settlement unavailable");
+    }
     expect(updateReservationAdmin).toHaveBeenCalledWith(row.id, expect.objectContaining({ d1_guest_reminder_sent_at: expect.any(String) }));
+  });
+
+  it("does not invent a provider rejection or attempt for missing staff configuration", async () => {
+    vi.mocked(fetchBranches).mockResolvedValue([]);
+    vi.mocked(isLineConfigured).mockReturnValue(false);
+    vi.mocked(fetchReservationsForReminder).mockResolvedValue([{ ...row, line_user_id: null }] as never);
+    const result = await (await runSendLineReminder()).json();
+    expect(result.result).toBe("error");
+    expect(result.error).toContain("LINE_CHANNEL_ACCESS_TOKEN");
+    expect(result.accepted_count).toBe(0);
+    expect(result.rejected_count).toBe(0);
+    expect(result.delivery_certainty).toBe("not_attempted");
+    expect(result.reminder_evidence.message_attempt_count).toBe(0);
+  });
+
+  it("retains earlier group acceptance when a later chunk claim fails", async () => {
+    const rows = Array.from({ length: REMINDER_DIGEST_CAROUSEL_MAX + 1 }, (_, i) => ({ ...row, id: `chunk-${i}`, line_user_id: null }));
+    vi.mocked(fetchReservationsForReminder).mockResolvedValue(rows as never);
+    vi.mocked(claimLineReminderDelivery).mockImplementation(async ({ reservationId }) => {
+      if (reservationId === `chunk-${REMINDER_DIGEST_CAROUSEL_MAX}`) throw new Error("later chunk claim unavailable");
+      return { available: true, id: reservationId };
+    });
+    const result = await (await runSendLineReminder()).json();
+    expect(sendLineFlexToGroup).toHaveBeenCalledTimes(1);
+    expect(result.accepted_count).toBe(1);
+    expect(result.rejected_count).toBe(0);
+    expect(result.result).toBe("partial");
+    expect(result.error).toContain("later chunk claim unavailable");
   });
 
   it("records customer rejection as failed and preserves its retry eligibility", async () => {

@@ -165,11 +165,24 @@ async function pushDigestToGroup(
   const handledRows: Record<string, unknown>[] = [];
   let messageCount = 0;
   let errorCount = 0;
+  let runtimeErrors = 0;
+  let runtimeError: string | null = null;
   const recipientId = groupId ?? "legacy-group";
   const date = reminderDate(rows[0]!);
   for (let offset = 0; offset < rows.length; offset += REMINDER_DIGEST_CAROUSEL_MAX) {
     const rowChunk = rows.slice(offset, offset + REMINDER_DIGEST_CAROUSEL_MAX);
-    const claims = await claimRows(rowChunk, reminderType, date, "group", recipientId);
+    let claims: ClaimRowsResult;
+    try {
+      claims = await claimRows(rowChunk, reminderType, date, "group", recipientId);
+    } catch (error) {
+      // Preserve earlier chunk acceptances and any partially acquired claims.
+      // This chunk must not fall through to another staff recipient on claim failure.
+      handledRows.push(...rowChunk);
+      runtimeErrors++;
+      runtimeError = safeLineDeliveryError(error);
+      console.error(`[send-line] group claim failed: ${runtimeError}`);
+      continue;
+    }
     handledRows.push(...claims.handledRows);
     if (claims.toSend.length === 0) continue;
     const claimed = claims.toSend;
@@ -192,12 +205,20 @@ async function pushDigestToGroup(
       );
       sentRows.push(...claimed.map((item) => item.row));
     } catch (error) {
-      errorCount++;
-      await settleClaims(claimed, accepted ? "sent" : "failed", error);
+      if (accepted) runtimeErrors++;
+      else errorCount++;
+      runtimeError = safeLineDeliveryError(error);
+      try {
+        await settleClaims(claimed, accepted ? "sent" : "failed", error);
+      } catch (settlementError) {
+        // Keep uncertain claims intact; record persistence failure without losing acceptance.
+        if (!accepted) runtimeErrors++;
+        runtimeError = safeLineDeliveryError(settlementError);
+      }
       console.error(`[send-line] 群組摘要傳送失敗: ${safeLineDeliveryError(error)}`);
     }
   }
-  return { sent: messageCount, errors: errorCount, rows: sentRows, handled: handledRows };
+  return { sent: messageCount, errors: errorCount, runtimeErrors, runtimeError, rows: sentRows, handled: handledRows };
 }
 
 async function sendInformationalMessage(
@@ -443,6 +464,8 @@ export async function runSendLineReminder(
     const allRows = (await fetchReservationsForReminder(force)) as Record<string, unknown>[];
     let totalSent = 0;
     let line_rejected = 0;
+    let staff_errors = 0;
+    let staff_error: string | null = null;
     let heartbeat: ReminderHeartbeat = "none";
     const heartbeat_keys: string[] = [];
     let skipped_count = 0;
@@ -517,6 +540,8 @@ export async function runSendLineReminder(
         const result = await pushDigestToGroup(allRows, null, "📅 明日訂位提醒");
         totalSent = result.sent;
         line_rejected += result.errors;
+        staff_errors += result.runtimeErrors;
+        staff_error = result.runtimeError ?? staff_error;
         heartbeat = result.sent > 0 ? "digest" : "none";
       } else {
         const matchedIds = new Set<string>();
@@ -567,6 +592,8 @@ export async function runSendLineReminder(
           for (const r of result.handled) matchedIds.add(r.id as string);
           totalSent += result.sent;
           line_rejected += result.errors;
+          staff_errors += result.runtimeErrors;
+          staff_error = result.runtimeError ?? staff_error;
           heartbeat = result.sent > 0 ? "digest" : heartbeat;
         }
 
@@ -576,6 +603,8 @@ export async function runSendLineReminder(
             const result = await pushDigestToGroup(unmatched, null, "📅 明日訂位提醒（未設定分店群組）");
             totalSent += result.sent;
             line_rejected += result.errors;
+            staff_errors += result.runtimeErrors;
+            staff_error = result.runtimeError ?? staff_error;
             heartbeat = result.sent > 0 ? "digest" : heartbeat;
             console.warn(
               `[send-line] multi-branch: ${unmatched.length} row(s) fell back to LINE_GROUP_ID`
@@ -589,7 +618,8 @@ export async function runSendLineReminder(
       }
     } catch (error) {
       if (allRows.length === 0) throw error;
-      line_rejected++;
+      staff_errors++;
+      staff_error = safeLineDeliveryError(error);
       console.error(`[send-line] staff reminder failed: ${safeLineDeliveryError(error)}`);
     }
 
@@ -663,12 +693,13 @@ export async function runSendLineReminder(
     }
 
     const totalRejected = line_rejected + guest_rejected;
+    const totalErrors = totalRejected + staff_errors;
     const heartbeatSent = heartbeat === "cat" || heartbeat === "already_notified" ? 1 : 0;
     const totalMessages = totalSent + guest_sent_count + heartbeatSent;
     const result: ReminderRunObservability["result"] =
-      totalRejected > 0 && totalSent + guest_sent_count > 0
+      totalErrors > 0 && totalSent + guest_sent_count > 0
         ? "partial"
-        : totalRejected > 0
+        : totalErrors > 0
           ? "error"
           : totalSent > 0 || guest_sent_count > 0
           ? "sent"
@@ -690,6 +721,7 @@ export async function runSendLineReminder(
         accepted_count:
           totalMessages,
         rejected_count: totalRejected,
+        error: staff_error,
       },
       started
     );
@@ -701,10 +733,11 @@ export async function runSendLineReminder(
     }
 
     return NextResponse.json({
-      ok: totalRejected === 0,
+      ok: totalErrors === 0,
       sent: totalMessages,
       message_count: totalMessages,
-      errors: line_rejected + guest_rejected,
+      errors: totalErrors,
+      staff_error_count: staff_errors,
       message:
         totalMessages === 0
           ? "沒有尚未通知的明日訂位（可能已全部發送過）"
