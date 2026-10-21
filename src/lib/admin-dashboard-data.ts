@@ -1,11 +1,8 @@
 /**
  * Shared admin dashboard data — single fetch, multiple views (ADM-005b).
  */
-import {
-  fetchBranch,
-  fetchReservationsAdmin,
-  fetchRooms,
-} from "@/lib/supabase-admin";
+import { fetchBranch, fetchRooms } from "@/lib/supabase-admin";
+import { fetchReservationsOverlapping, type TimeWindow } from "@/lib/reservation-list-query";
 
 export type DashboardReservation = {
   id?: string;
@@ -92,6 +89,43 @@ function dayRange(date: string) {
     start: start.toISOString(),
     end: end.toISOString(),
   };
+}
+
+export const TREND_DAYS = 7;
+
+/** 後台日期參數（台北日曆日 YYYY-MM-DD）；不合格的由 API 回 400，而不是查詢時才炸成 500。 */
+export function isDashboardDate(date: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+  return !Number.isNaN(new Date(`${date}T00:00:00+08:00`).getTime());
+}
+
+export type DashboardView = "stats" | "timeline" | "trend" | "bundle";
+
+/**
+ * 每個畫面實際需要的時間窗（以「與窗重疊」查訂位）：
+ *   - timeline：那一天（台北）
+ *   - trend：結束日往前 7 天（台北）
+ *   - stats：那一天，加上「現在」（使用中包廂；查別天時現在可能不在那一天）
+ *   - bundle：7 天趨勢窗（已含那一天），加上「現在」
+ * 「現在」已落在其他窗內時不重複查。
+ */
+export function dashboardWindows(view: DashboardView, date: string, now = new Date()): TimeWindow[] {
+  const day = dayRange(date);
+  const dayWindow = { fromIso: day.start, toIso: day.end };
+  const trendWindow = { fromIso: dayRange(lastNDays(date, TREND_DAYS)[0]).start, toIso: day.end };
+  const nowIso = now.toISOString();
+  const nowWindow = { fromIso: nowIso, toIso: new Date(now.getTime() + 1).toISOString() };
+  const withNow = (w: TimeWindow) => (nowIso >= w.fromIso && nowIso < w.toIso ? [w] : [w, nowWindow]);
+  switch (view) {
+    case "timeline":
+      return [dayWindow];
+    case "trend":
+      return [trendWindow];
+    case "stats":
+      return withNow(dayWindow);
+    case "bundle":
+      return withNow(trendWindow);
+  }
 }
 
 function lastNDays(endDate: string, n: number): string[] {
@@ -182,7 +216,7 @@ export function buildDashboardTimeline(
 export function buildDashboardTrend(
   endDate: string,
   reservations: DashboardReservation[],
-  days = 7
+  days = TREND_DAYS
 ): { endDate: string; points: DashboardTrendPoint[] } {
   const dayList = lastNDays(endDate, days);
 
@@ -205,20 +239,21 @@ export function buildDashboardTrend(
 
 export async function fetchDashboardBundle(
   branchId: string,
-  date: string
+  date: string,
+  now = new Date()
 ): Promise<DashboardBundle> {
   const [reservationsRaw, roomsRaw, branch] = await Promise.all([
-    fetchReservationsAdmin(branchId),
+    fetchReservationsOverlapping(branchId, dashboardWindows("bundle", date, now)),
     fetchRooms(branchId),
     fetchBranch(branchId),
   ]);
 
-  const reservations = (Array.isArray(reservationsRaw) ? reservationsRaw : []) as DashboardReservation[];
+  const reservations = reservationsRaw as unknown as DashboardReservation[];
   const rooms = (Array.isArray(roomsRaw) ? roomsRaw : []) as DashboardRoom[];
 
   return {
     date,
-    stats: buildDashboardStats(date, reservations, rooms),
+    stats: buildDashboardStats(date, reservations, rooms, now),
     timeline: buildDashboardTimeline(date, reservations, rooms, branch),
     trend: buildDashboardTrend(date, reservations),
   };

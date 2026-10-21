@@ -200,30 +200,6 @@ export async function insertReservationAdmin(payload: {
   throw new Error("無法產生訂位代號，請稍後再試");
 }
 
-// ✅ 補回遺失的函式：fetchReservationsAdmin
-export async function fetchReservationsAdmin(branchId: string): Promise<unknown[]> {
-  const { url: baseUrl } = baseAdmin();
-  const roomsRes = await fetch(
-    `${baseUrl}/rest/v1/rooms?select=id&branch_id=eq.${encodeURIComponent(branchId)}`,
-    { method: "GET", headers: headersAdmin(), cache: "no-store" }
-  );
-  if (!roomsRes.ok) throw new Error("Supabase rooms error: " + (await roomsRes.text()));
-
-  const rooms = (await roomsRes.json()) as { id: string }[];
-  if (rooms.length === 0) return [];
-
-  const ids = rooms.map((r) => r.id);
-  const inFilter = ids.map((id) => encodeURIComponent(id)).join(",");
-
-  const res = await fetch(
-    `${baseUrl}/rest/v1/reservations?select=*,room_with_branch:rooms(id,name,branch:branches(name))&room_id=in.(${inFilter})&order=start_time.asc`,
-    { method: "GET", headers: headersAdmin(), cache: "no-store" }
-  );
-  if (!res.ok) throw new Error("Supabase reservations error: " + (await res.text()));
-
-  return res.json();
-}
-
 // ✅ 補回遺失的函式：updateReservationAdmin
 export async function updateReservationAdmin(
   id: string,

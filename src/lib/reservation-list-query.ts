@@ -15,6 +15,7 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { taipeiDatePlusDays } from "@/lib/datetime";
 import { chunk } from "@/lib/chunk";
+import { fetchAll } from "@/lib/overview-data";
 import { fetchPendingPaymentCountsByReservation } from "@/lib/payment-events-admin";
 import { fetchPreorderSummaries } from "@/lib/reservation-preorder";
 import {
@@ -212,10 +213,51 @@ function afterCursorDesc(row: ReservationRow, cursor: ReservationCursor): boolea
   return t < c || (t === c && row.id < cursor.id);
 }
 
-async function fetchBranchRooms(db: Db, branchId: string): Promise<{ id: string; name: string }[]> {
+export async function fetchBranchRooms(db: Db, branchId: string): Promise<{ id: string; name: string }[]> {
   const { data, error } = await db.from("rooms").select("id,name").eq("branch_id", branchId);
   if (error) throw new Error("Supabase rooms error: " + error.message);
   return (data ?? []) as { id: string; name: string }[];
+}
+
+export interface TimeWindow {
+  fromIso: string;
+  toIso: string;
+}
+
+/**
+ * 與時間窗重疊的訂位（`start_time < to` 且 `end_time > from`），限分店包廂。
+ * 用 overview-data 的 fetchAll 分頁取完，不會被 PostgREST max_rows（1000）截斷；
+ * 多個時間窗合併、依 id 去重，舊到新。
+ *
+ * 取代以前的 `fetchReservationsAdmin`（一次撈分店有史以來全部訂位、舊到新、超過 1000 筆時最新的被截掉），
+ * 給儀表板、統計、7 日趨勢、時間軸用：它們只看某一天、某 7 天或「現在」。
+ */
+export async function fetchReservationsOverlapping(
+  branchId: string,
+  windows: TimeWindow[],
+  options: { db?: Db } = {}
+): Promise<ReservationRow[]> {
+  const db = options.db ?? supabaseAdmin();
+  const roomIds = (await fetchBranchRooms(db, branchId)).map((r) => r.id);
+  if (roomIds.length === 0 || windows.length === 0) return [];
+  const byId = new Map<string, ReservationRow>();
+  for (const w of windows) {
+    const rows = await fetchAll<ReservationRow>((from, to) =>
+      db
+        .from("reservations")
+        .select(RESERVATION_SELECT)
+        .in("room_id", roomIds)
+        .lt("start_time", w.toIso)
+        .gt("end_time", w.fromIso)
+        .order("start_time", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to) as unknown as PromiseLike<{ data: ReservationRow[] | null; error: { message: string } | null }>
+    );
+    for (const r of rows) byId.set(r.id, r);
+  }
+  return [...byId.values()].sort((a, b) =>
+    a.start_time !== b.start_time ? (a.start_time < b.start_time ? -1 : 1) : a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+  );
 }
 
 /**
