@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { auditLineAccounts, checkLineAccountsAndAlert, formatCollisionAlert } from "./line-account-audit";
 
 const BRANCH = "c7893aaa-121f-4750-9fab-c0173cb3d422";
@@ -18,8 +18,11 @@ function lineFetch() {
       : url.endsWith("/message/quota") ? { type: "limited", value: bot.limit }
       : { status: "ready", success: 5 };
     return new Response(JSON.stringify(body), { status: 200 });
-  }) as unknown as typeof fetch;
+  });
 }
+
+beforeEach(() => { vi.stubGlobal("fetch", lineFetch()); });
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 const env = (over: Record<string, string | undefined>) => ({ ...over }) as unknown as NodeJS.ProcessEnv;
 
@@ -29,9 +32,12 @@ describe("auditLineAccounts", () => {
       LINE_CHANNEL_ACCESS_TOKEN: "tok-group",
       LINE_CUSTOMER_ACCESS_TOKEN: "tok-customer",
       LINE_BRANCH_CUSTOMER_BOTS: JSON.stringify([{ branch_id: BRANCH, name: "同德店", secret: "s", token: "tok-branch" }]),
-    }), lineFetch(), new Date("2026-10-21T00:00:00Z"));
+    }), new Date("2026-10-21T00:00:00Z"));
 
     expect(audit.collisions).toEqual([]);
+    expect(audit.identityComplete).toBe(true);
+    // Quota grading comes from assessLineQuota (#483): 180/200 = 90% → warn.
+    expect(audit.accounts[0].usage).toMatchObject({ level: "warn", percentUsed: 90 });
     expect(audit.accounts.map((a) => [a.role, a.source, a.displayName, a.basicId, a.usage?.monthUsed, a.usage?.monthLimit])).toEqual([
       ["group", "LINE_CHANNEL_ACCESS_TOKEN", "昇咖啡提醒小幫手", "@111aaaa", 180, 200],
       ["customer", "LINE_CUSTOMER_ACCESS_TOKEN", "昇咖啡 大安店", "@222bbbb", 40, 500],
@@ -47,7 +53,7 @@ describe("auditLineAccounts", () => {
       LINE_CHANNEL_ACCESS_TOKEN: "tok-group",
       LINE_CUSTOMER_ACCESS_TOKEN: "tok-group",
       LINE_BRANCH_CUSTOMER_BOTS: JSON.stringify([{ branch_id: BRANCH, name: "同德店", secret: "s", token: "tok-group" }]),
-    }), lineFetch());
+    }));
     expect(audit.collisions.map((c) => [c.customerSource, c.groupSource, c.basicId])).toEqual([
       ["LINE_CUSTOMER_ACCESS_TOKEN", "LINE_CHANNEL_ACCESS_TOKEN", "@111aaaa"],
       ["LINE_BRANCH_CUSTOMER_BOTS[同德店]", "LINE_CHANNEL_ACCESS_TOKEN", "@111aaaa"],
@@ -56,21 +62,28 @@ describe("auditLineAccounts", () => {
   });
 
   it("reports missing and invalid tokens instead of throwing", async () => {
-    const audit = await auditLineAccounts(env({ LINE_CHANNEL_ACCESS_TOKEN: "revoked" }), lineFetch());
+    const audit = await auditLineAccounts(env({ LINE_CHANNEL_ACCESS_TOKEN: "revoked" }));
     expect(audit.accounts[0]).toMatchObject({ configured: true, error: expect.stringContaining("401"), displayName: null });
     expect(audit.accounts[1]).toMatchObject({ source: "LINE_CUSTOMER_ACCESS_TOKEN", configured: false, error: "未設定", usage: null });
     expect(audit.collisions).toEqual([]);
+    expect(audit.identityComplete).toBe(false);
+  });
+
+  it("is not identity-complete when a customer token fails, so no collision is not proof of different accounts", async () => {
+    const audit = await auditLineAccounts(env({ LINE_CHANNEL_ACCESS_TOKEN: "tok-group", LINE_CUSTOMER_ACCESS_TOKEN: "revoked" }));
+    expect(audit.collisions).toEqual([]);
+    expect(audit.identityComplete).toBe(false);
   });
 });
 
 describe("checkLineAccountsAndAlert", () => {
   it("alerts the staff group only when a customer token is the group bot", async () => {
     const send = vi.fn(async () => undefined);
-    expect(await checkLineAccountsAndAlert(send, env({ LINE_CHANNEL_ACCESS_TOKEN: "tok-group", LINE_CUSTOMER_ACCESS_TOKEN: "tok-customer" }), lineFetch()))
+    expect(await checkLineAccountsAndAlert(send, env({ LINE_CHANNEL_ACCESS_TOKEN: "tok-group", LINE_CUSTOMER_ACCESS_TOKEN: "tok-customer" })))
       .toEqual({ collisions: 0, alerted: false });
     expect(send).not.toHaveBeenCalled();
 
-    expect(await checkLineAccountsAndAlert(send, env({ LINE_CHANNEL_ACCESS_TOKEN: "tok-group", LINE_CUSTOMER_ACCESS_TOKEN: "tok-group" }), lineFetch()))
+    expect(await checkLineAccountsAndAlert(send, env({ LINE_CHANNEL_ACCESS_TOKEN: "tok-group", LINE_CUSTOMER_ACCESS_TOKEN: "tok-group" })))
       .toEqual({ collisions: 1, alerted: true });
     expect(send).toHaveBeenCalledTimes(1);
     expect(String((send.mock.calls[0] as unknown[])[0])).not.toContain("tok-");
@@ -79,7 +92,7 @@ describe("checkLineAccountsAndAlert", () => {
   it("never throws when the alert itself fails", async () => {
     const send = vi.fn(async () => { throw new Error("push failed"); });
     vi.spyOn(console, "error").mockImplementation(() => undefined);
-    await expect(checkLineAccountsAndAlert(send, env({ LINE_CHANNEL_ACCESS_TOKEN: "tok-group", LINE_CUSTOMER_ACCESS_TOKEN: "tok-group" }), lineFetch()))
+    await expect(checkLineAccountsAndAlert(send, env({ LINE_CHANNEL_ACCESS_TOKEN: "tok-group", LINE_CUSTOMER_ACCESS_TOKEN: "tok-group" })))
       .resolves.toEqual({ collisions: 0, alerted: false });
   });
 });

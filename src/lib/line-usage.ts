@@ -122,9 +122,9 @@ function tokyoDate(now: Date): string {
   return `${values.year}${values.month}${values.day}`;
 }
 
-async function getJson<T>(url: string, token: string, fetchImpl: typeof fetch = fetch): Promise<{ data: T | null; error?: string }> {
+async function getJson<T>(url: string, token: string): Promise<{ data: T | null; error?: string }> {
   try {
-    const response = await fetchImpl(url, {
+    const response = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
     });
@@ -153,26 +153,22 @@ function unavailableQuotaAudit(error: string, now: Date): LineQuotaAudit {
 /** Read-only LINE quota and today's Messaging API push consumption. */
 export async function fetchLineQuotaAudit(
   token = process.env.LINE_CHANNEL_ACCESS_TOKEN,
-  now = new Date(),
-  fetchImpl: typeof fetch = fetch
+  now = new Date()
 ): Promise<LineQuotaAudit> {
   if (!token) return unavailableQuotaAudit("LINE_CHANNEL_ACCESS_TOKEN unavailable", now);
 
   const [consumption, quota, delivery] = await Promise.all([
     getJson<{ totalUsage?: number }>(
       "https://api.line.me/v2/bot/message/quota/consumption",
-      token,
-      fetchImpl
+      token
     ),
     getJson<{ value?: number; type?: "none" | "limited" }>(
       "https://api.line.me/v2/bot/message/quota",
-      token,
-      fetchImpl
+      token
     ),
     getJson<{ status?: string; success?: number }>(
       `https://api.line.me/v2/bot/message/delivery/push?date=${tokyoDate(now)}`,
-      token,
-      fetchImpl
+      token
     ),
   ]);
 

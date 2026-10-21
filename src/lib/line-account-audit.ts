@@ -1,11 +1,18 @@
 /**
- * Which LINE Official Account each configured token belongs to, and its monthly quota.
+ * Which LINE Official Account each configured token belongs to (GET /v2/bot/info, read-only,
+ * no message quota used), plus the same-account check between customer and staff group tokens.
  *
- * Read-only: GET /v2/bot/info plus the quota endpoints in line-usage.ts. None of these
- * send a message or count against the quota. Token values never leave this module;
- * results carry only the account's display name, basic ID and usage numbers.
+ * Quota numbers are not fetched here: customer accounts reuse fetchCustomerLineQuotaAudits and
+ * group bots fetchLineQuotaAudit, both graded with assessLineQuota (src/lib/line-usage.ts).
+ * Token values and bot userIds never leave this module.
  */
-import { fetchLineQuotaAudit } from "@/lib/line-usage";
+import {
+  assessLineQuota,
+  fetchCustomerLineQuotaAudits,
+  fetchLineQuotaAudit,
+  type LineQuotaAudit,
+  type LineQuotaLevel,
+} from "@/lib/line-usage";
 import { parseExtraGroupBots } from "@/lib/line-group-bots";
 import { parseBranchCustomerBots } from "@/lib/customer-line-bots";
 
@@ -18,13 +25,16 @@ export type LineAccountReport = {
   configured: boolean;
   displayName: string | null;
   basicId: string | null;
+  /** Bot identity could not be read (invalid token, LINE unreachable). */
   error: string | null;
   usage: {
-    status: "complete" | "partial" | "unavailable";
+    status: LineQuotaAudit["status"];
     monthUsed: number | null;
     monthLimit: number | null;
     planType: "none" | "limited" | null;
     todayPush: number | null;
+    level: LineQuotaLevel;
+    percentUsed: number | null;
   } | null;
 };
 
@@ -40,11 +50,16 @@ export type LineAccountAudit = {
   accounts: LineAccountReport[];
   /** A customer token that resolves to the same account as a staff group token. */
   collisions: LineAccountCollision[];
+  /**
+   * True only when every configured token's identity was read. When false, "no collision"
+   * is not proof the accounts differ.
+   */
+  identityComplete: boolean;
 };
 
 type TokenSlot = { role: LineAccountRole; source: string; token: string | undefined };
 
-/** Every token the app sends with, from the environment (values stay inside this module). */
+/** Group tokens first, then customer tokens in the order fetchCustomerLineQuotaAudits returns them. */
 export function configuredLineTokens(env: NodeJS.ProcessEnv = process.env): TokenSlot[] {
   return [
     { role: "group", source: "LINE_CHANNEL_ACCESS_TOKEN", token: env.LINE_CHANNEL_ACCESS_TOKEN?.trim() || undefined },
@@ -58,53 +73,62 @@ export function configuredLineTokens(env: NodeJS.ProcessEnv = process.env): Toke
   ];
 }
 
-async function botInfo(token: string, fetchImpl: typeof fetch) {
+async function botInfo(token: string): Promise<{ userId: string | null; displayName: string | null; basicId: string | null; error: string | null }> {
   try {
-    const response = await fetchImpl("https://api.line.me/v2/bot/info", {
+    const response = await fetch("https://api.line.me/v2/bot/info", {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
     });
-    if (!response.ok) return { error: `token 無效或已過期（LINE 回 ${response.status}）` };
+    if (!response.ok) return { userId: null, displayName: null, basicId: null, error: `token 無效或已過期（LINE 回 ${response.status}）` };
     const info = (await response.json()) as { userId?: string; displayName?: string; basicId?: string };
-    return { userId: info.userId ?? null, displayName: info.displayName ?? null, basicId: info.basicId ?? null };
+    if (!info.userId) return { userId: null, displayName: info.displayName ?? null, basicId: info.basicId ?? null, error: "LINE 沒有回帳號 ID" };
+    return { userId: info.userId, displayName: info.displayName ?? null, basicId: info.basicId ?? null, error: null };
   } catch {
-    return { error: "連不上 LINE" };
+    return { userId: null, displayName: null, basicId: null, error: "連不上 LINE" };
   }
 }
 
-export async function auditLineAccounts(
-  env: NodeJS.ProcessEnv = process.env,
-  fetchImpl: typeof fetch = fetch,
-  now = new Date()
-): Promise<LineAccountAudit> {
+function usageOf(audit: LineQuotaAudit): NonNullable<LineAccountReport["usage"]> {
+  return {
+    status: audit.status,
+    monthUsed: audit.snapshot.used,
+    monthLimit: audit.snapshot.limit,
+    planType: audit.snapshot.limitType,
+    todayPush: audit.snapshot.dailyPush,
+    ...assessLineQuota(audit.snapshot),
+  };
+}
+
+export async function auditLineAccounts(env: NodeJS.ProcessEnv = process.env, now = new Date()): Promise<LineAccountAudit> {
   const slots = configuredLineTokens(env);
-  const resolved = await Promise.all(slots.map(async (slot) => {
-    if (!slot.token) {
-      return { slot, userId: null, report: {
-        role: slot.role, source: slot.source, configured: false, displayName: null, basicId: null,
-        error: "未設定", usage: null,
-      } satisfies LineAccountReport };
-    }
-    const [info, quota] = await Promise.all([
-      botInfo(slot.token, fetchImpl),
-      fetchLineQuotaAudit(slot.token, now, fetchImpl),
-    ]);
-    return { slot, userId: "userId" in info ? info.userId ?? null : null, report: {
+  const groupSlots = slots.filter((slot) => slot.role === "group");
+  const customerSlots = slots.filter((slot) => slot.role === "customer");
+
+  const [customerQuotas, groupQuotas, identities] = await Promise.all([
+    fetchCustomerLineQuotaAudits(env, now),
+    Promise.all(groupSlots.map((slot) => (slot.token ? fetchLineQuotaAudit(slot.token, now) : Promise.resolve(null)))),
+    Promise.all(slots.map((slot) => (slot.token ? botInfo(slot.token) : Promise.resolve(null)))),
+  ]);
+  const quotaFor = (slot: TokenSlot): LineQuotaAudit | null => {
+    if (!slot.token) return null;
+    if (slot.role === "group") return groupQuotas[groupSlots.indexOf(slot)];
+    return customerQuotas[customerSlots.indexOf(slot)]?.audit ?? null;
+  };
+
+  const resolved = slots.map((slot, i) => {
+    const info = identities[i];
+    const quota = quotaFor(slot);
+    const report: LineAccountReport = {
       role: slot.role,
       source: slot.source,
-      configured: true,
-      displayName: "displayName" in info ? info.displayName ?? null : null,
-      basicId: "basicId" in info ? info.basicId ?? null : null,
-      error: "error" in info ? info.error ?? null : null,
-      usage: {
-        status: quota.status,
-        monthUsed: quota.snapshot.used,
-        monthLimit: quota.snapshot.limit,
-        planType: quota.snapshot.limitType,
-        todayPush: quota.snapshot.dailyPush,
-      },
-    } satisfies LineAccountReport };
-  }));
+      configured: Boolean(slot.token),
+      displayName: info?.displayName ?? null,
+      basicId: info?.basicId ?? null,
+      error: slot.token ? info?.error ?? null : "未設定",
+      usage: quota ? usageOf(quota) : null,
+    };
+    return { slot, userId: info?.userId ?? null, report };
+  });
 
   const collisions: LineAccountCollision[] = [];
   for (const customer of resolved.filter((r) => r.slot.role === "customer" && r.userId)) {
@@ -120,7 +144,12 @@ export async function auditLineAccounts(
     }
   }
 
-  return { fetchedAt: now.toISOString(), accounts: resolved.map((r) => r.report), collisions };
+  return {
+    fetchedAt: now.toISOString(),
+    accounts: resolved.map((r) => r.report),
+    collisions,
+    identityComplete: resolved.every((r) => !r.slot.token || r.userId !== null),
+  };
 }
 
 export function formatCollisionAlert(collisions: LineAccountCollision[]): string {
@@ -139,11 +168,10 @@ export function formatCollisionAlert(collisions: LineAccountCollision[]): string
  */
 export async function checkLineAccountsAndAlert(
   send: (text: string) => Promise<void>,
-  env: NodeJS.ProcessEnv = process.env,
-  fetchImpl: typeof fetch = fetch
+  env: NodeJS.ProcessEnv = process.env
 ): Promise<{ collisions: number; alerted: boolean }> {
   try {
-    const audit = await auditLineAccounts(env, fetchImpl);
+    const audit = await auditLineAccounts(env);
     if (audit.collisions.length === 0) return { collisions: 0, alerted: false };
     console.error("[line-account-audit] customer token resolves to a staff group bot:",
       audit.collisions.map((c) => `${c.customerSource}=${c.groupSource}`).join(", "));

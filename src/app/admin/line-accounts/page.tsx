@@ -7,6 +7,8 @@ import { responseError, thrownMessage } from "@/lib/friendly-error";
 import type { LineAccountAudit, LineAccountReport } from "@/lib/line-account-audit";
 
 const ROLE_LABEL = { group: "店員群組通知", customer: "客人通知" } as const;
+/** Colour by assessLineQuota level (80% warn, 95% critical; shared with diagnose-line). */
+const LEVEL_CLASS = { ok: "text-stone-500", warn: "font-semibold text-amber-700", critical: "font-semibold text-rose-700", unknown: "text-stone-500" } as const;
 
 /** 老闆用：每個 LINE token 實際是哪個官方帳號，以及本月額度用了多少（唯讀，不發訊息）。 */
 export default function LineAccountsPage() {
@@ -46,7 +48,10 @@ export default function LineAccountsPage() {
               {c.customerSource} 和 {c.groupSource} 都是「{c.displayName ?? "?"}」{c.basicId ?? ""}</li>)}</ul>
             <p className="mt-2">兩邊共用同一份每月額度。請到 Vercel 把客人帳號的 token 換回來，再 Redeploy。</p>
           </div>
-          : <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">客人通知和店員群組用的是不同的 LINE 帳號。</p>)}
+          : !audit.identityComplete
+            ? <p role="alert" className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              有帳號讀不到身分（下面標紅字的卡片），所以還不能確定客人通知和店員群組是不是不同帳號。請先修正那個 token 再重新整理。</p>
+            : <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">客人通知和店員群組用的是不同的 LINE 帳號。</p>)}
         {audit && <ul className="grid gap-3 sm:grid-cols-2">{audit.accounts.map((account) => <AccountCard key={account.source} account={account} />)}</ul>}
         {audit && <p className="text-xs text-stone-500">資料時間 {new Date(audit.fetchedAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}。
           群組推播會按「群組人數」計算訊息數。今天的推播數 LINE 隔天才會給，所以可能顯示「—」。</p>}
@@ -58,7 +63,6 @@ export default function LineAccountsPage() {
 function AccountCard({ account }: { account: LineAccountReport }) {
   const usage = account.usage;
   const limitText = usage?.planType === "none" ? "不限" : usage?.monthLimit != null ? usage.monthLimit.toLocaleString() : "—";
-  const pct = usage?.monthUsed != null && usage.monthLimit ? Math.round((usage.monthUsed / usage.monthLimit) * 100) : null;
   return <li className="rounded-2xl border border-stone-200 bg-white p-4">
     <p className="text-xs text-stone-500">{ROLE_LABEL[account.role]} · <code>{account.source}</code></p>
     <p className="mt-1 text-lg font-semibold">{account.displayName ?? (account.configured ? "（讀不到帳號名稱）" : "未設定")}</p>
@@ -69,6 +73,6 @@ function AccountCard({ account }: { account: LineAccountReport }) {
       <div><dt className="text-xs text-stone-500">本月上限</dt><dd className="tabular-nums">{limitText}</dd></div>
       <div><dt className="text-xs text-stone-500">今天推播</dt><dd className="tabular-nums">{usage.todayPush ?? "—"}</dd></div>
     </dl>}
-    {pct != null && <p className={`mt-2 text-xs ${pct >= 80 ? "text-rose-700" : "text-stone-500"}`}>已用 {pct}%</p>}
+    {usage?.percentUsed != null && <p className={`mt-2 text-xs ${LEVEL_CLASS[usage.level]}`}>已用 {usage.percentUsed}%</p>}
   </li>;
 }
