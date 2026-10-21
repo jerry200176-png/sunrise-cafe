@@ -104,7 +104,7 @@ describe("production-deploy-migrate.yml wiring", () => {
     const order = [
       "source scripts/resolve-db-url.sh",
       `bash scripts/pre-migration-backup.sh ${phase}`,
-      "uses: actions/upload-artifact@v4",
+      "uses: actions/upload-artifact@",
       "Verify backup upload completed",
       `node scripts/run-production-migration-phase.mjs ${phase}`,
     ].map(at);
