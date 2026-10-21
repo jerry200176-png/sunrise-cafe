@@ -6,6 +6,17 @@ Closes #<!-- issue-number (若無請填「無」) -->
 
 <!-- 簡述改了什麼、為什麼。對客人/店長/營運有什麼影響？ -->
 
+## 設計文件 (Design doc, RULEBOOK D0)
+
+- 設計文件連結 (issue comment; small fix: 5-line version):
+- 重複檢查 (searched: …; reused: …):
+
+## 參考做法 (Reference-first, RULEBOOK D0)
+
+- 競品／大公司怎麼做:
+- 開源參考（含授權）:
+- 根因 vs 症狀:
+
 ## 技術細節
 
 <!-- 實作方式、架構決策、注意事項、參考 docs/ 或 ADR -->
