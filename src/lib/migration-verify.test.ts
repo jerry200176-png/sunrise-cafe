@@ -43,7 +43,7 @@ describe("classifyVersion / evidence", () => {
       classifyVersion({
         inLedger: true,
         evidence: resolveEvidenceResults(restOnly, {
-          "ops_events.id": true,
+          "ops_events.*": true,
           "ops_events.domain": true,
         }),
       })
@@ -52,7 +52,7 @@ describe("classifyVersion / evidence", () => {
 
   it("full REST evidence present + not in ledger → case_b_candidate", () => {
     const evidence = resolveEvidenceResults(restOnly, {
-      "ops_events.id": true,
+      "ops_events.*": true,
       "ops_events.domain": true,
     });
     expect(classifyVersion({ inLedger: false, evidence })).toBe("case_b_candidate");
@@ -61,7 +61,7 @@ describe("classifyVersion / evidence", () => {
 
   it("partial evidence (table only) → true_pending", () => {
     const evidence = resolveEvidenceResults(restOnly, {
-      "ops_events.id": true,
+      "ops_events.*": true,
       "ops_events.domain": false,
     });
     expect(classifyVersion({ inLedger: false, evidence })).toBe("true_pending");
@@ -73,7 +73,7 @@ describe("classifyVersion / evidence", () => {
       { type: "table", name: "branches", introspect: "rest" },
       { type: "policy", name: "Allow anon select branches", table: "branches", introspect: "unsupported" },
     ];
-    const evidence = resolveEvidenceResults(mixed, { "branches.id": true });
+    const evidence = resolveEvidenceResults(mixed, { "branches.*": true });
     expect(classifyVersion({ inLedger: false, evidence })).toBe("unknown");
     expect(isFullEvidencePresent(evidence)).toBe(false);
   });
@@ -97,7 +97,7 @@ describe("evaluateMigrationDrift", () => {
       applied: ["20260713-ops-events"],
       contracts: miniContracts,
       restProbes: {
-        "ops_events.id": true,
+        "ops_events.*": true,
         "ops_events.domain": true,
         "branches.closed_dates": true,
       },
@@ -113,7 +113,7 @@ describe("evaluateMigrationDrift", () => {
       applied: [],
       contracts: miniContracts,
       restProbes: {
-        "ops_events.id": true,
+        "ops_events.*": true,
         "ops_events.domain": true,
         "branches.closed_dates": true,
       },
@@ -142,15 +142,15 @@ describe("evaluateMigrationDrift", () => {
       applied: [],
       contracts,
       restProbes: {
-        "admin_users.id": true,
+        "admin_users.*": true,
         "admin_users.email": true,
         "admin_users.password_hash": true,
         "admin_users.role": true,
         "admin_user_branches.user_id": true,
         "admin_user_branches.branch_id": true,
-        "admin_permission_audit.id": true,
+        "admin_permission_audit.*": true,
         "admin_permission_audit.action": true,
-        "ops_events.id": true,
+        "ops_events.*": true,
         "ops_events.ts": true,
         "ops_events.domain": true,
         "ops_events.action": true,
