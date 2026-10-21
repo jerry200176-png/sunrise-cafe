@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Clock, Minus, Plus, Receipt, UtensilsCrossed, X } from "lucide-react";
-import { friendlyMessage, thrownMessage } from "@/lib/friendly-error";
+import { friendlyMessage, responseError, thrownMessage } from "@/lib/friendly-error";
 import { MenuPicker } from "@/components/MenuPicker";
 import { selectionProblem } from "@/lib/option-sets";
 import type { DraftItemInput } from "@/lib/reservation-preorder";
@@ -51,6 +51,9 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   const [discountReason, setDiscountReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  /** 第一次載入就失敗：沒有畫面可顯示，要給「重試」而不是一直顯示載入中 */
+  const [loadFailed, setLoadFailed] = useState("");
+  const [menuState, setMenuState] = useState<"loading" | "ready" | "error">("loading");
   const api = `/api/admin/reservation-orders/${encodeURIComponent(reservationId)}`;
 
   // 目前顯示的是哪一組：切換組別後，舊組晚回來的回應一律丟掉，避免畫面是 A 組、按鈕卻送到 B 組
@@ -63,28 +66,46 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
     const requested = api;
     const gen = ++requestGen.current;
     const response = await fetch(requested, { credentials: "include" });
-    const data = await response.json();
+    // 逾時等情況回的是網頁不是 JSON：一樣要變成看得懂的錯誤
+    const data = response.ok ? await response.json() : null;
     if (currentApi.current !== requested || gen !== requestGen.current) return;
-    if (!response.ok) throw new Error(friendlyMessage(data.error, response.status));
+    if (!response.ok) throw new Error(await responseError(response));
     setView(data as View);
+    setLoadFailed("");
     setCustomEnd(fmtClock((data as View).billing.end_time));
   }, [api]);
+
+  const firstLoad = useCallback(() => {
+    setLoadFailed("");
+    load().catch((cause) => setLoadFailed(thrownMessage(cause, "這組的資料載入失敗")));
+  }, [load]);
 
   useEffect(() => {
     setView(null); setError(""); setPicking(null); setConfirmCheckout(false);
     setMethod("cash"); setDiscount(""); setDiscountReason("");
-    load().catch((cause) => setError(thrownMessage(cause, "載入失敗，請重新整理")));
-  }, [load]);
+    firstLoad();
+  }, [firstLoad]);
 
-  useEffect(() => {
+  const menuSeq = useRef(0);
+  const loadMenu = useCallback(() => {
+    const seq = ++menuSeq.current;
+    setMenuState("loading");
     fetch(`/api/menu?branchId=${encodeURIComponent(branchId)}`)
-      .then((response) => response.ok ? response.json() : { items: [], categories: [] })
-      .then((data: { items?: MenuItem[]; categories?: MenuCategory[] }) => {
+      .then(async (response) => {
+        if (!response.ok) throw new Error(await responseError(response));
+        return response.json() as Promise<{ items?: MenuItem[]; categories?: MenuCategory[] }>;
+      })
+      .then((data) => {
+        if (seq !== menuSeq.current) return;
         setMenu((data.items ?? []).filter((item) => item.is_available));
         setCategories(data.categories ?? []);
+        setMenuState("ready");
       })
-      .catch(() => setMenu([]));
+      // 菜單讀不到時不能假裝「這一類沒有東西」：顯示錯誤並可重試
+      .catch(() => { if (seq === menuSeq.current) setMenuState("error"); });
   }, [branchId]);
+
+  useEffect(() => { loadMenu(); }, [loadMenu]);
 
   async function act(action: string, extra: Record<string, unknown> = {}) {
     setBusy(true); setError("");
@@ -150,7 +171,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
       <header className="flex items-start justify-between gap-3 border-b border-ink/10 px-5 py-4">
         <div className="min-w-0">
           <p className="text-[11px] uppercase tracking-[0.3em] text-ink-faint">{roomName}</p>
-          <h2 className="truncate font-serif text-xl">{view ? view.reservation.customer_name : "載入中…"}</h2>
+          <h2 className="truncate font-serif text-xl">{view ? view.reservation.customer_name : loadFailed ? "載入失敗" : "載入中…"}</h2>
           {view && <p className="mt-0.5 text-sm text-ink-soft">
             {view.reservation.guest_count ? `${view.reservation.guest_count} 位 · ` : ""}訂位代號 {view.reservation.booking_code}
           </p>}
@@ -162,6 +183,11 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
 
       <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
         {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>}
+        {!view && loadFailed && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+          <p>{loadFailed}</p>
+          <button type="button" onClick={firstLoad} className="mt-3 h-11 rounded-xl bg-ink px-4 font-semibold text-paper">重試</button>
+        </div>}
+        {!view && !loadFailed && <p className="py-10 text-center text-sm text-ink-faint">載入中…</p>}
 
         {billing && <section aria-labelledby="time-heading" className="rounded-2xl border border-ink/10 bg-white/70 p-4">
           <div className="flex items-center justify-between gap-2">
@@ -227,12 +253,17 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
           </ul>
 
           {!paid && checkedIn && <div className="mt-4 border-t border-ink/10 pt-4">
-            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2" role="tablist" aria-label="菜單種類">
+            {menuState === "ready" && menu.length > 0 && <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2" role="tablist" aria-label="菜單種類">
               {[{ id: "all", name: "全部" }, ...categories].map((cat) => <button key={cat.id} type="button" role="tab" aria-selected={category === cat.id}
                 onClick={() => setCategory(cat.id)}
                 className={`h-9 shrink-0 rounded-full px-4 text-sm ${category === cat.id ? "bg-ink text-paper" : "border border-ink/15 bg-white"}`}>{cat.name}</button>)}
-            </div>
-            {picking ? <div className="rounded-xl bg-paper-deep/60 p-3">
+            </div>}
+            {menuState === "error" ? <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+              菜單載入失敗，暫時不能加點。
+              <button type="button" onClick={loadMenu} className="ml-2 h-9 rounded-lg border border-rose-300 bg-white px-3 font-medium">重試</button>
+            </div> : menuState === "loading" ? <p className="text-sm text-ink-faint">菜單載入中…</p>
+            : menu.length === 0 ? <p className="text-sm text-ink-faint">這間分店還沒有可以點的品項，請先到「菜單」新增。</p>
+            : picking ? <div className="rounded-xl bg-paper-deep/60 p-3">
               <MenuPicker items={menu.filter((item) => item.id === picking[0]?.menu_item_id)} value={picking} onChange={setPicking} disabled={busy} />
               {selectionProblem(menu, picking) && <p role="alert" className="mt-2 text-sm text-rose-700">{selectionProblem(menu, picking)}</p>}
               <div className="mt-3 flex gap-2">
