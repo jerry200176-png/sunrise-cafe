@@ -28,7 +28,7 @@ function listBody(url: string) {
   if (params.get("scope") !== "history") return { items: [], nextCursor: null, total: 0, warnings: [] };
   const status = params.get("status") ?? "all";
   const items = rows.filter((r) =>
-    status === "all" ? true : status === "auto_cancelled" ? r.deposit_auto_cancelled === true : r.status === status
+    status === "all" ? true : status === "auto_cancelled" ? (r as { deposit_auto_cancelled?: boolean }).deposit_auto_cancelled === true : r.status === status
   );
   return { items, nextCursor: null, total: items.length, warnings: [] };
 }
