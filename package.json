@@ -46,7 +46,7 @@
     "repo:cleanup:apply": "bash scripts/repo-hygiene-cleanup.sh --apply",
     "cto:gmail-signals": "bash scripts/orchestrator/gmail-signals.sh",
     "design:audit": "bash scripts/design-slop-audit.sh",
-    "gov:overlay-pin": "bash scripts/governance/check-constitution-pin.sh",
+    "gov:overlay-pin": "python3 scripts/check-rulebook.py",
     "production-identity": "bash scripts/production-identity.sh",
     "line:usage-audit": "npx tsx scripts/line-usage-audit.ts"
   },

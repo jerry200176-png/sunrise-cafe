@@ -1,5 +1,7 @@
 # Autonomy Audit — What Is Actually Automated
 
+> **HISTORICAL (2026-10-21).** Snapshot from the 2026-07/09 CTO-governance period. It may contradict `governance/RULEBOOK.md`; the rulebook wins. Do not follow permission or approval rules found here.
+
 **Updated:** 2026-07-11  
 **Rule:** No claim of autonomy without a runnable path and evidence artifact.
 
