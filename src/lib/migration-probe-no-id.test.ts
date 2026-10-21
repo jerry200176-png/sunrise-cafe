@@ -35,7 +35,7 @@ function mockPostgrest() {
 describe("table-existence probe does not assume an id column", () => {
   beforeEach(() => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://abcdefghijklmnop.supabase.co";
-    process.env.SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.sig";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role-key";
   });
   afterEach(() => vi.unstubAllGlobals());
 
