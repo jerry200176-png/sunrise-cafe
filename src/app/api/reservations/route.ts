@@ -18,6 +18,7 @@ import { signLookupToken } from "@/lib/lookup-token";
 import { stableLineRetryKey } from "@/lib/line-retry-key";
 import { canonicalDraftItems, fetchPreorderSummaries, isReservationPreorderEnabled, type DraftItemInput } from "@/lib/reservation-preorder";
 import { branchLineGroupIdForRoom } from "@/lib/branch-line-group";
+import { fetchDepositAutoCancelledIds } from "@/lib/deposit-auto-cancelled";
 
 function supabaseAdmin() {
   return createClient(
@@ -46,14 +47,17 @@ export async function GET(request: NextRequest) {
     );
   }
   try {
-    const data = (await fetchReservationsAdmin(branchId)) as { id: string }[];
+    const data = (await fetchReservationsAdmin(branchId)) as { id: string; status?: string }[];
     const ids = data.map((r) => r.id);
+    const cancelledIds = data.filter((r) => r.status === "cancelled").map((r) => r.id);
     const pendingCounts = await fetchPendingPaymentCountsByReservation(ids).catch(() => new Map());
     const preorders = await fetchPreorderSummaries(ids).catch(() => new Map());
+    const autoCancelled = await fetchDepositAutoCancelledIds(cancelledIds).catch(() => new Set<string>());
     const enriched = data.map((r) => ({
       ...r,
       pending_payment_reviews: pendingCounts.get(r.id) ?? 0,
       preorder: preorders.get(r.id) ?? null,
+      deposit_auto_cancelled: r.status === "cancelled" && autoCancelled.has(r.id),
     }));
     return NextResponse.json(enriched);
   } catch (err) {

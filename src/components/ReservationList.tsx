@@ -85,6 +85,8 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   const [editError, setEditError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"pending" | "upcoming" | "history">("pending");
   const [searchTerm, setSearchTerm] = useState("");
+  const [onlyDepositAutoCancelled, setOnlyDepositAutoCancelled] = useState(false);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"time_desc" | "time_asc" | "price_desc" | "price_asc">(
     "time_asc"
   );
@@ -461,20 +463,31 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   };
 
   const restoreReservation = async (id: string) => {
-    const ok = await openConfirm("還原訂位", "確定要還原這筆已取消的訂位嗎？原時段若已被訂走將無法還原。");
+    if (restoringId) return;
+    const ok = await openConfirm(
+      "還原訂位",
+      "確定要還原這筆訂位嗎？原時段若已被其他訂位佔用將無法還原。還原不會改變付款狀態，也不會自動傳 LINE 給客人；先點的餐需重新確認。"
+    );
     if (!ok) return;
-    const res = await fetch(`${RESERVATIONS_API}/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ intent: "restore" }),
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      showToast(data.error ?? "還原失敗，請重新整理後再試", "error");
-      return;
+    setRestoringId(id);
+    try {
+      const res = await fetch(`${RESERVATIONS_API}/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ intent: "restore" }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        showToast(data.error ?? "還原失敗，請重新整理後再試", "error");
+        return;
+      }
+      showToast("已還原訂位", "success");
+      fetchReservations(false);
+    } catch {
+      showToast("連線失敗，還原未完成", "error");
+    } finally {
+      setRestoringId(null);
     }
-    showToast("已還原訂位", "success");
-    fetchReservations(false);
   };
 
   const updateStatus = async (id: string, status: ReservationStatus) => {
@@ -645,9 +658,12 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   const upcomingList = reservations.filter((r) =>
     ["confirmed", "paid", "checked_in"].includes(r.status)
   );
-  const historyList = reservations.filter((r) =>
-    ["cancelled", "completed"].includes(r.status)
+  const historyList = reservations.filter(
+    (r) =>
+      ["cancelled", "completed", "no_show"].includes(r.status) &&
+      (!onlyDepositAutoCancelled || Boolean(r.deposit_auto_cancelled))
   );
+  const depositAutoCancelledCount = reservations.filter((r) => r.deposit_auto_cancelled).length;
   const pendingCount = pendingList.length;
 
   const listForTab =
@@ -746,6 +762,19 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         >
           歷史紀錄
         </button>
+        {activeTab === "history" && (
+          <button
+            type="button"
+            onClick={() => setOnlyDepositAutoCancelled((v) => !v)}
+            aria-pressed={onlyDepositAutoCancelled}
+            className={`rounded-full px-3 py-1 text-xs font-medium ${onlyDepositAutoCancelled
+              ? "bg-red-600 text-white"
+              : "bg-red-50 text-red-700 hover:bg-red-100"
+              }`}
+          >
+            只看未付訂金自動取消（{depositAutoCancelledCount}）
+          </button>
+        )}
         <button
           type="button"
           onClick={handleSendLine}
@@ -861,6 +890,11 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                   >
                     {reservationStatusLabel(r.status)}
                   </span>
+                  {r.deposit_auto_cancelled && (
+                    <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">
+                      未付訂金自動取消
+                    </span>
+                  )}
                 </div>
 
                 {/* Row 2: Room · Code · Guest count · Date · Time · Price */}
@@ -1059,9 +1093,10 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                       <button
                         type="button"
                         onClick={() => restoreReservation(r.id)}
-                        className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+                        disabled={restoringId !== null}
+                        className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
                       >
-                        ↩️ 還原
+                        {restoringId === r.id ? "還原中…" : "↩️ 還原"}
                       </button>
                     )}
                   </div>
@@ -1183,6 +1218,16 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     >
                       <Pencil className="h-4 w-4" />
                     </button>
+                    {(r.status === "cancelled" || r.status === "no_show") && (
+                      <button
+                        type="button"
+                        onClick={() => restoreReservation(r.id)}
+                        disabled={restoringId !== null}
+                        className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                      >
+                        {restoringId === r.id ? "還原中…" : "↩️ 一鍵還原"}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={async () => {
