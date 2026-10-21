@@ -1,3 +1,5 @@
+import { parseBranchCustomerBots } from "@/lib/customer-line-bots";
+
 export type LineNotificationPriority = "critical" | "actionable" | "informational";
 
 export type LineQuotaSnapshot = {
@@ -133,26 +135,28 @@ async function getJson<T>(url: string, token: string, fetchImpl: typeof fetch = 
   }
 }
 
+function unavailableQuotaAudit(error: string, now: Date): LineQuotaAudit {
+  const fetchedAt = now.toISOString();
+  return {
+    source: "line_official_api",
+    status: "unavailable",
+    endpoints: {
+      consumption: { available: false, value: null, error },
+      quota: { available: false, value: null, error },
+      dailyPush: { available: false, value: null, error },
+    },
+    snapshot: { used: null, limit: null, limitType: null, dailyPush: null, fetchedAt },
+    fetchedAt,
+  };
+}
+
 /** Read-only LINE quota and today's Messaging API push consumption. */
 export async function fetchLineQuotaAudit(
   token = process.env.LINE_CHANNEL_ACCESS_TOKEN,
   now = new Date(),
   fetchImpl: typeof fetch = fetch
 ): Promise<LineQuotaAudit> {
-  if (!token) {
-    const error = "LINE_CHANNEL_ACCESS_TOKEN unavailable";
-    return {
-      source: "line_official_api",
-      status: "unavailable",
-      endpoints: {
-        consumption: { available: false, value: null, error },
-        quota: { available: false, value: null, error },
-        dailyPush: { available: false, value: null, error },
-      },
-      snapshot: { used: null, limit: null, limitType: null, dailyPush: null, fetchedAt: now.toISOString() },
-      fetchedAt: now.toISOString(),
-    };
-  }
+  if (!token) return unavailableQuotaAudit("LINE_CHANNEL_ACCESS_TOKEN unavailable", now);
 
   const [consumption, quota, delivery] = await Promise.all([
     getJson<{ totalUsage?: number }>(
@@ -235,5 +239,70 @@ export function estimateMonthlyMessageConsumption(input: {
     input.lifecycleGroupMessages +
     input.lifecycleGuestMessages +
     input.informationalHeartbeats
+  );
+}
+
+/** Usage level of one LINE account: "unknown" when the plan is unlimited or the quota is unreadable. */
+export type LineQuotaLevel = "ok" | "warn" | "critical" | "unknown";
+
+export const LINE_QUOTA_WARN_RATIO = 0.8;
+export const LINE_QUOTA_CRITICAL_RATIO = 0.95;
+
+export function assessLineQuota(
+  snapshot: Pick<LineQuotaSnapshot, "used" | "limit" | "limitType">
+): { level: LineQuotaLevel; percentUsed: number | null } {
+  if (snapshot.limitType === "none" || snapshot.used == null || !snapshot.limit) {
+    return { level: "unknown", percentUsed: null };
+  }
+  const ratio = snapshot.used / snapshot.limit;
+  const percentUsed = Math.round(ratio * 1000) / 10;
+  if (ratio >= LINE_QUOTA_CRITICAL_RATIO) return { level: "critical", percentUsed };
+  if (ratio >= LINE_QUOTA_WARN_RATIO) return { level: "warn", percentUsed };
+  return { level: "ok", percentUsed };
+}
+
+export type CustomerLineQuotaAudit = {
+  /** Safe display label; never the token. */
+  label: string;
+  kind: "default" | "branch";
+  branchId: string | null;
+  audit: LineQuotaAudit;
+  level: LineQuotaLevel;
+  percentUsed: number | null;
+};
+
+/**
+ * Read-only quota of the customer-facing official accounts: the default one
+ * (LINE_CUSTOMER_ACCESS_TOKEN) plus each per-branch bot (LINE_BRANCH_CUSTOMER_BOTS).
+ * Each account has its own quota, so each is queried separately; accounts sharing a
+ * token are queried once. Tokens are never returned.
+ */
+export async function fetchCustomerLineQuotaAudits(
+  env: NodeJS.ProcessEnv = process.env,
+  now = new Date()
+): Promise<CustomerLineQuotaAudit[]> {
+  const accounts: { label: string; kind: "default" | "branch"; branchId: string | null; token: string | undefined }[] = [
+    { label: "customer-default", kind: "default", branchId: null, token: env.LINE_CUSTOMER_ACCESS_TOKEN },
+    ...parseBranchCustomerBots(env.LINE_BRANCH_CUSTOMER_BOTS).map((bot) => ({
+      label: bot.name,
+      kind: "branch" as const,
+      branchId: bot.branchId,
+      token: bot.token,
+    })),
+  ];
+  const cache = new Map<string, Promise<LineQuotaAudit>>();
+  return Promise.all(
+    accounts.map(async ({ token, ...account }) => {
+      // Never call fetchLineQuotaAudit(undefined): its default would query the staff bot.
+      let pending = token ? cache.get(token) : undefined;
+      if (!pending) {
+        pending = token
+          ? fetchLineQuotaAudit(token, now)
+          : Promise.resolve(unavailableQuotaAudit(`${account.label} customer token not configured`, now));
+        if (token) cache.set(token, pending);
+      }
+      const audit = await pending;
+      return { ...account, audit, ...assessLineQuota(audit.snapshot) };
+    })
   );
 }
