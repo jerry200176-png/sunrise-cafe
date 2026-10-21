@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { fetchLineQuotaAudit } from "@/lib/line-usage";
+import { fetchCustomerLineQuotaAudits, fetchLineQuotaAudit } from "@/lib/line-usage";
 import { observeLineProviderRejection } from "@/lib/line-provider-observability";
 
 function supabaseAdmin() {
@@ -105,6 +105,21 @@ export async function GET(request: NextRequest) {
     };
   }
 
+  // Customer official accounts (default + per-branch) have their own monthly quota.
+  const customerBotUsage = (await fetchCustomerLineQuotaAudits()).map((a) => ({
+    label: a.label,
+    kind: a.kind,
+    branchId: a.branchId,
+    status: a.audit.status,
+    level: a.level,
+    percentUsed: a.percentUsed,
+    monthUsed: a.audit.snapshot.used,
+    monthLimit: a.audit.snapshot.limit,
+    planType: a.audit.snapshot.limitType,
+    todayPush: a.audit.snapshot.dailyPush,
+    fetchedAt: a.audit.fetchedAt,
+  }));
+
   if (allowSend && groupToken && groupId) {
     const res = await fetch("https://api.line.me/v2/bot/message/push", {
       method: "POST",
@@ -146,6 +161,7 @@ export async function GET(request: NextRequest) {
     },
     lineTest,
     groupBotInfo,
+    customerBotUsage,
     groupTest,
   });
 }
