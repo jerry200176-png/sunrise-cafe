@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { assertPlanSqlGate } from "./lib/sql-additive-lint.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const PLAN_PATH = resolve(ROOT, "scripts/production-migration-plan.json");
@@ -87,6 +88,15 @@ function executeRunner(runner) {
 async function main() {
   const phase = process.argv[2];
   const plan = JSON.parse(readFileSync(PLAN_PATH, "utf8"));
+  // Refuse to run any runner whose SQL is not marked (and, if additive, proven) additive-only.
+  assertPlanSqlGate(plan, (file) => readFileSync(resolve(ROOT, "supabase", file), "utf8"), phase);
+  if (phase === "--check") {
+    // CI mode: validate the whole plan and the SQL gate for both phases, execute nothing.
+    validateMigrationPlan(plan);
+    assertPlanSqlGate(plan, (file) => readFileSync(resolve(ROOT, "supabase", file), "utf8"));
+    console.log(JSON.stringify({ status: "plan_gate_ok", entries: plan.entries.length }));
+    return;
+  }
   const result = await executePhase(plan, phase);
   console.log(JSON.stringify({ ...result, status: result.runners.length ? "complete" : "no_op" }));
 }

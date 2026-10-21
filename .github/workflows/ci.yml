@@ -51,6 +51,24 @@ jobs:
       - name: Verify production workflow contract
         run: npm run verify:production-workflow
 
+      # Additive-only SQL gate (RULEBOOK F1, docs/MIGRATIONS.md). Plan check runs
+      # always; the diff lint runs on PRs and reads the label live so a re-run
+      # after the Founder adds `founder-approved-sql` sees it.
+      - name: Production migration plan gate
+        run: node scripts/run-production-migration-phase.mjs --check
+
+      - name: Additive-only SQL gate (PR diff)
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels" --jq '.[].name' | grep -qx 'founder-approved-sql'; then
+            export FOUNDER_APPROVED_SQL=true
+          fi
+          node scripts/check-additive-sql.mjs --base "origin/${{ github.base_ref }}"
+
       # Advisory only — high-noise transitive advisories must not be a merge gate until fail-closed baseline exists.
       - name: npm audit (high+) [advisory]
         run: npm audit --audit-level=high

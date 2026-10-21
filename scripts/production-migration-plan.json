@@ -3,33 +3,33 @@
   "entries": [
     { "version": "20260710-reservations-no-overlap", "file": "migration-reservations-no-overlap.sql", "execution": "manual_sql_editor" },
     { "version": "20260710-phase7-rbac", "file": "migration-phase7-rbac.sql", "execution": "manual_sql_editor" },
-    { "version": "20260713-ops-events", "file": "migration-ops-events.sql", "runner": "scripts/apply-migration-ops-events.mjs", "phase": "postdeploy" },
+    { "version": "20260713-ops-events", "file": "migration-ops-events.sql", "runner": "scripts/apply-migration-ops-events.mjs", "phase": "postdeploy", "sql_class": "additive" },
     { "version": "20260715-rls-catalog-read-only", "file": "migration-rls-catalog-read-only.sql", "execution": "manual_sql_editor" },
-    { "file": "migration-reservations-payment-request-sent.sql", "runner": "scripts/apply-migration-payment-request-sent.mjs", "execution": "workflow_untracked_contract", "phase": "postdeploy" },
-    { "version": "20260813-line-pay-payments", "file": "migration-line-pay-payments.sql", "runner": "scripts/apply-migration-line-pay-safety.mjs", "phase": "postdeploy" },
-    { "version": "20260813-line-pay-safety", "file": "migration-line-pay-safety.sql", "runner": "scripts/apply-migration-line-pay-safety.mjs", "phase": "postdeploy" },
-    { "version": "20260813-reservation-message-actions", "file": "migration-reservation-message-actions.sql", "runner": "scripts/apply-migration-reservation-message-actions.mjs", "phase": "postdeploy" },
-    { "version": "20260813-reservation-message-batch-id", "file": "migration-reservation-message-batch-id.sql", "runner": "scripts/apply-migration-reservation-message-batch.mjs", "phase": "postdeploy" },
-    { "version": "20260902-line-reminder-deliveries", "file": "migration-line-reminder-deliveries.sql", "runner": "scripts/apply-migration-line-reminder-deliveries.mjs", "phase": "postdeploy" },
-    { "version": "20260903-line-guest-notification-deliveries", "file": "migration-line-guest-notification-deliveries.sql", "runner": "scripts/apply-migration-line-guest-notification-deliveries.mjs", "phase": "postdeploy" },
-    { "version": "20260903-line-guest-notification-lifecycle", "file": "migration-line-guest-notification-lifecycle.sql", "runner": "scripts/apply-migration-line-guest-notification-deliveries.mjs", "phase": "postdeploy" },
-    { "version": "20260911-line-guest-deposit-request-unpaid-guard", "file": "migration-line-guest-notification-deposit-request-guard.sql", "runner": "scripts/apply-migration-line-guest-notification-deliveries.mjs", "phase": "postdeploy" },
-    { "version": "20260911-line-guest-deposit-request-retry-key", "file": "migration-line-guest-notification-deposit-request-retry-key.sql", "runner": "scripts/apply-migration-line-guest-notification-deliveries.mjs", "phase": "postdeploy" },
-    { "version": "20260908-deposit-approved-notified", "file": "migration-deposit-approved-notified.sql", "runner": "scripts/apply-migration-deposit-approved-notified.mjs", "phase": "postdeploy" },
-    { "version": "20260908-deposit-approved-claim", "file": "migration-deposit-approved-claim.sql", "runner": "scripts/apply-migration-deposit-approved-claim.mjs", "phase": "postdeploy" },
-    { "version": "20260908-deposit-approved-retry-key", "file": "migration-deposit-approved-retry-key.sql", "runner": "scripts/apply-migration-deposit-approved-retry-key.mjs", "phase": "postdeploy" },
-    { "version": "20260914-bank-transfer-reports", "file": "migration-bank-transfer-reports.sql", "runner": "scripts/apply-migration-bank-transfer-reports.mjs", "phase": "predeploy" },
-    { "file": "migration-market-parity-rounds-3-7.sql", "runner": "scripts/apply-migration-market-parity.mjs", "execution": "workflow_untracked_contract", "phase": "postdeploy" }
-    ,{ "version": "20260921-reservation-preorder", "file": "migration-reservation-preorder.sql", "runner": "scripts/apply-migration-reservation-preorder.mjs", "phase": "predeploy", "runtime_flag": "RESERVATION_PREORDER_ENABLED" }
-    ,{ "version": "20260924-booking-meals", "file": "migration-booking-meals.sql", "runner": "scripts/apply-migration-booking-meals.mjs", "phase": "predeploy", "runtime_flag": "RESERVATION_PREORDER_ENABLED" }
-    ,{ "version": "20260924-preorder-menu-seed", "file": "migration-preorder-menu-seed.sql", "runner": "scripts/apply-migration-preorder-menu-seed.mjs", "phase": "predeploy", "runtime_flag": "RESERVATION_PREORDER_ENABLED" }
-    ,{ "version": "20260928-branch-guest-settings", "file": "migration-branch-guest-settings.sql", "runner": "scripts/apply-migration-branch-guest-settings.mjs", "phase": "predeploy" }
-    ,{ "version": "20260928-branch-weekly-hours", "file": "migration-branch-weekly-hours.sql", "runner": "scripts/apply-migration-branch-weekly-hours.mjs", "phase": "predeploy" }
-    ,{ "version": "20260929-reservations-deposit-transfer-info", "file": "migration-reservations-deposit-transfer-info.sql", "runner": "scripts/apply-migration-reservations-deposit-transfer-info.mjs", "phase": "predeploy" }
-    ,{ "version": "20261008-branches-archive", "file": "migration-branches-archive.sql", "runner": "scripts/apply-migration-branches-archive.mjs", "phase": "predeploy" }
-    ,{ "version": "20261008-line-deliveries", "file": "migration-line-deliveries.sql", "runner": "scripts/apply-migration-line-deliveries.mjs", "phase": "predeploy" }
-    ,{ "version": "20261009-menu-option-sets", "file": "migration-menu-option-sets.sql", "runner": "scripts/apply-migration-menu-option-sets.mjs", "phase": "predeploy" }
-    ,{ "version": "20261011-no-show-advice", "file": "migration-no-show-advice.sql", "runner": "scripts/apply-migration-no-show-advice.mjs", "phase": "predeploy" },
+    { "file": "migration-reservations-payment-request-sent.sql", "runner": "scripts/apply-migration-payment-request-sent.mjs", "execution": "workflow_untracked_contract", "phase": "postdeploy", "sql_class": "additive" },
+    { "version": "20260813-line-pay-payments", "file": "migration-line-pay-payments.sql", "runner": "scripts/apply-migration-line-pay-safety.mjs", "phase": "postdeploy", "sql_class": "grandfathered" },
+    { "version": "20260813-line-pay-safety", "file": "migration-line-pay-safety.sql", "runner": "scripts/apply-migration-line-pay-safety.mjs", "phase": "postdeploy", "sql_class": "grandfathered" },
+    { "version": "20260813-reservation-message-actions", "file": "migration-reservation-message-actions.sql", "runner": "scripts/apply-migration-reservation-message-actions.mjs", "phase": "postdeploy", "sql_class": "grandfathered" },
+    { "version": "20260813-reservation-message-batch-id", "file": "migration-reservation-message-batch-id.sql", "runner": "scripts/apply-migration-reservation-message-batch.mjs", "phase": "postdeploy", "sql_class": "additive" },
+    { "version": "20260902-line-reminder-deliveries", "file": "migration-line-reminder-deliveries.sql", "runner": "scripts/apply-migration-line-reminder-deliveries.mjs", "phase": "postdeploy", "sql_class": "grandfathered" },
+    { "version": "20260903-line-guest-notification-deliveries", "file": "migration-line-guest-notification-deliveries.sql", "runner": "scripts/apply-migration-line-guest-notification-deliveries.mjs", "phase": "postdeploy", "sql_class": "grandfathered" },
+    { "version": "20260903-line-guest-notification-lifecycle", "file": "migration-line-guest-notification-lifecycle.sql", "runner": "scripts/apply-migration-line-guest-notification-deliveries.mjs", "phase": "postdeploy", "sql_class": "grandfathered" },
+    { "version": "20260911-line-guest-deposit-request-unpaid-guard", "file": "migration-line-guest-notification-deposit-request-guard.sql", "runner": "scripts/apply-migration-line-guest-notification-deliveries.mjs", "phase": "postdeploy", "sql_class": "grandfathered" },
+    { "version": "20260911-line-guest-deposit-request-retry-key", "file": "migration-line-guest-notification-deposit-request-retry-key.sql", "runner": "scripts/apply-migration-line-guest-notification-deliveries.mjs", "phase": "postdeploy", "sql_class": "grandfathered" },
+    { "version": "20260908-deposit-approved-notified", "file": "migration-deposit-approved-notified.sql", "runner": "scripts/apply-migration-deposit-approved-notified.mjs", "phase": "postdeploy", "sql_class": "additive" },
+    { "version": "20260908-deposit-approved-claim", "file": "migration-deposit-approved-claim.sql", "runner": "scripts/apply-migration-deposit-approved-claim.mjs", "phase": "postdeploy", "sql_class": "additive" },
+    { "version": "20260908-deposit-approved-retry-key", "file": "migration-deposit-approved-retry-key.sql", "runner": "scripts/apply-migration-deposit-approved-retry-key.mjs", "phase": "postdeploy", "sql_class": "additive" },
+    { "version": "20260914-bank-transfer-reports", "file": "migration-bank-transfer-reports.sql", "runner": "scripts/apply-migration-bank-transfer-reports.mjs", "phase": "predeploy", "sql_class": "grandfathered" },
+    { "file": "migration-market-parity-rounds-3-7.sql", "runner": "scripts/apply-migration-market-parity.mjs", "execution": "workflow_untracked_contract", "phase": "postdeploy", "sql_class": "additive" }
+    ,{ "version": "20260921-reservation-preorder", "file": "migration-reservation-preorder.sql", "runner": "scripts/apply-migration-reservation-preorder.mjs", "phase": "predeploy", "runtime_flag": "RESERVATION_PREORDER_ENABLED", "sql_class": "grandfathered" }
+    ,{ "version": "20260924-booking-meals", "file": "migration-booking-meals.sql", "runner": "scripts/apply-migration-booking-meals.mjs", "phase": "predeploy", "runtime_flag": "RESERVATION_PREORDER_ENABLED", "sql_class": "grandfathered" }
+    ,{ "version": "20260924-preorder-menu-seed", "file": "migration-preorder-menu-seed.sql", "runner": "scripts/apply-migration-preorder-menu-seed.mjs", "phase": "predeploy", "runtime_flag": "RESERVATION_PREORDER_ENABLED", "sql_class": "grandfathered" }
+    ,{ "version": "20260928-branch-guest-settings", "file": "migration-branch-guest-settings.sql", "runner": "scripts/apply-migration-branch-guest-settings.mjs", "phase": "predeploy", "sql_class": "additive" }
+    ,{ "version": "20260928-branch-weekly-hours", "file": "migration-branch-weekly-hours.sql", "runner": "scripts/apply-migration-branch-weekly-hours.mjs", "phase": "predeploy", "sql_class": "additive" }
+    ,{ "version": "20260929-reservations-deposit-transfer-info", "file": "migration-reservations-deposit-transfer-info.sql", "runner": "scripts/apply-migration-reservations-deposit-transfer-info.mjs", "phase": "predeploy", "sql_class": "grandfathered" }
+    ,{ "version": "20261008-branches-archive", "file": "migration-branches-archive.sql", "runner": "scripts/apply-migration-branches-archive.mjs", "phase": "predeploy", "sql_class": "grandfathered" }
+    ,{ "version": "20261008-line-deliveries", "file": "migration-line-deliveries.sql", "runner": "scripts/apply-migration-line-deliveries.mjs", "phase": "predeploy", "sql_class": "grandfathered" }
+    ,{ "version": "20261009-menu-option-sets", "file": "migration-menu-option-sets.sql", "runner": "scripts/apply-migration-menu-option-sets.mjs", "phase": "predeploy", "sql_class": "grandfathered" }
+    ,{ "version": "20261011-no-show-advice", "file": "migration-no-show-advice.sql", "runner": "scripts/apply-migration-no-show-advice.mjs", "phase": "predeploy", "sql_class": "grandfathered" },
     { "version": "20261014-reservation-settlements", "file": "migration-reservation-settlements.sql", "execution": "manual_sql_editor" }
   ]
 }
