@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  assessLineQuota,
   decideLineUsage,
+  fetchCustomerLineQuotaAudits,
   estimateMonthlyMessageConsumption,
   fetchLineQuotaAudit,
   fetchLineQuotaSnapshot,
@@ -116,5 +118,91 @@ describe("LINE usage budget", () => {
         LINE_USAGE_SURGE_MULTIPLIER: "2",
       } as unknown as NodeJS.ProcessEnv)
     ).toEqual({ enabled: true, monthlyBudget: 900, expectedDaily: 30, surgeMultiplier: 2 });
+  });
+});
+
+describe("customer LINE account quota", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const BRANCH = "11111111-1111-4111-8111-111111111111";
+
+  function stubQuotaByToken(byToken: Record<string, { used: number; limit: number | null }>) {
+    const calls: { url: string; token: string }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: { headers: { Authorization: string } }) => {
+        const token = init.headers.Authorization.replace("Bearer ", "");
+        calls.push({ url, token });
+        const q = byToken[token];
+        if (!q) return { ok: false, status: 401, json: async () => ({}) };
+        if (url.endsWith("/quota/consumption")) return { ok: true, json: async () => ({ totalUsage: q.used }) };
+        if (url.endsWith("/quota"))
+          return { ok: true, json: async () => (q.limit == null ? { type: "none" } : { type: "limited", value: q.limit }) };
+        return { ok: true, json: async () => ({ status: "ready", success: 2 }) };
+      })
+    );
+    return calls;
+  }
+
+  it("assesses warn and critical thresholds and ignores unlimited plans", () => {
+    expect(assessLineQuota({ used: 100, limit: 200, limitType: "limited" })).toEqual({ level: "ok", percentUsed: 50 });
+    expect(assessLineQuota({ used: 160, limit: 200, limitType: "limited" }).level).toBe("warn");
+    expect(assessLineQuota({ used: 191, limit: 200, limitType: "limited" }).level).toBe("critical");
+    expect(assessLineQuota({ used: 999, limit: null, limitType: "none" }).level).toBe("unknown");
+    expect(assessLineQuota({ used: null, limit: 200, limitType: "limited" }).level).toBe("unknown");
+  });
+
+  it("queries the default customer account and each branch bot with its own token", async () => {
+    const calls = stubQuotaByToken({
+      "cust-token": { used: 190, limit: 200 },
+      "branch-token": { used: 10, limit: 200 },
+    });
+    const audits = await fetchCustomerLineQuotaAudits({
+      LINE_CUSTOMER_ACCESS_TOKEN: "cust-token",
+      LINE_CHANNEL_ACCESS_TOKEN: "staff-token",
+      LINE_BRANCH_CUSTOMER_BOTS: JSON.stringify([
+        { branch_id: BRANCH, name: "同德店", secret: "s", token: "branch-token" },
+      ]),
+    } as unknown as NodeJS.ProcessEnv);
+
+    expect(audits.map((a) => [a.label, a.kind, a.level])).toEqual([
+      ["customer-default", "default", "critical"],
+      ["同德店", "branch", "ok"],
+    ]);
+    expect(audits[1].branchId).toBe(BRANCH);
+    expect(calls.some((c) => c.url.endsWith("/v2/bot/message/quota/consumption") && c.token === "cust-token")).toBe(true);
+    expect(calls.some((c) => c.url.endsWith("/v2/bot/message/quota") && c.token === "branch-token")).toBe(true);
+    // The staff bot is not this function's concern, and no token leaks into the result.
+    expect(calls.some((c) => c.token === "staff-token")).toBe(false);
+    expect(JSON.stringify(audits)).not.toMatch(/cust-token|branch-token|staff-token/);
+  });
+
+  it("does not fall back to the staff token when the customer token is missing", async () => {
+    const original = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    process.env.LINE_CHANNEL_ACCESS_TOKEN = "staff-token";
+    const calls = stubQuotaByToken({ "staff-token": { used: 1, limit: 200 } });
+    try {
+      const audits = await fetchCustomerLineQuotaAudits({} as NodeJS.ProcessEnv);
+      expect(audits).toHaveLength(1);
+      expect(audits[0].audit.status).toBe("unavailable");
+      expect(audits[0].audit.endpoints.quota.error).toMatch(/customer token not configured/);
+      expect(calls).toHaveLength(0);
+    } finally {
+      if (original === undefined) delete process.env.LINE_CHANNEL_ACCESS_TOKEN;
+      else process.env.LINE_CHANNEL_ACCESS_TOKEN = original;
+    }
+  });
+
+  it("queries accounts sharing a token once and reports unreadable quota as unavailable", async () => {
+    const calls = stubQuotaByToken({});
+    const audits = await fetchCustomerLineQuotaAudits({
+      LINE_CUSTOMER_ACCESS_TOKEN: "same",
+      LINE_BRANCH_CUSTOMER_BOTS: JSON.stringify([{ branch_id: BRANCH, name: "B", secret: "s", token: "same" }]),
+    } as unknown as NodeJS.ProcessEnv);
+    expect(calls).toHaveLength(3);
+    expect(audits.every((a) => a.audit.status === "unavailable" && a.level === "unknown")).toBe(true);
   });
 });
