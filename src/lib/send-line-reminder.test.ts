@@ -60,8 +60,12 @@ import {
   sendLineMessage,
   sendLineMessageToGroup,
   sendLineFlexToGroup,
+  isLineConfigured,
+  buildReminderDigestFlexChunks,
 } from "@/lib/line-notify";
 import { sendLineFlexMessage } from "@/lib/line";
+import { REMINDER_DIGEST_CAROUSEL_MAX } from "@/lib/line-cards";
+import { claimLineReminderDelivery, markLineReminderDelivery } from "@/lib/line-delivery";
 import { findRecentSendLineHeartbeat, findSuccessfulSendLineRunToday } from "@/lib/job-runs";
 
 describe("alreadyNotifiedCronMessage / emptyCatMessage", () => {
@@ -400,5 +404,89 @@ describe("runSendLineReminder — retry regression", () => {
     expect(json.guest_sent_count).toBe(0);
     expect(sendLineFlexToGroup).toHaveBeenCalledTimes(1);
     expect(updateReservationAdmin).toHaveBeenCalledWith("unpaid-1", { is_notified: true });
+  });
+});
+
+
+describe("independent staff and customer reminder delivery", () => {
+  const row = {
+    id: "r-isolation", booking_code: "TEST", start_time: "2026-10-22T10:00:00+08:00",
+    end_time: "2026-10-22T12:00:00+08:00", customer_name: "Test", phone: "test",
+    line_user_id: "U-test", room: { name: "Room", branch_id: "b1" },
+  };
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(isLineConfigured).mockReturnValue(true);
+    vi.mocked(buildReminderDigestFlexChunks).mockReturnValue([{ type: "bubble" }] as never);
+    vi.mocked(fetchBranches).mockResolvedValue([{ id: "b1", name: "Test", line_group_id: "G-test" }] as never);
+    vi.mocked(fetchReservationsForReminder).mockResolvedValue([row] as never);
+    vi.mocked(claimLineReminderDelivery).mockImplementation(async ({ reminderType }) => ({ available: true, id: reminderType }));
+  });
+
+  it.each(["quota", "configuration", "routing", "claim", "settlement"])("still sends to the customer after staff %s failure", async (failure) => {
+    if (failure === "quota") vi.mocked(sendLineFlexToGroup).mockRejectedValue(new Error("429 monthly limit"));
+    if (failure === "configuration") {
+      vi.mocked(fetchBranches).mockResolvedValue([]);
+      vi.mocked(isLineConfigured).mockReturnValue(false);
+    }
+    if (failure === "routing") vi.mocked(fetchBranches).mockRejectedValue(new Error("staff branch routing unavailable"));
+    if (failure === "claim") vi.mocked(claimLineReminderDelivery).mockRejectedValueOnce(new Error("group claim unavailable"));
+    if (failure === "settlement") vi.mocked(markLineReminderDelivery).mockImplementation(async (id) => {
+      if (id === "d1_group") throw new Error("group settlement unavailable");
+    });
+    const result = await (await runSendLineReminder()).json();
+    expect(sendLineFlexMessage).toHaveBeenCalledTimes(1);
+    expect(result.guest_sent_count).toBe(1);
+    expect(result.ok).toBe(false);
+    expect(result.result).toBe("partial");
+    if (failure === "settlement") {
+      expect(result.accepted_count).toBe(2);
+      expect(result.rejected_count).toBe(0);
+      expect(result.error).toContain("group settlement unavailable");
+    }
+    expect(updateReservationAdmin).toHaveBeenCalledWith(row.id, expect.objectContaining({ d1_guest_reminder_sent_at: expect.any(String) }));
+  });
+
+  it("does not invent a provider rejection or attempt for missing staff configuration", async () => {
+    vi.mocked(fetchBranches).mockResolvedValue([]);
+    vi.mocked(isLineConfigured).mockReturnValue(false);
+    vi.mocked(fetchReservationsForReminder).mockResolvedValue([{ ...row, line_user_id: null }] as never);
+    const result = await (await runSendLineReminder()).json();
+    expect(result.result).toBe("error");
+    expect(result.error).toContain("LINE_CHANNEL_ACCESS_TOKEN");
+    expect(result.accepted_count).toBe(0);
+    expect(result.rejected_count).toBe(0);
+    expect(result.delivery_certainty).toBe("not_attempted");
+    expect(result.reminder_evidence.message_attempt_count).toBe(0);
+  });
+
+  it("retains earlier group acceptance when a later chunk claim fails", async () => {
+    const rows = Array.from({ length: REMINDER_DIGEST_CAROUSEL_MAX + 1 }, (_, i) => ({ ...row, id: `chunk-${i}`, line_user_id: null }));
+    vi.mocked(fetchReservationsForReminder).mockResolvedValue(rows as never);
+    vi.mocked(claimLineReminderDelivery).mockImplementation(async ({ reservationId }) => {
+      if (reservationId === `chunk-${REMINDER_DIGEST_CAROUSEL_MAX}`) throw new Error("later chunk claim unavailable");
+      return { available: true, id: reservationId };
+    });
+    const result = await (await runSendLineReminder()).json();
+    expect(sendLineFlexToGroup).toHaveBeenCalledTimes(1);
+    expect(result.accepted_count).toBe(1);
+    expect(result.rejected_count).toBe(0);
+    expect(result.result).toBe("partial");
+    expect(result.error).toContain("later chunk claim unavailable");
+  });
+
+  it("records customer rejection as failed and preserves its retry eligibility", async () => {
+    vi.mocked(sendLineFlexMessage).mockRejectedValue(new Error("429 customer monthly limit"));
+    const result = await (await runSendLineReminder()).json();
+    expect(result.guest_sent_count).toBe(0);
+    expect(result.ok).toBe(false);
+    expect(markLineReminderDelivery).toHaveBeenCalledWith("d1_guest", expect.objectContaining({ status: "failed" }));
+    expect(updateReservationAdmin).not.toHaveBeenCalledWith(row.id, expect.objectContaining({ d1_guest_reminder_sent_at: expect.anything() }));
+  });
+
+  it("does not resend a customer delivery whose durable claim is already handled", async () => {
+    vi.mocked(claimLineReminderDelivery).mockImplementation(async ({ reminderType }) => ({ available: true, id: reminderType === "d1_guest" ? null : reminderType }));
+    await runSendLineReminder();
+    expect(sendLineFlexMessage).not.toHaveBeenCalled();
   });
 });

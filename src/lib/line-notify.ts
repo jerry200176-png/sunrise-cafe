@@ -111,7 +111,7 @@ async function sendGroupPayload(
     headers: lineHeaders(token, options),
     body: JSON.stringify({ to: groupId, messages }),
   });
-  if (res.status === 409 && options?.retryKey) {
+  if (res.status === 409 && options?.retryKey && res.headers.get("x-line-accepted-request-id")) {
     const acceptedReqId = res.headers.get("x-line-accepted-request-id");
     console.info(
       `[line-notify] 409 Conflict: retryKey ${options.retryKey} already accepted by LINE Platform (acceptedReqId: ${acceptedReqId})`

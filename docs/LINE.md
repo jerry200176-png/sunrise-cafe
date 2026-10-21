@@ -164,3 +164,24 @@ GET /api/admin/test-line-group
 
 相關 env：`LINE_LOGIN_CHANNEL_ID`、`LINE_LOGIN_CHANNEL_SECRET`
 Callback URL：`https://sunrise-cafe-six.vercel.app/api/auth/line/callback`
+
+
+### Read-only channel identity and quota audit
+
+Run `npx tsx scripts/line-account-audit.ts` inside an authorized runtime with its
+existing LINE credentials. This uses provider GETs only, does not load env files,
+and never sends customer or staff messages. It reports the actual account name,
+basic ID, identity HTTP status and quota snapshot separately for the default staff
+account, default customer account, extra staff bots and branch customer accounts.
+A missing credential or unavailable provider result is unknown, not evidence of an
+incorrect account. Compare the returned identities with the intended Official Accounts;
+configuration variable names alone do not prove identity. Keep runtime audit output private.
+
+D-1 staff configuration, claim, quota and settlement failures are isolated from
+customer reminder claims. Customer rejection leaves the guest success marker unset;
+existing durable claims still prevent blind retries of uncertain sends. Payment approval
+uses stable per-recipient retry keys within LINE's 24-hour window and retains the
+existing shared reconciliation safeguard after expiration. Do not automatically
+backfill historical notifications or reset ambiguous claims: inspect private delivery
+records and obtain a separate recovery decision first. LINE acceptance is not proof
+of delivery to the customer's device.
