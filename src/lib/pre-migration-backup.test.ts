@@ -40,7 +40,7 @@ function run(mode: string, extra: Record<string, string> = {}) {
   const out = join(dir, "out");
   const summary = join(dir, "summary.md");
   const res = spawnSync("bash", [script, "predeploy"], {
-    env: { PATH: process.env.PATH ?? "", SUPABASE_DB_URL: SECRET_URL, PG_RUNNER: runner, FAKE_MODE: mode, BACKUP_OUT_DIR: out, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: join(dir, "gh-output"), ...extra } as NodeJS.ProcessEnv,
+    env: { PATH: process.env.PATH ?? "", SUPABASE_DB_URL: SECRET_URL, PG_RUNNER: runner, FAKE_MODE: mode, BACKUP_OUT_DIR: out, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: join(dir, "gh-output"), ...extra } as unknown as NodeJS.ProcessEnv,
     encoding: "utf8",
   });
   return { res, out, dir, summary, all: res.stdout + res.stderr };
