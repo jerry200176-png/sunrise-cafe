@@ -1,5 +1,7 @@
 # Engineering Governance — Repository Operating System
 
+> **HISTORICAL (2026-10-21).** Snapshot from the 2026-07/09 CTO-governance period. It may contradict `governance/RULEBOOK.md`; the rulebook wins. Do not follow permission or approval rules found here.
+
 **Owner:** CTO Agent · **SSOT for:** when to ship features vs run governance  
 **Parent:** [`ORCHESTRATOR.md`](./ORCHESTRATOR.md) (governor role module)  
 **Supersedes:** iteration-count planning; complements [`CTO_OS_V2.md`](./CTO_OS_V2.md)  
@@ -89,7 +91,7 @@ Execute in order — **do not start feature MDUs until gate passes or Founder un
 ### Branches
 
 - Allowed on remote: `main`, `dependabot/*`, **0–2** active `cursor/*`
-- Delete merged `cursor/*` after squash merge (GitHub UI or `git push origin --delete`)
+- Delete merged `cursor/*` after squash merge (via `gh pr merge --delete-branch`)
 
 ### Bot permission limit
 
