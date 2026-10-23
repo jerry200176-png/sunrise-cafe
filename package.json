@@ -74,9 +74,9 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
-    "@playwright/test": "^1.64.0",
+    "@playwright/test": "^1.64.1",
     "@testing-library/react": "^16.3.3",
-    "@testing-library/user-event": "^14.6.7",
+    "@testing-library/user-event": "^14.6.8",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -84,14 +84,14 @@
     "cross-env": "^7.0.3",
     "dotenv": "^16.4.5",
     "eslint": "^9",
-    "eslint-config-next": "15.5.27",
+    "eslint-config-next": "15.5.28",
     "imapflow": "^1.7.8",
     "jsdom": "^29.1.1",
     "postcss": "^8.5.28",
     "postgres": "^3.4.9",
     "tailwindcss": "^3.4.1",
     "typescript": "^5",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.5"
   },
   "overrides": {
     "esbuild": "^0.28.1",
