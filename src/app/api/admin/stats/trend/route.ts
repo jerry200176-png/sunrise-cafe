@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildDashboardTrend, type DashboardReservation } from "@/lib/admin-dashboard-data";
-import { fetchReservationsAdmin, isAdminConfigured } from "@/lib/supabase-admin";
+import {
+  buildDashboardTrend,
+  dashboardWindows,
+  isDashboardDate,
+  type DashboardReservation,
+} from "@/lib/admin-dashboard-data";
+import { fetchReservationsOverlapping } from "@/lib/reservation-list-query";
+import { isAdminConfigured } from "@/lib/supabase-admin";
 import { requirePermission } from "@/lib/admin-api-auth";
 import { taipeiDateString } from "@/lib/datetime";
 
@@ -24,8 +30,12 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  if (!isDashboardDate(endDate)) {
+    return NextResponse.json({ error: "日期格式不正確（YYYY-MM-DD）" }, { status: 400 });
+  }
+
   try {
-    const reservations = await fetchReservationsAdmin(branchId);
+    const reservations = await fetchReservationsOverlapping(branchId, dashboardWindows("trend", endDate));
     const list = (Array.isArray(reservations) ? reservations : []) as DashboardReservation[];
 
     return NextResponse.json(buildDashboardTrend(endDate, list));

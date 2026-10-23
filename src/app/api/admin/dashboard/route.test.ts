@@ -10,7 +10,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/admin-api-auth", () => ({
   requirePermission: mocks.requirePermission,
 }));
-vi.mock("@/lib/admin-dashboard-data", () => ({
+vi.mock("@/lib/admin-dashboard-data", async (importOriginal) => ({
+  isDashboardDate: (await importOriginal<typeof import("@/lib/admin-dashboard-data")>()).isDashboardDate,
   fetchDashboardBundle: mocks.fetchDashboardBundle,
 }));
 vi.mock("@/lib/supabase-admin", () => ({
@@ -51,5 +52,11 @@ describe("GET /api/admin/dashboard", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.fetchDashboardBundle).toHaveBeenCalledWith("b1", "2026-09-02");
+  });
+
+  it("rejects a malformed date with 400 before querying", async () => {
+    const response = await GET(request("http://localhost/api/admin/dashboard?branchId=b1&date=2026-9-2"));
+    expect(response.status).toBe(400);
+    expect(mocks.fetchDashboardBundle).not.toHaveBeenCalled();
   });
 });
