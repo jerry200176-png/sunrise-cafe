@@ -30,6 +30,6 @@
     ,{ "version": "20261008-line-deliveries", "file": "migration-line-deliveries.sql", "runner": "scripts/apply-migration-line-deliveries.mjs", "phase": "predeploy", "sql_class": "grandfathered" }
     ,{ "version": "20261009-menu-option-sets", "file": "migration-menu-option-sets.sql", "runner": "scripts/apply-migration-menu-option-sets.mjs", "phase": "predeploy", "sql_class": "grandfathered" }
     ,{ "version": "20261011-no-show-advice", "file": "migration-no-show-advice.sql", "runner": "scripts/apply-migration-no-show-advice.mjs", "phase": "predeploy", "sql_class": "grandfathered" },
-    { "version": "20261014-reservation-settlements", "file": "migration-reservation-settlements.sql", "execution": "manual_sql_editor" }
+    { "version": "20261014-reservation-settlements", "file": "migration-reservation-settlements.sql", "runner": "scripts/apply-migration-reservation-settlements.mjs", "phase": "postdeploy", "sql_class": "founder_approved", "approval": "Founder chat 2026-10-21 「2 同意」 (F1: run after closing, back up first); runner gates: sha256 pin, UTC 15:30-18:30 window, PR #475 encrypted backup in the same job" }
   ]
 }

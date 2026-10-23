@@ -245,6 +245,8 @@ jobs:
 
       - name: Apply canonical postdeploy phase
         env:
+          # Confirmed upload id; founder_approved runners refuse to migrate without it.
+          BACKUP_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
