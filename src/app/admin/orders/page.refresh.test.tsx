@@ -70,4 +70,38 @@ describe("order board refresh scheduling", () => {
     expect(screen.queryByText("舊店第二頁")).toBeNull();
     expect(screen.getByText("新店餐點")).toBeTruthy();
   });
+
+  it.each(["success", "failure"] as const)("keeps acknowledged status while an old scan and a %s follow-up complete", async (outcome) => {
+    const oldPage = deferred<Response>();
+    const followup = deferred<Response>();
+    let gets = 0;
+    const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") return { ok: true, status: 200 } as Response;
+      gets++;
+      if (gets === 1) return page([order("a", "需要備餐")], null);
+      if (gets === 2) return page([order("a", "需要備餐")], "old-next");
+      if (gets === 3) return oldPage.promise;
+      if (gets === 4) return followup.promise;
+      throw new Error("unexpected request");
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+    render(<AdminOrdersPage />);
+    await screen.findByRole("button", { name: "開始備餐" });
+    await user.click(screen.getByRole("button", { name: "重新整理" }));
+    await waitFor(() => expect(gets).toBe(3));
+    await user.click(screen.getByRole("button", { name: "開始備餐" }));
+    await screen.findByRole("button", { name: "完成出餐" });
+    act(() => { interval?.(); realtime.callbacks.get("orders-b1")?.(); });
+    await act(async () => { oldPage.resolve(page([], null)); });
+    await waitFor(() => expect(gets).toBe(4));
+    expect(screen.queryByRole("button", { name: "開始備餐" })).toBeNull();
+    expect(screen.getByRole("button", { name: "完成出餐" })).toBeTruthy();
+    const preparing = { ...order("a", "需要備餐"), status: "preparing" };
+    const result = outcome === "success" ? page([preparing], null) : ({ ok: false, status: 503, json: async () => ({ error: "暫時無法刷新" }) } as Response);
+    await act(async () => { followup.resolve(result); });
+    if (outcome === "failure") await screen.findByText(/訂單沒有更新成功/);
+    expect(screen.queryByRole("button", { name: "開始備餐" })).toBeNull();
+    expect(screen.getByRole("button", { name: "完成出餐" })).toBeTruthy();
+  });
 });

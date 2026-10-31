@@ -25,6 +25,7 @@ export default function AdminOrdersPage() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const prevOrderIds = useRef<Set<string>>(new Set());
   const requestSeq = useRef(0);
+  const mutationVersion = useRef(0);
   const currentBranch = useRef("");
   const inFlight = useRef<{ branch: string; queued: boolean } | null>(null);
 
@@ -41,10 +42,15 @@ export default function AdminOrdersPage() {
     const run = { branch: bid, queued: false };
     inFlight.current = run;
     const seq = ++requestSeq.current;
+    const version = mutationVersion.current;
     setLoading(true);
     try {
       const data = await fetchAllAdminOrders(bid, () => seq === requestSeq.current && currentBranch.current === bid, "active");
       if (seq !== requestSeq.current || currentBranch.current !== bid) return;
+      if (version !== mutationVersion.current) {
+        run.queued = true;
+        return;
+      }
       if (!Array.isArray(data)) throw new Error("訂單資料格式不正確，請重試");
       const active = (Array.isArray(data) ? data : []).filter((o: Order) =>
         ACTIVE_STATUSES.includes(o.status)
@@ -111,6 +117,7 @@ export default function AdminOrdersPage() {
   }, [orders, soundOn]);
 
   const updateStatus = async (id: string, status: OrderStatus) => {
+    const bid = currentBranch.current;
     try {
       const res = await fetch(`/api/admin/orders/${id}`, {
         method: "PATCH",
@@ -118,19 +125,23 @@ export default function AdminOrdersPage() {
         body: JSON.stringify({ status }),
       });
       if (!res.ok) {
-        setActionError(`訂單沒有更新：${await responseError(res)}`);
+        const message = await responseError(res);
+        if (currentBranch.current === bid) setActionError(`訂單沒有更新：${message}`);
         return;
       }
     } catch (err) {
-      setActionError(`訂單沒有更新：${thrownMessage(err)}`);
+      if (currentBranch.current === bid) setActionError(`訂單沒有更新：${thrownMessage(err)}`);
       return;
     }
+    if (currentBranch.current !== bid) return;
+    mutationVersion.current++;
     setActionError(null);
     setOrders((prev) =>
       prev.map((o) => (o.id === id ? { ...o, status } : o)).filter((o) =>
         ACTIVE_STATUSES.includes(o.status)
       )
     );
+    void loadOrders(bid);
   };
 
   const pendingOrders = orders.filter((o) => o.status === "pending");
