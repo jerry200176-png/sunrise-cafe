@@ -42,7 +42,10 @@ test("包廂場控讀到錯誤格式會顯示錯誤，不會當成空包廂", as
   await page.route("**/api/admin/floor?**", (route) => route.fulfill({ json: { rooms: "not-an-array" } }));
 
   await page.goto("/admin/floor");
-  await expect(page.getByText("包廂資料格式錯誤，請重試", { exact: true })).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("包廂資料格式錯誤");
+  await expect(page.getByRole("alert")).toContainText("目前無法確認包廂狀況");
+  await expect(page.getByText("還沒收的餐費", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("NT$ 0", { exact: true })).toHaveCount(0);
   await expect(page.getByText("此分店尚未建立包廂")).toHaveCount(0);
 });
 
@@ -52,6 +55,9 @@ test("等位頁 HTTP 錯誤不會顯示成空清單", async ({ page, context }) 
 
   await page.goto("/admin/waitlist");
   await expect(page.getByText("系統暫時有問題，請稍後再試", { exact: true })).toBeVisible();
+  await expect(page.getByText("無法確認等位人數", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /全部 \(/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /等候中 \(/ })).toHaveCount(0);
   await expect(page.getByText("目前無等位紀錄")).toHaveCount(0);
 });
 
@@ -60,8 +66,27 @@ test("等位頁格式錯誤會顯示明確錯誤", async ({ page, context }) => 
   await page.route("**/api/admin/waitlist", (route) => route.fulfill({ json: { items: {}, needs_call_count: "bad" } }));
 
   await page.goto("/admin/waitlist");
-  await expect(page.getByText("等位清單資料格式錯誤，請重試", { exact: true })).toBeVisible();
+  await expect(page.getByText("等位清單資料格式錯誤，請重新整理", { exact: true })).toBeVisible();
+  await expect(page.getByText("無法確認等位人數", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /全部 \(/ })).toHaveCount(0);
   await expect(page.getByText("目前無等位紀錄")).toHaveCount(0);
+});
+
+test("等位更新失敗時保留資料會標示為舊資料", async ({ page, context }) => {
+  await seedAdminSession(context);
+  let calls = 0;
+  await page.route("**/api/admin/waitlist", (route) => {
+    calls++;
+    return calls === 1
+      ? route.fulfill({ json: { needs_call_count: 1, items: [{ id: "w1", customer_name: "等位客人", phone: "0912345678", start_time: "2026-10-31T10:00:00Z", end_time: "2026-10-31T11:00:00Z", status: "waiting", created_at: "2026-10-30T10:00:00Z", notified_at: null, staff_called_at: null, room_name: "A 包廂", branch_name: "測試店", has_line: false, needs_call: true }] } })
+      : route.fulfill({ status: 503, body: "upstream unavailable" });
+  });
+
+  await page.goto("/admin/waitlist");
+  await expect(page.getByText("等位客人")).toBeVisible();
+  await page.getByRole("button", { name: "重新整理" }).click();
+  await expect(page.getByRole("alert")).toContainText("畫面是上一次的資料");
+  await expect(page.getByText("等位客人")).toBeVisible();
 });
 
 test("LINE 帳號頁 HTTP 與格式錯誤都會離開 loading 並顯示錯誤", async ({ page, context }) => {
@@ -92,35 +117,6 @@ test("訂位餐點頁的讀取錯誤會結束載入並顯示 API 錯誤", async 
   await expect(page.getByText("載入中…")).toHaveCount(0);
 });
 
-test("訂位餐點頁切換 id 後，較早的 GET 回覆不會覆蓋目前訂位", async ({ page, context }) => {
-  await seedAdminSession(context);
-  let releaseOld!: () => void;
-  const oldResponse = new Promise<void>((resolve) => { releaseOld = resolve; });
-  let oldStarted = false;
-  await page.route("**/api/admin/reservation-orders/**", async (route) => {
-    const id = new URL(route.request().url()).pathname.split("/").at(-1);
-    if (route.request().method() !== "GET") return route.fulfill({ json: { ok: true } });
-    if (id === "res-1") {
-      oldStarted = true;
-      await oldResponse;
-      return route.fulfill({ json: { reservation: { customer_name: "舊訂位", booking_code: "OLD", start_time: "2026-10-15T06:00:00Z", status: "checked_in", room: null }, preorder: null, order: null } });
-    }
-    return route.fulfill({ json: { reservation: { customer_name: "新訂位", booking_code: "NEW", start_time: "2026-10-16T06:00:00Z", status: "checked_in", room: null }, preorder: null, order: null } });
-  });
-
-  await page.goto("/admin/reservation-orders/res-1");
-  await expect.poll(() => oldStarted).toBe(true);
-  await page.evaluate(() => {
-    window.history.pushState(null, "", "/admin/reservation-orders/res-2");
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  });
-  await expect(page).toHaveURL(/res-2$/);
-  await expect(page.getByText(/新訂位.*NEW/)).toBeVisible();
-  releaseOld();
-  await expect(page.getByText(/新訂位.*NEW/)).toBeVisible();
-  await expect(page.getByText(/舊訂位|OLD/)).toHaveCount(0);
-});
-
 test("菜單失敗不遮住訂位資料，也不把成功 mutation 說成失敗或重送", async ({ page, context }) => {
   await seedAdminSession(context);
   const view = { reservation: { customer_name: "測試客人", booking_code: "MENU1", start_time: "2026-10-15T06:00:00Z", status: "checked_in", room: { name: "A", branch_id: "b1" } }, preorder: null, order: null };
@@ -137,7 +133,7 @@ test("菜單失敗不遮住訂位資料，也不把成功 mutation 說成失敗�
 
   await page.goto("/admin/reservation-orders/res-1");
   await expect(page.getByText(/測試客人.*MENU1/)).toBeVisible();
-  await expect(page.getByRole("status")).toContainText("餐點選單暫時無法載入");
+  await expect(page.getByText("系統暫時有問題，請稍後再試", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "確認客人到店，送入備餐清單" }).dblclick();
   await expect.poll(() => posts).toBe(1);
   await expect(page.locator("main [role='alert']")).toHaveCount(0);

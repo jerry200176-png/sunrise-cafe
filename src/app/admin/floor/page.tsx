@@ -209,13 +209,15 @@ export default function FloorConsolePage() {
       </select> : undefined}
     >
       <div className="space-y-4 pb-24">
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-          <Kpi label="使用中" value={counts.inUse} />
-          <Kpi label="超時" value={counts.overtime} tone={counts.overtime ? "alert" : undefined} />
-          <Kpi label="等客人到" value={counts.arriving} />
-          <Kpi label="空房" value={counts.idle} />
-          <Kpi label="還沒收的餐費" value={`NT$ ${counts.food.toLocaleString()}`} wide />
-        </div>
+        {data && (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            <Kpi label="使用中" value={counts.inUse} />
+            <Kpi label="超時" value={counts.overtime} tone={counts.overtime ? "alert" : undefined} />
+            <Kpi label="等客人到" value={counts.arriving} />
+            <Kpi label="空房" value={counts.idle} />
+            <Kpi label="還沒收的餐費" value={`NT$ ${counts.food.toLocaleString()}`} wide />
+          </div>
+        )}
 
         <div className="flex items-center justify-between gap-2">
           <ul className="flex flex-wrap gap-1.5 text-[11px]" aria-label="圖例">
@@ -230,7 +232,7 @@ export default function FloorConsolePage() {
         </div>
 
         {error && <div role="alert" className="flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
-          <span>{error}{data ? "（畫面是上一次的資料）" : ""}</span>
+          <span>{error}{data ? "（畫面是上一次的資料）" : "（目前無法確認包廂狀況）"}</span>
           <button type="button" onClick={() => void (branchId ? load() : loadBranches())} disabled={loading}
             className="h-9 shrink-0 rounded-lg border border-rose-300 bg-white px-3 font-medium disabled:opacity-50">重試</button>
         </div>}

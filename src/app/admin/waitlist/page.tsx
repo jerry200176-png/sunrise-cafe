@@ -179,7 +179,11 @@ export default function AdminWaitlistPage() {
     <>
     <AdminShell
       title="等位清單"
-      subtitle={loading && !updatedAt ? "載入中…" : `${waitingCount} 位等候中${updatedAt ? ` · 更新於 ${updatedAt}` : ""}`}
+      subtitle={loading && !updatedAt
+        ? "載入中…"
+        : error && !updatedAt
+          ? "無法確認等位人數"
+          : `${waitingCount} 位等候中${updatedAt ? ` · 更新於 ${updatedAt}` : ""}`}
       actions={
         <button
           type="button"
@@ -205,29 +209,31 @@ export default function AdminWaitlistPage() {
           </div>
         )}
 
-        <div className="flex flex-wrap gap-2">
-          {(
-            [
-              { key: "all" as const, label: `全部 (${items.length})` },
-              { key: "waiting" as const, label: `等候中 (${waitingCount})` },
-              { key: "needs_call" as const, label: `需電聯 (${needsCallCount})` },
-              { key: "notified" as const, label: `已通知 (${notifiedCount})` },
-            ] as const
-          ).map(({ key, label }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setFilter(key)}
-              className={`min-h-[44px] rounded-full px-3 py-1 text-sm font-medium transition-[background-color,border-color,color] duration-200 ${
-                filter === key
-                  ? "bg-amber-600 text-white"
-                  : "border border-stone-200 bg-white text-stone-700 hover:border-amber-300"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        {updatedAt && (
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                { key: "all" as const, label: `全部 (${items.length})` },
+                { key: "waiting" as const, label: `等候中 (${waitingCount})` },
+                { key: "needs_call" as const, label: `需電聯 (${needsCallCount})` },
+                { key: "notified" as const, label: `已通知 (${notifiedCount})` },
+              ] as const
+            ).map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setFilter(key)}
+                className={`min-h-[44px] rounded-full px-3 py-1 text-sm font-medium transition-[background-color,border-color,color] duration-200 ${
+                  filter === key
+                    ? "bg-amber-600 text-white"
+                    : "border border-stone-200 bg-white text-stone-700 hover:border-amber-300"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
 
         <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
           {loading && items.length === 0 ? (
