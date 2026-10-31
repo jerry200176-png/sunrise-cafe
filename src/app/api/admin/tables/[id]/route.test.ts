@@ -141,7 +141,10 @@ describe("PATCH table identity and branch scope", () => {
     const second = await request({ expected, is_active: false }, "staff");
     const results = await Promise.all([PATCH(first, context()), PATCH(second, context())]);
     expect(results.map((response) => response.status).sort()).toEqual([200, 409]);
-    expect(store.row).toMatchObject({ number: "B2", is_active: true });
+    expect(store.row).toMatchObject(results[0].status === 200
+      ? { number: "B2", is_active: true }
+      : { number: "A1", is_active: false });
+    expect(store.row).toMatchObject({ id: tableId, branch_id: "branch-a", qr_token: "fake-qr", history: "preserved" });
   });
 
   it.each(["scope", "write", "throw"])("does not leak database errors from %s failures", async (failure) => {
