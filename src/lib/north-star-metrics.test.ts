@@ -44,7 +44,16 @@ function minimalSnapshot(overrides: Partial<OutcomeSnapshot> = {}): OutcomeSnaps
       tomorrow_reminders_pending: 0,
       auto_releases_7d: 1,
       job_runs_ready: true,
-      jobs: [{ job_name: "test", last_status: "ok", runs_7d: 100, failed_7d: 0, last_items_processed: 1 }],
+      jobs: [{
+        job_name: "test",
+        last_status: "completed",
+        last_started_at: "2026-07-11T11:00:00.000Z",
+        last_finished_at: "2026-07-11T11:01:00.000Z",
+        last_items_processed: 1,
+        last_error: null,
+        runs_7d: 100,
+        failed_7d: 0,
+      }],
     },
     deployment: {
       commit: "abc1234",
