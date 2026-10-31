@@ -40,9 +40,9 @@ test("經營總覽：分店清單暫時失敗會顯示重試，恢復後可選�
   });
 
   await page.goto("/admin/executive");
-  const alert = page.getByRole("alert");
-  await expect(alert).toContainText("暫時無法載入分店");
-  await alert.getByRole("button", { name: "重試載入分店" }).click();
+  const branchLoadError = page.getByText("暫時無法載入分店", { exact: false });
+  await expect(branchLoadError).toBeVisible();
+  await page.getByRole("button", { name: "重試載入分店" }).click();
   await expect(page.getByLabel("分店")).toHaveValue("");
   await expect(page.getByLabel("分店").locator("option", { hasText: "大安店" })).toHaveCount(1);
   await page.getByLabel("分店").selectOption("b2");

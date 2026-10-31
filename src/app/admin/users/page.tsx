@@ -185,11 +185,13 @@ export default function AdminUsersPage() {
         <section className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="font-semibold text-stone-800">使用者清單</h2>
-            <button type="button" onClick={load} className="text-stone-500 hover:text-stone-700">
+            <button type="button" onClick={load} disabled={loading} aria-label="重新整理使用者清單" className="text-stone-500 hover:text-stone-700 disabled:opacity-50">
               <RefreshCw className="h-4 w-4" />
             </button>
           </div>
-          {users.length === 0 ? (
+          {error ? (
+            <p className="text-sm text-stone-500">無法確認使用者清單，請重新整理。</p>
+          ) : users.length === 0 ? (
             <p className="text-sm text-stone-400">尚無 RBAC 使用者（仍可使用 ADMIN_PASSWORD 登入）</p>
           ) : (
             <ul className="divide-y text-sm">

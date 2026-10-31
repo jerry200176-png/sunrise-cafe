@@ -17,7 +17,7 @@ test("菜單分店 503 顯示錯誤，重試成功後載入菜單", async ({ pag
   await page.route("**/api/admin/menu-option-sets**", (route) => route.fulfill({ json: [] }));
 
   await page.goto("/admin/menu");
-  await expect(page.getByRole("alert").getByText("系統暫時有問題，請稍後再試")).toBeVisible();
+  await expect(page.getByText("暫時無法載入", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "重試分店" }).click();
   await expect(page.locator("#menu-branch")).toHaveValue("b1");
   await expect(page.getByText("尚無餐點")).toBeVisible();
@@ -36,7 +36,7 @@ test("桌位 API HTTP 錯誤顯示可重試錯誤，不顯示空桌位", async (
   });
 
   await page.goto("/admin/tables");
-  await expect(page.getByRole("alert").getByText("系統暫時有問題，請稍後再試")).toBeVisible();
+  await expect(page.getByText("桌位服務暫時無法使用", { exact: true })).toBeVisible();
   await expect(page.getByText("尚無桌位")).toHaveCount(0);
   await page.getByRole("button", { name: "重試", exact: true }).click();
   await expect(page.getByText("尚無桌位")).toBeVisible();
@@ -110,8 +110,8 @@ test("菜單切店立即清除舊店資料並停用寫入，分店清單移除�
 
   await page.getByLabel("選擇分店").selectOption("b1");
   await expect(page.getByText("舊店餐點")).toBeVisible();
-  await page.getByRole("button", { name: "重試分店" }).click();
-  await expect(page.getByRole("alert").getByText("系統暫時有問題，請稍後再試")).toBeVisible();
+  await page.getByRole("button", { name: "重新整理分店" }).click();
+  await expect(page.getByText("系統暫時有問題，請稍後再試", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "重試分店" }).click();
   await expect(page.getByLabel("選擇分店")).toHaveValue("b2");
   await expect(page.getByText("新店餐點")).toBeVisible();

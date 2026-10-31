@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { ArrowLeft, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, LogOut } from "lucide-react";
+import { ArrowLeft, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, LogOut, RefreshCw } from "lucide-react";
 import type { MenuItem, MenuCategory } from "@/types";
 import { responseError, thrownMessage } from "@/lib/friendly-error";
 import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
@@ -40,6 +40,8 @@ interface MenuItemWithCategory extends MenuItem {
 export default function AdminMenuPage() {
   const { branches, loading: branchesLoading, error: branchesError, retry: retryBranches } = useAdminBranches();
   const [branchId, setBranchId] = useState<string>("");
+  // Keep old branch data inaccessible while the current scope is being confirmed.
+  const branchUnavailable = branchesLoading || Boolean(branchesError) || (Boolean(branchId) && !branches.some((branch) => branch.id === branchId));
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [items, setItems] = useState<MenuItemWithCategory[]>([]);
   const [loading, setLoading] = useState(false);
@@ -300,13 +302,23 @@ export default function AdminMenuPage() {
               setFormOpen(false); setEditing(null); setCatFormOpen(false); setCatEditing(null); setConfirmDeleteItemId(null);
                 setBranchId(nextBranchId);
               }}
-              disabled={saving}
+              disabled={saving || branchesLoading || Boolean(branchesError)}
               className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
             >
               {branches.map((b) => (
                 <option key={b.id} value={b.id}>{b.name}</option>
               ))}
             </select>
+            <button
+              type="button"
+              aria-label="重新整理分店"
+              title="重新整理分店"
+              onClick={() => void retryBranches()}
+              disabled={saving || branchesLoading}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            >
+              <RefreshCw className="h-4 w-4" aria-hidden />
+            </button>
             <button
               type="button"
               onClick={async () => {
@@ -331,7 +343,7 @@ export default function AdminMenuPage() {
         </div>
         {error && (
           <div role="alert" className="flex items-center justify-between gap-3 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800">
-            <span>{error}</span><button type="button" onClick={() => void loadData(branchId)} disabled={!branchId || loading} className="min-h-[44px] rounded-lg border border-red-300 bg-white px-3 disabled:opacity-50">重試</button>
+            <span>{error}</span><button type="button" onClick={() => void loadData(branchId)} disabled={!branchId || branchUnavailable || loading} className="min-h-[44px] rounded-lg border border-red-300 bg-white px-3 disabled:opacity-50">重試</button>
           </div>
         )}
         {branchesError && <div role="alert" className="flex items-center justify-between gap-3 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800"><span>{branchesError}</span><button type="button" onClick={() => void retryBranches()} disabled={branchesLoading} className="min-h-[44px] rounded-lg border border-red-300 bg-white px-3 disabled:opacity-50">重試分店</button></div>}
@@ -345,13 +357,13 @@ export default function AdminMenuPage() {
             <button
               type="button"
               onClick={() => { setCatEditing(null); setCatName(""); setModalError(null); setCatFormOpen(true); }}
-              disabled={!branchId || loading || Boolean(error)}
+              disabled={!branchId || branchUnavailable || loading || Boolean(error)}
               className="inline-flex items-center gap-1 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700"
             >
               <Plus className="h-4 w-4" /> 新增分類
             </button>
           </div>
-          {loading ? <p role="status" className="text-sm text-gray-500">載入分類中…</p> : error || !branchId ? null : categories.length === 0 ? (
+          {loading ? <p role="status" className="text-sm text-gray-500">載入分類中…</p> : error || !branchId || branchUnavailable ? null : categories.length === 0 ? (
             <p className="text-sm text-gray-500">尚無分類</p>
           ) : (
             <div className="flex flex-wrap gap-2">
@@ -369,7 +381,7 @@ export default function AdminMenuPage() {
           )}
         </section>
 
-        {branchId && !loading && !error && <OptionSetsPanel
+        {branchId && !branchUnavailable && !loading && !error && <OptionSetsPanel
           branchId={branchId}
           sets={optionSets}
           categories={categories}
@@ -385,7 +397,7 @@ export default function AdminMenuPage() {
             <button
               type="button"
               onClick={openAdd}
-              disabled={!branchId || loading || Boolean(error)}
+              disabled={!branchId || branchUnavailable || loading || Boolean(error)}
               className="inline-flex items-center gap-1 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
             >
               <Plus className="h-4 w-4" /> 新增餐點
@@ -394,7 +406,7 @@ export default function AdminMenuPage() {
 
           {loading ? (
             <p className="text-sm text-gray-500">載入中…</p>
-          ) : error || !branchId ? null : items.length === 0 ? (
+          ) : error || !branchId || branchUnavailable ? null : items.length === 0 ? (
             <p className="text-sm text-gray-500">尚無餐點</p>
           ) : (
             <div className="divide-y divide-gray-100">
@@ -477,7 +489,7 @@ export default function AdminMenuPage() {
       </div>
 
       {/* 餐點表單 Modal */}
-      {formOpen && (
+      {formOpen && !branchUnavailable && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-md rounded-xl bg-white p-4 shadow-xl max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-semibold mb-4">
@@ -587,7 +599,7 @@ export default function AdminMenuPage() {
       )}
 
       {/* 新增分類 Modal */}
-      {catFormOpen && (
+      {catFormOpen && !branchUnavailable && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-sm rounded-xl bg-white p-4 shadow-xl">
             <h3 className="text-lg font-semibold mb-4">{catEditing ? "編輯分類" : "新增分類"}</h3>
@@ -620,7 +632,7 @@ export default function AdminMenuPage() {
         </div>
       )}
       <ConfirmDialog
-        open={confirmDeleteItemId !== null}
+        open={confirmDeleteItemId !== null && !branchUnavailable}
         title="刪除餐點"
         message="確定要刪除此餐點嗎？"
         confirmLabel="刪除"

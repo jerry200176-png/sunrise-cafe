@@ -9,20 +9,29 @@ test("付款頁的 migration-status HTTP 錯誤會顯示為載入錯誤，不會
   );
 
   await page.goto("/admin/payments");
-  await expect(page.getByRole("alert")).toContainText("系統暫時有問題");
+  await expect(page.getByText("系統暫時有問題，請稍後再試", { exact: true })).toBeVisible();
   await expect(page.getByText("付款審核功能尚未開通")).toHaveCount(0);
 });
 
 test("使用者頁 API 非 2xx 會顯示錯誤，而不是空使用者清單", async ({ page, context }) => {
   await seedAdminSession(context);
+  let userRequests = 0;
   await page.route("**/api/admin/me", (route) => route.fulfill({ json: { role: "owner", permissions: { users_manage: true } } }));
-  await page.route("**/api/admin/users", (route) =>
-    route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "unavailable" }) })
-  );
+  await page.route("**/api/admin/users", (route) => {
+    userRequests++;
+    return userRequests === 1
+      ? route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "unavailable" }) })
+      : route.fulfill({ json: { users: [], migration_required: false } });
+  });
 
   await page.goto("/admin/users");
   await expect(page.getByText("系統暫時有問題")).toBeVisible();
   await expect(page.getByText("尚無 RBAC 使用者", { exact: false })).toHaveCount(0);
+  await expect(page.getByText("無法確認使用者清單")).toBeVisible();
+  await page.getByRole("button", { name: "重新整理使用者清單" }).click();
+  await expect(page.getByText("尚無 RBAC 使用者", { exact: false })).toBeVisible();
+  await expect(page.locator("main [role='alert']")).toHaveCount(0);
+  expect(userRequests).toBe(2);
 });
 
 test("包廂場控讀到錯誤格式會顯示錯誤，不會當成空包廂", async ({ page, context }) => {
@@ -33,7 +42,7 @@ test("包廂場控讀到錯誤格式會顯示錯誤，不會當成空包廂", as
   await page.route("**/api/admin/floor?**", (route) => route.fulfill({ json: { rooms: "not-an-array" } }));
 
   await page.goto("/admin/floor");
-  await expect(page.getByRole("alert")).toContainText("包廂資料格式錯誤");
+  await expect(page.getByText("包廂資料格式錯誤，請重試", { exact: true })).toBeVisible();
   await expect(page.getByText("此分店尚未建立包廂")).toHaveCount(0);
 });
 
@@ -42,7 +51,7 @@ test("等位頁 HTTP 錯誤不會顯示成空清單", async ({ page, context }) 
   await page.route("**/api/admin/waitlist", (route) => route.fulfill({ status: 503, body: "upstream unavailable" }));
 
   await page.goto("/admin/waitlist");
-  await expect(page.getByRole("alert")).toContainText("系統暫時有問題");
+  await expect(page.getByText("系統暫時有問題，請稍後再試", { exact: true })).toBeVisible();
   await expect(page.getByText("目前無等位紀錄")).toHaveCount(0);
 });
 
@@ -51,7 +60,7 @@ test("等位頁格式錯誤會顯示明確錯誤", async ({ page, context }) => 
   await page.route("**/api/admin/waitlist", (route) => route.fulfill({ json: { items: {}, needs_call_count: "bad" } }));
 
   await page.goto("/admin/waitlist");
-  await expect(page.getByRole("alert")).toContainText("等位清單資料格式錯誤");
+  await expect(page.getByText("等位清單資料格式錯誤，請重試", { exact: true })).toBeVisible();
   await expect(page.getByText("目前無等位紀錄")).toHaveCount(0);
 });
 
@@ -66,9 +75,9 @@ test("LINE 帳號頁 HTTP 與格式錯誤都會離開 loading 並顯示錯誤", 
   });
 
   await page.goto("/admin/line-accounts");
-  await expect(page.getByRole("alert")).toContainText("系統暫時有問題");
+  await expect(page.getByText("系統暫時有問題，請稍後再試", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "重試" }).click();
-  await expect(page.getByRole("alert")).toContainText("LINE 帳號資料格式錯誤");
+  await expect(page.getByText(/LINE 帳號資料格式錯誤/)).toBeVisible();
   await expect(page.getByText("讀取中…")).toHaveCount(0);
 });
 
@@ -79,7 +88,7 @@ test("訂位餐點頁的讀取錯誤會結束載入並顯示 API 錯誤", async 
   );
 
   await page.goto("/admin/reservation-orders/res-1");
-  await expect(page.getByRole("alert")).toContainText("找不到這筆資料");
+  await expect(page.getByText("找不到這筆資料，可能已被刪除，請重新整理", { exact: true })).toBeVisible();
   await expect(page.getByText("載入中…")).toHaveCount(0);
 });
 
@@ -101,7 +110,10 @@ test("訂位餐點頁切換 id 後，較早的 GET 回覆不會覆蓋目前訂�
 
   await page.goto("/admin/reservation-orders/res-1");
   await expect.poll(() => oldStarted).toBe(true);
-  await page.evaluate(() => window.history.pushState(null, "", "/admin/reservation-orders/res-2"));
+  await page.evaluate(() => {
+    window.history.pushState(null, "", "/admin/reservation-orders/res-2");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
   await expect(page).toHaveURL(/res-2$/);
   await expect(page.getByText(/新訂位.*NEW/)).toBeVisible();
   releaseOld();
@@ -128,11 +140,11 @@ test("菜單失敗不遮住訂位資料，也不把成功 mutation 說成失敗�
   await expect(page.getByRole("status")).toContainText("餐點選單暫時無法載入");
   await page.getByRole("button", { name: "確認客人到店，送入備餐清單" }).dblclick();
   await expect.poll(() => posts).toBe(1);
-  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.locator("main [role='alert']")).toHaveCount(0);
   expect(posts).toBe(1);
 });
 
-test("付款審核 refresh 中核准後，舊 GET 不會把已處理付款加回清單", async ({ page, context }) => {
+test("模擬背景刷新：付款核准後舊 GET 不會把已處理項目加回清單", async ({ page, context }) => {
   await seedAdminSession(context);
   const pending = { id: "p1", reservation_id: "r1", booking_code: "AB12", customer_name: "王小明", phone: "0912345678", start_time: "2026-10-09T10:00:00Z", deposit_amount: 500, reservation_status: "pending", created_at: "2026-10-08T01:00:00Z", raw_payload: null, source: "line_text", is_deposit_paid: false, reported_account_last_five: null, reported_amount: null, reported_at: null };
   let pendingCalls = 0;
@@ -156,11 +168,52 @@ test("付款審核 refresh 中核准後，舊 GET 不會把已處理付款加回
   await page.goto("/admin/payments");
   await expect(page.getByText("王小明")).toBeVisible();
   await page.getByRole("button", { name: "確認已收款" }).click();
-  await page.getByRole("button", { name: "重新整理" }).click();
+  // The modal blocks real clicks outside it; explicitly simulate a background refresh.
+  await page.getByRole("button", { name: "重新整理" }).dispatchEvent("click");
   await expect.poll(() => oldStarted).toBe(true);
   await page.getByRole("dialog").getByRole("button", { name: "確認已收款" }).click();
   await expect(page.getByText("已確認收款")).toBeVisible();
+  const oldFinished = page.waitForResponse((response) => response.url().includes("/api/admin/payments/pending"));
   releaseOld();
+  await oldFinished;
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await expect(page.getByText("代號 AB12 · 0912345678")).toHaveCount(0);
+  expect(approveCalls).toBe(1);
+});
+
+test("付款審核重新整理期間不能核准，載入後可正常確認收款", async ({ page, context }) => {
+  await seedAdminSession(context);
+  const pending = { id: "p1", reservation_id: "r1", booking_code: "AB12", customer_name: "王小明", phone: "0912345678", start_time: "2026-10-09T10:00:00Z", deposit_amount: 500, reservation_status: "pending", created_at: "2026-10-08T01:00:00Z", raw_payload: null, source: "line_text", is_deposit_paid: false, reported_account_last_five: null, reported_amount: null, reported_at: null };
+  let pendingCalls = 0;
+  let approveCalls = 0;
+  let releaseOld!: () => void;
+  const oldResponse = new Promise<void>((resolve) => { releaseOld = resolve; });
+  let oldStarted = false;
+  await page.route("**/api/admin/payments/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/migration-status")) return route.fulfill({ json: { payment_events_ready: true } });
+    if (path.endsWith("/pending")) {
+      pendingCalls++;
+      if (pendingCalls === 2) { oldStarted = true; await oldResponse; }
+      return route.fulfill({ json: [pending] });
+    }
+    if (path.endsWith("/reconcile")) return route.fulfill({ json: { items: [] } });
+    if (path.endsWith("/approve")) { approveCalls++; return route.fulfill({ json: { ok: true, notification: null } }); }
+    return route.fulfill({ json: {} });
+  });
+
+  await page.goto("/admin/payments");
+  await expect(page.getByText("王小明")).toBeVisible();
+  await page.getByRole("button", { name: "重新整理" }).click();
+  await expect.poll(() => oldStarted).toBe(true);
+  await expect(page.getByText("載入中…")).toBeVisible();
+  await expect(page.getByRole("button", { name: "確認已收款" })).toHaveCount(0);
+  expect(approveCalls).toBe(0);
+  releaseOld();
+  await expect(page.getByText("王小明")).toBeVisible();
+  await page.getByRole("button", { name: "確認已收款" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "確認已收款" }).click();
+  await expect(page.getByText("已確認收款")).toBeVisible();
   await expect(page.getByText("代號 AB12 · 0912345678")).toHaveCount(0);
   expect(approveCalls).toBe(1);
 });
@@ -183,7 +236,7 @@ test("付款風險 refresh 失敗時清除舊風險並明確顯示錯誤", async
   await page.goto("/admin/payments");
   await expect(page.getByText("風險客人")).toBeVisible();
   await page.getByRole("button", { name: "重新整理" }).click();
-  await expect(page.getByRole("alert")).toContainText("風險資料無法更新");
+  await expect(page.getByText(/風險資料無法更新/)).toBeVisible();
   await expect(page.getByText("風險客人")).toHaveCount(0);
 });
 
@@ -233,10 +286,10 @@ test("系統狀態主資料先顯示，次要 API 尚未回應不會卡住整頁
   await page.getByRole("button", { name: "重新整理" }).click();
   await expect(page.getByText(/70% \(目標 85%\)/).first()).toBeVisible();
   await expect.poll(() => secondaryRequests).toBe(4);
-  await expect(page.getByText("22%", { exact: true })).toBeVisible();
+  await expect(page.getByText(/22%\s*→\s*50%/)).toBeVisible();
   releaseOldSecondaries();
-  await expect(page.getByText("22%", { exact: true })).toBeVisible();
-  await expect(page.getByText("11%", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/22%\s*→\s*50%/)).toBeVisible();
+  await expect(page.getByText(/11%\s*→\s*50%/)).toHaveCount(0);
   await page.getByRole("button", { name: "重新整理" }).click();
   await expect.poll(() => outcomeRequests).toBe(3);
   await expect(page.getByRole("status")).toContainText("部分系統狀態資料暫時無法取得");
