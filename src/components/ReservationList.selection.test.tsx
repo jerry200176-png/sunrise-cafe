@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ReservationList } from "./ReservationList";
+import { clearReservationMutationUnknown, endReservationMutation, reservationMutationsSnapshot } from "@/lib/admin-reservation-mutation-lock";
 
 const realtime = vi.hoisted(() => ({ handlers: [] as Array<() => void> }));
 vi.mock("@/lib/supabase", () => ({ supabase: {
@@ -42,7 +43,14 @@ function mockFetch() {
   return writes;
 }
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); realtime.handlers.length = 0; });
+afterEach(() => {
+  cleanup();
+  for (const [id, state] of reservationMutationsSnapshot()) {
+    if (state.outcome === "unknown") clearReservationMutationUnknown(id, state);
+    else endReservationMutation(id);
+  }
+  vi.unstubAllGlobals(); realtime.handlers.length = 0;
+});
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -106,6 +114,146 @@ describe("reservation selection visibility", () => {
 });
 
 describe("branch-scoped reservation requests", () => {
+  it("discards a history request started before a later mutation", async () => {
+    const oldHistory = deferred<Response>();
+    const item = { ...rows[0], status: "confirmed" };
+    let historyReads = 0;
+    let changed = false;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") { changed = true; return Response.json({ ok: true }); }
+      if (url.startsWith("/api/reservations?")) {
+        const p = new URL(url, "http://localhost").searchParams;
+        if (p.get("scope") === "history") return ++historyReads === 1 ? oldHistory.promise : list([{ ...item, status: "completed", customer_name: "最新歷史" }]);
+        return list(changed ? [] : [item]);
+      }
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    render(<ReservationList branchId="b1" rooms={[]} />);
+    await user.click(await screen.findByRole("button", { name: "歷史紀錄" }));
+    await waitFor(() => expect(historyReads).toBe(1));
+    await user.click(screen.getByRole("button", { name: "即將到來" }));
+    await user.click(await screen.findByRole("button", { name: /已完成/ }));
+    await waitFor(() => expect(changed).toBe(true));
+    await act(async () => { oldHistory.resolve(list([{ ...item, status: "cancelled", customer_name: "過時歷史" }])); await oldHistory.promise; });
+    expect(screen.queryByText("過時歷史")).toBeNull();
+    await user.click(await screen.findByRole("button", { name: "歷史紀錄" }));
+    expect(await screen.findByText("最新歷史")).toBeTruthy();
+    expect(screen.queryByText("過時歷史")).toBeNull();
+  });
+
+  it("requires explicit staff review before clearing an uncertain outcome", async () => {
+    let writes = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") { writes += 1; return Response.json({ error: "unknown" }, { status: 500 }); }
+      if (url.startsWith("/api/reservations?")) return list([rows[0]]);
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    render(<ReservationList branchId="b1" rooms={[]} />);
+    await screen.findByRole("checkbox", { name: /選取 甲 A01/ });
+    await user.click(screen.getByRole("button", { name: /✅ 確認/ }));
+    expect(await screen.findByText(/以下訂位的操作結果尚未確認/)).toBeTruthy();
+    const pending = screen.getByRole("button", { name: /✅ 確認/ }) as HTMLButtonElement;
+    expect(pending.disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "核對後解除待確認" }));
+    let dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "取消" }));
+    expect((screen.getByRole("button", { name: /✅ 確認/ }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "核對後解除待確認" }));
+    dialog = screen.getByRole("dialog");
+    expect(dialog.textContent).toContain("原請求仍可能稍後完成");
+    const buttons = within(dialog).getAllByRole("button");
+    await user.click(buttons[buttons.length - 1]);
+    await waitFor(() => expect(screen.queryByText(/以下訂位的操作結果尚未確認/)).toBeNull());
+    expect((await screen.findByRole("button", { name: /✅ 確認/ }) as HTMLButtonElement).disabled).toBe(false);
+    expect(writes).toBe(1);
+  });
+
+  it.each([
+    ["edit", "network"], ["edit", "timeout"], ["edit", "bad body"], ["edit", "wrong shape"], ["edit", "server"],
+    ["restore", "network"], ["restore", "timeout"], ["restore", "bad body"], ["restore", "wrong shape"], ["restore", "server"],
+    ["delete", "network"], ["delete", "timeout"], ["delete", "bad body"], ["delete", "wrong shape"], ["delete", "server"],
+  ])("holds %s after an uncertain %s result until staff review", async (action, failure) => {
+    const verify = deferred<Response>();
+    const item = { ...rows[0], status: action === "restore" ? "cancelled" : "confirmed" };
+    let reads = 0;
+    let writes = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH" || init?.method === "DELETE") {
+        writes += 1;
+        if (failure === "network") throw new Error("lost");
+        if (failure === "timeout") throw Object.assign(new Error("timeout"), { name: "AbortError" });
+        if (failure === "bad body") return new Response("not-json", { status: 200 });
+        if (failure === "wrong shape") return Response.json("not-an-object");
+        return Response.json({ error: "server failed" }, { status: 500 });
+      }
+      if (url.startsWith("/api/reservations?")) {
+        const p = new URL(url, "http://localhost").searchParams;
+        if (p.get("scope") === "history") return list(action === "restore" ? [item] : []);
+        reads += 1;
+        if (reads === 1) return list(action === "restore" ? [] : [item]);
+        return verify.promise;
+      }
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    render(<ReservationList branchId="b1" rooms={[]} />);
+    if (action === "restore") {
+      await user.click(await screen.findByRole("button", { name: "歷史紀錄" }));
+      await user.click(await screen.findByRole("button", { name: /一鍵還原/ }));
+      const dialog = screen.getByRole("dialog");
+      const buttons = within(dialog).getAllByRole("button");
+      await user.click(buttons[buttons.length - 1]);
+    } else {
+      await user.click(await screen.findByRole("button", { name: "即將到來" }));
+      if (action === "edit") {
+        await user.click(await screen.findByRole("button", { name: "編輯訂位" }));
+        await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "儲存" }));
+      } else {
+        await user.click(await screen.findByRole("button", { name: /刪除/ }));
+        const dialog = screen.getByRole("dialog");
+        const buttons = within(dialog).getAllByRole("button");
+        await user.click(buttons[buttons.length - 1]);
+      }
+    }
+    await waitFor(() => expect(writes).toBe(1));
+    expect(await screen.findByText("載入中…")).toBeTruthy();
+    await act(async () => { verify.resolve(list(action === "restore" ? [] : [item])); await verify.promise; });
+    expect(await screen.findByText(/以下訂位的操作結果尚未確認/)).toBeTruthy();
+    const guarded = action === "restore"
+      ? await screen.findByRole("button", { name: /一鍵還原/ })
+      : await screen.findByRole("button", { name: "編輯訂位" });
+    expect((guarded as HTMLButtonElement).disabled).toBe(true);
+    await user.click(guarded);
+    expect(writes).toBe(1);
+  });
+
+  it.each([{}, { items: [null] }, null])("does not accept a malformed successful verification read: %j", async (badPayload) => {
+    const background = deferred<Response>();
+    let reads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") return Response.json({ error: "failed" }, { status: 500 });
+      if (url.startsWith("/api/reservations?")) {
+        reads += 1;
+        return reads === 1 ? list([rows[0]]) : reads === 2 ? Response.json(badPayload) : background.promise;
+      }
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    render(<ReservationList branchId="b1" rooms={[]} />);
+    await screen.findByRole("checkbox", { name: /選取 甲 A01/ });
+    await user.click(screen.getByRole("button", { name: /✅ 確認/ }));
+    expect(await screen.findByText("無法載入訂位，請重試")).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: /選取 甲 A01/ })).toBeNull();
+    act(() => { realtime.handlers.at(-1)?.(); });
+    await waitFor(() => expect(reads).toBe(3));
+    expect(screen.getByText("載入中…")).toBeTruthy();
+    await act(async () => { background.resolve(list([rows[0]])); await background.promise; });
+    expect(await screen.findByText("請重新核對訂位資料後再繼續。")).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: /選取 甲 A01/ })).toBeNull();
+  });
+
   it("stays fail-closed when the newest post-mutation read fails, including the next background refresh", async () => {
     const firstMutation = deferred<Response>();
     const secondMutation = deferred<Response>();
@@ -121,7 +269,8 @@ describe("branch-scoped reservation requests", () => {
         if (activeReads === 1) return list(rows);
         if (activeReads === 2) return olderRead.promise;
         if (activeReads === 3) return latestRead.promise;
-        return backgroundRead.promise;
+        if (activeReads === 4) return backgroundRead.promise;
+        return list([rows[0], { ...rows[1], status: "confirmed" }]);
       }
       return Response.json([]);
     }));
@@ -145,6 +294,8 @@ describe("branch-scoped reservation requests", () => {
     expect(screen.getByText("載入中…")).toBeTruthy();
     expect(screen.queryByRole("checkbox", { name: /選取 乙 B02/ })).toBeNull();
     await act(async () => { backgroundRead.resolve(list([rows[0], { ...rows[1], status: "confirmed" }])); await backgroundRead.promise; });
+    expect(await screen.findByText("請重新核對訂位資料後再繼續。")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "重試" }));
     expect(await screen.findByRole("checkbox", { name: /選取 甲 A01/ })).toBeTruthy();
     expect(screen.queryByText("最新讀取失敗")).toBeNull();
   });

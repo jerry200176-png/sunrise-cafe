@@ -1,9 +1,10 @@
-/** Browser-instance lock: the same reservation must not be submitted twice
- * while an earlier mutation or manual notification is still in flight.
+/** Browser-instance lock: do not resend a reservation mutation or manual
+ * notification while it is in flight or its outcome needs human review.
  * This deliberately does not claim cross-tab or cross-device protection. */
-let pending: ReadonlySet<string> = new Set();
+export type ReservationMutationState = { branchId: string; label: string; outcome: "inflight" | "unknown" };
+let pending: ReadonlyMap<string, ReservationMutationState> = new Map();
 const listeners = new Set<() => void>();
-const serverSnapshot: ReadonlySet<string> = new Set();
+const serverSnapshot: ReadonlyMap<string, ReservationMutationState> = new Map();
 
 export function subscribeReservationMutations(listener: () => void) {
   listeners.add(listener);
@@ -12,20 +13,38 @@ export function subscribeReservationMutations(listener: () => void) {
 export const reservationMutationsSnapshot = () => pending;
 export const reservationMutationsServerSnapshot = () => serverSnapshot;
 
-function publish(next: ReadonlySet<string>) {
+function publish(next: ReadonlyMap<string, ReservationMutationState>) {
   pending = next;
   for (const listener of listeners) listener();
 }
 
-export function beginReservationMutation(id: string): boolean {
+export function beginReservationMutation(id: string, branchId: string, label: string): boolean {
   if (pending.has(id)) return false;
-  publish(new Set([...pending, id]));
+  const next = new Map(pending);
+  next.set(id, { branchId, label, outcome: "inflight" });
+  publish(next);
   return true;
 }
 
+export function markReservationMutationUnknown(id: string): void {
+  const current = pending.get(id);
+  if (!current) return;
+  const next = new Map(pending);
+  next.set(id, { ...current, outcome: "unknown" });
+  publish(next);
+}
+
 export function endReservationMutation(id: string): void {
-  if (!pending.has(id)) return;
-  const next = new Set(pending);
+  if (pending.get(id)?.outcome !== "inflight") return;
+  const next = new Map(pending);
+  next.delete(id);
+  publish(next);
+}
+
+/** Only clear the exact uncertain state the person acknowledged. */
+export function clearReservationMutationUnknown(id: string, expected: ReservationMutationState): void {
+  if (pending.get(id) !== expected || expected.outcome !== "unknown") return;
+  const next = new Map(pending);
   next.delete(id);
   publish(next);
 }

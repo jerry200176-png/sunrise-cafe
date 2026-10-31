@@ -9,6 +9,7 @@ import { Calendar, Clock, DoorOpen, Pencil, Users, X, Send } from "lucide-react"
 import { supabase } from "@/lib/supabase";
 import { isDepositRequired, isWeekendDate } from "@/lib/booking-utils";
 import { buildPaymentMessage, type BranchPaymentConfig } from "@/lib/payment-message";
+import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import type { Reservation, ReservationStatus, Room } from "@/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DepositStatusControl } from "@/components/admin/DepositStatusControl";
@@ -21,7 +22,7 @@ import {
 } from "@/lib/reservation-message";
 import { preorderStatusLabel, reservationStatusLabel } from "@/lib/status-labels";
 import type { BatchReservationMessageItem } from "@/lib/reservation-message-batch";
-import { beginReservationMutation, endReservationMutation, reservationMutationsServerSnapshot, reservationMutationsSnapshot, subscribeReservationMutations } from "@/lib/admin-reservation-mutation-lock";
+import { beginReservationMutation, clearReservationMutationUnknown, endReservationMutation, markReservationMutationUnknown, reservationMutationsServerSnapshot, reservationMutationsSnapshot, subscribeReservationMutations } from "@/lib/admin-reservation-mutation-lock";
 
 function getPricePerHour(room: Room, dateStr: string): number {
   return isWeekendDate(dateStr) ? Number(room.price_weekend) : Number(room.price_weekday);
@@ -57,6 +58,22 @@ interface ReservationListResponse {
   total?: number | null;
   warnings?: string[];
   error?: string;
+}
+
+function isReservationRows(value: unknown): value is Reservation[] {
+  return Array.isArray(value) && value.every((row) =>
+    row !== null && typeof row === "object" &&
+    typeof row.id === "string" && typeof row.room_id === "string" &&
+    typeof row.customer_name === "string" && typeof row.phone === "string" &&
+    typeof row.status === "string" && typeof row.start_time === "string" &&
+    typeof row.end_time === "string" && Number.isFinite(Date.parse(row.start_time)) &&
+    Number.isFinite(Date.parse(row.end_time))
+  );
+}
+
+function responseObject(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown> : null;
 }
 
 /** 依 id 合併（後面的覆蓋前面的），未結案與已載入的歷史紀錄共用同一份列表狀態。 */
@@ -108,7 +125,7 @@ interface ReservationListProps {
 export function ReservationList({ branchId, rooms = [], focusReservationId = null }: ReservationListProps) {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const pendingMutations = useSyncExternalStore(subscribeReservationMutations, reservationMutationsSnapshot, reservationMutationsServerSnapshot);
-  const stalePendingMutations = useRef(new Set(reservationMutationsSnapshot()));
+  const stalePendingMutations = useRef(new Set(reservationMutationsSnapshot().keys()));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Reservation | null>(null);
@@ -145,6 +162,9 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   const currentBranch = useRef(branchId);
   const activeRequest = useRef(0);
   const verificationRequired = useRef(false);
+  const verificationInProgress = useRef(false);
+  const verificationRequest = useRef(0);
+  const [verificationPending, setVerificationPending] = useState(false);
   const batchRequest = useRef(0);
   const focusLookupRef = useRef<string | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
@@ -187,6 +207,12 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   const dismissToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
+
+  const beginMutation = (id: string) => {
+    if (!branchId) return false;
+    const code = reservations.find((reservation) => reservation.id === id)?.booking_code;
+    return beginReservationMutation(id, branchId, code || `代碼末六碼 ${id.slice(-6)}`);
+  };
 
   const loadMessagePreview = useCallback(
     async (reservationId: string, templateKey: ReservationMessageTemplateKey) => {
@@ -354,7 +380,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     }
     setBatchLoading(true);
     try {
-      const response = await fetch("/api/reservations/message-actions/batch", {
+      const response = await fetchWithTimeout("/api/reservations/message-actions/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -363,7 +389,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
           action: "preview",
         }),
       });
-      const data = (await response.json().catch(() => ({}))) as {
+      const data = (await readJsonWithTimeout(response).catch(() => ({}))) as {
         batch_id?: string;
         items?: BatchReservationMessageItem[];
         combined_text?: string;
@@ -420,9 +446,12 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     branchGeneration.current += 1;
     activeRequest.current += 1;
     verificationRequired.current = false;
+    verificationInProgress.current = false;
+    verificationRequest.current += 1;
+    setVerificationPending(false);
     historyRequest.current += 1;
     batchRequest.current += 1;
-    for (const id of reservationMutationsSnapshot()) stalePendingMutations.current.add(id);
+    for (const id of reservationMutationsSnapshot().keys()) stalePendingMutations.current.add(id);
     messagePreviewRequest.current += 1;
     activeRowsRef.current = [];
     historyRowsRef.current = [];
@@ -464,7 +493,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   /** 載入歷史紀錄：mode=replace 重抓第一頁（或目前已載入的筆數），append 為「載入更多」。 */
   const fetchHistory = useCallback(
     async (mode: "replace" | "append" | "refresh") => {
-      if (!branchId || currentBranch.current !== branchId) return;
+      if (!branchId || currentBranch.current !== branchId) return false;
       const requestId = ++historyRequest.current;
       const limit =
         mode === "refresh"
@@ -488,14 +517,15 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         });
         if (filters.q) params.set("q", filters.q);
         if (mode === "append" && historyCursorRef.current) params.set("cursor", historyCursorRef.current);
-        const res = await fetch(`${RESERVATIONS_API}?${params.toString()}`);
-        const data = (await res.json().catch(() => ({}))) as ReservationListResponse;
-        if (requestId !== historyRequest.current) return;
+        const res = await fetchWithTimeout(`${RESERVATIONS_API}?${params.toString()}`);
+        const data = (await readJsonWithTimeout(res).catch(() => ({}))) as ReservationListResponse;
+        if (requestId !== historyRequest.current) return false;
         if (!res.ok) {
           setHistoryError(data.error ?? "無法載入歷史紀錄");
-          return;
+          return false;
         }
-        const items = data.items ?? [];
+        if (!isReservationRows(data.items)) throw new Error("無法載入歷史紀錄，請重試");
+        const items = data.items;
         historyRowsRef.current =
           mode === "append" ? mergeById(historyRowsRef.current, items) : items;
         historyKeyRef.current = filters.key;
@@ -504,10 +534,12 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         if (mode !== "append") setHistoryTotal(data.total ?? null);
         setHistoryWarnings(data.warnings ?? []);
         publishRows();
+        return true;
       } catch (e) {
         if (requestId === historyRequest.current) {
           setHistoryError(e instanceof Error ? e.message : "連線失敗");
         }
+        return false;
       } finally {
         if (requestId === historyRequest.current) {
           setHistoryLoading(false);
@@ -519,7 +551,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   );
 
   const fetchReservations = useCallback(async (showLoading = true) => {
-    if (currentBranch.current !== branchId) return;
+    if (currentBranch.current !== branchId) return false;
     const generation = branchGeneration.current;
     const requestId = ++activeRequest.current;
     const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation && activeRequest.current === requestId;
@@ -527,46 +559,74 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       activeRowsRef.current = [];
       setReservations([]);
       setLoading(false);
-      return;
+      return false;
     }
     if (showLoading || verificationRequired.current) setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams({ branchId, scope: "active", _t: String(Date.now()) });
-      const res = await fetch(`${RESERVATIONS_API}?${params.toString()}`);
-      const data = (await res.json().catch(() => ({}))) as ReservationListResponse;
-      if (!isCurrent()) return;
+      const res = await fetchWithTimeout(`${RESERVATIONS_API}?${params.toString()}`);
+      const payload: unknown = await readJsonWithTimeout(res).catch(() => null);
+      if (!isCurrent()) return false;
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("無法載入訂位，請重試");
+      const data = payload as ReservationListResponse;
       if (!res.ok) {
         setError(data.error ?? "無法載入訂位");
         if (showLoading || verificationRequired.current) {
           activeRowsRef.current = [];
           publishRows();
         }
+        return false;
       } else {
-        activeRowsRef.current = data.items ?? [];
-        verificationRequired.current = false;
+        if (!isReservationRows(data.items)) throw new Error("無法載入訂位，請重試");
+        activeRowsRef.current = data.items;
+        if (verificationRequired.current && !verificationInProgress.current) setError("請重新核對訂位資料後再繼續。");
         setActiveWarnings(data.warnings ?? []);
         publishRows();
       }
     } catch (e) {
-      if (!isCurrent()) return;
+      if (!isCurrent()) return false;
       setError(e instanceof Error ? e.message : "連線失敗");
       if (showLoading || verificationRequired.current) {
         activeRowsRef.current = [];
         publishRows();
       }
+      return false;
     } finally {
       if (isCurrent()) setLoading(false);
     }
     // 歷史紀錄已載入過才一起刷新（保留已載入的筆數）
     if (isCurrent() && historyKeyRef.current !== null) void fetchHistory("refresh");
+    return isCurrent();
   }, [branchId, fetchHistory, publishRows]);
 
   const refreshAfterMutation = useCallback(async () => {
     if (currentBranch.current !== branchId) return;
+    const generation = branchGeneration.current;
+    const requestId = ++verificationRequest.current;
+    const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation && verificationRequest.current === requestId;
     verificationRequired.current = true;
-    await fetchReservations(true);
-  }, [branchId, fetchReservations]);
+    verificationInProgress.current = true;
+    // A history request may have started before this mutation and may still
+    // be pending even though no history page has been published yet.
+    historyRequest.current += 1;
+    setHistoryLoading(false);
+    setHistoryLoadingMore(false);
+    setVerificationPending(true);
+    const activeOk = await fetchReservations(true);
+    if (!isCurrent()) return;
+    const needsHistory = activeTab === "history" || historyKeyRef.current !== null;
+    const historyOk = activeOk && (!needsHistory || await fetchHistory(historyKeyRef.current === null ? "replace" : "refresh"));
+    if (!isCurrent()) return;
+    verificationInProgress.current = false;
+    if (activeOk && historyOk) {
+      verificationRequired.current = false;
+    } else {
+      verificationRequired.current = true;
+      setError((current) => current ?? "無法核對訂位資料，請重試。");
+    }
+    setVerificationPending(false);
+  }, [activeTab, branchId, fetchHistory, fetchReservations]);
 
   // An earlier request may finish while this branch is being revisited. Reload
   // before allowing an editor to act on the older snapshot.
@@ -606,8 +666,8 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     const generation = branchGeneration.current;
     const isCurrent = () => active && currentBranch.current === branchId && branchGeneration.current === generation;
     setBranchConfigStatus("loading");
-    fetch(`/api/branches`)
-      .then((res) => { if (!res.ok) throw new Error("branch config unavailable"); return res.json(); })
+    fetchWithTimeout(`/api/branches`)
+      .then((res) => { if (!res.ok) throw new Error("branch config unavailable"); return readJsonWithTimeout(res); })
       .then((list: unknown) => {
         if (!isCurrent()) return;
         const found = Array.isArray(list)
@@ -615,7 +675,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
               (b) => (b as { id?: string }).id === branchId
             )
           : null;
-        if (!found || !Object.hasOwn(found, "payment_info") || !Object.hasOwn(found, "line_pay_url")) throw new Error("branch config unavailable");
+        if (!found || !Object.prototype.hasOwnProperty.call(found, "payment_info") || !Object.prototype.hasOwnProperty.call(found, "line_pay_url")) throw new Error("branch config unavailable");
         setBranchConfig(found as BranchPaymentConfig);
         setBranchConfigStatus("ready");
       })
@@ -720,18 +780,20 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     const generation = branchGeneration.current;
     const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation;
     const reservationId = editing.id;
-    if (!beginReservationMutation(reservationId)) {
+    if (!beginMutation(reservationId)) {
       setEditError("此訂位正在處理，請稍候並重新確認資料。");
       return;
     }
     setEditSubmitting(true);
     setEditError(null);
+    let requestStarted = false;
     try {
       const start = new Date(`${editDate}T${editTime}:00+08:00`);
       const end = new Date(start.getTime() + editDuration * 60 * 60 * 1000);
       const totalPrice =
         editTotalPrice === "" ? null : Number(editTotalPrice);
-      const res = await fetch(`${RESERVATIONS_API}/${editing.id}`, {
+      requestStarted = true;
+      const res = await fetchWithTimeout(`${RESERVATIONS_API}/${editing.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -745,19 +807,27 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
           status: editStatus,
         }),
       });
-      const data = await res.json();
+      const data = responseObject(await readJsonWithTimeout(res)) as { ok?: boolean; error?: string } | null;
+      if (!res.ok || data?.ok !== true) markReservationMutationUnknown(reservationId);
       if (!isCurrent()) return;
       setEditSubmitting(false);
       if (!res.ok) {
-        setEditError((data as { error?: string })?.error ?? "無法更新");
+        closeEdit();
+        showToast(`${data?.error ?? "無法確認編輯結果"}；請核對最新資料後再操作。`, "error");
+        await refreshAfterMutation();
         return;
       }
+      if (data?.ok !== true) throw new Error("unknown result");
       closeEdit();
       await refreshAfterMutation();
     } catch (e) {
+      if (requestStarted) markReservationMutationUnknown(reservationId);
       if (!isCurrent()) return;
       setEditSubmitting(false);
-      setEditError(e instanceof Error ? e.message : "連線失敗");
+      if (!requestStarted) { setEditError(e instanceof Error ? e.message : "無法更新"); return; }
+      closeEdit();
+      showToast("無法確認編輯結果；請核對最新資料後再操作。", "error");
+      await refreshAfterMutation();
     } finally {
       endReservationMutation(reservationId);
     }
@@ -772,25 +842,31 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       "確定要還原這筆訂位嗎？原時段若已被其他訂位佔用將無法還原。還原不會改變付款狀態，也不會自動傳 LINE 給客人；先點的餐需重新確認。"
     );
     if (!ok || !isCurrent()) return;
-    if (!beginReservationMutation(id)) { showToast("此訂位正在處理，請稍候並重新確認資料。", "info"); return; }
+    if (!beginMutation(id)) { showToast("此訂位正在處理，請稍候並重新確認資料。", "info"); return; }
     setRestoringId(id);
     try {
-      const res = await fetch(`${RESERVATIONS_API}/${id}`, {
+      const res = await fetchWithTimeout(`${RESERVATIONS_API}/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ intent: "restore" }),
       });
+      const data = responseObject(await readJsonWithTimeout(res).catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (res.status >= 500 || !data || (res.ok && data.ok !== true)) markReservationMutationUnknown(id);
       if (!isCurrent()) return;
       if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        if (!isCurrent()) return;
-        showToast(data.error ?? "還原失敗，請重新整理後再試", "error");
+        showToast(`${data?.error ?? "無法確認還原結果"}；請核對最新資料後再操作。`, "error");
+        await refreshAfterMutation();
         return;
       }
+      if (data?.ok !== true) throw new Error("unknown result");
       showToast("已還原訂位", "success");
       await refreshAfterMutation();
     } catch {
-      if (isCurrent()) showToast("連線失敗，還原未完成", "error");
+      markReservationMutationUnknown(id);
+      if (isCurrent()) {
+        showToast("無法確認還原結果；請核對最新資料後再操作。", "error");
+        await refreshAfterMutation();
+      }
     } finally {
       endReservationMutation(id);
       if (isCurrent()) setRestoringId(null);
@@ -808,28 +884,25 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     if (currentBranch.current !== branchId) return;
     const generation = branchGeneration.current;
     const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation;
-    if (!beginReservationMutation(id)) { showToast("此訂位正在處理，請稍候並重新確認資料。", "info"); return; }
+    if (!beginMutation(id)) { showToast("此訂位正在處理，請稍候並重新確認資料。", "info"); return; }
     setReservations((list) =>
       list.map((r) => (r.id === id ? { ...r, status } : r))
     );
     try {
-      const res = await fetch(`${RESERVATIONS_API}/${id}`, {
+      const res = await fetchWithTimeout(`${RESERVATIONS_API}/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
+      const data = responseObject(await readJsonWithTimeout(res).catch(() => null)) as { ok?: boolean; error?: string; lineResult?: string | null } | null;
+      if (res.status >= 500 || !data || (res.ok && data.ok !== true)) markReservationMutationUnknown(id);
       if (!isCurrent()) return;
       if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        if (!isCurrent()) return;
-        showToast(data.error ?? "狀態更新失敗，請重新整理後再試", "error");
+        showToast(data?.error ?? "無法確認狀態更新結果", "error");
         await refreshAfterMutation();
         return;
       }
-      const data = (await res.json().catch(() => ({}))) as {
-        lineResult?: string | null;
-      };
-      if (!isCurrent()) return;
+      if (data?.ok !== true) throw new Error("unknown result");
       await refreshAfterMutation();
       if (!isCurrent()) return;
       const lineResult = data.lineResult;
@@ -843,6 +916,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         showToast(`訂位已更新，但 LINE 繳費通知未發送：${lineResult}`, "error");
       }
     } catch {
+      markReservationMutationUnknown(id);
       if (!isCurrent()) return;
       showToast("連線中斷，狀態可能已更新；請先重新整理確認。", "error");
       await refreshAfterMutation();
@@ -863,7 +937,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       );
       if (!ok || !isCurrent()) return;
     }
-    if (!beginReservationMutation(id)) { showToast("此訂位正在處理，請稍候並重新確認資料。", "info"); return; }
+    if (!beginMutation(id)) { showToast("此訂位正在處理，請稍候並重新確認資料。", "info"); return; }
     setReservations((list) =>
       list.map((r) =>
         r.id === id ? { ...r, is_deposit_paid, ...info } : r
@@ -871,23 +945,20 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     );
     try {
       const payload: { is_deposit_paid: boolean } & Partial<DepositInfo> = { is_deposit_paid, ...info };
-      const res = await fetch(`${RESERVATIONS_API}/${id}`, {
+      const res = await fetchWithTimeout(`${RESERVATIONS_API}/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      const data = responseObject(await readJsonWithTimeout(res).catch(() => null)) as { ok?: boolean; error?: string; paymentNotification?: { status?: string; error?: string } | null } | null;
+      if (res.status >= 500 || !data || (res.ok && data.ok !== true)) markReservationMutationUnknown(id);
       if (!isCurrent()) return;
       if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        if (!isCurrent()) return;
-        showToast(data.error ?? "訂金狀態更新失敗，請重新整理後再試", "error");
+        showToast(data?.error ?? "無法確認訂金狀態更新結果", "error");
         await refreshAfterMutation();
         return;
       }
-      const data = (await res.json().catch(() => ({}))) as {
-        paymentNotification?: { status?: string; error?: string } | null;
-      };
-      if (!isCurrent()) return;
+      if (data?.ok !== true) throw new Error("unknown result");
       await refreshAfterMutation();
       if (!isCurrent()) return;
       if (
@@ -903,6 +974,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         showToast(is_deposit_paid ? "已核准訂金並記錄" : "已改為未付訂金", "success");
       }
     } catch {
+      markReservationMutationUnknown(id);
       if (!isCurrent()) return;
       showToast("連線中斷，訂金狀態可能已更新；請先重新整理確認。", "error");
       await refreshAfterMutation();
@@ -915,28 +987,30 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     if (currentBranch.current !== branchId) return;
     const generation = branchGeneration.current;
     const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation;
-    if (!beginReservationMutation(id)) { showToast("此訂位正在處理，請稍候並重新確認資料。", "info"); return; }
+    if (!beginMutation(id)) { showToast("此訂位正在處理，請稍候並重新確認資料。", "info"); return; }
     setReservations((list) =>
       list.map((r) => (r.id === id ? { ...r, ...info } : r))
     );
     try {
-      const res = await fetch(`${RESERVATIONS_API}/${id}`, {
+      const res = await fetchWithTimeout(`${RESERVATIONS_API}/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(info),
       });
+      const data = responseObject(await readJsonWithTimeout(res).catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (res.status >= 500 || !data || (res.ok && data.ok !== true)) markReservationMutationUnknown(id);
       if (!isCurrent()) return;
       if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        if (!isCurrent()) return;
-        showToast(data.error ?? "付款資料更新失敗", "error");
+        showToast(data?.error ?? "無法確認付款資料更新結果", "error");
         await refreshAfterMutation();
         return;
       }
+      if (data?.ok !== true) throw new Error("unknown result");
       await refreshAfterMutation();
       if (!isCurrent()) return;
       showToast("已更新付款資料", "success");
     } catch {
+      markReservationMutationUnknown(id);
       if (!isCurrent()) return;
       showToast("連線中斷，付款資料可能已更新；請先重新整理確認。", "error");
       await refreshAfterMutation();
@@ -949,18 +1023,25 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     if (currentBranch.current !== branchId) return;
     const generation = branchGeneration.current;
     const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation;
-    if (!beginReservationMutation(id)) { showToast("此訂位正在處理，請稍候並重新確認資料。", "info"); return; }
+    if (!beginMutation(id)) { showToast("此訂位正在處理，請稍候並重新確認資料。", "info"); return; }
     try {
-      const res = await fetch(`${RESERVATIONS_API}/${id}`, { method: "DELETE" });
+      const res = await fetchWithTimeout(`${RESERVATIONS_API}/${id}`, { method: "DELETE" });
+      const data = responseObject(await readJsonWithTimeout(res).catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (res.status >= 500 || !data || (res.ok && data.ok !== true)) markReservationMutationUnknown(id);
       if (!isCurrent()) return;
       if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        if (isCurrent()) showToast(data.error ?? "刪除失敗", "error");
+        showToast(`${data?.error ?? "無法確認刪除結果"}；請核對最新資料後再操作。`, "error");
+        await refreshAfterMutation();
         return;
       }
+      if (data?.ok !== true) throw new Error("unknown result");
       await refreshAfterMutation();
     } catch {
-      if (isCurrent()) showToast("連線失敗，請重新整理確認刪除結果。", "error");
+      markReservationMutationUnknown(id);
+      if (isCurrent()) {
+        showToast("無法確認刪除結果；請核對最新資料後再操作。", "error");
+        await refreshAfterMutation();
+      }
     } finally {
       endReservationMutation(id);
     }
@@ -977,14 +1058,14 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     if (!ok || !isCurrent()) return;
     setSendingLine(true);
     try {
-      const res = await fetch("/api/admin/reminders/send-line", { method: "POST" });
-      const data = await res.json();
+      const res = await fetchWithTimeout("/api/admin/reminders/send-line", { method: "POST" });
+      const data = await readJsonWithTimeout<{ error?: string; message?: string; sent?: number }>(res);
       if (!isCurrent()) return;
       if (!res.ok) throw new Error(data.error || "發送失敗");
       showToast(data.message || `成功發送，共 ${data.sent} 筆`, "success");
       fetchReservations(false);
-    } catch (err) {
-      if (isCurrent()) showToast(err instanceof Error ? err.message : "發生未知錯誤", "error");
+    } catch {
+      if (isCurrent()) showToast("無法確認提醒是否已送出；請先核對通知紀錄，勿立即重送。", "error");
     } finally {
       if (isCurrent()) setSendingLine(false);
     }
@@ -992,21 +1073,24 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
 
   const sendPaymentRequest = async (id: string) => {
     if (currentBranch.current !== branchId) return;
-    if (!beginReservationMutation(id)) { showToast("此訂位正在處理，請稍候並重新確認資料。", "info"); return; }
+    if (!beginMutation(id)) { showToast("此訂位正在處理，請稍候並重新確認資料。", "info"); return; }
     const generation = branchGeneration.current;
     const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation;
     try {
-      const res = await fetch("/api/reservations/send-line", {
+      const res = await fetchWithTimeout("/api/reservations/send-line", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
       });
-      const data = await res.json();
+      const data = responseObject(await readJsonWithTimeout(res).catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (res.status >= 500 || !data || (res.ok && data.ok !== true)) markReservationMutationUnknown(id);
       if (!isCurrent()) return;
       if (!res.ok && res.status >= 500) showToast("無法確認 LINE 是否已接受，請先核對通知紀錄，勿立即重送。", "error");
-      else if (!res.ok) showToast(`傳送失敗：${(data as { error?: string }).error}`, "error");
+      else if (!res.ok) showToast(`傳送失敗：${data?.error ?? "無法確認結果"}`, "error");
+      else if (data?.ok !== true) showToast("無法確認 LINE 是否已接受，請先核對通知紀錄，勿立即重送。", "error");
       else showToast("LINE 平台已接受繳費通知（不代表客人手機已收到）", "success");
     } catch {
+      markReservationMutationUnknown(id);
       if (isCurrent()) showToast("無法確認 LINE 是否已接受，請先核對通知紀錄，勿立即重送。", "error");
     } finally {
       endReservationMutation(id);
@@ -1021,7 +1105,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     );
   }
 
-  if (loading) {
+  if (loading || verificationPending) {
     return (
       <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-gray-500">
         載入中…
@@ -1033,7 +1117,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     return (
       <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">
         <p role="alert">{error}</p>
-        <button type="button" onClick={() => void fetchReservations(true)} className="mt-2 rounded border border-red-300 bg-white px-3 py-2 text-sm">重試</button>
+        <button type="button" onClick={() => void (verificationRequired.current ? refreshAfterMutation() : fetchReservations(true))} className="mt-2 rounded border border-red-300 bg-white px-3 py-2 text-sm">重試</button>
       </div>
     );
   }
@@ -1111,6 +1195,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     sortedList.forEach((r) => displayList.push({ type: "item", item: r }));
   }
   const visibleReservationIds = new Set(sortedList.map((reservation) => reservation.id));
+  const uncertainReservations = [...pendingMutations].filter(([, state]) => state.branchId === branchId && state.outcome === "unknown");
   const visibleSelectedCount = selectedReservationIds.filter((id) => visibleReservationIds.has(id)).length;
   const hiddenSelectedCount = selectedReservationIds.length - visibleSelectedCount;
   const selectableIds = sortedList.filter((reservation) => !pendingMutations.has(reservation.id)).map((reservation) => reservation.id);
@@ -1219,6 +1304,21 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
           部分資料暫時無法載入：{listWarnings.join("、")}。列表仍可使用，可稍後重新整理。
         </p>
       )}
+
+      {uncertainReservations.length > 0 && <div role="alert" className="mx-4 mb-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <p>以下訂位的操作結果尚未確認：{uncertainReservations.map(([, state]) => state.label).join("、")}。請先核對訂位、付款或通知紀錄；原請求仍可能稍後完成。</p>
+        <button type="button" className="mt-2 rounded border border-amber-400 bg-white px-3 py-2" onClick={async () => {
+          const generation = branchGeneration.current;
+          const acknowledged = uncertainReservations;
+          const ok = await openConfirm("解除待確認", "請先與店員核對列出的每筆操作及相關紀錄。原請求仍可能稍後完成，解除後再操作可能重複。確認已核對並要解除嗎？");
+          if (!ok || currentBranch.current !== branchId || branchGeneration.current !== generation) return;
+          for (const [id, state] of acknowledged) {
+            stalePendingMutations.current.delete(id);
+            clearReservationMutationUnknown(id, state);
+          }
+          await refreshAfterMutation();
+        }}>核對後解除待確認</button>
+      </div>}
 
       {branchConfigStatus === "loading" && <p role="status" className="mx-4 mb-3 text-sm text-gray-600">正在讀取分店繳費設定，暫無法複製繳費通知。</p>}
       {branchConfigStatus === "error" && <p role="status" className="mx-4 mb-3 text-sm text-amber-800">無法讀取或無權查看分店繳費設定，暫無法複製繳費通知。 <button type="button" className="underline" onClick={() => { setBranchConfigStatus("loading"); setBranchConfigRetry((value) => value + 1); }}>重試</button></p>}
