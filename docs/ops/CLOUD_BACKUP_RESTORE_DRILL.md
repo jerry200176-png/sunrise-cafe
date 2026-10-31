@@ -166,12 +166,22 @@ and step summary contain no role list. The dump itself preserves ACL names and
 is included only inside the age-encrypted bundle. `backup_login` credentials
 and role definitions are not part of this schema-only dump.
 
-For a local synthetic regression of the ACL failure/recovery path, run
-`bash scripts/db-drill/test-restore-role-stub.sh`. It requires Docker, creates
-two PostgreSQL 17 containers with no published ports and no network, and uses
-only generated rows/roles. All database output is suppressed; it emits one
-fixed pass line or a fixed stage name. It does not read a DSN or create an
-artifact and is not part of the production backup workflow.
+For a local synthetic regression of the ACL failure/recovery path, install the
+repository's Node dependencies and run
+`bash scripts/db-drill/test-restore-role-stub.sh`. It requires Node dependencies
+and Docker, creates two PostgreSQL 17 containers with no published ports and no
+network, and uses only generated rows/roles. It extracts and executes the exact
+restore-preparation SQL heredoc from the workflow. All database output is
+suppressed; it emits one fixed pass line or a fixed stage name. It does not read
+a DSN or create an artifact and is not part of the production backup workflow.
+
+The synthetic test also creates a separate non-login table owner with default
+privileges, dumps with `--no-owner`, and proves the exact restore SQL does not
+invent a role for it: the restore fails closed on the missing `FOR ROLE` owner
+and rolls back. This is an explicit blocker for a real drill until the actual
+object/default-ACL owner set is reviewed and the isolated restore prerequisites
+are updated with only approved fixed stubs. The workflow must not enumerate or
+publish the source role catalog to discover those names.
 
 Because this is public-schema only, a real recovery also has to re-create
 what lives outside `public`:

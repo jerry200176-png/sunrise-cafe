@@ -202,9 +202,9 @@ jobs:
           CREATE ROLE authenticated NOLOGIN;
           CREATE ROLE service_role NOLOGIN BYPASSRLS;
           CREATE ROLE supabase_admin NOLOGIN;
-          # Fixed, unprivileged ACL target for the separate #461 backup role.
-          # This is only a stub inside the disposable restore service: no login,
-          # no BYPASSRLS, no credentials, and no source-role enumeration.
+          -- Fixed, unprivileged ACL target for the separate #461 backup role.
+          -- This is only a stub inside the disposable restore service: no login,
+          -- no BYPASSRLS, no credentials, and no source-role enumeration.
           CREATE ROLE backup_ro NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
           CREATE SCHEMA IF NOT EXISTS extensions;
           CREATE EXTENSION IF NOT EXISTS btree_gist SCHEMA extensions;

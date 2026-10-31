@@ -117,6 +117,11 @@ describe("db-backup-restore-drill workflow (static)", () => {
       "CREATE ROLE backup_ro NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;"
     );
     expect(restore?.run).toContain("drill_quiet restore-prepare");
+    const prepareSql = restore?.run?.match(
+      /drill_quiet restore-prepare - psql[^\n]*<<'SQL'\n([\s\S]*?)\nSQL(?:\n|$)/
+    )?.[1];
+    expect(prepareSql).toContain("-- Fixed, unprivileged ACL target");
+    expect(prepareSql).not.toMatch(/^\s*#/m);
     expect(restore?.run).toContain('cmp -s "${PLAIN_DIR}/source.counts" "${PLAIN_DIR}/restore.counts"');
     expect(restore?.run).toContain('cmp -s "${PLAIN_DIR}/source.identity" "${PLAIN_DIR}/restore.identity"');
   });
