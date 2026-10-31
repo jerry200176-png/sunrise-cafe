@@ -133,6 +133,8 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   const depositDialogRef = useRef<Reservation | null>(null);
   const [depositStale, setDepositStale] = useState(false);
   const depositStaleRef = useRef(false);
+  const depositLockedRef = useRef<string | null>(null);
+  const [depositMinimized, setDepositMinimized] = useState(false);
   const [editName, setEditName] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editDate, setEditDate] = useState("");
@@ -526,8 +528,10 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     setEditing(null);
     depositDialogRef.current = null;
     depositStaleRef.current = false;
+    depositLockedRef.current = null;
     setDepositDialog(null);
     setDepositStale(false);
+    setDepositMinimized(false);
     editingRef.current = null;
     editStaleRef.current = false;
     setEditStale(false);
@@ -704,6 +708,19 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     }
     setVerificationPending(false);
   }, [activeTab, branchId, fetchHistory, fetchReservations, focusReservationId, loadFocusedReservation, publishRows]);
+
+  useLayoutEffect(() => {
+    const row = depositDialogRef.current;
+    if (!row) { depositLockedRef.current = null; return; }
+    if (pendingMutations.has(row.id)) {
+      depositLockedRef.current = row.id;
+      depositStaleRef.current = true;
+      setDepositStale(true);
+    } else if (depositLockedRef.current === row.id) {
+      depositLockedRef.current = null;
+      void refreshAfterMutation();
+    }
+  }, [pendingMutations, refreshAfterMutation]);
 
   // An earlier request may finish while this branch is being revisited. Reload
   // before allowing an editor to act on the older snapshot.
@@ -1213,11 +1230,13 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   const closeDepositDialog = () => {
     depositDialogRef.current = null;
     depositStaleRef.current = false;
+    depositLockedRef.current = null;
     setDepositDialog(null);
     setDepositStale(false);
+    setDepositMinimized(false);
   };
   const openDepositDialog = (row: Reservation) => {
-    if (realtimePendingRef.current || verificationRequired.current || currentBranch.current !== branchId || activeRowsRef.current.find((item) => item.id === row.id) !== row) {
+    if (reservationMutationsSnapshot().has(row.id) || realtimePendingRef.current || verificationRequired.current || currentBranch.current !== branchId || activeRowsRef.current.find((item) => item.id === row.id) !== row) {
       showToast("資料已更新，請重新核對付款資訊。", "info");
       return;
     }
@@ -1227,28 +1246,38 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     setDepositDialog(row);
   };
   const latestDepositRow = depositDialog && activeRowsRef.current.find((row) => row.id === depositDialog.id);
+  const depositMutation = depositDialog && pendingMutations.get(depositDialog.id);
   const canReviewDeposit = Boolean(latestDepositRow && !loading && !verificationPending && !error && !realtimePending && !pendingMutations.has(latestDepositRow.id));
   const withDepositDialog = (content: React.ReactNode) => (
     <>
       {content}
+      {depositDialog && depositMinimized && <button type="button" className="fixed bottom-4 right-4 z-50 rounded-lg bg-amber-700 px-4 py-3 text-white" onClick={() => setDepositMinimized(false)}>回到未送出的付款資料</button>}
       {depositDialog && <DepositPaidDialog
         title={depositDialog.is_deposit_paid ? "修改付款資料" : "核准訂金"}
         initial={depositDialog}
-        reviewMessage={depositStale ? canReviewDeposit && latestDepositRow
+        reviewMessage={depositMutation ? "此訂位有操作正在處理或結果待核對；目前輸入已保留，請先核對並等待處理完成。" : depositStale ? canReviewDeposit && latestDepositRow
           ? `資料已更新。最新狀態：${latestDepositRow.is_deposit_paid ? "已付訂金" : "未付訂金"}；${transferInfoLabel(latestDepositRow) || "無匯款資料"}；備註：${latestDepositRow.deposit_payment_note || "無"}；待審核 ${latestDepositRow.pending_payment_reviews ?? 0} 筆。請核對後再繼續。`
           : "資料正在核對或訂位已不在目前清單，請勿送出；已輸入內容會保留。"
           : undefined}
         onReview={depositStale && canReviewDeposit && latestDepositRow ? () => {
-          if (realtimePendingRef.current || verificationRequired.current || activeRowsRef.current.find((row) => row.id === latestDepositRow.id) !== latestDepositRow) return;
+          if (reservationMutationsSnapshot().has(latestDepositRow.id) || realtimePendingRef.current || verificationRequired.current || activeRowsRef.current.find((row) => row.id === latestDepositRow.id) !== latestDepositRow) return;
           depositDialogRef.current = latestDepositRow;
           depositStaleRef.current = false;
           setDepositDialog(latestDepositRow);
           setDepositStale(false);
         } : undefined}
         onRetry={depositStale && error && !loading && !verificationPending ? () => void refreshAfterMutation() : undefined}
+        onMinimize={depositMutation ? () => setDepositMinimized(true) : undefined}
+        minimized={depositMinimized}
         onCancel={closeDepositDialog}
         onConfirm={(info) => {
           const row = depositDialogRef.current;
+          if (row && reservationMutationsSnapshot().has(row.id)) {
+            depositStaleRef.current = true;
+            setDepositStale(true);
+            showToast("此訂位正在處理或待核對；付款資料已保留。", "info");
+            return;
+          }
           if (!row || depositStaleRef.current || realtimePendingRef.current || verificationRequired.current || currentBranch.current !== branchId || activeRowsRef.current.find((item) => item.id === row.id) !== row) {
             depositStaleRef.current = true;
             setDepositStale(true);
@@ -1745,6 +1774,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                       onUpdateDepositInfo={updateDepositInfo}
                       onOpenConfirm={openConfirm}
                       onOpenDepositDialog={openDepositDialog}
+                      disabled={realtimePending || pendingMutations.has(r.id)}
                     />
                   </div>
                 )}

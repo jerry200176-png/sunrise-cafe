@@ -15,6 +15,7 @@ interface DepositStatusControlProps {
   onUpdateDepositInfo: (id: string, info: DepositInfo) => Promise<void>;
   onOpenConfirm?: (title: string, message: string) => Promise<boolean>;
   onOpenDepositDialog?: (reservation: Reservation) => void;
+  disabled?: boolean;
   variant?: "desktop" | "mobile";
 }
 
@@ -25,6 +26,7 @@ export function DepositStatusControl({
   onUpdateDepositInfo,
   onOpenConfirm,
   onOpenDepositDialog,
+  disabled = false,
   variant = "desktop",
 }: DepositStatusControlProps) {
   const [loading, setLoading] = useState(false);
@@ -38,7 +40,7 @@ export function DepositStatusControl({
 
   // 核准（未付）或修改付款資料（已付）都走同一個表單，讓店員留下對帳資訊
   const openDialog = async () => {
-    if (loading) return;
+    if (loading || disabled) return;
     if (!isPaid && hasPendingReviews && onOpenConfirm) {
       const ok = await onOpenConfirm(
         "付款待審核提醒",
@@ -63,7 +65,7 @@ export function DepositStatusControl({
 
   // 4. Reset back to unpaid
   const handleMarkUnpaid = async () => {
-    if (loading) return;
+    if (loading || disabled) return;
     if (onOpenConfirm) {
       const ok = await onOpenConfirm(
         "改回未付訂金",
@@ -170,7 +172,7 @@ export function DepositStatusControl({
           <>
             <button
               type="button"
-              disabled={loading}
+              disabled={loading || disabled}
               onClick={openDialog}
               className="inline-flex min-h-[34px] items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
             >
@@ -182,7 +184,7 @@ export function DepositStatusControl({
           <>
             <button
               type="button"
-              disabled={loading}
+              disabled={loading || disabled}
               onClick={openDialog}
               className="inline-flex min-h-[30px] items-center justify-center gap-1 rounded-lg border border-stone-300 bg-white px-2.5 py-1 text-xs font-medium text-stone-700 hover:bg-stone-50 disabled:opacity-50"
             >
@@ -193,7 +195,7 @@ export function DepositStatusControl({
             {/* Reset to Unpaid */}
             <button
               type="button"
-              disabled={loading}
+              disabled={loading || disabled}
               onClick={handleMarkUnpaid}
               className="inline-flex min-h-[30px] items-center justify-center gap-1 rounded-lg border border-red-200 bg-white px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
             >

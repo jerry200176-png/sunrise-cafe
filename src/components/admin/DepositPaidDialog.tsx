@@ -30,9 +30,11 @@ type DepositPaidDialogProps = {
   reviewMessage?: string;
   onReview?: () => void;
   onRetry?: () => void;
+  onMinimize?: () => void;
+  minimized?: boolean;
 };
 
-export function DepositPaidDialog({ title, initial, onConfirm, onCancel, reviewMessage, onReview, onRetry }: DepositPaidDialogProps) {
+export function DepositPaidDialog({ title, initial, onConfirm, onCancel, reviewMessage, onReview, onRetry, onMinimize, minimized = false }: DepositPaidDialogProps) {
   const hasOtherInfo = Boolean(initial?.deposit_payment_note) && !initial?.deposit_last_five;
   const [method, setMethod] = useState<Method>(hasOtherInfo ? "other" : "transfer");
   const [paidOn, setPaidOn] = useState(
@@ -63,6 +65,7 @@ export function DepositPaidDialog({ title, initial, onConfirm, onCancel, reviewM
       role="dialog"
       aria-modal="true"
       aria-labelledby="deposit-paid-dialog-title"
+      style={minimized ? { display: "none" } : undefined}
       onClick={onCancel}
     >
       <form
@@ -143,6 +146,7 @@ export function DepositPaidDialog({ title, initial, onConfirm, onCancel, reviewM
           <p>{reviewMessage}</p>
           {onReview && <button type="button" onClick={onReview} className="mt-2 underline">已核對最新資料，繼續編輯</button>}
           {onRetry && <button type="button" onClick={onRetry} className="mt-2 underline">重新讀取</button>}
+          {onMinimize && <button type="button" onClick={onMinimize} className="mt-2 block underline">暫時收起並核對</button>}
         </div>}
         <div className="flex gap-2 border-t border-gray-100 px-4 py-3">
           <button

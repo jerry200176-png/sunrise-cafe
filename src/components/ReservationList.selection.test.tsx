@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ReservationList } from "./ReservationList";
-import { clearReservationMutationUnknown, endReservationMutation, reservationMutationsSnapshot } from "@/lib/admin-reservation-mutation-lock";
+import { beginReservationMutation, clearReservationMutationUnknown, endReservationMutation, markReservationMutationUnknown, reservationMutationsSnapshot } from "@/lib/admin-reservation-mutation-lock";
 
 const realtime = vi.hoisted(() => ({ handlers: [] as Array<(payload?: { new?: { id?: string }; old?: { id?: string } }) => void> }));
 vi.mock("@/lib/supabase", () => ({ supabase: {
@@ -114,6 +114,41 @@ describe("reservation selection visibility", () => {
 });
 
 describe("branch-scoped reservation requests", () => {
+  it.each(["inflight", "unknown"])("preserves a payment draft when the reservation is %s", async (outcome) => {
+    mockFetch();
+    const user = userEvent.setup();
+    render(<ReservationList branchId="b1" rooms={[]} />);
+    const selected = await screen.findByRole("checkbox", { name: /選取 甲 A01/ });
+    const row = selected.closest("li")!;
+    act(() => { beginReservationMutation("one", "b1", "A01"); });
+    expect((within(row).getByRole("button", { name: /核准訂金/ }) as HTMLButtonElement).disabled).toBe(true);
+    act(() => { endReservationMutation("one"); });
+    await user.click(within(row).getByRole("button", { name: /核准訂金/ }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("帳號末五碼"), { target: { value: "12345" } });
+    fireEvent.change(within(dialog).getByLabelText("備註（選填）"), { target: { value: "保留草稿" } });
+    act(() => {
+      beginReservationMutation("one", "b1", "A01");
+      if (outcome === "unknown") markReservationMutationUnknown("one");
+    });
+    expect(within(dialog).getByRole("alert").textContent).toContain("目前輸入已保留");
+    expect((within(dialog).getByRole("button", { name: "確認" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.submit(within(dialog).getByRole("button", { name: "確認" }).closest("form")!);
+    expect((within(dialog).getByLabelText("帳號末五碼") as HTMLInputElement).value).toBe("12345");
+    await user.click(within(dialog).getByRole("button", { name: "暫時收起並核對" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    act(() => {
+      const state = reservationMutationsSnapshot().get("one")!;
+      if (state.outcome === "unknown") clearReservationMutationUnknown("one", state);
+      else endReservationMutation("one");
+    });
+    await user.click(screen.getByRole("button", { name: "回到未送出的付款資料" }));
+    await waitFor(() => expect(within(screen.getByRole("dialog")).getByRole("button", { name: "已核對最新資料，繼續編輯" })).toBeTruthy());
+    expect((within(screen.getByRole("dialog")).getByLabelText("帳號末五碼") as HTMLInputElement).value).toBe("12345");
+    expect((within(screen.getByRole("dialog")).getByLabelText("備註（選填）") as HTMLInputElement).value).toBe("保留草稿");
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
+  });
+
   it("retains a payment draft after a failed refresh and prevents approval if the row disappears", async () => {
     let reads = 0;
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
