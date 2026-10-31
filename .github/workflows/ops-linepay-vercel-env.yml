@@ -7,7 +7,10 @@ on:
       - 'scripts/ops-linepay-vercel-env.sh'
       - 'scripts/run-linepay-vercel-env-safely.sh'
       - 'scripts/sanitize-linepay-report.py'
+      - 'scripts/parse-vercel-env-list.py'
       - 'src/lib/ops-linepay-vercel-env.test.ts'
+      - 'src/lib/linepay-evidence-safety.test.ts'
+      - 'src/lib/vercel-env-list-format.test.ts'
       - 'docs/ops/LINE_PAY_SANDBOX_ENV.md'
   workflow_dispatch:
     inputs:
@@ -45,7 +48,7 @@ jobs:
       - run: npm ci
       - name: Validate with simulated Vercel (no production access)
         run: |
-          npx vitest run src/lib/ops-linepay-vercel-env.test.ts src/lib/linepay-evidence-safety.test.ts
+          npx vitest run src/lib/ops-linepay-vercel-env.test.ts src/lib/linepay-evidence-safety.test.ts src/lib/vercel-env-list-format.test.ts
           echo 'PR validation uses a fake Vercel CLI and does not inspect production.' >> "$GITHUB_STEP_SUMMARY"
 
   operate:

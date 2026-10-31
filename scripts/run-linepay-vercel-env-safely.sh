@@ -12,6 +12,8 @@ trap cleanup EXIT
 if ! OUT_DIR="$private_dir/ops" bash "$script_dir/ops-linepay-vercel-env.sh" >"$private_dir/output" 2>&1; then
   if grep -Fxq 'SANDBOX_URL_MISMATCH: existing value is not the expected sandbox URL; no env changed.' "$private_dir/ops/linepay-vercel-env.txt" 2>/dev/null; then
     echo '::error::Existing LINE Pay URL is different or unreadable; no environment change was made.' >&2
+  elif grep -Fxq 'SANDBOX_KEYS_UNVERIFIED: existing LINE Pay keys cannot be identified as sandbox; no env changed.' "$private_dir/ops/linepay-vercel-env.txt" 2>/dev/null; then
+    echo '::error::Existing LINE Pay keys cannot be verified as sandbox; no environment change was made.' >&2
   else
     echo '::error::LINE Pay environment operation failed; raw output withheld.' >&2
   fi

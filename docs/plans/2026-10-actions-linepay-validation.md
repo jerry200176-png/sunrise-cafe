@@ -10,4 +10,6 @@
 
 安全補強：原始 stdout、stderr 和操作報告只寫私有暫存，檢查成功後輸出限定欄位的摘要；偵測疑似 channel 值或任何錯誤都不發布 artifact。sandbox URL 已存在但不相同或無法讀取時，不修改環境並中止後續部署。測試只使用假的 CLI、假的憑證和隔離目錄。
 
+未解決的上線阻礙：目前 Vercel CLI 尚未鎖版，已評估的兩個版本均有高／重大漏洞；CLI 表格也不提供可驗證的完整筆數或分頁資訊。解析器會拒絕未知格式，但無法證明格式正確的表格沒有截斷。這些問題解決並經獨立審查前，不應執行正式環境操作。不得假設任何現有 LINE Pay key 屬於 sandbox。
+
 參考：[GitHub Actions 安全強化](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions) 建議最低權限及限制 secrets；[actions/checkout](https://github.com/actions/checkout)（MIT）以完整 commit SHA 固定。原失敗是 credential-dependent 檢查與 PR 自動驗證耦合，具體 Vercel 錯誤尚無可讀日誌佐證。

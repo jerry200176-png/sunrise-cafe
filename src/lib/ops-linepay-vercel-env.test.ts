@@ -12,7 +12,7 @@ const workflow = readFileSync(
 );
 const fixtureDirs: string[] = [];
 
-function runScript(mode: string, token = "test-token", baseUrl = "https://sandbox-api-pay.line.me", listBase = false, safely = false, failSecondList = false) {
+function runScript(mode: string, token = "test-token", baseUrl = "https://sandbox-api-pay.line.me", listBase = false, safely = false, failSecondList = false, keys = "both") {
   const cwd = mkdtempSync(resolve(tmpdir(), "linepay-env-test-"));
   fixtureDirs.push(cwd);
   const calls = resolve(cwd, "calls.txt");
@@ -25,10 +25,15 @@ if [[ "$1 $2" == "vercel link" ]]; then
 elif [[ "$1 $2 $3" == "vercel env ls" ]]; then
   if [[ "$FAKE_FAIL_SECOND_LIST" == 1 && -e "$FAKE_LIST_MARKER" ]]; then exit 1; fi
   touch "$FAKE_LIST_MARKER"
-  printf 'NAME TARGET CREATED AGE STATUS\\nLINE_PAY_CHANNEL_ID encrypted production now ready\\nLINE_PAY_CHANNEL_SECRET encrypted production now ready\\n'
-  if [[ "$FAKE_LIST_BASE" == 1 ]]; then printf 'LINE_PAY_API_BASE_URL encrypted production now ready\\n'; fi
+  printf 'name value type environments created\\nUNRELATED Hidden Secret production now\\n'
+  if [[ "$FAKE_KEYS" == both || "$FAKE_KEYS" == id ]]; then printf 'LINE_PAY_CHANNEL_ID Hidden Secret production now\\n'; fi
+  if [[ "$FAKE_KEYS" == both || "$FAKE_KEYS" == secret ]]; then printf 'LINE_PAY_CHANNEL_SECRET Hidden Secret production now\\n'; fi
+  if [[ "$FAKE_LIST_BASE" == 1 ]]; then printf 'LINE_PAY_API_BASE_URL Hidden Config production now\\n'; fi
 elif [[ "$1 $2 $3" == "vercel env pull" ]]; then
-  printf 'LINE_PAY_CHANNEL_ID=fake-channel-id-1234\\nLINE_PAY_CHANNEL_SECRET=fake-secret-value-1234\\nLINE_PAY_API_BASE_URL=%s\\n' "$FAKE_URL" > "$4"
+  : > "$4"
+  if [[ "$FAKE_KEYS" == both || "$FAKE_KEYS" == id ]]; then printf 'LINE_PAY_CHANNEL_ID=fake-channel-id-1234\\n' >> "$4"; fi
+  if [[ "$FAKE_KEYS" == both || "$FAKE_KEYS" == secret ]]; then printf 'LINE_PAY_CHANNEL_SECRET=fake-secret-value-1234\\n' >> "$4"; fi
+  printf 'LINE_PAY_API_BASE_URL=%s\\n' "$FAKE_URL" >> "$4"
 elif [[ "$1 $2 $3" == "vercel env add" ]]; then
   cat > "$FAKE_INPUT"
 else
@@ -45,6 +50,7 @@ fi
       NODE_ENV: "test", FAKE_CALLS: calls, MODE: mode, VERCEL_TOKEN: token,
       FAKE_URL: baseUrl, FAKE_LIST_BASE: listBase ? "1" : "0", FAKE_INPUT: resolve(cwd, "input.txt"),
       FAKE_FAIL_SECOND_LIST: failSecondList ? "1" : "0", FAKE_LIST_MARKER: resolve(cwd, "listed"),
+      FAKE_KEYS: keys,
     },
     encoding: "utf8",
   });
@@ -73,17 +79,17 @@ if [[ "$1 $2 $3" == "vercel env ls" ]]; then
   echo "$count" > "$FAKE_COUNT"
   if [[ "$FAKE_SCENARIO" == list_failure && "$count" == 2 ]]; then exit 1; fi
   if [[ "$FAKE_SCENARIO" == preview_list_failure && "$count" == 9 ]]; then exit 1; fi
-  printf 'NAME TARGET CREATED AGE STATUS\\n'
+  printf 'name value type environments created\\nUNRELATED Hidden Secret production now\\n'
   for name in LINE_PAY_CHANNEL_ID LINE_PAY_CHANNEL_SECRET LINE_PAY_API_BASE_URL; do
     if ! grep -Fxq "$4:$name" "$FAKE_REMOVED" 2>/dev/null; then
-      printf '%s encrypted %s now ready\\n' "$name" "$4"
+      printf '%s Hidden Secret %s now\\n' "$name" "$4"
     fi
   done
   if [[ "$FAKE_SCENARIO" == production_name_remains && "$count" == 8 ]]; then
-    printf 'LINE_PAY_CHANNEL_ID encrypted production now ready\\n'
+    printf 'LINE_PAY_CHANNEL_ID Hidden Secret production now\\n'
   fi
   if [[ "$FAKE_SCENARIO" == preview_remains && "$count" == 9 ]]; then
-    printf 'LINE_PAY_CHANNEL_ID encrypted preview now ready\\n'
+    printf 'LINE_PAY_CHANNEL_ID Hidden Secret preview now\\n'
   fi
 elif [[ "$1 $2 $3" == "vercel env pull" ]]; then
   count=0
@@ -187,12 +193,12 @@ describe("LINE Pay Vercel sandbox env ops", () => {
   });
 
   it("only adds the exact sandbox URL when no value exists", () => {
-    const missing = runScript("set-sandbox-url", "test-token", "", false);
+    const missing = runScript("set-sandbox-url", "test-token", "", false, false, false, "none");
     expect(missing.status).toBe(0);
     expect(missing.input).toBe("https://sandbox-api-pay.line.me");
     expect(missing.recorded).toContain("vercel env add LINE_PAY_API_BASE_URL production");
 
-    const exact = runScript("set-sandbox-url", "test-token", "https://sandbox-api-pay.line.me", true);
+    const exact = runScript("set-sandbox-url", "test-token", "https://sandbox-api-pay.line.me", true, false, false, "none");
     expect(exact.status).toBe(0);
     expect(exact.stdout).toContain("SANDBOX_URL_ALREADY_SET");
     expect(exact.recorded).not.toMatch(/vercel env (?:add|rm)/);
@@ -224,6 +230,20 @@ describe("LINE Pay Vercel sandbox env ops", () => {
     expect(result.recorded).not.toMatch(/vercel env (?:add|rm)/);
     expect(result.stdout + result.stderr).not.toContain("fake-secret-value-1234");
     expect(result.stderr).toContain("no environment change was made");
+  });
+
+  it.each(["id", "secret", "both"])("refuses sandbox activation when unverified %s keys exist", (keys) => {
+    const result = runScript("set-sandbox-url", "test-token", "", false, true, false, keys);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("cannot be verified as sandbox");
+    expect(result.report).toBe("");
+    expect(result.recorded).not.toMatch(/vercel env (?:add|rm)/);
+  });
+
+  it("does not trigger sandbox activation when keys exist even if the sandbox URL is already set", () => {
+    const result = runScript("set-sandbox-url", "test-token", "https://sandbox-api-pay.line.me", true, true);
+    expect(result.status).not.toBe(0);
+    expect(result.recorded).not.toMatch(/vercel env (?:add|rm)/);
   });
 
   it("does not add a URL when the second environment listing fails", () => {
