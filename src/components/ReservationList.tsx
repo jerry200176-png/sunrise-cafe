@@ -222,18 +222,23 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
 
   const openMessageWorkbench = useCallback(
     (reservation: Reservation) => {
+      if (reservationMutationsSnapshot().has(reservation.id)) {
+        showToast("此訂位正在處理，請稍候並重新確認資料。", "info");
+        return;
+      }
       setMessageWorkbench(reservation);
       setMessageTemplate("booking_confirmation");
       void loadMessagePreview(reservation.id, "booking_confirmation");
     },
-    [loadMessagePreview]
+    [loadMessagePreview, showToast]
   );
 
   const submitMessageAction = useCallback(
     async (action: "copied" | "manual_sent") => {
       if (!messageWorkbench) return false;
       const generation = branchGeneration.current;
-      const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation;
+      const previewId = messagePreviewRequest.current;
+      const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation && messagePreviewRequest.current === previewId;
       if (!isCurrent()) return false;
       setMessageSubmitting(true);
       try {
@@ -270,6 +275,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   const copyWorkbenchMessage = useCallback(async () => {
     if (!messageText || messageLoading) return;
     const generation = branchGeneration.current;
+    const previewId = messagePreviewRequest.current;
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(messageText);
@@ -281,14 +287,14 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         document.execCommand("copy");
         document.body.removeChild(textarea);
       }
-      if (branchGeneration.current !== generation || currentBranch.current !== branchId) return;
+      if (branchGeneration.current !== generation || currentBranch.current !== branchId || messagePreviewRequest.current !== previewId) return;
       const recorded = await submitMessageAction("copied");
       if (recorded) {
         setMessageCopied(true);
         showToast("已複製訊息；請貼到客人的 LINE 對話", "success");
       }
     } catch {
-      if (branchGeneration.current === generation && currentBranch.current === branchId) showToast("複製失敗，請手動選取訊息內容", "error");
+      if (branchGeneration.current === generation && currentBranch.current === branchId && messagePreviewRequest.current === previewId) showToast("複製失敗，請手動選取訊息內容", "error");
     }
   }, [branchId, messageLoading, messageText, showToast, submitMessageAction]);
 
@@ -320,6 +326,16 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     setBatchLoading(false);
     setBatchWorkbench(null);
   }, [pendingMutations, selectedReservationIds]);
+
+  useLayoutEffect(() => {
+    if (!messageWorkbench || !pendingMutations.has(messageWorkbench.id)) return;
+    messagePreviewRequest.current += 1;
+    setMessageWorkbench(null);
+    setMessageText("");
+    setMessageCopied(false);
+    setMessageLoading(false);
+    setMessageSubmitting(false);
+  }, [messageWorkbench, pendingMutations]);
 
   const openBatchDepositWorkbench = useCallback(async () => {
     if (currentBranch.current !== branchId) return;
@@ -784,7 +800,6 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     const generation = branchGeneration.current;
     const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation;
     if (!beginReservationMutation(id)) { showToast("此訂位正在處理，請稍候並重新確認資料。", "info"); return; }
-    const prev = reservations;
     setReservations((list) =>
       list.map((r) => (r.id === id ? { ...r, status } : r))
     );
@@ -798,8 +813,8 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         if (!isCurrent()) return;
-        setReservations(prev);
         showToast(data.error ?? "狀態更新失敗，請重新整理後再試", "error");
+        void fetchReservations(true);
         return;
       }
       const data = (await res.json().catch(() => ({}))) as {
@@ -819,8 +834,8 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       }
     } catch {
       if (!isCurrent()) return;
-      setReservations(prev);
       showToast("連線中斷，狀態可能已更新；請先重新整理確認。", "error");
+      void fetchReservations(true);
     } finally {
       endReservationMutation(id);
     }
@@ -839,7 +854,6 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       if (!ok || !isCurrent()) return;
     }
     if (!beginReservationMutation(id)) { showToast("此訂位正在處理，請稍候並重新確認資料。", "info"); return; }
-    const prev = reservations;
     setReservations((list) =>
       list.map((r) =>
         r.id === id ? { ...r, is_deposit_paid, ...info } : r
@@ -856,8 +870,8 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         if (!isCurrent()) return;
-        setReservations(prev);
         showToast(data.error ?? "訂金狀態更新失敗，請重新整理後再試", "error");
+        void fetchReservations(true);
         return;
       }
       const data = (await res.json().catch(() => ({}))) as {
@@ -879,8 +893,8 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       }
     } catch {
       if (!isCurrent()) return;
-      setReservations(prev);
       showToast("連線中斷，訂金狀態可能已更新；請先重新整理確認。", "error");
+      void fetchReservations(true);
     } finally {
       endReservationMutation(id);
     }
@@ -891,7 +905,6 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     const generation = branchGeneration.current;
     const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation;
     if (!beginReservationMutation(id)) { showToast("此訂位正在處理，請稍候並重新確認資料。", "info"); return; }
-    const prev = reservations;
     setReservations((list) =>
       list.map((r) => (r.id === id ? { ...r, ...info } : r))
     );
@@ -905,16 +918,16 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         if (!isCurrent()) return;
-        setReservations(prev);
         showToast(data.error ?? "付款資料更新失敗", "error");
+        void fetchReservations(true);
         return;
       }
       fetchReservations(false);
       showToast("已更新付款資料", "success");
     } catch {
       if (!isCurrent()) return;
-      setReservations(prev);
       showToast("連線中斷，付款資料可能已更新；請先重新整理確認。", "error");
+      void fetchReservations(true);
     } finally {
       endReservationMutation(id);
     }
@@ -1481,6 +1494,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     <button
                       type="button"
                       onClick={() => openMessageWorkbench(r)}
+                      disabled={pendingMutations.has(r.id)}
                       className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
                     >
                       📝 訊息工作台
@@ -1488,7 +1502,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     {isDepositRequired(reservationDateKey(r.start_time)) && r.total_price != null && !r.is_deposit_paid && (
                       <button
                         type="button"
-                        disabled={branchConfigStatus !== "ready"}
+                        disabled={branchConfigStatus !== "ready" || pendingMutations.has(r.id)}
                         onClick={async () => {
                           const branchName = r.room_with_branch?.branch?.name ?? "";
                           // 話術由分店設定驅動，與伺服器推播共用同一產生器，確保內容一致
@@ -1548,6 +1562,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     <button
                       type="button"
                       onClick={() => openMessageWorkbench(r)}
+                      disabled={pendingMutations.has(r.id)}
                       className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
                     >
                       📝 訊息工作台

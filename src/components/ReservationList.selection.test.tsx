@@ -97,6 +97,58 @@ describe("reservation selection visibility", () => {
 });
 
 describe("branch-scoped reservation requests", () => {
+  it("refreshes after one reservation fails without reverting another reservation's success", async () => {
+    const first = deferred<Response>();
+    let secondSaved = false;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH" && url.endsWith("/one")) return first.promise;
+      if (init?.method === "PATCH" && url.endsWith("/two")) { secondSaved = true; return Response.json({ ok: true }); }
+      if (url.startsWith("/api/reservations?")) return list([rows[0], { ...rows[1], status: secondSaved ? "confirmed" : "pending" }]);
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    render(<ReservationList branchId="b1" rooms={[]} />);
+    const firstRow = (await screen.findByRole("checkbox", { name: /選取 甲 A01/ })).closest("li")!;
+    await user.click(within(firstRow).getByRole("button", { name: /✅ 確認/ }));
+    const secondRow = screen.getByRole("checkbox", { name: /選取 乙 B02/ }).closest("li")!;
+    await user.click(within(secondRow).getByRole("button", { name: /✅ 確認/ }));
+    await waitFor(() => expect(secondSaved).toBe(true));
+    await user.click(screen.getByRole("button", { name: "即將到來" }));
+    await screen.findByRole("checkbox", { name: /選取 乙 B02/ });
+    await act(async () => { first.resolve(Response.json({ error: "first failed" }, { status: 500 })); await first.promise; });
+    expect(await screen.findByRole("checkbox", { name: /選取 乙 B02/ })).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: /選取 甲 A01/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: /待審核/ }));
+    expect(await screen.findByRole("checkbox", { name: /選取 甲 A01/ })).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: /選取 乙 B02/ })).toBeNull();
+  });
+
+  it("closes and disables stale message previews while the reservation is being changed", async () => {
+    const notification = deferred<Response>();
+    let sends = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/branches") return Response.json([{ id: "b1", name: "甲店", payment_info: "測試", line_pay_url: null }]);
+      if (url.endsWith("/message-actions")) return Response.json({ text: "舊預覽" });
+      if (url === "/api/reservations/send-line" && init?.method === "POST") { sends += 1; return notification.promise; }
+      if (url.startsWith("/api/reservations?")) return list([rows[0]]);
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    render(<ReservationList branchId="b1" rooms={[]} />);
+    await screen.findByRole("checkbox", { name: /選取 甲 A01/ });
+    const messageButton = screen.getByRole("button", { name: /訊息工作台/ }) as HTMLButtonElement;
+    const copyButton = screen.getByRole("button", { name: /複製繳費通知/ }) as HTMLButtonElement;
+    await waitFor(() => expect(copyButton.disabled).toBe(false));
+    await user.click(messageButton);
+    expect(await screen.findByRole("heading", { name: "訊息工作台" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /重送 LINE 繳費/ }));
+    expect(screen.queryByRole("heading", { name: "訊息工作台" })).toBeNull();
+    expect(messageButton.disabled).toBe(true);
+    expect(copyButton.disabled).toBe(true);
+    expect(sends).toBe(1);
+    await act(async () => { notification.resolve(Response.json({ ok: true })); await notification.promise; });
+  });
+
   it("tells staff to reconcile an uncertain LINE result and never retries automatically", async () => {
     let sends = 0;
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
