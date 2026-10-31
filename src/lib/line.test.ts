@@ -55,6 +55,10 @@ describe("customer push picks the store's own LINE account", () => {
 
 
 describe("customer provider acceptance", () => {
+  it.each([[429, "rejected"], [409, "unknown"], [503, "unknown"]] as const)("classifies HTTP %s without guessing acceptance", async (status, outcome) => {
+    vi.mocked(fetch).mockResolvedValue(new Response("provider error", { status }));
+    await expect(sendLineFlexMessage("U1", "alt", { type: "bubble" } as never)).rejects.toMatchObject({ outcome });
+  });
   it("rejects a bare 409 instead of marking it accepted", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response("conflict", { status: 409 }));
     await expect(sendLineFlexMessage("U1", "alt", { type: "bubble" } as never, { retryKey: "key" })).rejects.toThrow("409");

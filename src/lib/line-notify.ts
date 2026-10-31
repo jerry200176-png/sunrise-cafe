@@ -20,6 +20,7 @@ import {
   type LineNotificationPriority,
 } from "@/lib/line-usage";
 import { observeLineProviderRejection } from "@/lib/line-provider-observability";
+import { LineSendError, lineHttpFailure } from "@/lib/line-send-error";
 import { tokenForGroup } from "@/lib/line-group-bots";
 
 export {
@@ -86,9 +87,14 @@ async function sendGroupPayload(
   options?: LineSendOptions
 ): Promise<void> {
   const { token: defaultToken } = getLineConfig();
-  if (!defaultToken) throw new Error("缺少 LINE_CHANNEL_ACCESS_TOKEN");
+  if (!defaultToken) throw new LineSendError("缺少 LINE_CHANNEL_ACCESS_TOKEN", "not_sent");
   // A branch with its own Official Account pushes from that account (its own quota).
-  const token = await tokenForGroup(groupId, defaultToken);
+  let token: string;
+  try {
+    token = await tokenForGroup(groupId, defaultToken);
+  } catch {
+    throw new LineSendError("無法確認群組 LINE 帳號", "not_sent");
+  }
 
   const budget = readLineUsageBudget();
   if (
@@ -126,7 +132,7 @@ async function sendGroupPayload(
       status: res.status,
       retryKey: options?.retryKey,
     });
-    throw new Error(`LINE API 錯誤 (${res.status}): ${body}`);
+    throw new LineSendError(`LINE API 錯誤 (${res.status}): ${body}`, lineHttpFailure(res.status));
   }
 }
 
@@ -141,8 +147,8 @@ export async function sendLineMessageToGroup(
 export async function sendLineMessage(text: string, options?: LineSendOptions): Promise<void> {
   const { token, groupId } = getLineConfig();
   if (!token || !groupId) {
-    throw new Error(
-      "缺少 LINE 設定：請在 .env.local 填入 LINE_CHANNEL_ACCESS_TOKEN 和 LINE_GROUP_ID"
+    throw new LineSendError(
+      "缺少 LINE 設定：請在 .env.local 填入 LINE_CHANNEL_ACCESS_TOKEN 和 LINE_GROUP_ID", "not_sent"
     );
   }
   return sendLineMessageToGroup(text, groupId, options);
@@ -188,8 +194,8 @@ export async function sendLineFlex(
 ): Promise<void> {
   const { token, groupId } = getLineConfig();
   if (!token || !groupId) {
-    throw new Error(
-      "缺少 LINE 設定：請在 .env.local 填入 LINE_CHANNEL_ACCESS_TOKEN 和 LINE_GROUP_ID"
+    throw new LineSendError(
+      "缺少 LINE 設定：請在 .env.local 填入 LINE_CHANNEL_ACCESS_TOKEN 和 LINE_GROUP_ID", "not_sent"
     );
   }
   return sendLineFlexToGroup(altText, contents, groupId, options);
@@ -213,8 +219,8 @@ export async function sendLineFlexBatch(
 ): Promise<void> {
   const { token, groupId } = getLineConfig();
   if (!token || !groupId) {
-    throw new Error(
-      "缺少 LINE 設定：請在 .env.local 填入 LINE_CHANNEL_ACCESS_TOKEN 和 LINE_GROUP_ID"
+    throw new LineSendError(
+      "缺少 LINE 設定：請在 .env.local 填入 LINE_CHANNEL_ACCESS_TOKEN 和 LINE_GROUP_ID", "not_sent"
     );
   }
   return sendLineFlexBatchToGroup(messages, groupId, options);

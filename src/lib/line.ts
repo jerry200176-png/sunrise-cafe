@@ -8,6 +8,7 @@ import {
 } from "@/lib/line-cards";
 import type { LineFlexContainer } from "@/lib/line-flex";
 import { observeLineProviderRejection } from "@/lib/line-provider-observability";
+import { LineSendError, lineHttpFailure } from "@/lib/line-send-error";
 import { branchCustomerBots, customerTokenForBranch } from "@/lib/customer-line-bots";
 import { branchIdForReservation, branchIdForRoom } from "@/lib/branch-line-group";
 import { supabaseAdmin } from "@/lib/supabase-admin";
@@ -49,8 +50,13 @@ async function lineCustomerFetch(
   body: Record<string, unknown>,
   options?: LineCustomerSendOptions
 ): Promise<void> {
-  const token = await customerSendToken(options);
-  if (!token) throw new Error("LINE_CUSTOMER_ACCESS_TOKEN 未設定");
+  let token: string | undefined;
+  try {
+    token = await customerSendToken(options);
+  } catch {
+    throw new LineSendError("無法確認客人 LINE 帳號", "not_sent");
+  }
+  if (!token) throw new LineSendError("LINE_CUSTOMER_ACCESS_TOKEN 未設定", "not_sent");
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -82,7 +88,7 @@ async function lineCustomerFetch(
       status: res.status,
       retryKey: options?.retryKey,
     });
-    throw new Error(`LINE push 失敗：${res.status} ${text}`);
+    throw new LineSendError(`LINE push 失敗：${res.status} ${text}`, lineHttpFailure(res.status));
   }
 }
 

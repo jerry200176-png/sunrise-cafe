@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { sendLineFlex, sendLineFlexBatch, sendLineMessage } from "./line-notify";
+import { sendLineFlex, sendLineFlexBatch, sendLineFlexToGroup, sendLineMessage } from "./line-notify";
 import { sendLineFlexMessage } from "./line";
 import { stableLineRetryKey } from "./line-retry-key";
 import type { LineFlexContainer } from "./line-flex";
@@ -37,6 +37,19 @@ describe("LINE Messaging API X-Line-Retry-Key & 409 reconciliation", () => {
   it("rejects staff 409 without provider acceptance evidence", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("conflict", { status: 409 })));
     await expect(sendLineFlex("test", dummyFlex, { retryKey: "key" })).rejects.toThrow("409");
+  });
+
+  it("classifies missing group credentials as not sent without calling LINE", async () => {
+    delete process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    await expect(sendLineFlexToGroup("test", dummyFlex, "group")).rejects.toMatchObject({ outcome: "not_sent" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([[429, "rejected"], [409, "unknown"], [503, "unknown"]] as const)("classifies group HTTP %s", async (status, outcome) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("provider error", { status })));
+    await expect(sendLineFlexToGroup("test", dummyFlex, "group")).rejects.toMatchObject({ outcome });
   });
 
   it("attaches X-Line-Retry-Key header to staff group push request", async () => {

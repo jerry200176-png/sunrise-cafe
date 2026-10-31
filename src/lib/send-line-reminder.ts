@@ -19,6 +19,7 @@ import {
   LineInformationalSuppressedError,
 } from "@/lib/line-notify";
 import { sendLineFlexMessage } from "@/lib/line";
+import { lineSendFailure } from "@/lib/line-send-error";
 import {
   buildGuestReminderDigestFlexChunks,
   REMINDER_DIGEST_CAROUSEL_MAX,
@@ -81,6 +82,7 @@ export type ReminderRunObservability = {
   /** Phase 1: LINE acceptance ≠ end-user delivery */
   accepted_count: number;
   rejected_count: number;
+  unknown_attempt_count: number;
   delivery_certainty: "accepted_by_line" | "rejected_by_line" | "delivery_unknown" | "not_attempted";
 };
 
@@ -115,7 +117,7 @@ function reminderDate(row: Record<string, unknown>): string {
 }
 
 type ClaimedRow = { row: Record<string, unknown>; deliveryId: string | null };
-type ClaimRowsResult = { toSend: ClaimedRow[]; handledRows: Record<string, unknown>[] };
+type ClaimRowsResult = { toSend: ClaimedRow[]; handledRows: Record<string, unknown>[]; claimError?: unknown };
 
 async function claimRows(
   rows: Record<string, unknown>[],
@@ -127,13 +129,18 @@ async function claimRows(
   const toSend: ClaimedRow[] = [];
   const handledRows: Record<string, unknown>[] = [];
   for (const row of rows) {
-    const result = await claimLineReminderDelivery({
-      reminderType,
-      reminderDate: reminderDateValue,
-      reservationId: String(row.id),
-      recipientType,
-      recipientId,
-    });
+    let result;
+    try {
+      result = await claimLineReminderDelivery({
+        reminderType,
+        reminderDate: reminderDateValue,
+        reservationId: String(row.id),
+        recipientType,
+        recipientId,
+      });
+    } catch (claimError) {
+      return { toSend, handledRows, claimError };
+    }
     // Before the migration is available, preserve the old flag-based behavior.
     // Once the ledger exists, only an explicit claim may send.
     if (!result.available || result.id) toSend.push({ row, deliveryId: result.id });
@@ -155,6 +162,14 @@ async function settleClaims(claimed: ClaimedRow[], status: "sent" | "failed", er
   );
 }
 
+/** Only release claims that definitely never reached LINE, or were explicitly rejected. */
+async function releaseClaims(claimed: ClaimedRow[], error: unknown): Promise<boolean> {
+  const results = await Promise.allSettled(claimed.filter((item) => item.deliveryId).map((item) =>
+    markLineReminderDelivery(item.deliveryId!, { status: "failed", error: safeLineDeliveryError(error) })
+  ));
+  return results.every((result) => result.status === "fulfilled");
+}
+
 async function pushDigestToGroup(
   rows: Record<string, unknown>[],
   groupId: string | null,
@@ -166,20 +181,23 @@ async function pushDigestToGroup(
   let messageCount = 0;
   let errorCount = 0;
   let runtimeErrors = 0;
+  let unknownAttempts = 0;
   let runtimeError: string | null = null;
   const recipientId = groupId ?? "legacy-group";
   const date = reminderDate(rows[0]!);
   for (let offset = 0; offset < rows.length; offset += REMINDER_DIGEST_CAROUSEL_MAX) {
     const rowChunk = rows.slice(offset, offset + REMINDER_DIGEST_CAROUSEL_MAX);
-    let claims: ClaimRowsResult;
-    try {
-      claims = await claimRows(rowChunk, reminderType, date, "group", recipientId);
-    } catch (error) {
+    const claims = await claimRows(rowChunk, reminderType, date, "group", recipientId);
+    if ("claimError" in claims) {
       // Preserve earlier chunk acceptances and any partially acquired claims.
       // This chunk must not fall through to another staff recipient on claim failure.
       handledRows.push(...rowChunk);
       runtimeErrors++;
-      runtimeError = safeLineDeliveryError(error);
+      runtimeError = safeLineDeliveryError(claims.claimError);
+      if (!await releaseClaims(claims.toSend, claims.claimError)) {
+        runtimeErrors++;
+        runtimeError = "無法釋放尚未送出的群組提醒，需人工確認";
+      }
       console.error(`[send-line] group claim failed: ${runtimeError}`);
       continue;
     }
@@ -193,8 +211,11 @@ async function pushDigestToGroup(
       : "";
     const alt = `${labelPrefix}，共 ${rows.length} 筆${part}`;
     let accepted = false;
+    let invoked = false;
     try {
       const [chunk] = buildReminderDigestFlexChunks(enriched);
+      if (!chunk) throw new Error("無法建立群組提醒內容");
+      invoked = true;
       if (groupId) await sendLineFlexToGroup(alt, chunk!, groupId);
       else await sendLineFlex(alt, chunk!);
       accepted = true;
@@ -205,20 +226,25 @@ async function pushDigestToGroup(
       );
       sentRows.push(...claimed.map((item) => item.row));
     } catch (error) {
-      if (accepted) runtimeErrors++;
-      else errorCount++;
       runtimeError = safeLineDeliveryError(error);
-      try {
-        await settleClaims(claimed, accepted ? "sent" : "failed", error);
-      } catch (settlementError) {
-        // Keep uncertain claims intact; record persistence failure without losing acceptance.
-        if (!accepted) runtimeErrors++;
-        runtimeError = safeLineDeliveryError(settlementError);
+      if (accepted) {
+        runtimeErrors++;
+        try { await settleClaims(claimed, "sent"); }
+        catch (settlementError) { runtimeError = safeLineDeliveryError(settlementError); }
+      } else {
+        const outcome = invoked ? lineSendFailure(error) : "not_sent";
+        if (outcome === "rejected") errorCount++;
+        else runtimeErrors++;
+        if (outcome === "unknown") unknownAttempts++;
+        else if (!await releaseClaims(claimed, error)) {
+          runtimeErrors++;
+          runtimeError = "無法釋放尚未送出或已拒絕的群組提醒，需人工確認";
+        }
       }
       console.error(`[send-line] 群組摘要傳送失敗: ${safeLineDeliveryError(error)}`);
     }
   }
-  return { sent: messageCount, errors: errorCount, runtimeErrors, runtimeError, rows: sentRows, handled: handledRows };
+  return { sent: messageCount, errors: errorCount, runtimeErrors, unknownAttempts, runtimeError, rows: sentRows, handled: handledRows };
 }
 
 async function sendInformationalMessage(
@@ -318,14 +344,16 @@ function finalizeObs(
       error?: string | null;
       accepted_count?: number;
       rejected_count?: number;
+      unknown_attempt_count?: number;
     },
   started: Date
 ): ReminderRunObservability & { reminder_evidence: ReturnType<typeof buildReminderRunEvidence> } {
   const finished = new Date();
   const accepted_count = partial.accepted_count ?? (partial.result === "error" ? 0 : partial.sent_count);
-  const rejected_count = partial.rejected_count ?? (partial.result === "error" ? 1 : 0);
+  const rejected_count = partial.rejected_count ?? 0;
+  const unknown_attempt_count = partial.unknown_attempt_count ?? 0;
   const delivery_certainty: ReminderRunObservability["delivery_certainty"] =
-    accepted_count > 0
+    accepted_count > 0 || unknown_attempt_count > 0
       ? "delivery_unknown"
       : rejected_count > 0
         ? "rejected_by_line"
@@ -347,6 +375,7 @@ function finalizeObs(
     duplicate: partial.duplicate,
     accepted_count,
     rejected_count,
+    unknown_attempt_count,
     delivery_certainty,
   };
   const reminder_evidence = buildReminderRunEvidence({
@@ -354,9 +383,10 @@ function finalizeObs(
     source: mapTriggerToSource(observability.trigger_source),
     candidate_reservation_count: observability.reservation_count,
     recipient_count: Math.max(observability.sent_count, observability.guest_sent_count),
-    message_attempt_count: accepted_count + rejected_count,
+    message_attempt_count: accepted_count + rejected_count + unknown_attempt_count,
     accepted_count,
     rejected_count,
+    unknown_attempt_count,
     duplicate_suppressed_count: observability.duplicate ? 1 : 0,
     result:
       observability.result === "error" && rejected_count > 0 && accepted_count > 0
@@ -466,6 +496,7 @@ export async function runSendLineReminder(
     let line_rejected = 0;
     let staff_errors = 0;
     let staff_error: string | null = null;
+    let unknown_attempt_count = 0;
     let heartbeat: ReminderHeartbeat = "none";
     const heartbeat_keys: string[] = [];
     let skipped_count = 0;
@@ -541,6 +572,7 @@ export async function runSendLineReminder(
         totalSent = result.sent;
         line_rejected += result.errors;
         staff_errors += result.runtimeErrors;
+        unknown_attempt_count += result.unknownAttempts;
         staff_error = result.runtimeError ?? staff_error;
         heartbeat = result.sent > 0 ? "digest" : "none";
       } else {
@@ -593,6 +625,7 @@ export async function runSendLineReminder(
           totalSent += result.sent;
           line_rejected += result.errors;
           staff_errors += result.runtimeErrors;
+          unknown_attempt_count += result.unknownAttempts;
           staff_error = result.runtimeError ?? staff_error;
           heartbeat = result.sent > 0 ? "digest" : heartbeat;
         }
@@ -604,6 +637,7 @@ export async function runSendLineReminder(
             totalSent += result.sent;
             line_rejected += result.errors;
             staff_errors += result.runtimeErrors;
+            unknown_attempt_count += result.unknownAttempts;
             staff_error = result.runtimeError ?? staff_error;
             heartbeat = result.sent > 0 ? "digest" : heartbeat;
             console.warn(
@@ -627,6 +661,8 @@ export async function runSendLineReminder(
     // a group-only success from suppressing a guest retry after a LINE failure.
     let guest_sent_count = 0;
     let guest_rejected = 0;
+    let guest_errors = 0;
+    let guest_error: string | null = null;
     const guestRows = allRows.filter(
       (row) => row.line_user_id && !row.d1_guest_reminder_sent_at
     );
@@ -651,9 +687,19 @@ export async function runSendLineReminder(
           "guest",
           lineUserId
         );
+        if ("claimError" in claims) {
+          guest_errors++;
+          guest_error = safeLineDeliveryError(claims.claimError);
+          if (!await releaseClaims(claims.toSend, claims.claimError)) {
+            guest_errors++;
+            guest_error = "無法釋放尚未送出的客人提醒，需人工確認";
+          }
+          continue;
+        }
         if (claims.toSend.length === 0) continue;
         const claimed = claims.toSend;
         let accepted = false;
+        let invoked = false;
         try {
           const flexRows = claimed.map(({ row }) => {
             const room = row.room as { name?: string; branch?: { name?: string } } | undefined;
@@ -670,10 +716,12 @@ export async function runSendLineReminder(
             };
           });
           const [flex] = buildGuestReminderDigestFlexChunks(flexRows);
+          if (!flex) throw new Error("無法建立客人提醒內容");
           const part = rows.length > REMINDER_DIGEST_CAROUSEL_MAX
             ? `（${Math.floor(offset / REMINDER_DIGEST_CAROUSEL_MAX) + 1}/${Math.ceil(rows.length / REMINDER_DIGEST_CAROUSEL_MAX)}）`
             : "";
-          await sendLineFlexMessage(lineUserId, `明日訂位提醒${part}`, flex!, { reservationId: String(claimed[0]!.row.id) });
+          invoked = true;
+          await sendLineFlexMessage(lineUserId, `明日訂位提醒${part}`, flex, { reservationId: String(claimed[0]!.row.id) });
           accepted = true;
           guest_sent_count += 1;
           await settleClaims(claimed, "sent");
@@ -685,15 +733,28 @@ export async function runSendLineReminder(
             )
           );
         } catch (error) {
-          guest_rejected += 1;
-          await settleClaims(claimed, accepted ? "sent" : "failed", error);
+          guest_error = safeLineDeliveryError(error);
+          if (accepted) {
+            guest_errors++;
+            try { await settleClaims(claimed, "sent"); }
+            catch (settlementError) { guest_error = safeLineDeliveryError(settlementError); }
+          } else {
+            const outcome = invoked ? lineSendFailure(error) : "not_sent";
+            if (outcome === "rejected") guest_rejected++;
+            else guest_errors++;
+            if (outcome === "unknown") unknown_attempt_count++;
+            else if (!await releaseClaims(claimed, error)) {
+              guest_errors++;
+              guest_error = "無法釋放尚未送出或已拒絕的客人提醒，需人工確認";
+            }
+          }
           console.error(`[send-line] 客人摘要傳送失敗: ${safeLineDeliveryError(error)}`);
         }
       }
     }
 
     const totalRejected = line_rejected + guest_rejected;
-    const totalErrors = totalRejected + staff_errors;
+    const totalErrors = totalRejected + staff_errors + guest_errors;
     const heartbeatSent = heartbeat === "cat" || heartbeat === "already_notified" ? 1 : 0;
     const totalMessages = totalSent + guest_sent_count + heartbeatSent;
     const result: ReminderRunObservability["result"] =
@@ -721,7 +782,8 @@ export async function runSendLineReminder(
         accepted_count:
           totalMessages,
         rejected_count: totalRejected,
-        error: staff_error,
+        unknown_attempt_count,
+        error: [staff_error, guest_error].filter(Boolean).join("；") || null,
       },
       started
     );
@@ -738,10 +800,15 @@ export async function runSendLineReminder(
       message_count: totalMessages,
       errors: totalErrors,
       staff_error_count: staff_errors,
+      guest_error_count: guest_errors,
       message:
-        totalMessages === 0
-          ? "沒有尚未通知的明日訂位（可能已全部發送過）"
-          : `已發送 ${totalMessages} 則 LINE 訊息（LINE accepted≠delivered）`,
+        unknown_attempt_count > 0
+          ? `有 ${unknown_attempt_count} 則提醒的發送結果尚未確認，請先查證，避免重複發送`
+          : totalErrors > 0
+            ? "部分提醒未完成，請檢查錯誤後再處理"
+            : totalMessages === 0
+              ? "沒有尚未通知的明日訂位（可能已全部發送過）"
+              : `已發送 ${totalMessages} 則 LINE 訊息（LINE accepted≠delivered）`,
       ...observability,
     });
   } catch (err) {
@@ -759,7 +826,7 @@ export async function runSendLineReminder(
         duplicate: false,
         error: message,
         accepted_count: 0,
-        rejected_count: 1,
+        rejected_count: 0,
       },
       started
     );

@@ -185,3 +185,14 @@ existing shared reconciliation safeguard after expiration. Do not automatically
 backfill historical notifications or reset ambiguous claims: inspect private delivery
 records and obtain a separate recovery decision first. LINE acceptance is not proof
 of delivery to the customer's device.
+
+D-1 delivery claims acquired before an interrupted claim batch are marked failed
+only when no provider request was made. A definite provider rejection is also
+eligible for later retry. A timeout, network failure, 5xx, or 409 without an
+accepted-request ID leaves its claim in `sending`: LINE may already have accepted
+the message, so investigate rather than automatically resending. Accepted pushes
+remain counted as accepted even if recording the result subsequently fails.
+[LINE's retry guidance](https://developers.line.biz/en/docs/messaging-api/retrying-api-request/)
+requires the same retry key on the first request and every retry, and limits its
+validity to 24 hours. D-1 digests do not yet persist a per-message retry key and
+payload, so this change deliberately does not automatically retry unknown sends.

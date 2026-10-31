@@ -52,6 +52,8 @@ export function buildReminderRunEvidence(input: {
   message_attempt_count: number;
   accepted_count: number;
   rejected_count: number;
+  /** Requests whose provider response could not establish acceptance. */
+  unknown_attempt_count?: number;
   duplicate_suppressed_count?: number;
   result:
     | "sent"
@@ -77,8 +79,7 @@ export function buildReminderRunEvidence(input: {
     status = "succeeded_with_zero_work";
   else status = "succeeded";
 
-  const unknown =
-    input.accepted_count > 0 ? input.accepted_count : 0; // accepted ≠ delivered
+  const unknown = input.accepted_count + (input.unknown_attempt_count ?? 0); // accepted ≠ delivered
 
   return {
     run_id: input.run_id ?? `local-${input.invoked_at}`,
@@ -99,7 +100,7 @@ export function buildReminderRunEvidence(input: {
       ? input.error.replace(/U[0-9a-f]{32}/gi, "[redacted_line_user]").slice(0, 200)
       : null,
     delivery_certainty:
-      input.accepted_count > 0
+      unknown > 0
         ? "delivery_unknown"
         : input.rejected_count > 0
           ? "rejected_by_line"
