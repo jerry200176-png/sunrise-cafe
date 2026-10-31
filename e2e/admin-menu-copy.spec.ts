@@ -23,7 +23,7 @@ for (const scenario of [
     await page.keyboard.press("Tab");
     await expect(page.getByRole("button", { name: "複製網址" })).toBeFocused();
     await page.keyboard.press("Enter");
-    await expect(page.getByText(scenario.fail ? "無法自動複製，請選取下方菜單網址後手動複製" : "已複製菜單網址")).toBeVisible();
+    await expect(page.getByText(scenario.fail ? "無法自動複製，請選取菜單網址欄位後手動複製" : "已複製菜單網址")).toBeVisible();
     await expect(url).toBeVisible();
     if (scenario.width === 390) expect((await url.boundingBox())?.width).toBeGreaterThan(250);
     await expect(page.getByRole("link", { name: "開啟菜單（新分頁）" })).toHaveAttribute("href", "/menu");

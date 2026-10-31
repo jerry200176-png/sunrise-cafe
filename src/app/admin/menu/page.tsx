@@ -99,7 +99,7 @@ export default function AdminMenuPage() {
       await navigator.clipboard.writeText(menuUrl);
       showToast("已複製菜單網址", "success");
     } catch {
-      showToast("無法自動複製，請選取下方菜單網址後手動複製", "error");
+      showToast("無法自動複製，請選取菜單網址欄位後手動複製", "error");
     } finally {
       copyingMenuUrlRef.current = false;
       setCopyingMenuUrl(false);

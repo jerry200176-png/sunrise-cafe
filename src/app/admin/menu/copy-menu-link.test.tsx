@@ -46,7 +46,7 @@ describe("菜單網址的複製回饋", () => {
     clipboard(mode === "missing" ? undefined : { writeText });
     render(<AdminMenuPage />);
     fireEvent.click(screen.getByRole("button", { name: "複製網址" }));
-    expect(await screen.findByText("無法自動複製，請選取下方菜單網址後手動複製")).toBeTruthy();
+    expect(await screen.findByText("無法自動複製，請選取菜單網址欄位後手動複製")).toBeTruthy();
     expect(screen.queryByText("已複製菜單網址")).toBeNull();
     const manual = screen.getByRole("textbox", { name: "菜單網址（可手動複製）" }) as HTMLInputElement;
     expect(manual.readOnly).toBe(true);
