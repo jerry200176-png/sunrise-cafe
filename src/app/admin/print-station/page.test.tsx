@@ -43,20 +43,30 @@ import PrintStationPage from "./page";
 
 describe("print station delayed sweep lifecycle", () => {
   let orderReads: string[];
+  let pendingReads: string[];
   let printRequests: string[];
   let resolvePrinter: (() => void) | null;
   let rejectPrinter: ((error: Error) => void) | null;
   let hangPrinter = false;
   let failMark = false;
+  let pendingStatus: boolean | "missing" = "missing";
+  let pendingStatuses: Record<string, boolean | "missing">;
+  let hangPending = false;
+  let releasePending: (() => void) | null;
   let markWrites = 0;
 
   beforeEach(() => {
     orderReads = [];
+    pendingReads = [];
     printRequests = [];
     resolvePrinter = null;
     rejectPrinter = null;
     hangPrinter = false;
     failMark = false;
+    pendingStatus = "missing";
+    pendingStatuses = {};
+    hangPending = false;
+    releasePending = null;
     markWrites = 0;
     branchState.branches = [{ id: "b1", name: "甲店" }, { id: "b2", name: "乙店" }];
     branchState.loading = false;
@@ -72,7 +82,7 @@ describe("print station delayed sweep lifecycle", () => {
           id: "old-shop-order", branch_id: "b1", status: "pending", is_printed: false,
           created_at: new Date().toISOString(), total_amount: 100, order_items: [{ id: "i1", item_name: "湯", quantity: 1 }],
         }];
-        return { ok: true, status: 200, json: async () => rows } as Response;
+        return { ok: true, status: 200, json: async () => ({ items: rows, nextCursor: null }) } as Response;
       }
       if (url.includes("localhost:22222")) {
         printRequests.push(url);
@@ -85,6 +95,16 @@ describe("print station delayed sweep lifecycle", () => {
         return { ok: true, status: 200, text: async () => "<Response/>" } as Response;
       }
       if (url.includes("/api/admin/orders/")) {
+        if (!init?.method || init.method === "GET") {
+          pendingReads.push(url);
+          const parsed = new URL(url, "http://localhost");
+          const branch = parsed.searchParams.get("branchId");
+          const id = decodeURIComponent(parsed.pathname.split("/").pop()!);
+          const status = pendingStatuses[id] ?? pendingStatus;
+          if (hangPending) return new Promise<Response>((resolve) => { releasePending = () => resolve({ ok: true, status: 200, json: async () => ({ id, branch_id: branch, is_printed: true, status: "pending" }) } as Response); });
+          return { ok: status !== "missing", status: status === "missing" ? 404 : 200,
+            json: async () => status === "missing" ? { error: "找不到訂單" } : { id, branch_id: branch, is_printed: status, status: "pending" } } as Response;
+        }
         markWrites++;
         return { ok: !failMark, status: failMark ? 500 : 200 } as Response;
       }
@@ -96,6 +116,61 @@ describe("print station delayed sweep lifecycle", () => {
     cleanup();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it.each([true, false, "missing"] as const)("checks only the pending id and preserves safety for status %s", async (status) => {
+    pendingStatus = status;
+    window.localStorage.setItem("sunrise.print.pending-ids", JSON.stringify([{ id: "pending-old", branchId: "b1" }]));
+    const user = userEvent.setup();
+    render(<PrintStationPage />);
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("pending-old"));
+    await user.click(screen.getByRole("button", { name: "只檢查目前分店的列印標記" }));
+    await waitFor(() => expect(pendingReads).toHaveLength(1));
+    expect(pendingReads[0]).toContain("pending-old?branchId=b1");
+    if (status === true) await waitFor(() => expect(window.localStorage.getItem("sunrise.print.pending-ids")).toBeNull());
+    else await waitFor(() => expect(window.localStorage.getItem("sunrise.print.pending-ids")).toContain("pending-old"));
+    expect(orderReads).toHaveLength(0);
+    expect(printRequests).toHaveLength(0);
+    expect(markWrites).toBe(0);
+  });
+
+  it("blocks manual resolution during lookup and ignores results after switching branches", async () => {
+    hangPending = true;
+    window.localStorage.setItem("sunrise.print.pending-ids", JSON.stringify([{ id: "pending-old", branchId: "b1" }]));
+    const user = userEvent.setup();
+    render(<PrintStationPage />);
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("pending-old"));
+    await user.click(screen.getByRole("button", { name: "只檢查目前分店的列印標記" }));
+    await waitFor(() => expect(pendingReads).toHaveLength(1));
+    expect((screen.getByRole("button", { name: /我已核對無紙單，解除鎖定/ }) as HTMLButtonElement).disabled).toBe(true);
+    await user.selectOptions(screen.getByRole("combobox"), "b2");
+    await user.selectOptions(screen.getByRole("combobox"), "b1");
+    act(() => releasePending?.());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "檢查中…" })).toBeNull());
+    expect(window.localStorage.getItem("sunrise.print.pending-ids")).toContain("pending-old");
+    expect(printRequests).toHaveLength(0);
+  });
+
+  it("retains legacy unknown and missing ids while reconciling later printed orders", async () => {
+    const legacyOther = "00000000-0000-0000-0000-000000000001";
+    const deleted = "00000000-0000-0000-0000-000000000002";
+    const printed = "00000000-0000-0000-0000-000000000003";
+    pendingStatuses = { [legacyOther]: "missing", [deleted]: "missing", [printed]: true };
+    window.localStorage.setItem("sunrise.print.pending-ids", JSON.stringify([
+      legacyOther, { id: deleted, branchId: "b1" }, { id: printed, branchId: "b1" },
+    ]));
+    const user = userEvent.setup();
+    render(<PrintStationPage />);
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain(printed));
+    await user.click(screen.getByRole("button", { name: "只檢查目前分店的列印標記" }));
+    await waitFor(() => expect(pendingReads).toHaveLength(3));
+    await waitFor(() => expect(screen.getByText(/另有 2 筆無法確認或不屬於本店/)).toBeTruthy());
+    const stored = window.localStorage.getItem("sunrise.print.pending-ids")!;
+    expect(stored).toContain(legacyOther);
+    expect(stored).toContain(deleted);
+    expect(stored).not.toContain(printed);
+    expect(printRequests).toHaveLength(0);
+    expect(markWrites).toBe(0);
   });
 
   it("Stop then branch switch cancels queued delayed sweeps before any old-shop print", async () => {
