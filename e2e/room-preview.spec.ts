@@ -15,7 +15,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
         branchName: "大安店",
         rooms: ["包廂1", "包廂2", "包廂3", "包廂4", "會議室", "未知包廂"].map((roomName, i) => ({
           roomId: `r${i}`, roomName, capacity: 4, price_weekday: 100, price_weekend: 120, image_url: "/banners/daan.png",
-          slots: mockSlotsForDate(date).map((slot) => ({ ...slot, available: i !== 4 })),
+          slots: mockSlotsForDate(date).map((slot, index) => ({ ...slot, available: i === 3 ? index === 0 : i !== 4 })),
         })),
       } });
     });
@@ -37,11 +37,17 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     await expect(page.locator("#booking-room-card-r0")).toBeFocused();
     const choices = page.getByLabel("選擇要查看照片的包廂");
     await expect(choices.getByRole("button")).toHaveCount(5);
+    await choices.getByRole("button", { name: "包廂4 · 沒有連續 2 小時的空檔" }).click();
+    await expect(page.locator("#booking-room-card-r3").getByRole("link", { name: "加入等位清單" })).toBeVisible();
     await choices.getByRole("button", { name: "包廂2 · 可預約" }).click();
     const card = page.locator("#booking-room-card-r1");
     await expect(card).toBeFocused();
     await expect(card.getByRole("img", { name: "包廂2" })).toBeVisible();
     await expect(card).toHaveClass(/outline-amber-500/);
+    await page.getByLabel("預計人數（選填）").fill("9");
+    await choices.getByRole("button", { name: "會議室 · 本日已滿 · 人數不適合" }).click();
+    await expect(page.locator("#booking-room-card-r4").getByRole("link", { name: "加入等位清單" })).toHaveCount(0);
+    await page.getByLabel("預計人數（選填）").fill("");
     await choices.getByRole("button", { name: "會議室 · 本日已滿" }).click();
     await expect(page.locator("#booking-room-card-r4").getByRole("link", { name: "加入等位清單" })).toBeVisible();
     await scene.dispatchEvent("webglcontextlost");

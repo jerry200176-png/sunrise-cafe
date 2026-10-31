@@ -34,6 +34,7 @@ import { resolveBranchGuestSettings } from "@/lib/branch-guest-settings";
 import {
   canSelectStart,
   endIsoForDuration,
+  MIN_DURATION_HOURS,
 } from "@/lib/slot-grid";
 import { slotPanelMode } from "@/lib/booking-slot-ui";
 
@@ -57,6 +58,15 @@ interface AvailableRoom {
   price_weekend: number;
   slots: SlotItem[];
   image_url?: string | null;
+}
+
+function isSlotList(value: unknown): value is SlotItem[] {
+  return Array.isArray(value) && value.every((slot) => {
+    if (!slot || typeof slot !== "object" || typeof slot.start !== "string" || typeof slot.end !== "string" || typeof slot.available !== "boolean") return false;
+    const start = Date.parse(slot.start);
+    const end = Date.parse(slot.end);
+    return Number.isFinite(start) && Number.isFinite(end) && end > start;
+  });
 }
 
 export default function BookPage() {
@@ -248,7 +258,17 @@ export default function BookPage() {
       .then((branchesData) => {
         if (!current) return;
         setBranches(branchesData);
-        if (branchesData.length === 1 && !branchId) {
+        if (branchId && !branchesData.some((branch) => branch.id === branchId)) {
+          const replacement = branchesData.length === 1 ? branchesData[0] : null;
+          setBranchId(replacement?.id ?? "");
+          setBranchName(replacement?.name ?? "");
+          setRoomId("");
+          setRoomName("");
+          setSelectedStart("");
+          setPreviewRoomId(null);
+          changeStep(replacement ? "date" : "branch");
+          setError(t("book.branch.noLongerAvailable"));
+        } else if (branchesData.length === 1 && !branchId) {
           setBranchId(branchesData[0].id);
           if (step === "branch") changeStep("date");
         }
@@ -326,7 +346,7 @@ export default function BookPage() {
           return;
         }
         if (d.error) throw new Error(d.error);
-        if (!Array.isArray(d.rooms) || !d.rooms.every((room) => typeof room?.roomId === "string" && typeof room.roomName === "string" && Array.isArray(room.slots))) throw new Error(t("book.error.loadAvailabilityFailed"));
+        if (!Array.isArray(d.rooms) || !d.rooms.every((room) => typeof room?.roomId === "string" && typeof room.roomName === "string" && isSlotList(room.slots))) throw new Error(t("book.error.loadAvailabilityFailed"));
         setBranchRoomsAvailability({
           rooms: d.rooms ?? [],
           branchName: d.branchName ?? "",
@@ -382,7 +402,7 @@ export default function BookPage() {
       .then((d) => {
         if (!current) return;
         if (d.error) throw new Error(d.error);
-        if (!Array.isArray(d.slots)) throw new Error(t("book.error.loadSlotsFailed"));
+        if (!isSlotList(d.slots)) throw new Error(t("book.error.loadSlotsFailed"));
         setSlots(d.slots ?? []);
         setSelectedStart("");
         setRoomName(d.roomName ?? "");
@@ -434,6 +454,7 @@ export default function BookPage() {
     canSelectStart(slots, slotStart, duration);
 
   const getTotalPrice = (): number | null => {
+    if (branchLoading || branchLoadError || !branches.some((branch) => branch.id === branchId)) return null;
     const room = rooms.find((r) => r.id === roomId && r.branch_id === branchId) ?? roomCatalog.find((r) => r.id === roomId && r.branch_id === branchId);
     if (!room || !date) return null;
     const capacity = Number(room.capacity);
@@ -848,7 +869,8 @@ export default function BookPage() {
             ) : branchRoomsAvailability ? (
               <>
               <StorePreview branch={branchRoomsAvailability.branchName}
-                rooms={branchRoomsAvailability.rooms.map((room) => ({ roomId: room.roomId, roomName: room.roomName, available: room.slots.some((slot) => slot.available),
+                rooms={branchRoomsAvailability.rooms.map((room) => ({ roomId: room.roomId, roomName: room.roomName, available: room.slots.some((slot) => canSelectStart(room.slots, slot.start, MIN_DURATION_HOURS)),
+                  partial: room.slots.some((slot) => slot.available),
                   partyStatus: invalidGuestCount ? "invalid" : guestCount !== "" && (guestCount > room.capacity || Boolean(room.min_capacity && guestCount < room.min_capacity)) ? "mismatch" : null }))}
                 selectedId={previewRoomId}
                 onSelect={(id) => {
@@ -863,6 +885,7 @@ export default function BookPage() {
                 {branchRoomsAvailability.rooms.length === 0 && <li className="rounded-xl border border-gray-200 bg-white p-4 text-sm text-gray-600">{t("book.room.empty")}</li>}
                 {branchRoomsAvailability.rooms.map((r) => {
                   const freeCount = r.slots.filter((s) => s.available).length;
+                  const bookable = r.slots.some((slot) => canSelectStart(r.slots, slot.start, MIN_DURATION_HOURS));
                   const ranges: string[] = [];
                   const imageUrl =
                     r.image_url ??
@@ -885,7 +908,7 @@ export default function BookPage() {
                   return (
                     <li key={r.roomId} id={`booking-room-card-${r.roomId}`} tabIndex={-1} aria-label={r.roomName}
                       className={previewRoomId === r.roomId ? "rounded-xl outline outline-2 outline-amber-500" : ""}>
-                      {freeCount > 0 ? (
+                      {bookable ? (
                         <button
                           type="button"
                           disabled={partyMismatch || invalidGuestCount}
@@ -953,14 +976,17 @@ export default function BookPage() {
                               </span>
                             )}
                           </div>
-                          <p className="mt-1.5 text-sm text-rose-600">{t("book.room.full")}</p>
+                          <p className="mt-1.5 text-sm text-rose-600">{t(freeCount > 0 ? "book.room.noMinimum" : "book.room.full")}</p>
                           <p className="mt-1 text-xs text-gray-500">{t("book.waitlistHint")}</p>
+                          {partyMismatch && <p className="mt-2 text-sm text-rose-700">{t("book.room.partyMismatch", { range: capacityRange })}</p>}
+                          {!partyMismatch && !invalidGuestCount && (
                           <Link
                             href={buildWaitlistHref(r.roomId)}
                             className="mt-3 flex w-full items-center justify-center rounded-lg bg-amber-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-amber-700"
                           >
                             {t("book.waitlistCta")}
                           </Link>
+                          )}
                         </div>
                       )}
                     </li>
@@ -1194,8 +1220,9 @@ export default function BookPage() {
           <>
             <h2 id="booking-step-form-heading" className="sr-only">{t("book.steps.form")}</h2>
             {getTotalPrice() === null && <div role="status" className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-              {catalogLoading ? t("book.room.priceLoading") : t("book.room.priceUnavailable")}
-              {!catalogLoading && <button type="button" onClick={() => setCatalogRetry((n) => n + 1)} className="ml-2 min-h-11 underline">{t("common.retry")}</button>}
+              {branchLoading ? t("common.loading") : branchLoadError ? t("book.branch.loadError") : catalogLoading ? t("book.room.priceLoading") : t("book.room.priceUnavailable")}
+              {!branchLoading && branchLoadError && <button type="button" onClick={() => setBranchRetry((n) => n + 1)} className="ml-2 min-h-11 underline">{t("common.retry")}</button>}
+              {!branchLoading && !branchLoadError && !catalogLoading && <button type="button" onClick={() => setCatalogRetry((n) => n + 1)} className="ml-2 min-h-11 underline">{t("common.retry")}</button>}
             </div>}
             <button
               type="button"

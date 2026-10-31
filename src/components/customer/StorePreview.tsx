@@ -6,7 +6,7 @@ import { FallbackBoundary } from "@/components/admin/FallbackBoundary";
 import { previewRoomForBranch } from "./RoomPreview";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 
-export type StorePreviewRoom = { roomId: string; roomName: string; available: boolean; partyStatus?: "invalid" | "mismatch" | null };
+export type StorePreviewRoom = { roomId: string; roomName: string; available: boolean; partial?: boolean; partyStatus?: "invalid" | "mismatch" | null };
 export type MappedStoreRoom = StorePreviewRoom & { slot: string };
 
 /** Only expose rooms with an unambiguous name/branch match; never guess. */
@@ -60,7 +60,7 @@ export function StorePreview({ branch, rooms, selectedId, onSelect }: {
       <div className="flex flex-wrap gap-2" aria-label={t("book.store.selectRoom")}>
         {mapped.map((room) => <button key={room.roomId} type="button" aria-pressed={selectedId === room.roomId} onClick={() => onSelect(room.roomId)}
           className="min-h-11 rounded-lg border border-amber-300 bg-white px-3 text-sm text-amber-950 aria-pressed:bg-amber-200">
-          {room.roomName} · {!room.available ? t("book.room.full") : room.partyStatus === "invalid" ? t("book.store.partyInvalid") : room.partyStatus === "mismatch" ? t("book.store.partyMismatch") : t("book.room.available")}
+          {room.roomName} · {!room.available ? `${t(room.partial ? "book.room.noMinimum" : "book.room.full")}${room.partyStatus === "invalid" ? ` · ${t("book.store.partyInvalid")}` : room.partyStatus === "mismatch" ? ` · ${t("book.store.partyMismatch")}` : ""}` : room.partyStatus === "invalid" ? t("book.store.partyInvalid") : room.partyStatus === "mismatch" ? t("book.store.partyMismatch") : t("book.room.available")}
         </button>)}
       </div>
     </div>}

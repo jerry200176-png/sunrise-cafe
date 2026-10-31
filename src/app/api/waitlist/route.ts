@@ -24,6 +24,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "缺少必要欄位" }, { status: 400 });
     }
 
+    const { data: room, error: roomError } = await supabaseAdmin()
+      .from("rooms")
+      .select("id, branch_id")
+      .eq("id", room_id)
+      .maybeSingle();
+    if (roomError) throw roomError;
+    if (!room?.branch_id) {
+      return NextResponse.json({ error: "分店或包廂不存在，無法加入候位" }, { status: 404 });
+    }
+
+    const { data: branch, error: branchError } = await supabaseAdmin()
+      .from("branches")
+      .select("id, archived_at")
+      .eq("id", room.branch_id)
+      .maybeSingle();
+    if (branchError) throw branchError;
+    if (!branch) {
+      return NextResponse.json({ error: "分店或包廂不存在，無法加入候位" }, { status: 404 });
+    }
+    if (branch.archived_at) {
+      return NextResponse.json({ error: "該分店已停止接受候位" }, { status: 410 });
+    }
+
     // 防止重複等位（同電話、同包廂、同時段）
     const { data: existing } = await supabaseAdmin()
       .from("waitlist")
