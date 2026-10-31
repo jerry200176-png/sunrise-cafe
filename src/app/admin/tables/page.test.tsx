@@ -2,9 +2,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const branchState = vi.hoisted(() => ({ branches: [{ id: "b1", name: "甲店" }, { id: "b2", name: "乙店" }] }));
+const branchState = vi.hoisted(() => ({ branches: [{ id: "b1", name: "甲店" }, { id: "b2", name: "乙店" }], loading: false, error: null as string | null }));
 vi.mock("@/lib/use-admin-branches", () => ({
-  useAdminBranches: () => ({ ...branchState, loading: false, error: null, retry: vi.fn() }),
+  useAdminBranches: () => ({ ...branchState, retry: vi.fn() }),
 }));
 
 import AdminTablesPage from "./page";
@@ -12,7 +12,7 @@ import AdminTablesPage from "./page";
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
 const initial = { id: "t1", branch_id: "b1", number: "A1", is_active: true, qr_token: "synthetic" };
 
-afterEach(() => { cleanup(); sessionStorage.clear(); branchState.branches = [{ id: "b1", name: "甲店" }, { id: "b2", name: "乙店" }]; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); sessionStorage.clear(); branchState.branches = [{ id: "b1", name: "甲店" }, { id: "b2", name: "乙店" }]; branchState.loading = false; branchState.error = null; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("桌位編輯與停用", () => {
   it("確認歷史顯示影響後才更新桌號，保留 QR", async () => {
@@ -102,24 +102,76 @@ describe("桌位編輯與停用", () => {
     expect(writes).toBe(1);
   });
 
-  it("新增結果不明時，同分頁重新載入仍保留鎖定而不保存桌號或 QR", async () => {
+  it("新增結果不明後重新載入仍顯示桌號，提醒核對重複桌位而不保存 QR", async () => {
     let writes = 0;
     vi.stubGlobal("fetch", vi.fn(async (_input: string, init?: RequestInit) => {
       if (init?.method === "POST") { writes++; throw new TypeError("network lost"); }
-      return json([initial]);
+      return json(writes ? [initial, { ...initial, id: "same-1", number: "NEW-TABLE" }, { ...initial, id: "same-2", number: "NEW-TABLE" }] : [initial]);
     }));
     render(<AdminTablesPage />);
     fireEvent.change(await screen.findByPlaceholderText("桌號，例：A1、B3"), { target: { value: "NEW-TABLE" } });
     fireEvent.click(screen.getByRole("button", { name: "新增" }));
     expect(await screen.findByText(/桌位操作結果尚未確認/)).toBeTruthy();
-    expect(JSON.parse(sessionStorage.getItem("sunrise.table-write.pending.v1")!)).toMatchObject({ branchId: "b1", operationId: expect.any(String) });
-    expect(JSON.stringify(sessionStorage)).not.toContain("NEW-TABLE");
+    expect(JSON.parse(sessionStorage.getItem("sunrise.table-write.pending.v1")!)).toMatchObject({ branchId: "b1", operationId: expect.any(String), summary: { kind: "create", number: "NEW-TABLE" } });
     expect(JSON.stringify(sessionStorage)).not.toContain("synthetic");
     cleanup();
     render(<AdminTablesPage />);
     expect(await screen.findByText(/桌位操作結果尚未確認/)).toBeTruthy();
+    expect(await screen.findByText(/待核對：新增桌號 NEW-TABLE/)).toBeTruthy();
+    expect(screen.getByText(/無法自動判定哪筆/)).toBeTruthy();
+    expect(await screen.findAllByText("此分店有相同桌號，請以識別碼核對。")).toHaveLength(2);
     expect((screen.getByRole("button", { name: "新增" }) as HTMLButtonElement).disabled).toBe(true);
     expect(writes).toBe(1);
+  });
+
+  it("修改結果不明後重新載入，顯示完整桌位 ID 和前後狀態以區分同桌號", async () => {
+    const first = { ...initial, id: "11111111-1111-4111-8111-123456abcdef" };
+    const second = { ...initial, id: "22222222-2222-4222-8222-987654abcdef" };
+    let writes = 0;
+    vi.stubGlobal("fetch", vi.fn(async (_input: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") { writes++; throw new TypeError("network lost"); }
+      return json([first, second]);
+    }));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<AdminTablesPage />);
+    fireEvent.click(await screen.findByRole("button", { name: `停用桌號 A1，識別碼 ${second.id}` }));
+    expect(await screen.findByText(/桌位操作結果尚未確認/)).toBeTruthy();
+    const stored = sessionStorage.getItem("sunrise.table-write.pending.v1")!;
+    expect(JSON.parse(stored).summary).toEqual({ kind: "update", tableId: second.id, before: { number: "A1", is_active: true }, after: { number: "A1", is_active: false } });
+    expect(stored).not.toContain("synthetic");
+    cleanup();
+    render(<AdminTablesPage />);
+    expect(await screen.findByText(`待核對桌位識別碼：${second.id}`)).toBeTruthy();
+    expect(screen.getByText("原本：桌號 A1／使用中")).toBeTruthy();
+    expect(screen.getByText("預期：桌號 A1／已停用")).toBeTruthy();
+    expect(writes).toBe(1);
+  });
+
+  it("桌號編輯結果不明時保留原本和預期桌號", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (_input: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") throw new TypeError("network lost");
+      return json([initial]);
+    }));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<AdminTablesPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "編輯桌號 A1" }));
+    fireEvent.change(screen.getByLabelText("新桌號"), { target: { value: "A2" } });
+    fireEvent.click(screen.getByRole("button", { name: "儲存桌號" }));
+    expect(await screen.findByText("預期：桌號 A2／使用中")).toBeTruthy();
+    cleanup();
+    render(<AdminTablesPage />);
+    expect(await screen.findByText("原本：桌號 A1／使用中")).toBeTruthy();
+    expect(screen.getByText("預期：桌號 A2／使用中")).toBeTruthy();
+    expect(await screen.findByText("桌位識別碼 t1")).toBeTruthy();
+  });
+
+  it("舊格式或缺少摘要的待確認旗標不允許自行解除", async () => {
+    sessionStorage.setItem("sunrise.table-write.pending.v1", JSON.stringify({ branchId: "b1", operationId: "legacy" }));
+    vi.stubGlobal("fetch", vi.fn(async () => json([initial])));
+    render(<AdminTablesPage />);
+    expect(await screen.findByText(/無法讀取原操作摘要/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "重新整理並核對" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "已核對，允許操作" })).toBeNull();
   });
 
   it("無法保存待確認狀態時不發送桌位操作", async () => {
@@ -209,7 +261,7 @@ describe("桌位編輯與停用", () => {
   });
 
   it("重新載入時回到待確認的原分店；無權使用時不改以其他分店核對", async () => {
-    sessionStorage.setItem("sunrise.table-write.pending.v1", JSON.stringify({ branchId: "b2", operationId: "fake-operation" }));
+    sessionStorage.setItem("sunrise.table-write.pending.v1", JSON.stringify({ branchId: "b2", operationId: "fake-operation", summary: { kind: "create", number: "B2" } }));
     vi.stubGlobal("fetch", vi.fn(async (input: string) => input.includes("branchId=b2")
       ? json([{ ...initial, branch_id: "b2", number: "B2" }]) : json([initial])));
     const view = render(<AdminTablesPage />);
@@ -218,7 +270,28 @@ describe("桌位編輯與停用", () => {
     branchState.branches = [{ id: "b1", name: "甲店" }];
     view.rerender(<AdminTablesPage />);
     expect(await screen.findByText(/無法載入原操作分店/)).toBeTruthy();
+    expect(screen.queryByText(/待核對：新增桌號 B2/)).toBeNull();
     expect((screen.getByRole("button", { name: "重新整理並核對" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("未取得原分店桌位授權前不顯示儲存摘要，也不允許解除", async () => {
+    sessionStorage.setItem("sunrise.table-write.pending.v1", JSON.stringify({ branchId: "b2", operationId: "fake-operation", summary: { kind: "update", tableId: "private-id", before: { number: "PRIVATE", is_active: true }, after: { number: "PRIVATE", is_active: false } } }));
+    let permitted = false;
+    vi.stubGlobal("fetch", vi.fn(async () => permitted ? json([{ ...initial, branch_id: "b2" }]) : json({ error: "無權限" }, 403)));
+    const view = render(<AdminTablesPage />);
+    expect(await screen.findByText("無權限")).toBeTruthy();
+    expect(screen.queryByText(/private-id|PRIVATE/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "已核對，允許操作" })).toBeNull();
+    permitted = true;
+    fireEvent.click(screen.getByRole("button", { name: "重試" }));
+    expect(await screen.findByText("待核對桌位識別碼：private-id")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "重新整理並核對" }));
+    expect(await screen.findByRole("button", { name: "已核對，允許操作" })).toBeTruthy();
+    branchState.error = "分店載入失敗";
+    view.rerender(<AdminTablesPage />);
+    expect(screen.queryByText(/private-id|PRIVATE/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "已核對，允許操作" })).toBeNull();
+    expect(sessionStorage.getItem("sunrise.table-write.pending.v1")).toBeTruthy();
   });
 
   it("列印既有異常桌號時會跳脫 HTML", async () => {

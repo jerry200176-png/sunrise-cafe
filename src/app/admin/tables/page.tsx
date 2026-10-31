@@ -14,19 +14,40 @@ function escapeHtml(value: string) {
 }
 
 const TABLE_WRITE_HOLD = "sunrise.table-write.pending.v1";
-type TableWriteHold = { branchId: string; operationId: string };
+type TableSnapshot = { number: string; is_active: boolean };
+type TableWriteSummary =
+  | { kind: "create"; number: string }
+  | { kind: "update"; tableId: string; before: TableSnapshot; after: TableSnapshot };
+type TableWriteHold = { branchId: string; operationId: string; summary: TableWriteSummary };
+function isSnapshot(value: unknown): value is TableSnapshot {
+  return Boolean(value && typeof value === "object" && "number" in value && "is_active" in value &&
+    typeof value.number === "string" && typeof value.is_active === "boolean");
+}
 function readWriteHold(): TableWriteHold | null {
   const value = sessionStorage.getItem(TABLE_WRITE_HOLD);
   if (value === null) return null;
   const parsed: unknown = JSON.parse(value);
-  if (!parsed || typeof parsed !== "object" || !("branchId" in parsed) || !("operationId" in parsed) ||
+  if (!parsed || typeof parsed !== "object" || !("branchId" in parsed) || !("operationId" in parsed) || !("summary" in parsed) ||
       typeof parsed.branchId !== "string" || !parsed.branchId || typeof parsed.operationId !== "string" || !parsed.operationId) throw new Error("invalid hold");
-  return { branchId: parsed.branchId, operationId: parsed.operationId };
+  const summary = parsed.summary;
+  if (!summary || typeof summary !== "object" || !("kind" in summary)) throw new Error("invalid summary");
+  if (summary.kind === "create" && "number" in summary && typeof summary.number === "string" && summary.number) {
+    return { branchId: parsed.branchId, operationId: parsed.operationId, summary: { kind: "create", number: summary.number } };
+  }
+  if (summary.kind === "update" && "tableId" in summary && typeof summary.tableId === "string" && summary.tableId &&
+      "before" in summary && "after" in summary && isSnapshot(summary.before) && isSnapshot(summary.after)) {
+    return { branchId: parsed.branchId, operationId: parsed.operationId, summary: {
+      kind: "update", tableId: summary.tableId,
+      before: { number: summary.before.number, is_active: summary.before.is_active },
+      after: { number: summary.after.number, is_active: summary.after.is_active },
+    } };
+  }
+  throw new Error("invalid summary");
 }
-function storeWriteHold(branchId: string) {
+function storeWriteHold(branchId: string, summary: TableWriteSummary) {
   if (sessionStorage.getItem(TABLE_WRITE_HOLD) !== null) throw new Error("existing hold");
   const operationId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
-  const value = JSON.stringify({ branchId, operationId });
+  const value = JSON.stringify({ branchId, operationId, summary });
   sessionStorage.setItem(TABLE_WRITE_HOLD, value);
   if (sessionStorage.getItem(TABLE_WRITE_HOLD) !== value) throw new Error("storage unavailable");
   return operationId;
@@ -53,10 +74,16 @@ export default function AdminTablesPage() {
   const [editNumber, setEditNumber] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
   const [writeUncertain, setWriteUncertain] = useState(false);
+  const [pendingSummary, setPendingSummary] = useState<TableWriteSummary | null>(null);
+  const [verifiedBranch, setVerifiedBranch] = useState<string | null>(null);
   const [reviewed, setReviewed] = useState(false);
   const writeInFlight = useRef(false);
   const pendingBranch = useRef<string | null>(null);
   const reviewedOperation = useRef<string | null>(null);
+  const canAttemptReview = Boolean(pendingSummary && pendingBranch.current &&
+    !branchesLoading && !branchesError && branchId === pendingBranch.current &&
+    branches.some((branch) => branch.id === branchId));
+  const canViewPendingSummary = canAttemptReview && verifiedBranch === branchId;
 
   const showToast = (message: string, variant: ToastVariant = "info") => {
     const id = ++toastId.current;
@@ -66,7 +93,7 @@ export default function AdminTablesPage() {
   const lockForStorageFailure = () => {
     try {
       const pending = readWriteHold();
-      if (pending) pendingBranch.current = pending.branchId;
+      if (pending) { pendingBranch.current = pending.branchId; setPendingSummary(pending.summary); }
     } catch { pendingBranch.current = "unavailable"; }
     if (pendingBranch.current && pendingBranch.current !== activeBranchId.current) {
       requestSequence.current++;
@@ -83,6 +110,7 @@ export default function AdminTablesPage() {
       const pending = readWriteHold();
       if (pending) {
         pendingBranch.current = pending.branchId;
+        setPendingSummary(pending.summary);
         setWriteUncertain(true);
       }
     } catch {
@@ -107,6 +135,7 @@ export default function AdminTablesPage() {
   const loadTables = async (bid: string) => {
     if (bid !== activeBranchId.current) return false;
     const current = ++requestSequence.current;
+    setVerifiedBranch(null);
     setReviewed(false);
     if (!bid) { setTables([]); setLoading(false); return false; }
     setLoading(true); setError(null);
@@ -120,6 +149,7 @@ export default function AdminTablesPage() {
       }
       if (current !== requestSequence.current || bid !== activeBranchId.current) return false;
       setTables(data);
+      setVerifiedBranch(bid);
       return true;
     } catch (cause) {
       if (current === requestSequence.current && bid === activeBranchId.current) { setTables([]); setError(thrownMessage(cause, "桌位載入失敗，請重試")); }
@@ -141,7 +171,10 @@ export default function AdminTablesPage() {
     setSavingId("new");
     try {
       let operationId: string;
-      try { operationId = storeWriteHold(requestedBranch); pendingBranch.current = requestedBranch; }
+      try {
+        const summary: TableWriteSummary = { kind: "create", number: requestedNumber };
+        operationId = storeWriteHold(requestedBranch, summary); pendingBranch.current = requestedBranch; setPendingSummary(summary);
+      }
       catch { lockForStorageFailure(); return; }
       const res = await fetchWithTimeout("/api/admin/tables", {
         method: "POST",
@@ -151,14 +184,14 @@ export default function AdminTablesPage() {
       const data = await readJsonWithTimeout<{ id?: unknown; number?: unknown; branch_id?: unknown; error?: unknown }>(res);
       if (!res.ok) {
         if ([400, 401, 403, 404, 409].includes(res.status)) {
-          clearWriteHold(operationId); pendingBranch.current = null;
+          clearWriteHold(operationId); pendingBranch.current = null; setPendingSummary(null);
           showToast(typeof data?.error === "string" ? data.error : "新增桌位失敗", "error");
           return;
         }
         throw new Error("unknown outcome");
       }
       if (typeof data?.id !== "string" || data.number !== requestedNumber || data.branch_id !== requestedBranch) throw new Error("unknown outcome");
-      clearWriteHold(operationId); pendingBranch.current = null;
+      clearWriteHold(operationId); pendingBranch.current = null; setPendingSummary(null);
       if (activeBranchId.current !== requestedBranch) return;
       setNewNumber("");
       showToast(`已新增桌號 ${requestedNumber}`, "success");
@@ -191,7 +224,14 @@ export default function AdminTablesPage() {
     setSavingId(table.id);
     try {
       let operationId: string;
-      try { operationId = storeWriteHold(table.branch_id); pendingBranch.current = table.branch_id; }
+      try {
+        const summary: TableWriteSummary = {
+          kind: "update", tableId: table.id,
+          before: { number: table.number, is_active: table.is_active },
+          after: { number: changes.number ?? table.number, is_active: changes.is_active ?? table.is_active },
+        };
+        operationId = storeWriteHold(table.branch_id, summary); pendingBranch.current = table.branch_id; setPendingSummary(summary);
+      }
       catch { lockForStorageFailure(); return; }
       const res = await fetchWithTimeout(`/api/admin/tables/${encodeURIComponent(table.id)}`, {
         method: "PATCH",
@@ -201,7 +241,7 @@ export default function AdminTablesPage() {
       const data = await readJsonWithTimeout<{ id?: unknown; number?: unknown; is_active?: unknown; error?: unknown }>(res);
       if (!res.ok) {
         if ([400, 401, 403, 404, 409].includes(res.status)) {
-          clearWriteHold(operationId); pendingBranch.current = null;
+          clearWriteHold(operationId); pendingBranch.current = null; setPendingSummary(null);
           showToast(typeof data?.error === "string" ? data.error : "桌位更新失敗，請重新整理", "error");
           if (res.status === 409) { setEditingId(null); await loadTables(table.branch_id); }
           return;
@@ -211,7 +251,7 @@ export default function AdminTablesPage() {
       if (data?.id !== table.id || typeof data.number !== "string" || typeof data.is_active !== "boolean" ||
           (changes.number !== undefined && data.number !== changes.number) ||
           (changes.is_active !== undefined && data.is_active !== changes.is_active)) throw new Error("unknown outcome");
-      clearWriteHold(operationId); pendingBranch.current = null;
+      clearWriteHold(operationId); pendingBranch.current = null; setPendingSummary(null);
       if (activeBranchId.current !== table.branch_id) return;
       setTables((current) => current.map((row) => row.id === table.id ? { ...row, number: data.number as string, is_active: data.is_active as boolean } : row));
       setEditingId(null);
@@ -227,6 +267,7 @@ export default function AdminTablesPage() {
   };
 
   const reviewTables = async () => {
+    if (!canAttemptReview) return;
     setReviewed(false);
     try {
       const before = readWriteHold();
@@ -293,9 +334,13 @@ export default function AdminTablesPage() {
       <div className="mx-auto max-w-3xl px-4 py-6 space-y-6">
         {writeUncertain && <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
           <p>桌位操作結果尚未確認，原請求可能稍後完成。請重新整理並核對桌號與狀態後，再決定是否操作。</p>
+          {canViewPendingSummary && pendingSummary?.kind === "create" && <p className="mt-2">待核對：新增桌號 {pendingSummary.number}。相同桌號可能有多張不同 QR；請核對清單中的完整桌位識別碼，無法自動判定哪筆由這次請求建立。</p>}
+          {canViewPendingSummary && pendingSummary?.kind === "update" && <div className="mt-2"><p className="break-all">待核對桌位識別碼：{pendingSummary.tableId}</p><p>原本：桌號 {pendingSummary.before.number}／{pendingSummary.before.is_active ? "使用中" : "已停用"}</p><p>預期：桌號 {pendingSummary.after.number}／{pendingSummary.after.is_active ? "使用中" : "已停用"}</p></div>}
+          {!pendingSummary && <p className="mt-2">無法讀取原操作摘要，請聯絡管理員確認後再處理。</p>}
+          {pendingSummary && !canViewPendingSummary && <p className="mt-2">尚無法確認原分店的存取權限及完整桌位清單。</p>}
           {!branchId && <p>無法載入原操作分店；請聯絡管理員確認桌位後再處理。</p>}
-          <button type="button" className="mt-2 min-h-[44px] rounded-lg border border-amber-700 px-3" disabled={loading || savingId !== null || !branchId} onClick={() => void reviewTables()}>重新整理並核對</button>
-          {reviewed && <button type="button" className="ml-2 mt-2 min-h-[44px] rounded-lg border border-amber-700 px-3" onClick={() => { if (window.confirm("原請求仍可能稍後完成。已核對桌位並了解再次操作的風險嗎？")) { try { clearWriteHold(reviewedOperation.current); pendingBranch.current = null; setWriteUncertain(false); setReviewed(false); } catch { setReviewed(false); showToast("待確認操作已改變或無法保存，請重新整理並核對。", "error"); } } }}>已核對，允許操作</button>}
+          <button type="button" className="mt-2 min-h-[44px] rounded-lg border border-amber-700 px-3" disabled={loading || savingId !== null || !canAttemptReview} onClick={() => void reviewTables()}>重新整理並核對</button>
+          {reviewed && canViewPendingSummary && <button type="button" className="ml-2 mt-2 min-h-[44px] rounded-lg border border-amber-700 px-3" onClick={() => { if (window.confirm("原請求仍可能稍後完成。已核對桌位並了解再次操作的風險嗎？")) { try { clearWriteHold(reviewedOperation.current); pendingBranch.current = null; setPendingSummary(null); setWriteUncertain(false); setReviewed(false); } catch { setReviewed(false); showToast("待確認操作已改變或無法保存，請重新整理並核對。", "error"); } } }}>已核對，允許操作</button>}
         </div>}
         <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <h2 className="font-semibold text-gray-900 mb-3">新增桌位</h2>
@@ -313,7 +358,7 @@ export default function AdminTablesPage() {
       {branchesLoading && <p role="status" className="text-sm text-gray-500">載入分店中…</p>}
       {!branchesLoading && !branchesError && branches.length === 0 && <p role="status" className="rounded-lg bg-stone-100 px-4 py-3 text-sm text-stone-600">目前沒有可管理的分店。</p>}
       {error && <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"><span>{error}</span><button type="button" onClick={() => void loadTables(branchId)} disabled={!branchId || loading} className="min-h-[44px] rounded-lg border border-red-300 bg-white px-3 disabled:opacity-50">重試</button></div>}
-      {branchId && loading ? <p role="status" className="text-sm text-gray-500">載入桌位中…</p> : error || !branchId ? null : tables.length === 0 ? (
+      {branchId && loading ? <p role="status" className="text-sm text-gray-500">載入桌位中…</p> : error || !branchId || branchesLoading || branchesError || !branches.some((branch) => branch.id === branchId) || verifiedBranch !== branchId ? null : tables.length === 0 ? (
             <p className="text-sm text-gray-500">尚無桌位</p>
           ) : (
             <div className="divide-y divide-gray-100">
@@ -326,7 +371,8 @@ export default function AdminTablesPage() {
                     <div>
                       <p className="font-medium text-gray-900">桌號 {table.number}</p>
                       <p className={`text-xs ${table.is_active ? "text-emerald-700" : "text-amber-800"}`}>{table.is_active ? "使用中" : "已停用"}</p>
-                      {duplicate && <><p className="break-all text-xs text-gray-500">桌位識別碼 {table.id}</p><p className="text-xs text-amber-800">此分店有相同桌號，請以識別碼核對。</p></>}
+                      {(duplicate || writeUncertain) && <p className="break-all text-xs text-gray-500">桌位識別碼 {table.id}</p>}
+                      {duplicate && <p className="text-xs text-amber-800">此分店有相同桌號，請以識別碼核對。</p>}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <button type="button" disabled={savingId !== null || writeUncertain} onClick={() => { setEditingId(table.id); setEditNumber(table.number); }} className="min-h-[44px] rounded-lg border border-gray-300 px-3 text-sm disabled:opacity-50" aria-label={`編輯桌號 ${table.number}${identity}`}>編輯</button>
