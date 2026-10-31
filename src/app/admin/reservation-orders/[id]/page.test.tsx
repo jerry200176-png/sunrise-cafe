@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import ReservationOrderPage from "./page";
 
-vi.mock("next/navigation", () => ({ useParams: () => ({ id: "res-1" }) }));
+const { mockParams } = vi.hoisted(() => ({ mockParams: { id: "res-1" } }));
+vi.mock("next/navigation", () => ({ useParams: () => mockParams }));
 
 const api = "/api/admin/reservation-orders/res-1";
 const view = {
@@ -23,6 +24,7 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
   let postStatus: number;
 
   beforeEach(() => {
+    mockParams.id = "res-1";
     posts = [];
     getCount = 0;
     refreshFailure = null;
@@ -125,5 +127,38 @@ describe("standalone reservation orders — NT$0 food on an ended stay (#447 P2-
     stub("completed", 120);
     render(<ReservationOrderPage />);
     expect(await screen.findByRole("button", { name: "記錄現場已結帳" })).toBeTruthy();
+  });
+});
+
+
+describe("standalone reservation orders — route id race", () => {
+  it("keeps the new reservation when the old GET resolves afterward", async () => {
+    let releaseOld!: (response: Response) => void;
+    let oldStarted!: () => void;
+    const oldRequestStarted = new Promise<void>((resolve) => { oldStarted = resolve; });
+    const oldResponse = new Promise<Response>((resolve) => { releaseOld = resolve; });
+    const makeView = (customer_name: string, booking_code: string) => ({
+      reservation: { ...view.reservation, customer_name, booking_code, room: null }, preorder: null, order: null,
+    });
+    const fetch = vi.fn((url: string) => {
+      if (url.endsWith("/res-1")) { oldStarted(); return oldResponse; }
+      if (url.endsWith("/res-2")) return Promise.resolve(Response.json(makeView("新訂位", "NEW")));
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const { rerender } = render(<ReservationOrderPage />);
+    await oldRequestStarted;
+    mockParams.id = "res-2";
+    rerender(<ReservationOrderPage />);
+    expect(await screen.findByText(/新訂位.*NEW/)).toBeTruthy();
+
+    await act(async () => {
+      releaseOld(Response.json(makeView("舊訂位", "OLD")));
+      // Flush the resolved fetch continuation through load()'s stale-response guard.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    expect(screen.getByText(/新訂位.*NEW/)).toBeTruthy();
+    expect(screen.queryByText(/舊訂位|OLD/)).toBeNull();
   });
 });

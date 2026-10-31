@@ -8,6 +8,7 @@ import { chunk } from "@/lib/chunk";
 import { markDepositPaid } from "@/lib/deposit-paid";
 import { getDepositAmount } from "@/lib/booking-utils";
 import type { NotifyPaymentApprovedResult } from "@/lib/payment-notify";
+import { paymentRoomInScope } from "@/lib/payment-branch-scope";
 
 export type PaymentEventStatus = "pending_review" | "approved" | "rejected";
 
@@ -92,7 +93,8 @@ export async function fetchPendingPaymentCountsByReservation(
   return counts;
 }
 
-export async function fetchPendingPaymentEvents(): Promise<PendingPaymentEvent[]> {
+export async function fetchPendingPaymentEvents(scope: string[] | null = null): Promise<PendingPaymentEvent[]> {
+  if (scope !== null && scope.length === 0) return [];
   const { data: events, error } = await admin()
     .from("payment_events")
     .select("id, reservation_id, source, status, raw_payload, created_at, reported_account_last_five, reported_amount, reported_at, created_by, updated_at, updated_by, reviewed_by")
@@ -102,13 +104,16 @@ export async function fetchPendingPaymentEvents(): Promise<PendingPaymentEvent[]
   if (!events?.length) return [];
 
   const resIds = [...new Set(events.map((e) => e.reservation_id))];
-  const { data: reservations, error: resErr } = await admin()
+  let reservationsQuery = admin()
     .from("reservations")
-    .select("id, booking_code, customer_name, phone, start_time, end_time, total_price, is_deposit_paid, status")
+    .select("id, booking_code, customer_name, phone, start_time, end_time, total_price, is_deposit_paid, status, rooms!inner(branch_id)")
     .in("id", resIds);
+  if (scope !== null) reservationsQuery = reservationsQuery.in("rooms.branch_id", scope);
+  const { data: reservations, error: resErr } = await reservationsQuery;
   if (resErr) throw resErr;
 
-  const byId = new Map((reservations ?? []).map((r) => [r.id, r]));
+  const visibleReservations = (reservations ?? []).filter((r) => paymentRoomInScope(r.rooms, scope));
+  const byId = new Map(visibleReservations.map((r) => [r.id, r]));
 
   return events
     .map((e): PendingPaymentEvent | null => {

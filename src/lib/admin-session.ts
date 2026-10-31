@@ -16,18 +16,15 @@ export type AdminSessionPayload = {
 };
 
 export function payloadToContext(payload: AdminSessionPayload): AdminContext {
-  if (!payload.role && !payload.sub) {
+  if (payload.role === undefined && !payload.sub) {
     return ownerContext(Boolean(payload.legacy));
   }
   return {
     user_id: payload.sub ?? null,
     role: parseRole(payload.role),
-    branch_ids:
-      payload.branch_ids === undefined
-        ? payload.role === "owner"
-          ? null
-          : []
-        : payload.branch_ids,
+    branch_ids: payload.role === "owner"
+      ? payload.branch_ids ?? null
+      : payload.branch_ids ?? [],
     legacy: Boolean(payload.legacy),
     email: payload.email,
     display_name: payload.display_name,

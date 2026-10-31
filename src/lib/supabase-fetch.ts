@@ -139,7 +139,7 @@ export async function fetchSettings(): Promise<{ current_branch_id: string | nul
 }
 
 export async function updateSettings(
-  current_branch_id: string | null,
+  current_branch_id: string | null | undefined,
   rental_notes?: import("@/types").RentalNoteSection[],
   closed_dates?: string[],
   deposit_info?: string | null,
@@ -147,10 +147,8 @@ export async function updateSettings(
   google_review_url?: string | null
 ): Promise<void> {
   const { url: baseUrl } = base();
-  const body: Record<string, unknown> = {
-    current_branch_id,
-    updated_at: new Date().toISOString(),
-  };
+  const body: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (current_branch_id !== undefined) body.current_branch_id = current_branch_id;
   if (rental_notes !== undefined) body.rental_notes = rental_notes;
   if (closed_dates !== undefined) body.closed_dates = closed_dates;
   if (deposit_info !== undefined) body.deposit_info = deposit_info;

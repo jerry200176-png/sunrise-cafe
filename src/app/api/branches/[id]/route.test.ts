@@ -9,7 +9,7 @@ vi.mock("@/lib/supabase-fetch", () => ({
   updateBranch: mocks.updateBranch,
   setBranchArchived: mocks.setBranchArchived,
 }));
-vi.mock("@/lib/admin-api-auth", () => ({ requireAdminApiAuth: async () => null }));
+vi.mock("@/lib/admin-api-auth", () => ({ requirePermission: async () => null }));
 
 import { DELETE, PATCH } from "./route";
 

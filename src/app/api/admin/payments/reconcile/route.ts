@@ -5,7 +5,8 @@ import { computeDepositDeadline, isDepositAutoCancelEnabled, shouldAutoRelease }
 import { parseBankCsv, matchBankRowsToReservations } from "@/lib/payment-reconcile";
 import { getDepositAmount } from "@/lib/booking-utils";
 import { logPayment } from "@/lib/payment-log";
-import { requirePermission } from "@/lib/admin-api-auth";
+import { getAdminContext, requirePermission } from "@/lib/admin-api-auth";
+import { paymentRoomInScope } from "@/lib/payment-branch-scope";
 
 function db() {
   return createClient(
@@ -23,16 +24,20 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY" }, { status: 503 });
   }
   try {
-    const { data: rows, error } = await db()
+    const scope = (await getAdminContext(request)).branch_ids;
+    if (scope !== null && scope.length === 0) return NextResponse.json({ count: 0, items: [] });
+    let query = db()
       .from("reservations")
-      .select("id, booking_code, customer_name, phone, start_time, created_at, status")
+      .select("id, booking_code, customer_name, phone, start_time, created_at, status, rooms!inner(branch_id)")
       .in("status", ["pending", "confirmed"])
       .eq("is_deposit_paid", false)
       .order("start_time", { ascending: true });
+    if (scope !== null) query = query.in("rooms.branch_id", scope);
+    const { data: rows, error } = await query;
     if (error) throw error;
     const now = new Date();
     const autoCancel = isDepositAutoCancelEnabled();
-    const items = (rows ?? []).map((r) => {
+    const items = (rows ?? []).filter((r) => paymentRoomInScope(r.rooms, scope)).map((r) => {
       const deadline = computeDepositDeadline(r.created_at, r.start_time);
       return {
         id: r.id,
@@ -72,14 +77,22 @@ export async function POST(request: NextRequest) {
     const text = await file.text();
     const bankRows = parseBankCsv(text);
 
-    const { data: rows, error } = await db()
+    const scope = (await getAdminContext(request)).branch_ids;
+    if (scope !== null && scope.length === 0) {
+      const { matches, unmatched } = matchBankRowsToReservations(bankRows, []);
+      return NextResponse.json({ bank_rows: bankRows.length, matches, unmatched, note: "MVP 僅建議配對，不自動標記已付；請於付款審核或訂位列表手動確認" });
+    }
+    let query = db()
       .from("reservations")
-      .select("id, booking_code, customer_name, total_price, deposit_payment_note, status, is_deposit_paid")
+      .select("id, booking_code, customer_name, total_price, deposit_payment_note, status, is_deposit_paid, rooms!inner(branch_id)")
       .in("status", ["pending", "confirmed"])
       .eq("is_deposit_paid", false);
+    if (scope !== null) query = query.in("rooms.branch_id", scope);
+    const { data: rows, error } = await query;
     if (error) throw error;
 
     const reservations = (rows ?? [])
+      .filter((r) => paymentRoomInScope(r.rooms, scope))
       .filter((r) => r.total_price != null)
       .map((r) => ({
         id: r.id,

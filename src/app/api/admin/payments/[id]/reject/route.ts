@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rejectPaymentEvent } from "@/lib/payment-events-admin";
 import { isAdminConfigured } from "@/lib/supabase-admin";
-import { requirePermission } from "@/lib/admin-api-auth";
+import { getAdminContext, requirePermission } from "@/lib/admin-api-auth";
 import { logOps, type AdminPaymentInteraction } from "@/lib/ops-log";
+import { paymentEventInScope } from "@/lib/payment-event-scope";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -20,6 +21,10 @@ export async function POST(request: NextRequest, { params }: Params) {
   const interaction: AdminPaymentInteraction = body.interaction === "keyboard" ? "keyboard" : "click";
 
   try {
+    const adminContext = await getAdminContext(request);
+    if (!await paymentEventInScope(id, adminContext)) {
+      return NextResponse.json({ error: "找不到付款事件" }, { status: 404 });
+    }
     const result = await rejectPaymentEvent(id, reviewNote);
     if (!result.already_processed) {
       logOps("admin", "admin.payment_rejected", { payment_event_id: id, interaction });
