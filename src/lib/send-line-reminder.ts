@@ -162,9 +162,15 @@ async function claimRows(
             else unresolvedRows.push(row);
           } else if (state === "missing") {
             const branchState = await readLineReminderDeliveryState(key);
-            if (branchState === "sent" || (branchState === "missing" && await isReminderNoLongerRequired(key))) handledRows.push(row);
+            if (branchState === "sent" || (branchState === "missing" && !await hasOtherGroupDelivery(key) && await isReminderNoLongerRequired(key))) handledRows.push(row);
             else unresolvedRows.push(row);
           } else unresolvedRows.push(row);
+          continue;
+        }
+        // Older branch configurations wrote only their actual group key. Hold
+        // the shared guard if such history exists or the safety read fails.
+        if (await hasOtherGroupDelivery(key)) {
+          unresolvedRows.push(row);
           continue;
         }
         guardDeliveryId = guard.id;

@@ -625,6 +625,27 @@ describe("independent staff and customer reminder delivery", () => {
     expect(markLineReminderDelivery).not.toHaveBeenCalledWith("d1_group_guard", expect.anything());
   });
 
+  it.each(["sending", "sent"])("holds a new branch guard when an older branch has %s history", async (oldState) => {
+    vi.mocked(fetchReservationsForReminder).mockResolvedValue([{ ...row, line_user_id: null }] as never);
+    vi.mocked(hasOtherGroupDelivery).mockResolvedValue(true);
+    const result = await (await runSendLineReminder()).json();
+    expect(result).toMatchObject({ ok: false, unresolved_claim_count: 1 });
+    expect(claimLineReminderDelivery).toHaveBeenCalledWith(expect.objectContaining({ recipientId: "legacy-group" }));
+    expect(claimLineReminderDelivery).not.toHaveBeenCalledWith(expect.objectContaining({ recipientId: "G-test" }));
+    expect(markLineReminderDelivery).not.toHaveBeenCalledWith("d1_group_guard", expect.anything());
+    expect(sendLineFlexToGroup).not.toHaveBeenCalled();
+    expect(result.message).not.toContain(oldState);
+  });
+
+  it("holds the guard when checking older branch history fails", async () => {
+    vi.mocked(fetchReservationsForReminder).mockResolvedValue([{ ...row, line_user_id: null }] as never);
+    vi.mocked(hasOtherGroupDelivery).mockRejectedValue(new Error("history read failed"));
+    const result = await (await runSendLineReminder()).json();
+    expect(result.ok).toBe(false);
+    expect(markLineReminderDelivery).not.toHaveBeenCalledWith("d1_group_guard", expect.anything());
+    expect(sendLineFlexToGroup).not.toHaveBeenCalled();
+  });
+
   it("checks the branch claim before accepting an absent guard and completed marker", async () => {
     vi.mocked(fetchReservationsForReminder).mockResolvedValue([{ ...row, line_user_id: null }] as never);
     vi.mocked(claimLineReminderDelivery).mockResolvedValue({ available: true, id: null });

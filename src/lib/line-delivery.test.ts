@@ -45,13 +45,24 @@ describe("line reminder delivery ledger", () => {
   it("queries for other group history without returning recipient identifiers", async () => {
     const maybeSingle = vi.fn().mockResolvedValue({ data: { id: "delivery" }, error: null });
     const limit = vi.fn(() => ({ maybeSingle }));
-    const neq = vi.fn(() => ({ limit }));
+    const neq: ReturnType<typeof vi.fn> = vi.fn(() => ({ limit, neq }));
     const eq: ReturnType<typeof vi.fn> = vi.fn(() => ({ eq, neq }));
     const select = vi.fn(() => ({ eq }));
     vi.mocked(supabaseAdmin).mockReturnValue({ from: vi.fn(() => ({ select })) } as never);
     await expect(hasOtherGroupDelivery({ reminderType: "d1_group", reminderDate: "2026-09-05", reservationId: "r1", recipientType: "group", recipientId: "legacy-group" })).resolves.toBe(true);
     expect(select).toHaveBeenCalledWith("id");
     expect(neq).toHaveBeenCalledWith("recipient_id", "legacy-group");
+  });
+
+  it("excludes both the legacy guard and the current branch from historical branch checks", async () => {
+    const maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+    const limit = vi.fn(() => ({ maybeSingle }));
+    const neq: ReturnType<typeof vi.fn> = vi.fn(() => ({ limit, neq }));
+    const eq: ReturnType<typeof vi.fn> = vi.fn(() => ({ eq, neq }));
+    vi.mocked(supabaseAdmin).mockReturnValue({ from: vi.fn(() => ({ select: () => ({ eq }) })) } as never);
+    await expect(hasOtherGroupDelivery({ reminderType: "d1_group", reminderDate: "2026-09-05", reservationId: "r1", recipientType: "group", recipientId: "G-new" })).resolves.toBe(false);
+    expect(neq).toHaveBeenCalledWith("recipient_id", "legacy-group");
+    expect(neq).toHaveBeenCalledWith("recipient_id", "G-new");
   });
   it.each([
     [{ status: "cancelled", is_notified: false, d1_guest_reminder_sent_at: null, line_user_id: "U-old" }, "d1_group", true],

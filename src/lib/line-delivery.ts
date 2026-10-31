@@ -76,7 +76,7 @@ export async function readLineReminderDeliveryState(input: ReminderDeliveryKey):
   return status === "sending" || status === "sent" || status === "failed" ? status : "missing";
 }
 
-/** Legacy keys do not identify the actual group, so any branch-key history needs review. */
+/** Another branch key may represent a previous configuration with an unknown outcome. */
 export async function hasOtherGroupDelivery(input: ReminderDeliveryKey): Promise<boolean> {
   const { data, error } = await supabaseAdmin()
     .from("line_reminder_deliveries")
@@ -86,6 +86,7 @@ export async function hasOtherGroupDelivery(input: ReminderDeliveryKey): Promise
     .eq("reservation_id", input.reservationId)
     .eq("recipient_type", "group")
     .neq("recipient_id", "legacy-group")
+    .neq("recipient_id", input.recipientId)
     .limit(1)
     .maybeSingle();
   if (error) throw new Error("無法確認群組提醒歷史紀錄");
