@@ -1,16 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchBranches, fetchPublicBranches, insertBranch } from "@/lib/supabase-fetch";
-import { hasValidAdminSession, requireAdminApiAuth } from "@/lib/admin-api-auth";
+import { getAdminContext, hasValidAdminSession, requirePermission } from "@/lib/admin-api-auth";
+import { roleHasPermission } from "@/lib/rbac";
 import type { RentalNoteSection } from "@/types";
 import { validateWeeklyHours, type WeeklyHours } from "@/lib/branch-hours";
 
 export async function GET(request: NextRequest) {
   try {
-    // The admin branch editor round-trips LINE group / payment fields; guests only get the public subset.
     const isAdmin = await hasValidAdminSession(request);
-    const includeArchived = isAdmin && request.nextUrl.searchParams.get("include") === "archived";
-    const data = isAdmin ? await fetchBranches(includeArchived) : await fetchPublicBranches();
-    return NextResponse.json(data ?? []);
+    if (!isAdmin) return NextResponse.json((await fetchPublicBranches()) ?? []);
+
+    const context = await getAdminContext(request);
+    if (context.role === "owner") {
+      // Owner edits round-trip internal LINE/payment fields, including archived branches.
+      const includeArchived = request.nextUrl.searchParams.get("include") === "archived";
+      return NextResponse.json((await fetchBranches(includeArchived)) ?? []);
+    }
+
+    // Limit both branch visibility and fields for non-owner sessions. Payment details
+    // are needed by the existing staff/manager reservation-message workflow.
+    const allowedIds = new Set(context.branch_ids ?? []);
+    if (!allowedIds.size) return NextResponse.json([]);
+    const rows = await fetchBranches(false);
+    const publicKeys = ["id", "name", "address", "phone", "open_time", "close_time", "closed_dates", "display_name", "rental_notes", "deposit_info", "weekly_hours"];
+    const keys = roleHasPermission(context.role, "reservations:message_send")
+      ? [...publicKeys, "payment_info", "line_pay_url"] : publicKeys;
+    const scoped = (Array.isArray(rows) ? rows : [])
+      .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object" && typeof (row as Record<string, unknown>).id === "string" && allowedIds.has((row as Record<string, string>).id))
+      .map((row) => Object.fromEntries(keys.filter((key) => Object.hasOwn(row, key)).map((key) => [key, row[key]])));
+    return NextResponse.json(scoped);
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法載入分店";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -18,7 +36,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const denied = await requireAdminApiAuth(request);
+  const denied = await requirePermission(request, "branches:write");
   if (denied) return denied;
 
   try {

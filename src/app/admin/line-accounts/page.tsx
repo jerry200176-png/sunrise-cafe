@@ -1,30 +1,76 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
-import { responseError, thrownMessage } from "@/lib/friendly-error";
+import { friendlyMessage, thrownMessage } from "@/lib/friendly-error";
+import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import type { LineAccountAudit, LineAccountReport } from "@/lib/line-account-audit";
 
 const ROLE_LABEL = { group: "店員群組通知", customer: "客人通知" } as const;
 /** Colour by assessLineQuota level (80% warn, 95% critical; shared with diagnose-line). */
 const LEVEL_CLASS = { ok: "text-stone-500", warn: "font-semibold text-amber-700", critical: "font-semibold text-rose-700", unknown: "text-stone-500" } as const;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isLineAccountAudit(value: unknown): value is LineAccountAudit {
+  if (!isRecord(value) || typeof value.fetchedAt !== "string" || typeof value.identityComplete !== "boolean"
+    || !Array.isArray(value.accounts) || !Array.isArray(value.collisions)) return false;
+  const accountsValid = value.accounts.every((account) => {
+    if (!isRecord(account) || !(account.role === "group" || account.role === "customer")
+      || typeof account.source !== "string" || typeof account.configured !== "boolean"
+      || !(account.displayName === null || typeof account.displayName === "string")
+      || !(account.basicId === null || typeof account.basicId === "string")
+      || !(account.error === null || typeof account.error === "string")) return false;
+    if (account.usage === null) return true;
+    if (!isRecord(account.usage)) return false;
+    const usage = account.usage;
+    const nullableNumber = (item: unknown) => item === null || (typeof item === "number" && Number.isFinite(item));
+    return typeof usage.status === "string" && nullableNumber(usage.monthUsed) && nullableNumber(usage.monthLimit)
+      && (usage.planType === null || usage.planType === "none" || usage.planType === "limited")
+      && nullableNumber(usage.todayPush)
+      && (usage.level === "ok" || usage.level === "warn" || usage.level === "critical" || usage.level === "unknown")
+      && nullableNumber(usage.percentUsed);
+  });
+  const collisionsValid = value.collisions.every((collision) => isRecord(collision)
+    && typeof collision.customerSource === "string" && typeof collision.groupSource === "string"
+    && (collision.displayName === null || typeof collision.displayName === "string")
+    && (collision.basicId === null || typeof collision.basicId === "string"));
+  return accountsValid && collisionsValid;
+}
+
+async function boundedError(response: Response): Promise<string> {
+  try {
+    const body = await readJsonWithTimeout<{ error?: unknown; message?: unknown }>(response.clone());
+    return friendlyMessage(body?.error ?? body?.message, response.status);
+  } catch {
+    return friendlyMessage(undefined, response.status);
+  }
+}
+
 /** 老闆用：每個 LINE token 實際是哪個官方帳號，以及本月額度用了多少（唯讀，不發訊息）。 */
 export default function LineAccountsPage() {
   const [audit, setAudit] = useState<LineAccountAudit | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const loadSequence = useRef(0);
 
   const load = useCallback(async () => {
+    const sequence = ++loadSequence.current;
     setLoading(true); setError("");
+    setAudit(null);
     try {
-      const response = await fetch("/api/admin/line-accounts", { credentials: "include", cache: "no-store" });
-      if (!response.ok) throw new Error(await responseError(response));
-      setAudit((await response.json()) as LineAccountAudit);
+      const response = await fetchWithTimeout("/api/admin/line-accounts", { credentials: "include", cache: "no-store" });
+      if (!response.ok) throw new Error(await boundedError(response));
+      const data = await readJsonWithTimeout<unknown>(response);
+      if (sequence !== loadSequence.current) return;
+      if (!isLineAccountAudit(data)) throw new Error("LINE 帳號資料格式錯誤，請重新整理");
+      setAudit(data);
     } catch (cause) {
-      setError(thrownMessage(cause, "讀不到 LINE 帳號資料，請重試"));
-    } finally { setLoading(false); }
+      if (sequence === loadSequence.current) setError(thrownMessage(cause, "讀不到 LINE 帳號資料，請重試"));
+    } finally { if (sequence === loadSequence.current) setLoading(false); }
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -38,7 +84,7 @@ export default function LineAccountsPage() {
       <div className="space-y-4 pb-16">
         {error && <div role="alert" className="flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
           <span>{error}</span>
-          <button type="button" onClick={() => void load()} className="h-9 rounded-lg border border-rose-300 bg-white px-3 font-medium">重試</button>
+          <button type="button" onClick={() => void load()} disabled={loading} className="h-9 rounded-lg border border-rose-300 bg-white px-3 font-medium disabled:opacity-50">重試</button>
         </div>}
         {!audit && !error && <p className="py-10 text-center text-sm text-stone-500">讀取中…</p>}
         {audit && (audit.collisions.length > 0

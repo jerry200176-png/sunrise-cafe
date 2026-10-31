@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { AdvicePanel } from "@/components/admin/AdvicePanel";
 import { responseError, thrownMessage } from "@/lib/friendly-error";
-import type { Branch } from "@/types";
+import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
+import { useAdminBranches } from "@/lib/use-admin-branches";
 import type { BusinessSummary } from "@/lib/business-metrics";
 
 type Part = BusinessSummary & { label: string };
@@ -26,42 +27,50 @@ function Row({ label, hint, now, before }: { label: string; hint?: string; now: 
 }
 
 export default function ExecutivePage() {
-  const [branches, setBranches] = useState<Branch[]>([]);
+  const { branches, loading: branchesLoading, error: branchesError, retry: retryBranches } = useAdminBranches();
+  const branchScopeKey = JSON.stringify(branches.map((branch) => branch.id).sort());
   const [branchId, setBranchId] = useState("");
+  const branchUnavailable = !branchesLoading && !branchesError && Boolean(branchId) && !branches.some((branch) => branch.id === branchId);
+  const queryKey = JSON.stringify([branchId, branchScopeKey]);
   const [data, setData] = useState<Overview | null>(null);
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const requestSequence = useRef(0);
+  const invalidateRequests = useCallback(() => { requestSequence.current++; }, []);
 
   useEffect(() => {
-    fetch("/api/branches")
-      .then((r) => r.json())
-      .then((d) => setBranches(Array.isArray(d) ? d : []))
-      .catch(() => {});
-  }, []);
+    if (branchUnavailable) setBranchId("");
+  }, [branchUnavailable]);
 
   const load = useCallback(async () => {
+    const requestId = ++requestSequence.current;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/overview${branchId ? `?branchId=${encodeURIComponent(branchId)}` : ""}`, { cache: "no-store" });
+      const res = await fetchWithTimeout(`/api/admin/overview${branchId ? `?branchId=${encodeURIComponent(branchId)}` : ""}`, { cache: "no-store" });
       if (!res.ok) {
-        setError(await responseError(res));
-        return;
+        throw new Error(await responseError(res));
       }
-      setData(await res.json());
+      const result = await readJsonWithTimeout<Overview>(res);
+      if (requestId !== requestSequence.current) return;
+      setData(result);
+      setLoadedKey(queryKey);
     } catch (err) {
-      setError(thrownMessage(err, "暫時讀不到經營數字，請重試"));
+      if (requestId === requestSequence.current) setError(thrownMessage(err, "暫時讀不到經營數字，請重試"));
     } finally {
-      setLoading(false);
+      if (requestId === requestSequence.current) setLoading(false);
     }
-  }, [branchId]);
+  }, [branchId, queryKey]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (!branchUnavailable) void load();
+    return invalidateRequests;
+  }, [load, invalidateRequests, branchUnavailable]);
 
-  const a = data?.this_month;
-  const b = data?.last_month;
+  const visibleData = !branchUnavailable && loadedKey === queryKey ? data : null;
+  const a = visibleData?.this_month;
+  const b = visibleData?.last_month;
   const pct = (p: Part | undefined) => (p?.deposit_rate == null ? "—" : `${Math.round(p.deposit_rate * 100)}%`);
 
   return (
@@ -77,13 +86,23 @@ export default function ExecutivePage() {
           className="h-11 rounded-xl border border-stone-200 bg-white px-3 text-sm"
         >
           <option value="">全部分店</option>
+          {branchesLoading && <option disabled value="__loading">載入分店…</option>}
           {branches.map((br) => (
             <option key={br.id} value={br.id}>{br.name}</option>
           ))}
         </select>
       }
     >
-      <div className="mb-5"><AdvicePanel branchId={branchId} /></div>
+      {branchesError && (
+        <div role="alert" className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <span>{branchesError}</span>
+          <button type="button" onClick={() => void retryBranches()} className="underline">重試載入分店</button>
+        </div>
+      )}
+      {!branchesLoading && !branchesError && branches.length === 0 && (
+        <p role="status" className="mb-4 rounded-xl bg-stone-100 px-4 py-3 text-sm text-stone-600">目前沒有可選的分店；總覽仍依帳號權限顯示。</p>
+      )}
+      {!branchUnavailable && <div className="mb-5"><AdvicePanel key={queryKey} branchId={branchId} /></div>}
 
       {error && (
         <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
@@ -92,7 +111,7 @@ export default function ExecutivePage() {
         </div>
       )}
 
-      {!data && loading && <div className="h-64 animate-pulse rounded-2xl bg-stone-200/80" aria-busy="true" aria-label="載入經營總覽" />}
+      {!visibleData && loading && <div className="h-64 animate-pulse rounded-2xl bg-stone-200/80" aria-busy="true" aria-label="載入經營總覽" />}
 
       {a && b && (
         <div className="space-y-5">

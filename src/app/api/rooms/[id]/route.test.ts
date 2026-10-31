@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({ updateRoom: vi.fn(async () => {}) }));
 vi.mock("@/lib/supabase-fetch", () => ({ updateRoom: mocks.updateRoom, deleteRoom: vi.fn() }));
-vi.mock("@/lib/admin-api-auth", () => ({ requireAdminApiAuth: vi.fn(async () => null) }));
+vi.mock("@/lib/admin-api-auth", () => ({ requirePermission: vi.fn(async () => null) }));
 
 import { PATCH } from "./route";
 

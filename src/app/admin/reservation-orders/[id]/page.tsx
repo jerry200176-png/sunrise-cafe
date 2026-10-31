@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { friendlyMessage, thrownMessage } from "@/lib/friendly-error";
+import { responseError, thrownMessage } from "@/lib/friendly-error";
+import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import { MenuPicker } from "@/components/MenuPicker";
 import { selectionProblem } from "@/lib/option-sets";
 import type { MenuItem, Order, OrderItem } from "@/types";
@@ -17,8 +18,13 @@ type View = { reservation: ReservationView; preorder: PreorderView | null; order
 
 export default function ReservationOrderPage() {
   const id = String(useParams().id);
+  const currentId = useRef(id);
+  currentId.current = id;
+  const requestSequence = useRef(0);
+  const mutationInFlight = useRef(false);
   const [view, setView] = useState<View | null>(null);
   const [menu, setMenu] = useState<MenuItem[]>([]);
+  const [menuError, setMenuError] = useState("");
   const [preItems, setPreItems] = useState<DraftItemInput[]>([]);
   const [preNotes, setPreNotes] = useState("");
   const [newItems, setNewItems] = useState<DraftItemInput[]>([]);
@@ -29,40 +35,76 @@ export default function ReservationOrderPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const load = useCallback(async () => {
-    const response = await fetch(`/api/admin/reservation-orders/${encodeURIComponent(id)}`);
-    const data = await response.json();
-    if (!response.ok) throw new Error(friendlyMessage(data.error, response.status));
+  const load = useCallback(async (): Promise<boolean> => {
+    if (currentId.current !== id) return false;
+    const sequence = ++requestSequence.current;
+    const isCurrent = () => sequence === requestSequence.current && currentId.current === id;
+    const response = await fetchWithTimeout(`/api/admin/reservation-orders/${encodeURIComponent(id)}`);
+    if (!isCurrent()) return false;
+    if (!response.ok) {
+      const message = await responseError(response);
+      if (!isCurrent()) return false;
+      throw new Error(message);
+    }
+    const data = await readJsonWithTimeout<View>(response);
+    if (!isCurrent()) return false;
     const next = data as View;
+    const room = Array.isArray(next.reservation.room) ? next.reservation.room[0] : next.reservation.room;
     setView(next);
+    setMenu([]);
+    setMenuError("");
     setPreItems(next.preorder?.draft_items ?? []);
     setPreNotes(next.preorder?.guest_notes ?? "");
     setQuantities(Object.fromEntries((next.order?.order_items ?? []).map((item) => [item.id, item.quantity])));
-    const room = Array.isArray(next.reservation.room) ? next.reservation.room[0] : next.reservation.room;
     if (room?.branch_id) {
-      const menuResponse = await fetch(`/api/menu?branchId=${encodeURIComponent(room.branch_id)}`);
-      if (menuResponse.ok) setMenu(((await menuResponse.json()).items ?? []).filter((item: MenuItem) => item.is_available));
+      try {
+        const menuResponse = await fetchWithTimeout(`/api/menu?branchId=${encodeURIComponent(room.branch_id)}`);
+        if (!menuResponse.ok) throw new Error(await responseError(menuResponse));
+        const menuData = await readJsonWithTimeout<{ items?: MenuItem[] }>(menuResponse);
+        if (isCurrent()) {
+          setMenu((menuData.items ?? []).filter((item: MenuItem) => item.is_available));
+        }
+      } catch (cause) {
+        if (isCurrent()) {
+          setMenu([]);
+          setMenuError(thrownMessage(cause, "餐點選單暫時無法載入"));
+        }
+      }
     }
+    return isCurrent();
   }, [id]);
 
-  useEffect(() => { load().catch((cause) => setError(thrownMessage(cause, "載入失敗，請重新整理"))); }, [load]);
+  useEffect(() => {
+    const sequence = requestSequence.current + 1;
+    setView(null);
+    setMenu([]);
+    setMenuError("");
+    setError("");
+    load().catch((cause) => {
+      if (currentId.current === id && requestSequence.current === sequence) {
+        setError(thrownMessage(cause, "載入失敗，請重新整理"));
+      }
+    });
+  }, [id, load]);
 
   async function act(action: string, extra: Record<string, unknown> = {}) {
+    if (mutationInFlight.current) return false;
+    mutationInFlight.current = true;
     setBusy(true); setError(""); setNotice("");
     try {
       const response = await fetch(`/api/admin/reservation-orders/${encodeURIComponent(id)}`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...extra }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(friendlyMessage(data.error, response.status));
-      // 加點已成功，重新載入失敗不能保留選餐讓店員重複送出。
+      if (!response.ok) throw new Error(await responseError(response));
+      // A menu failure is isolated inside load; it cannot turn a committed
+      // action into a reported failure. Keep the existing GET-failure behavior.
       if (action === "add_items") await load().catch(() => {
         setNotice("已加入訂單，但畫面未能更新。請重新整理頁面確認，請勿再次加點。");
       });
       else await load();
       return true;
     } catch (cause) { setError(thrownMessage(cause)); return false; }
-    finally { setBusy(false); }
+    finally { mutationInFlight.current = false; setBusy(false); }
   }
 
   async function addSelected() {
@@ -79,6 +121,7 @@ export default function ReservationOrderPage() {
       </header>
       <p role="status" aria-atomic="true" className={notice ? "rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900" : "sr-only"}>{notice}</p>
       {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-rose-800">{error}</p>}
+      {menuError && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">{menuError}</p>}
       {!view && !error && <p>載入中…</p>}
       {view && !view.order && <>
         <section className="rounded-xl border border-stone-200 bg-white p-4">
