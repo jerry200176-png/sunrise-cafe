@@ -898,8 +898,11 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   } else {
     sortedList.forEach((r) => displayList.push({ type: "item", item: r }));
   }
-  const allVisibleSelected =
-    sortedList.length > 0 && sortedList.every((reservation) => selectedReservationIds.includes(reservation.id));
+  const visibleReservationIds = new Set(sortedList.map((reservation) => reservation.id));
+  const visibleSelectedCount = selectedReservationIds.filter((id) => visibleReservationIds.has(id)).length;
+  const hiddenSelectedCount = selectedReservationIds.length - visibleSelectedCount;
+  const allVisibleSelected = sortedList.length > 0 && visibleSelectedCount === sortedList.length;
+  const someVisibleSelected = visibleSelectedCount > 0 && !allVisibleSelected;
 
   return (
     <>
@@ -1008,6 +1011,8 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
           <input
             type="checkbox"
             checked={allVisibleSelected}
+            ref={(element) => { if (element) element.indeterminate = someVisibleSelected; }}
+            disabled={sortedList.length === 0}
             onChange={(event) => selectVisibleReservations(sortedList.map((reservation) => reservation.id), event.target.checked)}
             aria-label="選取目前列表訂位"
             className="h-5 w-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
@@ -1042,6 +1047,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       {selectedReservationIds.length > 0 && (
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3" role="status">
           <span className="text-sm font-semibold text-indigo-900">已選取 {selectedReservationIds.length} 筆訂位</span>
+          <span className="text-sm text-indigo-900">目前清單 {visibleSelectedCount} 筆{hiddenSelectedCount > 0 ? `，清單外 ${hiddenSelectedCount} 筆（包含其他分頁、篩選或尚未載入的訂位）` : ""}</span>
           <button
             type="button"
             onClick={() => selectVisibleReservations(sortedList.map((reservation) => reservation.id), true)}
