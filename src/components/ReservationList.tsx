@@ -140,6 +140,12 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   const [editStatus, setEditStatus] = useState<ReservationStatus>("confirmed");
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [editStale, setEditStale] = useState(false);
+  const editStaleRef = useRef(false);
+  const editingRef = useRef<Reservation | null>(null);
+  const realtimePendingRef = useRef(false);
+  const realtimeVersion = useRef(0);
+  const [realtimePending, setRealtimePending] = useState(false);
   const [activeTab, setActiveTab] = useState<"pending" | "upcoming" | "history">("pending");
   const [searchTerm, setSearchTerm] = useState("");
   const [historySearch, setHistorySearch] = useState("");
@@ -211,7 +217,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   }, []);
 
   const beginMutation = (id: string) => {
-    if (!branchId) return false;
+    if (!branchId || realtimePendingRef.current) return false;
     const code = reservations.find((reservation) => reservation.id === id)?.booking_code;
     return beginReservationMutation(id, branchId, code || `代碼末六碼 ${id.slice(-6)}`);
   };
@@ -251,7 +257,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
 
   const openMessageWorkbench = useCallback(
     (reservation: Reservation) => {
-      if (reservationMutationsSnapshot().has(reservation.id)) {
+      if (realtimePendingRef.current || reservationMutationsSnapshot().has(reservation.id)) {
         showToast("此訂位正在處理，請稍候並重新確認資料。", "info");
         return;
       }
@@ -368,6 +374,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
 
   const openBatchDepositWorkbench = useCallback(async () => {
     if (currentBranch.current !== branchId) return;
+    if (realtimePendingRef.current) { showToast("資料正在更新，請稍候並重新確認。", "info"); return; }
     const generation = branchGeneration.current;
     const requestId = ++batchRequest.current;
     const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation && batchRequest.current === requestId;
@@ -439,6 +446,9 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     const previousFocus = currentFocusId.current;
     if (previousFocus !== focusReservationId && openedFocusReservationId.current === previousFocus) {
       setEditing(null);
+      editingRef.current = null;
+      editStaleRef.current = false;
+      setEditStale(false);
       setEditError(null);
       openedFocusReservationId.current = null;
     }
@@ -486,6 +496,9 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     branchGeneration.current += 1;
     activeRequest.current += 1;
     verificationRequired.current = false;
+    realtimeVersion.current += 1;
+    realtimePendingRef.current = false;
+    setRealtimePending(false);
     verificationInProgress.current = false;
     verificationRequest.current += 1;
     setVerificationPending(false);
@@ -507,6 +520,9 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     setBatchWorkbench(null);
     setBatchLoading(false);
     setEditing(null);
+    editingRef.current = null;
+    editStaleRef.current = false;
+    setEditStale(false);
     setMessageWorkbench(null);
     setMessageText("");
     setMessageCopied(false);
@@ -645,6 +661,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   const refreshAfterMutation = useCallback(async () => {
     if (currentBranch.current !== branchId) return;
     const generation = branchGeneration.current;
+    const checkedRealtimeVersion = realtimeVersion.current;
     const requestId = ++verificationRequest.current;
     const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation && verificationRequest.current === requestId;
     verificationRequired.current = true;
@@ -669,8 +686,10 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     const focusOk = activeOk && historyOk && (!focusedId || Boolean(existsInList) || await loadFocusedReservation(focusedId));
     if (!isCurrent()) return;
     verificationInProgress.current = false;
-    if (activeOk && historyOk && focusOk && currentFocusId.current === focusReservationId) {
+    if (activeOk && historyOk && focusOk && currentFocusId.current === focusReservationId && realtimeVersion.current === checkedRealtimeVersion) {
       verificationRequired.current = false;
+      realtimePendingRef.current = false;
+      setRealtimePending(false);
     } else {
       verificationRequired.current = true;
       setError((current) => current ?? "無法核對訂位資料，請重試。");
@@ -746,15 +765,47 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "reservations" },
-          () => {
+          (payload) => {
+            const changedId = (payload?.new as { id?: unknown } | undefined)?.id ?? (payload?.old as { id?: unknown } | undefined)?.id;
+            const editor = editingRef.current;
+            if (editor && (typeof changedId !== "string" || changedId === editor.id)) {
+              editStaleRef.current = true;
+              setEditStale(true);
+            }
+            messagePreviewRequest.current += 1;
+            batchRequest.current += 1;
+            setMessageWorkbench(null);
+            setMessageLoading(false);
+            setMessageSubmitting(false);
+            setBatchWorkbench(null);
+            setBatchLoading(false);
+            const eventVersion = ++realtimeVersion.current;
+            const generation = branchGeneration.current;
+            realtimePendingRef.current = true;
+            setRealtimePending(true);
             clearTimeout(timeoutId);
             timeoutId = setTimeout(() => {
-              if (focusReservationId || verificationRequired.current) void refreshAfterMutation();
-              else void fetchReservations(false);
+              if (currentBranch.current !== branchId || branchGeneration.current !== generation || realtimeVersion.current !== eventVersion) return;
+              if (focusReservationId || editingRef.current || verificationRequired.current) void refreshAfterMutation();
+              else void fetchReservations(false).then((ok) => {
+                if (ok && currentBranch.current === branchId && branchGeneration.current === generation && realtimeVersion.current === eventVersion && !verificationRequired.current) {
+                  realtimePendingRef.current = false;
+                  setRealtimePending(false);
+                }
+              });
             }, 500);
           }
         )
         .subscribe();
+      // Changing focus or tabs resubscribes and cancels the old debounce. Keep
+      // the refresh barrier in place until the new view has been rechecked.
+      if (realtimePendingRef.current) {
+        const generation = branchGeneration.current;
+        const version = ++realtimeVersion.current;
+        timeoutId = setTimeout(() => {
+          if (currentBranch.current === branchId && branchGeneration.current === generation && realtimeVersion.current === version) void refreshAfterMutation();
+        }, 500);
+      }
       return () => {
         clearTimeout(timeoutId);
         supabase.removeChannel(channel);
@@ -765,10 +816,13 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   }, [branchId, focusReservationId, fetchReservations, refreshAfterMutation]);
 
   const openEdit = useCallback((r: Reservation) => {
-    if (reservationMutationsSnapshot().has(r.id)) {
+    if (realtimePendingRef.current || reservationMutationsSnapshot().has(r.id)) {
       showToast("此訂位正在處理，請稍候並重新確認資料。", "info");
       return;
     }
+    editStaleRef.current = false;
+    setEditStale(false);
+    editingRef.current = r;
     setEditing(r);
     setEditName(r.customer_name);
     setEditPhone(r.phone);
@@ -786,6 +840,9 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   }, [showToast]);
 
   const closeEdit = () => {
+    editingRef.current = null;
+    editStaleRef.current = false;
+    setEditStale(false);
     setEditing(null);
     setEditError(null);
   };
@@ -822,7 +879,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
 
   const submitEdit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editing || currentBranch.current !== branchId) return;
+    if (!editing || currentBranch.current !== branchId || realtimePendingRef.current || editStaleRef.current) return;
     const generation = branchGeneration.current;
     const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation;
     const reservationId = editing.id;
@@ -1163,7 +1220,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     return (
       <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">
         <p role="alert">{error}</p>
-        <button type="button" onClick={() => void (verificationRequired.current ? refreshAfterMutation() : fetchReservations(true))} className="mt-2 rounded border border-red-300 bg-white px-3 py-2 text-sm">重試</button>
+        <button type="button" onClick={() => void refreshAfterMutation()} className="mt-2 rounded border border-red-300 bg-white px-3 py-2 text-sm">重試</button>
       </div>
     );
   }
@@ -1251,6 +1308,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
 
   return (
     <>
+      {realtimePending && <p role="status" className="mx-4 my-2 text-sm text-amber-800">資料正在更新，請稍候並重新確認。</p>}
       <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-gray-200 bg-gray-50 px-4 py-2">
         <button
           type="button"
@@ -1497,7 +1555,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                   <input
                     type="checkbox"
                     checked={selectedReservationIds.includes(r.id)}
-                    disabled={pendingMutations.has(r.id)}
+                    disabled={realtimePending || pendingMutations.has(r.id)}
                     onChange={() => toggleReservationSelection(r.id)}
                     aria-label={`選取 ${r.customer_name} ${r.booking_code ?? ""} ${format(toTaipei(r.start_time), "yyyy/MM/dd")}`}
                     className="h-5 w-5 shrink-0 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
@@ -1634,7 +1692,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     <button
                       type="button"
                       onClick={() => updateStatus(r.id, "confirmed")}
-                        disabled={pendingMutations.has(r.id)}
+                        disabled={realtimePending || pendingMutations.has(r.id)}
                       className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
                     >
                       ✅ 確認
@@ -1653,7 +1711,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     <button
                       type="button"
                       onClick={() => openMessageWorkbench(r)}
-                      disabled={pendingMutations.has(r.id)}
+                      disabled={realtimePending || pendingMutations.has(r.id)}
                       className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
                     >
                       📝 訊息工作台
@@ -1661,7 +1719,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     {isDepositRequired(reservationDateKey(r.start_time)) && r.total_price != null && !r.is_deposit_paid && (
                       <button
                         type="button"
-                        disabled={branchConfigStatus !== "ready" || pendingMutations.has(r.id)}
+                        disabled={realtimePending || branchConfigStatus !== "ready" || pendingMutations.has(r.id)}
                         onClick={async () => {
                           const branchName = r.room_with_branch?.branch?.name ?? "";
                           // 話術由分店設定驅動，與伺服器推播共用同一產生器，確保內容一致
@@ -1698,7 +1756,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     {isDepositRequired(reservationDateKey(r.start_time)) && r.total_price != null && (
                       <button
                         type="button"
-                        disabled={pendingMutations.has(r.id)}
+                        disabled={realtimePending || pendingMutations.has(r.id)}
                         onClick={() => void sendPaymentRequest(r.id)}
                         className="rounded-lg border border-green-300 bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 hover:bg-green-100 disabled:opacity-50"
                       >
@@ -1709,7 +1767,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                       <button
                         type="button"
                         onClick={() => restoreReservation(r.id)}
-                        disabled={restoringId !== null || pendingMutations.has(r.id)}
+                        disabled={realtimePending || restoringId !== null || pendingMutations.has(r.id)}
                         className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
                       >
                         {restoringId === r.id ? "還原中…" : "↩️ 還原"}
@@ -1721,7 +1779,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     <button
                       type="button"
                       onClick={() => openMessageWorkbench(r)}
-                      disabled={pendingMutations.has(r.id)}
+                      disabled={realtimePending || pendingMutations.has(r.id)}
                       className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
                     >
                       📝 訊息工作台
@@ -1730,7 +1788,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                       <button
                         type="button"
                         onClick={() => updateStatus(r.id, "checked_in")}
-                        disabled={pendingMutations.has(r.id)}
+                        disabled={realtimePending || pendingMutations.has(r.id)}
                         className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
                       >
                         ✅ 已到店
@@ -1740,7 +1798,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                       <button
                         type="button"
                         onClick={() => updateStatus(r.id, "no_show")}
-                        disabled={pendingMutations.has(r.id)}
+                        disabled={realtimePending || pendingMutations.has(r.id)}
                         className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100"
                       >
                         🚫 沒來
@@ -1750,7 +1808,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                       <button
                         type="button"
                         onClick={() => updateStatus(r.id, "completed")}
-                        disabled={pendingMutations.has(r.id)}
+                        disabled={realtimePending || pendingMutations.has(r.id)}
                         className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
                       >
                         💵 已完成
@@ -1759,7 +1817,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     {isDepositRequired(reservationDateKey(r.start_time)) && r.total_price != null && !r.is_deposit_paid && (
                       <button
                         type="button"
-                        disabled={pendingMutations.has(r.id)}
+                        disabled={realtimePending || pendingMutations.has(r.id)}
                         onClick={() => void sendPaymentRequest(r.id)}
                         className="rounded-lg border border-green-300 bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 hover:bg-green-100 disabled:opacity-50"
                       >
@@ -1782,7 +1840,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     <button
                       type="button"
                       onClick={() => openEdit(r)}
-                      disabled={pendingMutations.has(r.id)}
+                      disabled={realtimePending || pendingMutations.has(r.id)}
                       className="rounded-lg border border-gray-300 p-2 text-gray-600 hover:bg-gray-100"
                       aria-label="編輯訂位"
                     >
@@ -1798,7 +1856,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                         if (!ok) return;
                         await deleteReservation(r.id);
                       }}
-                      disabled={pendingMutations.has(r.id)}
+                      disabled={realtimePending || pendingMutations.has(r.id)}
                       className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
                     >
                       🗑️ 刪除
@@ -1809,7 +1867,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     <button
                       type="button"
                       onClick={() => openEdit(r)}
-                      disabled={pendingMutations.has(r.id)}
+                      disabled={realtimePending || pendingMutations.has(r.id)}
                       className="rounded-lg border border-gray-300 p-2 text-gray-600 hover:bg-gray-100"
                       aria-label="檢視/編輯訂位"
                     >
@@ -1819,7 +1877,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                       <button
                         type="button"
                         onClick={() => restoreReservation(r.id)}
-                        disabled={restoringId !== null || pendingMutations.has(r.id)}
+                        disabled={realtimePending || restoringId !== null || pendingMutations.has(r.id)}
                         className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
                       >
                         {restoringId === r.id ? "還原中…" : "↩️ 一鍵還原"}
@@ -1835,7 +1893,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                         if (!ok) return;
                         await deleteReservation(r.id);
                       }}
-                      disabled={pendingMutations.has(r.id)}
+                      disabled={realtimePending || pendingMutations.has(r.id)}
                       className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
                     >
                       🗑️ 刪除
@@ -2115,6 +2173,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                   </select>
                 </div>
               </div>
+              {editStale && <p role="alert" className="px-4 py-2 text-sm text-amber-800">此訂位可能已在其他地方更新。請關閉並重新開啟以檢查最新資料；目前輸入未自動儲存。</p>}
               <div className="flex shrink-0 gap-2 border-t border-gray-200 bg-white px-4 py-3">
                 <button
                   type="button"
@@ -2125,7 +2184,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                 </button>
                 <button
                   type="submit"
-                disabled={editSubmitting || pendingMutations.has(editing.id)}
+                  disabled={editSubmitting || editStale || realtimePending || pendingMutations.has(editing.id)}
                   className="min-h-[44px] flex-1 rounded-lg bg-amber-600 px-4 py-2 text-white hover:bg-amber-700 disabled:opacity-50"
                 >
                   {editSubmitting ? "儲存中…" : "儲存"}

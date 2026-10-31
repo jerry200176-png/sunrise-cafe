@@ -5,10 +5,10 @@ import userEvent from "@testing-library/user-event";
 import { ReservationList } from "./ReservationList";
 import { clearReservationMutationUnknown, endReservationMutation, reservationMutationsSnapshot } from "@/lib/admin-reservation-mutation-lock";
 
-const realtime = vi.hoisted(() => ({ handlers: [] as Array<() => void> }));
+const realtime = vi.hoisted(() => ({ handlers: [] as Array<(payload?: { new?: { id?: string }; old?: { id?: string } }) => void> }));
 vi.mock("@/lib/supabase", () => ({ supabase: {
   channel: () => {
-    const channel = { on: (_type: string, _filter: unknown, callback: () => void) => { realtime.handlers.push(callback); return channel; }, subscribe: () => channel };
+    const channel = { on: (_type: string, _filter: unknown, callback: (payload?: { new?: { id?: string }; old?: { id?: string } }) => void) => { realtime.handlers.push(callback); return channel; }, subscribe: () => channel };
     return channel;
   },
   removeChannel: () => undefined,
@@ -114,6 +114,62 @@ describe("reservation selection visibility", () => {
 });
 
 describe("branch-scoped reservation requests", () => {
+  it("keeps the realtime refresh barrier when switching tabs during debounce", async () => {
+    let activeReads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.startsWith("/api/reservations?")) {
+        const p = new URL(url, "http://localhost").searchParams;
+        if (p.get("scope") === "active") { activeReads++; return list(rows); }
+        return list([]);
+      }
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    render(<ReservationList branchId="b1" rooms={[]} />);
+    await screen.findByText("甲");
+    act(() => { realtime.handlers.at(-1)?.(); });
+    expect(screen.getByText("資料正在更新，請稍候並重新確認。")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "歷史紀錄" }));
+    await waitFor(() => expect(activeReads).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(screen.queryByText("資料正在更新，請稍候並重新確認。")).toBeNull());
+  });
+
+  it("invalidates an open focused edit immediately on realtime and requires reopening", async () => {
+    const focusId = "11111111-1111-4111-8111-111111111111";
+    const old = { ...rows[0], id: focusId, status: "completed", customer_name: "編輯舊值" };
+    const updated = deferred<Response>();
+    let focusReads = 0;
+    let writes = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") { writes++; return Response.json({ ok: true }); }
+      if (url.startsWith("/api/reservations?")) {
+        const p = new URL(url, "http://localhost").searchParams;
+        if (p.get("id") === focusId) return ++focusReads === 1 ? list([old]) : updated.promise;
+        return list([]);
+      }
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    render(<ReservationList branchId="b1" focusReservationId={focusId} rooms={[]} />);
+    let dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByDisplayValue("編輯舊值"), { target: { value: "尚未儲存" } });
+    act(() => { realtime.handlers.at(-1)?.({ new: { id: focusId } }); });
+    expect(within(dialog).getByRole("alert").textContent).toContain("請關閉並重新開啟");
+    expect((within(dialog).getByRole("button", { name: "儲存" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.submit(within(dialog).getByRole("button", { name: "儲存" }).closest("form")!);
+    expect(writes).toBe(0);
+    await waitFor(() => expect(focusReads).toBe(2));
+    await act(async () => { updated.resolve(list([{ ...old, customer_name: "編輯新值" }])); await updated.promise; });
+    dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByDisplayValue("尚未儲存")).toBeTruthy();
+    expect((within(dialog).getByRole("button", { name: "儲存" }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(within(dialog).getByRole("button", { name: "關閉" }));
+    await user.click(await screen.findByRole("button", { name: "歷史紀錄" }));
+    await user.click(await screen.findByRole("button", { name: "檢視/編輯訂位" }));
+    expect(within(await screen.findByRole("dialog")).getByDisplayValue("編輯新值")).toBeTruthy();
+    expect(writes).toBe(0);
+  });
+
   it("rechecks an out-of-range focused record on realtime refresh", async () => {
     const focusId = "11111111-1111-4111-8111-111111111111";
     const old = { ...rows[0], id: focusId, status: "completed", customer_name: "即時舊值" };
