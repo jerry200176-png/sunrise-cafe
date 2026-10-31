@@ -126,6 +126,41 @@ npm run lint
 
 ---
 
+## Post-deploy watch 與自動回滾（Gap #3）
+
+`production-deploy-migrate.yml` 的 `post_deploy_watch` job 在 Vercel 部署後 15 分鐘內每 30 秒探測一次
+**runtime 健康**（`scripts/post-deploy-watch.mjs`）：`/api/version` commit 與本次 SHA 相符、`/`、`/book`、`/menu` 為 200、
+`/api/booking-health` `ok:true`（含 DB 連線）、未登入 PATCH 訂位仍回 401。
+
+- 連續 5 輪（約 2.5 分鐘）失敗才視為持續失敗：執行 `vercel rollback`（回到前一個 production 部署，使用既有 `VERCEL_TOKEN`），
+  驗證 commit 已改變且 booking-health 正常，開 `Incident: production runtime health failed ...` issue（已有開啟中的則留言），run 標紅。
+- 線上不是本次 SHA（部署被限流、或被更新的部署取代）：只記錄，**永不回滾**。
+- 範圍僅 runtime：**不讀 migration drift**（Verify Production / deploy-health `sha_parity`），已知的 drift 問題不會觸發回滾。
+- DB migration 皆 additive（見 docs/MIGRATIONS.md），回滾不還原 schema；舊程式碼需能在新 schema 上運作。
+- D8 凍結：事故 issue 未結前不要再發 production；watch 期間下一次 push 會在 concurrency group 排隊。
+- 手動回滾仍用上節「回滾版本」。
+- **回滾後的注意事項**：`vercel rollback` 之後 Vercel 會停止自動把 production 網域指向新部署，之後 push main 的新部署**不會自動上線**，
+  直到手動 promote 為止。修復合併、部署 READY 後執行 `npx vercel promote <deployment-url> --token "$VERCEL_TOKEN"`
+  （或 Vercel Dashboard → Deployments → Promote to Production），再確認 `/api/version` 為修復後的 SHA。事故 issue 內文已附此步驟。
+
+---
+
+## Pre-migration backup（Gap #4）
+
+`production-deploy-migrate.yml` 的 `predeploy_migrate` / `postdeploy_migrate` 在跑任何 migration runner 前執行
+`scripts/pre-migration-backup.sh`：`pg_dump`（custom 格式、壓縮、`public` schema 結構+資料，postgres:17 容器，
+使用 runner 既有的 `SUPABASE_DB_URL`），再用 `pg_restore --list` 驗證並確認含 `public.reservations` 資料。
+任何一步失敗即 fail closed：migration 不會啟動。
+
+- 傾印含客人個資：不印出、不明文上傳。順序為 備份 → 上傳 → 確認上傳 → migration，任一步失敗 migration 不會啟動。若 repo secret `BACKUP_AGE_RECIPIENT`（age **公鑰**）存在，才會輸出
+  age 加密檔並上傳為 3 天保留的 artifact（`db-backup-<phase>-<run_id>`），明文即刪；**未設定時沒有任何保留的備份**（傾印驗證後隨 job 結束刪除，
+  不是復原點），job summary 明確標示 NO RETAINED BACKUP，只記錄大小 + sha256。
+- 範圍：`public` schema（auth/storage 不在內）。完整還原演練見 PR #466（`db-backup-restore-drill`）與 `docs/ops/BACKUP_RESTORE_DRILL.md`。
+- 還原屬 Founder-only（RULEBOOK F2）：agent 只準備執行包（目標、sha256、步驟），不對 production 還原。
+- 建立加密金鑰（F3）：`age-keygen`，私鑰離線保存，只把公鑰設為 `BACKUP_AGE_RECIPIENT`。
+
+---
+
 ## 換 LINE 官方帳號
 
 詳見 [docs/LINE.md](./LINE.md)。

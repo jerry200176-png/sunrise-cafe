@@ -5,8 +5,10 @@ import dynamic from "next/dynamic";
 import { Box, LayoutList, RefreshCw } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { RoomCheckoutPanel } from "@/components/admin/RoomCheckoutPanel";
+import { FallbackBoundary } from "@/components/admin/FallbackBoundary";
 import { RoomFloor3D, STATUS_STYLE, fmtClock, tileHeadline, type FloorTile } from "@/components/admin/RoomFloor3D";
-import { friendlyMessage } from "@/lib/friendly-error";
+import { friendlyMessage, thrownMessage } from "@/lib/friendly-error";
+import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import { roomFloorState, type RoomFloorStatus } from "@/lib/room-checkout";
 import type { FloorBundle } from "@/app/api/admin/floor/route";
 import { assignRoomsToPlan, floorPlanForBranch } from "@/lib/floor-plan";
@@ -30,6 +32,27 @@ type Branch = { id: string; name: string };
 const VIEW_KEY = "sunrise.floor.view";
 const ATTENTION: RoomFloorStatus[] = ["overtime", "awaiting", "ending_soon", "upcoming", "in_use", "idle"];
 
+function isBranchList(value: unknown): value is Branch[] {
+  return Array.isArray(value) && value.every((branch) =>
+    branch && typeof branch.id === "string" && typeof branch.name === "string");
+}
+
+function isFloorBundle(value: unknown): value is FloorBundle {
+  if (!value || typeof value !== "object") return false;
+  const bundle = value as Partial<FloorBundle>;
+  return typeof bundle.date === "string" && typeof bundle.generated_at === "string"
+    && Array.isArray(bundle.rooms) && Array.isArray(bundle.reservations) && Array.isArray(bundle.orders);
+}
+
+async function boundedResponseError(response: Response): Promise<string> {
+  try {
+    const body = await readJsonWithTimeout<{ error?: unknown; message?: unknown }>(response.clone());
+    return friendlyMessage(body?.error ?? body?.message, response.status);
+  } catch {
+    return friendlyMessage(undefined, response.status);
+  }
+}
+
 export default function FloorConsolePage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchId, setBranchId] = useState("");
@@ -43,6 +66,40 @@ export default function FloorConsolePage() {
   const [branchesLoaded, setBranchesLoaded] = useState(false);
   const currentBranch = useRef("");
   const loadSeq = useRef(0);
+  const branchLoadSeq = useRef(0);
+
+  // 只列出這個帳號能管的分店（店長／店員可能只負責一間）
+  const loadBranches = useCallback(async () => {
+    const sequence = ++branchLoadSeq.current;
+    try {
+      const [branchRes, meRes] = await Promise.all([
+        fetchWithTimeout("/api/branches", { credentials: "include" }),
+        fetchWithTimeout("/api/admin/me", { credentials: "include" }),
+      ]);
+      if (sequence !== branchLoadSeq.current) return;
+      if (!branchRes.ok) throw new Error(await boundedResponseError(branchRes));
+      const rows = await readJsonWithTimeout<unknown>(branchRes);
+      if (!isBranchList(rows)) throw new Error("分店清單資料格式錯誤，請重新整理");
+      // 查不到權限範圍就不顯示任何分店（不可當成「全部分店」）
+      if (!meRes.ok) throw new Error(await boundedResponseError(meRes));
+      const me = await readJsonWithTimeout<unknown>(meRes);
+      if (!me || typeof me !== "object" || !("branch_ids" in me)
+        || !(me.branch_ids === null || (Array.isArray(me.branch_ids) && me.branch_ids.every((id) => typeof id === "string")))) {
+        throw new Error("分店權限資料格式錯誤，請重新整理");
+      }
+      if (sequence !== branchLoadSeq.current) return;
+      const branchIds = me.branch_ids as string[] | null;
+      const list = rows.filter((branch) => branchIds === null || branchIds.includes(branch.id));
+      setBranches(list);
+      setBranchesLoaded(true);
+      if (list[0]) setBranchId(list[0].id);
+      setError(null);
+    } catch (cause) {
+      if (sequence === branchLoadSeq.current) {
+        setError(thrownMessage(cause, "無法載入分店，請按右上角重新整理"));
+      }
+    }
+  }, []);
 
   useEffect(() => {
     setWebgl(supportsWebGL());
@@ -52,29 +109,7 @@ export default function FloorConsolePage() {
       else if (window.matchMedia("(max-width: 640px)").matches) setView("list");
     } catch { /* storage unavailable */ }
     void loadBranches();
-  }, []);
-
-  // 只列出這個帳號能管的分店（店長／店員可能只負責一間）
-  async function loadBranches() {
-    try {
-      const [branchRes, meRes] = await Promise.all([
-        fetch("/api/branches", { credentials: "include" }),
-        fetch("/api/admin/me", { credentials: "include" }),
-      ]);
-      if (!branchRes.ok) throw new Error(friendlyMessage((await branchRes.json().catch(() => ({}))).error, branchRes.status));
-      const rows = (await branchRes.json()) as Branch[];
-      // 查不到權限範圍就不顯示任何分店（不可當成「全部分店」）
-      if (!meRes.ok) throw new Error(friendlyMessage((await meRes.json().catch(() => ({}))).error, meRes.status));
-      const me = (await meRes.json()) as { branch_ids: string[] | null };
-      const list = (Array.isArray(rows) ? rows : []).filter((branch) => me.branch_ids === null || me.branch_ids.includes(branch.id));
-      setBranches(list);
-      setBranchesLoaded(true);
-      if (list[0]) setBranchId(list[0].id);
-      setError(null);
-    } catch (cause) {
-      setError(cause instanceof Error && /[一-鿿]/.test(cause.message) ? cause.message : "無法載入分店，請按右上角重新整理");
-    }
-  }
+  }, [loadBranches]);
 
   const load = useCallback(async () => {
     if (!branchId) return;
@@ -83,22 +118,25 @@ export default function FloorConsolePage() {
     const seq = ++loadSeq.current;
     setLoading(true);
     try {
-      const response = await fetch(`/api/admin/floor?branchId=${encodeURIComponent(requested)}`, { credentials: "include" });
-      const json = await response.json();
+      const response = await fetchWithTimeout(`/api/admin/floor?branchId=${encodeURIComponent(requested)}`, { credentials: "include" });
+      // 逾時等情況回的是網頁不是 JSON：一樣要變成看得懂的錯誤
+      if (!response.ok) throw new Error(await boundedResponseError(response));
+      const json = await readJsonWithTimeout<unknown>(response);
       // 切換分店後，舊分店晚回來的資料直接丟掉，避免在 B 店畫面操作到 A 店的客人
       if (currentBranch.current !== requested || seq !== loadSeq.current) return;
-      if (!response.ok) throw new Error(friendlyMessage(json.error, response.status));
-      setData(json as FloorBundle);
+      if (!isFloorBundle(json)) throw new Error("包廂資料格式錯誤，請重新整理");
+      setData(json);
       setError(null);
     } catch (cause) {
-      if (currentBranch.current === requested && seq === loadSeq.current) setError(cause instanceof Error ? cause.message : "載入失敗，請重試");
+      if (currentBranch.current === requested && seq === loadSeq.current) setError(thrownMessage(cause, "包廂資料載入失敗"));
     } finally {
-      if (currentBranch.current === requested) { setLoading(false); setNow(Date.now()); }
+      if (currentBranch.current === requested && seq === loadSeq.current) { setLoading(false); setNow(Date.now()); }
     }
   }, [branchId]);
 
   useEffect(() => {
     currentBranch.current = branchId;
+    loadSeq.current++;
     setData(null);
     setSelectedRoom(null);
   }, [branchId]);
@@ -108,7 +146,7 @@ export default function FloorConsolePage() {
     const refresh = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, 30_000);
     const tick = window.setInterval(() => setNow(Date.now()), 15_000);
     return () => { window.clearInterval(refresh); window.clearInterval(tick); };
-  }, [load]);
+  }, [load, loadBranches]);
 
   function chooseView(next: "3d" | "list") {
     setView(next);
@@ -171,13 +209,15 @@ export default function FloorConsolePage() {
       </select> : undefined}
     >
       <div className="space-y-4 pb-24">
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-          <Kpi label="使用中" value={counts.inUse} />
-          <Kpi label="超時" value={counts.overtime} tone={counts.overtime ? "alert" : undefined} />
-          <Kpi label="等客人到" value={counts.arriving} />
-          <Kpi label="空房" value={counts.idle} />
-          <Kpi label="還沒收的餐費" value={`NT$ ${counts.food.toLocaleString()}`} wide />
-        </div>
+        {data && (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            <Kpi label="使用中" value={counts.inUse} />
+            <Kpi label="超時" value={counts.overtime} tone={counts.overtime ? "alert" : undefined} />
+            <Kpi label="等客人到" value={counts.arriving} />
+            <Kpi label="空房" value={counts.idle} />
+            <Kpi label="還沒收的餐費" value={`NT$ ${counts.food.toLocaleString()}`} wide />
+          </div>
+        )}
 
         <div className="flex items-center justify-between gap-2">
           <ul className="flex flex-wrap gap-1.5 text-[11px]" aria-label="圖例">
@@ -191,14 +231,20 @@ export default function FloorConsolePage() {
           </div>
         </div>
 
-        {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>}
+        {error && <div role="alert" className="flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+          <span>{error}{data ? "（畫面是上一次的資料）" : "（目前無法確認包廂狀況）"}</span>
+          <button type="button" onClick={() => void (branchId ? load() : loadBranches())} disabled={loading}
+            className="h-9 shrink-0 rounded-lg border border-rose-300 bg-white px-3 font-medium disabled:opacity-50">重試</button>
+        </div>}
         {branchesLoaded && branches.length === 0 && <p className="py-10 text-center text-sm text-stone-500">你的帳號目前沒有負責的分店，請找老闆設定。</p>}
         {!data && !error && !(branchesLoaded && branches.length === 0) && <p className="py-10 text-center text-sm text-stone-500">載入中…</p>}
         {data && tiles.length === 0 && <p className="py-10 text-center text-sm text-stone-500">此分店尚未建立包廂。</p>}
 
         {tiles.length > 0 && (view === "3d"
           ? plan && slots && webgl
-            ? <RoomFloorScene plan={plan} tiles={tiles} slots={slots} selectedId={selectedRoom} onSelect={setSelectedRoom} />
+            ? <FallbackBoundary fallback={<RoomFloor3D tiles={tiles} selectedId={selectedRoom} onSelect={setSelectedRoom} />}>
+              <RoomFloorScene plan={plan} tiles={tiles} slots={slots} selectedId={selectedRoom} onSelect={setSelectedRoom} />
+            </FallbackBoundary>
             : <RoomFloor3D tiles={tiles} selectedId={selectedRoom} onSelect={setSelectedRoom} />
           : <ul className="grid gap-2 sm:grid-cols-2">
             {sortedTiles.map((tile) => {
@@ -234,8 +280,13 @@ export default function FloorConsolePage() {
           </div>}
           <div className="min-h-0 flex-1">
           {selectedReservation
-            ? <RoomCheckoutPanel reservationId={selectedReservation.id} roomName={selected.name} branchId={branchId} nowMs={now}
-              onClose={() => setSelectedRoom(null)} onChanged={() => void load()} />
+            ? <FallbackBoundary key={selectedReservation.id} fallback={<div role="alert" className="flex h-full flex-col items-center justify-center gap-3 bg-paper p-8 text-center">
+                <p className="text-sm text-rose-800">這組的畫面顯示失敗，請關閉後重新打開；一直失敗請截圖給工程人員。</p>
+                <button type="button" onClick={() => setSelectedRoom(null)} className="h-11 rounded-xl border border-ink/15 px-4 text-sm">關閉</button>
+              </div>}>
+              <RoomCheckoutPanel reservationId={selectedReservation.id} roomName={selected.name} branchId={branchId} nowMs={now}
+                onClose={() => setSelectedRoom(null)} onChanged={() => void load()} />
+            </FallbackBoundary>
             : <div className="flex h-full flex-col items-center justify-center gap-3 bg-paper p-8 text-center">
               <p className="font-serif text-xl">{selected.name}</p>
               <p className="text-sm text-ink-soft">這間今天沒有預約。現場來的客人，請先到「訂位」幫他登記。</p>

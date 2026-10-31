@@ -109,7 +109,7 @@ async function mockReminderApis(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify([
+      body: JSON.stringify({ nextCursor: null, warnings: [], items: [
         {
           id: "r1",
           booking_code: "ABC123",
@@ -124,7 +124,7 @@ async function mockReminderApis(page: Page) {
           guest_count: 4,
           room: { id: "room1", name: "包廂 A", branch: { id: "b1", name: "大安店" } },
         },
-      ]),
+      ] }),
     });
   });
 

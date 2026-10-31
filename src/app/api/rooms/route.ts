@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchRooms, insertRoom } from "@/lib/supabase-fetch";
-import { requireAdminApiAuth } from "@/lib/admin-api-auth";
+import { requirePermission } from "@/lib/admin-api-auth";
 import { roomPhotoUrlError } from "@/lib/room-photo";
 
 export async function GET(request: NextRequest) {
@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const denied = await requireAdminApiAuth(request);
+  const denied = await requirePermission(request, "rooms:write");
   if (denied) return denied;
 
   try {
@@ -36,6 +36,8 @@ export async function POST(request: NextRequest) {
     if (!branch_id || !name?.trim()) {
       return NextResponse.json({ error: "分店與名稱為必填" }, { status: 400 });
     }
+    const branchDenied = await requirePermission(request, "rooms:write", branch_id);
+    if (branchDenied) return branchDenied;
     const cap = Number(capacity);
     const pw = Number(price_weekday);
     const pwe = Number(price_weekend);

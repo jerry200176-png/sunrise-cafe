@@ -139,7 +139,7 @@ export async function fetchSettings(): Promise<{ current_branch_id: string | nul
 }
 
 export async function updateSettings(
-  current_branch_id: string | null,
+  current_branch_id: string | null | undefined,
   rental_notes?: import("@/types").RentalNoteSection[],
   closed_dates?: string[],
   deposit_info?: string | null,
@@ -147,10 +147,8 @@ export async function updateSettings(
   google_review_url?: string | null
 ): Promise<void> {
   const { url: baseUrl } = base();
-  const body: Record<string, unknown> = {
-    current_branch_id,
-    updated_at: new Date().toISOString(),
-  };
+  const body: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (current_branch_id !== undefined) body.current_branch_id = current_branch_id;
   if (rental_notes !== undefined) body.rental_notes = rental_notes;
   if (closed_dates !== undefined) body.closed_dates = closed_dates;
   if (deposit_info !== undefined) body.deposit_info = deposit_info;
@@ -229,27 +227,6 @@ export async function deleteRoom(id: string): Promise<void> {
     const text = await res.text();
     throw new Error(`Supabase rooms delete: ${res.status} ${text || res.statusText}`);
   }
-}
-
-/**
- * @deprecated Prefer fetchReservationsAdmin — anon RLS denies reservation SELECT.
- * Kept for rare tooling; uses service role.
- */
-export async function fetchReservations(branchId: string): Promise<unknown[]> {
-  const rooms = (await fetchRooms(branchId)) as { id: string }[];
-  if (rooms.length === 0) return [];
-  const ids = rooms.map((r) => r.id);
-  const { url: baseUrl } = base();
-  const inFilter = ids.map((id) => encodeURIComponent(id)).join(",");
-  const res = await fetch(
-    `${baseUrl}/rest/v1/reservations?select=*&room_id=in.(${inFilter})&order=start_time.asc`,
-    { method: "GET", headers: adminHeaders(), cache: "no-store" }
-  );
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Supabase reservations: ${res.status} ${text || res.statusText}`);
-  }
-  return res.json();
 }
 
 /** @deprecated Prefer insertReservationAdmin */

@@ -4,7 +4,7 @@ import {
   isPaymentEventsTableReady,
 } from "@/lib/payment-events-admin";
 import { isAdminConfigured } from "@/lib/supabase-admin";
-import { requirePermission } from "@/lib/admin-api-auth";
+import { getAdminContext, requirePermission } from "@/lib/admin-api-auth";
 
 /** GET: 待審核付款事件列表 */
 export async function GET(request: NextRequest) {
@@ -14,6 +14,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY" }, { status: 503 });
   }
   try {
+    const context = await getAdminContext(request);
+    if (context.branch_ids !== null && context.branch_ids.length === 0) return NextResponse.json([]);
     const ready = await isPaymentEventsTableReady();
     if (!ready) {
       return NextResponse.json(
@@ -24,7 +26,7 @@ export async function GET(request: NextRequest) {
         { status: 503 }
       );
     }
-    const items = await fetchPendingPaymentEvents();
+    const items = await fetchPendingPaymentEvents(context.branch_ids);
     return NextResponse.json(items);
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法載入";

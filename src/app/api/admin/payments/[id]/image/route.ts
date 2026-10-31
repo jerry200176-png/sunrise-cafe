@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { requirePermission } from "@/lib/admin-api-auth";
+import { getAdminContext, requirePermission } from "@/lib/admin-api-auth";
+import { paymentEventInScope } from "@/lib/payment-event-scope";
 import { fetchLineMessageContent } from "@/lib/line-content";
 import { parseLineImageMessageId } from "@/lib/payment-event-payload";
 import { isAdminConfigured, supabaseAdmin } from "@/lib/supabase-admin";
@@ -19,6 +20,13 @@ export async function GET(request: NextRequest, { params }: Params) {
   }
 
   const { id } = await params;
+  try {
+    if (!await paymentEventInScope(id, await getAdminContext(request))) {
+      return NextResponse.json({ error: "找不到付款事件" }, { status: 404 });
+    }
+  } catch {
+    return NextResponse.json({ error: "付款資料暫時無法讀取" }, { status: 503 });
+  }
   const db = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!

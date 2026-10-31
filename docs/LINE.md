@@ -171,7 +171,7 @@ Callback URL：`https://sunrise-cafe-six.vercel.app/api/auth/line/callback`
 Run `npx tsx scripts/line-account-audit.ts` inside an authorized runtime with its
 existing LINE credentials. This uses provider GETs only, does not load env files,
 and never sends customer or staff messages. It reports the actual account name,
-basic ID, identity HTTP status and quota snapshot separately for the default staff
+basic ID, identity errors and quota summary separately for the default staff
 account, default customer account, extra staff bots and branch customer accounts.
 A missing credential or unavailable provider result is unknown, not evidence of an
 incorrect account. Compare the returned identities with the intended Official Accounts;
