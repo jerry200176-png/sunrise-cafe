@@ -192,6 +192,11 @@ eligible for later retry. A timeout, network failure, 5xx, or 409 without an
 accepted-request ID leaves its claim in `sending`: LINE may already have accepted
 the message, so investigate rather than automatically resending. Accepted pushes
 remain counted as accepted even if recording the result subsequently fails.
+On a later run, a claim already held in the ledger is read without mutation:
+only a confirmed `sent` record counts as completed. A `sending`, `failed`, missing
+or unreadable record remains unresolved and is surfaced as an error rather than
+being reported as "already notified". Provider response bodies are not read or
+stored; the HTTP status supplies the outcome classification.
 [LINE's retry guidance](https://developers.line.biz/en/docs/messaging-api/retrying-api-request/)
 requires the same retry key on the first request and every retry, and limits its
 validity to 24 hours. D-1 digests do not yet persist a per-message retry key and

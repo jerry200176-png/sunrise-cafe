@@ -125,14 +125,16 @@ async function sendGroupPayload(
     return;
   }
   if (!res.ok) {
-    const body = await res.text();
+    // HTTP status is enough to classify the outcome. Never log or wait on a
+    // provider body that may contain personal data or stop mid-stream.
+    try { void res.body?.cancel().catch(() => {}); } catch { /* Body already locked. */ }
     observeLineProviderRejection({
       channel: "group",
       operation: "push",
       status: res.status,
       retryKey: options?.retryKey,
     });
-    throw new LineSendError(`LINE API 錯誤 (${res.status}): ${body}`, lineHttpFailure(res.status));
+    throw new LineSendError(`LINE API 錯誤 (${res.status})`, lineHttpFailure(res.status));
   }
 }
 

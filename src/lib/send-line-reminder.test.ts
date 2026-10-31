@@ -24,6 +24,7 @@ vi.mock("@/lib/line", () => ({
 
 vi.mock("@/lib/line-delivery", () => ({
   claimLineReminderDelivery: vi.fn(async () => ({ available: false, id: null })),
+  readLineReminderDeliveryState: vi.fn(async () => "sent"),
   markLineReminderDelivery: vi.fn(async () => {}),
   safeLineDeliveryError: vi.fn((error: unknown) => String(error)),
 }));
@@ -65,7 +66,7 @@ import {
 } from "@/lib/line-notify";
 import { sendLineFlexMessage } from "@/lib/line";
 import { REMINDER_DIGEST_CAROUSEL_MAX } from "@/lib/line-cards";
-import { claimLineReminderDelivery, markLineReminderDelivery } from "@/lib/line-delivery";
+import { claimLineReminderDelivery, markLineReminderDelivery, readLineReminderDeliveryState } from "@/lib/line-delivery";
 import { findRecentSendLineHeartbeat, findSuccessfulSendLineRunToday } from "@/lib/job-runs";
 import { LineSendError } from "@/lib/line-send-error";
 
@@ -422,6 +423,7 @@ describe("independent staff and customer reminder delivery", () => {
     vi.mocked(fetchBranches).mockResolvedValue([{ id: "b1", name: "Test", line_group_id: "G-test" }] as never);
     vi.mocked(fetchReservationsForReminder).mockResolvedValue([row] as never);
     vi.mocked(claimLineReminderDelivery).mockImplementation(async ({ reminderType }) => ({ available: true, id: reminderType }));
+    vi.mocked(readLineReminderDeliveryState).mockResolvedValue("sent");
   });
 
   it.each(["quota", "configuration", "routing", "claim", "settlement"])("still sends to the customer after staff %s failure", async (failure) => {
@@ -526,9 +528,31 @@ describe("independent staff and customer reminder delivery", () => {
     expect(result).toMatchObject({ unknown_attempt_count: 1, rejected_count: 0, delivery_certainty: "delivery_unknown" });
     expect(result.message).toContain("發送結果尚未確認");
     expect(result.reminder_evidence).toMatchObject({ message_attempt_count: 2, unknown_delivery_count: 2 });
-    vi.mocked(claimLineReminderDelivery).mockImplementation(async ({ reminderType }) => ({ available: true, id: reminderType === heldId ? null : reminderType }));
-    await runSendLineReminder();
+    vi.mocked(claimLineReminderDelivery).mockResolvedValue({ available: true, id: null });
+    vi.mocked(readLineReminderDeliveryState).mockImplementation(async ({ reminderType }) => reminderType === heldId ? "sending" : "sent");
+    const again = await (await runSendLineReminder()).json();
     expect(send).toHaveBeenCalledTimes(1);
+    expect(again).toMatchObject({ ok: false, result: "error", accepted_count: 0, rejected_count: 0, unknown_attempt_count: 0, unresolved_claim_count: 1, delivery_certainty: "delivery_unknown" });
+    expect(again.message).toContain("發送結果尚未確認");
+    expect(again.reminder_evidence).toMatchObject({ message_attempt_count: 0, unresolved_claim_count: 1, delivery_certainty: "delivery_unknown" });
+  });
+
+  it("only treats lost claims as already notified when the ledger confirms sent", async () => {
+    vi.mocked(claimLineReminderDelivery).mockResolvedValue({ available: true, id: null });
+    vi.mocked(readLineReminderDeliveryState).mockResolvedValue("sent");
+    const result = await (await runSendLineReminder()).json();
+    expect(result).toMatchObject({ ok: true, result: "already_notified", unresolved_claim_count: 0 });
+    expect(sendLineFlexToGroup).not.toHaveBeenCalled();
+    expect(sendLineFlexMessage).not.toHaveBeenCalled();
+  });
+
+  it.each(["sending", "failed", "missing"] as const)("does not report an unresolved %s ledger row as already notified", async (state) => {
+    vi.mocked(fetchReservationsForReminder).mockResolvedValue([{ ...row, line_user_id: null }] as never);
+    vi.mocked(claimLineReminderDelivery).mockResolvedValue({ available: true, id: null });
+    vi.mocked(readLineReminderDeliveryState).mockResolvedValue(state);
+    const result = await (await runSendLineReminder()).json();
+    expect(result).toMatchObject({ ok: false, result: "error", unresolved_claim_count: 1, accepted_count: 0, rejected_count: 0 });
+    expect(sendLineFlexToGroup).not.toHaveBeenCalled();
   });
 
   it("retains earlier guest acceptances when a later guest claim fails and releases the prior partial claim", async () => {

@@ -14,6 +14,15 @@ export type LineDeliveryClaim =
   | { available: true; id: null }
   | { available: false; id: null };
 
+export type ExistingReminderDeliveryState = "sending" | "sent" | "failed" | "missing";
+export type ReminderDeliveryKey = {
+  reminderType: LineReminderDeliveryType;
+  reminderDate: string;
+  reservationId: string;
+  recipientType: "group" | "guest";
+  recipientId: string;
+};
+
 function isLedgerUnavailable(error: { message?: string; code?: string } | null): boolean {
   return Boolean(
     error &&
@@ -24,13 +33,7 @@ function isLedgerUnavailable(error: { message?: string; code?: string } | null):
 }
 
 /** Atomically claim one reservation/recipient reminder before calling LINE. */
-export async function claimLineReminderDelivery(input: {
-  reminderType: LineReminderDeliveryType;
-  reminderDate: string;
-  reservationId: string;
-  recipientType: "group" | "guest";
-  recipientId: string;
-}): Promise<LineDeliveryClaim> {
+export async function claimLineReminderDelivery(input: ReminderDeliveryKey): Promise<LineDeliveryClaim> {
   const { data, error } = await supabaseAdmin()
     .rpc("claim_line_reminder_delivery", {
       p_reminder_type: input.reminderType,
@@ -54,6 +57,23 @@ export async function claimLineReminderDelivery(input: {
     throw error;
   }
   return { available: true, id: (data as { delivery_id?: string } | null)?.delivery_id ?? null };
+}
+
+/** Resolve a lost claim without changing any ledger row or exposing recipient data. */
+export async function readLineReminderDeliveryState(input: ReminderDeliveryKey): Promise<ExistingReminderDeliveryState> {
+  const { data, error } = await supabaseAdmin()
+    .from("line_reminder_deliveries")
+    .select("status")
+    .eq("reminder_type", input.reminderType)
+    .eq("reminder_date", input.reminderDate)
+    .eq("reservation_id", input.reservationId)
+    .eq("recipient_type", input.recipientType)
+    .eq("recipient_id", input.recipientId)
+    .maybeSingle();
+  // Do not expose raw database errors or assume a failed read means sent.
+  if (error) throw new Error("無法確認提醒紀錄狀態");
+  const status = (data as { status?: unknown } | null)?.status;
+  return status === "sending" || status === "sent" || status === "failed" ? status : "missing";
 }
 
 export async function markLineReminderDelivery(

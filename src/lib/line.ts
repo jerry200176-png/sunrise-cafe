@@ -81,14 +81,15 @@ async function lineCustomerFetch(
   }
 
   if (!res.ok) {
-    const text = await res.text();
+    // The status classifies acceptance; never wait on or expose the provider body.
+    try { void res.body?.cancel().catch(() => {}); } catch { /* Body already locked. */ }
     observeLineProviderRejection({
       channel: "customer",
       operation: "push",
       status: res.status,
       retryKey: options?.retryKey,
     });
-    throw new LineSendError(`LINE push 失敗：${res.status} ${text}`, lineHttpFailure(res.status));
+    throw new LineSendError(`LINE push 失敗：${res.status}`, lineHttpFailure(res.status));
   }
 }
 

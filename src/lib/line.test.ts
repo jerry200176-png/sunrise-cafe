@@ -55,6 +55,14 @@ describe("customer push picks the store's own LINE account", () => {
 
 
 describe("customer provider acceptance", () => {
+  it.each(["stalled", "interrupted", "sensitive"] as const)("classifies a 429 without reading the %s response body", async (mode) => {
+    const body = vi.fn(() => mode === "stalled" ? new Promise<string>(() => {}) : mode === "interrupted" ? Promise.reject(new Error("stream interrupted")) : Promise.resolve("姓名 王小明 電話 0912345678 群組 C-secret"));
+    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 429, headers: new Headers(), body: null, text: body } as unknown as Response);
+    const error = await sendLineFlexMessage("U1", "alt", { type: "bubble" } as never).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ outcome: "rejected", message: "LINE push 失敗：429" });
+    expect(String(error)).not.toMatch(/王小明|0912345678|C-secret/);
+    expect(body).not.toHaveBeenCalled();
+  }, 1000);
   it.each([[429, "rejected"], [409, "unknown"], [503, "unknown"]] as const)("classifies HTTP %s without guessing acceptance", async (status, outcome) => {
     vi.mocked(fetch).mockResolvedValue(new Response("provider error", { status }));
     await expect(sendLineFlexMessage("U1", "alt", { type: "bubble" } as never)).rejects.toMatchObject({ outcome });

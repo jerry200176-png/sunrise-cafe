@@ -39,6 +39,15 @@ describe("LINE Messaging API X-Line-Retry-Key & 409 reconciliation", () => {
     await expect(sendLineFlex("test", dummyFlex, { retryKey: "key" })).rejects.toThrow("409");
   });
 
+  it.each(["stalled", "interrupted", "sensitive"] as const)("classifies a group 429 without reading the %s response body", async (mode) => {
+    const body = vi.fn(() => mode === "stalled" ? new Promise<string>(() => {}) : mode === "interrupted" ? Promise.reject(new Error("stream interrupted")) : Promise.resolve("姓名 王小明 電話 0912345678 群組 C-secret"));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 429, headers: new Headers(), body: null, text: body }));
+    const error = await sendLineFlexToGroup("test", dummyFlex, "group").catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ outcome: "rejected", message: "LINE API 錯誤 (429)" });
+    expect(String(error)).not.toMatch(/王小明|0912345678|C-secret/);
+    expect(body).not.toHaveBeenCalled();
+  }, 1000);
+
   it("classifies missing group credentials as not sent without calling LINE", async () => {
     delete process.env.LINE_CHANNEL_ACCESS_TOKEN;
     const fetchSpy = vi.fn();

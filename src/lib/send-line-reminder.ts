@@ -43,6 +43,7 @@ import { reminderScheduleWindow } from "@/lib/reminder-schedule";
 import {
   claimLineReminderDelivery,
   markLineReminderDelivery,
+  readLineReminderDeliveryState,
   safeLineDeliveryError,
   type LineReminderDeliveryType,
 } from "@/lib/line-delivery";
@@ -83,6 +84,8 @@ export type ReminderRunObservability = {
   accepted_count: number;
   rejected_count: number;
   unknown_attempt_count: number;
+  /** Ledger claims not confirmed sent; they are not current provider attempts. */
+  unresolved_claim_count: number;
   delivery_certainty: "accepted_by_line" | "rejected_by_line" | "delivery_unknown" | "not_attempted";
 };
 
@@ -117,7 +120,7 @@ function reminderDate(row: Record<string, unknown>): string {
 }
 
 type ClaimedRow = { row: Record<string, unknown>; deliveryId: string | null };
-type ClaimRowsResult = { toSend: ClaimedRow[]; handledRows: Record<string, unknown>[]; claimError?: unknown };
+type ClaimRowsResult = { toSend: ClaimedRow[]; handledRows: Record<string, unknown>[]; unresolvedRows: Record<string, unknown>[]; claimError?: unknown };
 
 async function claimRows(
   rows: Record<string, unknown>[],
@@ -128,25 +131,32 @@ async function claimRows(
 ): Promise<ClaimRowsResult> {
   const toSend: ClaimedRow[] = [];
   const handledRows: Record<string, unknown>[] = [];
+  const unresolvedRows: Record<string, unknown>[] = [];
   for (const row of rows) {
     let result;
     try {
-      result = await claimLineReminderDelivery({
+      const key = {
         reminderType,
         reminderDate: reminderDateValue,
         reservationId: String(row.id),
         recipientType,
         recipientId,
-      });
+      };
+      result = await claimLineReminderDelivery(key);
+      if (result.available && !result.id) {
+        const state = await readLineReminderDeliveryState(key);
+        if (state === "sent") handledRows.push(row);
+        else unresolvedRows.push(row);
+        continue;
+      }
     } catch (claimError) {
-      return { toSend, handledRows, claimError };
+      return { toSend, handledRows, unresolvedRows, claimError };
     }
     // Before the migration is available, preserve the old flag-based behavior.
     // Once the ledger exists, only an explicit claim may send.
     if (!result.available || result.id) toSend.push({ row, deliveryId: result.id });
-    else handledRows.push(row);
   }
-  return { toSend, handledRows };
+  return { toSend, handledRows, unresolvedRows };
 }
 
 async function settleClaims(claimed: ClaimedRow[], status: "sent" | "failed", error?: unknown) {
@@ -182,12 +192,15 @@ async function pushDigestToGroup(
   let errorCount = 0;
   let runtimeErrors = 0;
   let unknownAttempts = 0;
+  let unresolvedClaims = 0;
   let runtimeError: string | null = null;
   const recipientId = groupId ?? "legacy-group";
   const date = reminderDate(rows[0]!);
   for (let offset = 0; offset < rows.length; offset += REMINDER_DIGEST_CAROUSEL_MAX) {
     const rowChunk = rows.slice(offset, offset + REMINDER_DIGEST_CAROUSEL_MAX);
     const claims = await claimRows(rowChunk, reminderType, date, "group", recipientId);
+    unresolvedClaims += claims.unresolvedRows.length;
+    if (claims.unresolvedRows.length) runtimeError = "群組提醒紀錄尚未確認，請先查證";
     if ("claimError" in claims) {
       // Preserve earlier chunk acceptances and any partially acquired claims.
       // This chunk must not fall through to another staff recipient on claim failure.
@@ -201,7 +214,7 @@ async function pushDigestToGroup(
       console.error(`[send-line] group claim failed: ${runtimeError}`);
       continue;
     }
-    handledRows.push(...claims.handledRows);
+    handledRows.push(...claims.handledRows, ...claims.unresolvedRows);
     if (claims.toSend.length === 0) continue;
     const claimed = claims.toSend;
     handledRows.push(...claimed.map((item) => item.row));
@@ -244,7 +257,7 @@ async function pushDigestToGroup(
       console.error(`[send-line] 群組摘要傳送失敗: ${safeLineDeliveryError(error)}`);
     }
   }
-  return { sent: messageCount, errors: errorCount, runtimeErrors, unknownAttempts, runtimeError, rows: sentRows, handled: handledRows };
+  return { sent: messageCount, errors: errorCount, runtimeErrors, unknownAttempts, unresolvedClaims, runtimeError, rows: sentRows, handled: handledRows };
 }
 
 async function sendInformationalMessage(
@@ -345,6 +358,7 @@ function finalizeObs(
       accepted_count?: number;
       rejected_count?: number;
       unknown_attempt_count?: number;
+      unresolved_claim_count?: number;
     },
   started: Date
 ): ReminderRunObservability & { reminder_evidence: ReturnType<typeof buildReminderRunEvidence> } {
@@ -352,8 +366,9 @@ function finalizeObs(
   const accepted_count = partial.accepted_count ?? (partial.result === "error" ? 0 : partial.sent_count);
   const rejected_count = partial.rejected_count ?? 0;
   const unknown_attempt_count = partial.unknown_attempt_count ?? 0;
+  const unresolved_claim_count = partial.unresolved_claim_count ?? 0;
   const delivery_certainty: ReminderRunObservability["delivery_certainty"] =
-    accepted_count > 0 || unknown_attempt_count > 0
+    accepted_count > 0 || unknown_attempt_count > 0 || unresolved_claim_count > 0
       ? "delivery_unknown"
       : rejected_count > 0
         ? "rejected_by_line"
@@ -376,6 +391,7 @@ function finalizeObs(
     accepted_count,
     rejected_count,
     unknown_attempt_count,
+    unresolved_claim_count,
     delivery_certainty,
   };
   const reminder_evidence = buildReminderRunEvidence({
@@ -387,6 +403,7 @@ function finalizeObs(
     accepted_count,
     rejected_count,
     unknown_attempt_count,
+    unresolved_claim_count,
     duplicate_suppressed_count: observability.duplicate ? 1 : 0,
     result:
       observability.result === "error" && rejected_count > 0 && accepted_count > 0
@@ -497,6 +514,7 @@ export async function runSendLineReminder(
     let staff_errors = 0;
     let staff_error: string | null = null;
     let unknown_attempt_count = 0;
+    let unresolved_claim_count = 0;
     let heartbeat: ReminderHeartbeat = "none";
     const heartbeat_keys: string[] = [];
     let skipped_count = 0;
@@ -573,6 +591,7 @@ export async function runSendLineReminder(
         line_rejected += result.errors;
         staff_errors += result.runtimeErrors;
         unknown_attempt_count += result.unknownAttempts;
+        unresolved_claim_count += result.unresolvedClaims;
         staff_error = result.runtimeError ?? staff_error;
         heartbeat = result.sent > 0 ? "digest" : "none";
       } else {
@@ -626,6 +645,7 @@ export async function runSendLineReminder(
           line_rejected += result.errors;
           staff_errors += result.runtimeErrors;
           unknown_attempt_count += result.unknownAttempts;
+          unresolved_claim_count += result.unresolvedClaims;
           staff_error = result.runtimeError ?? staff_error;
           heartbeat = result.sent > 0 ? "digest" : heartbeat;
         }
@@ -638,6 +658,7 @@ export async function runSendLineReminder(
             line_rejected += result.errors;
             staff_errors += result.runtimeErrors;
             unknown_attempt_count += result.unknownAttempts;
+            unresolved_claim_count += result.unresolvedClaims;
             staff_error = result.runtimeError ?? staff_error;
             heartbeat = result.sent > 0 ? "digest" : heartbeat;
             console.warn(
@@ -687,6 +708,8 @@ export async function runSendLineReminder(
           "guest",
           lineUserId
         );
+        unresolved_claim_count += claims.unresolvedRows.length;
+        if (claims.unresolvedRows.length) guest_error = "客人提醒紀錄尚未確認，請先查證";
         if ("claimError" in claims) {
           guest_errors++;
           guest_error = safeLineDeliveryError(claims.claimError);
@@ -754,7 +777,7 @@ export async function runSendLineReminder(
     }
 
     const totalRejected = line_rejected + guest_rejected;
-    const totalErrors = totalRejected + staff_errors + guest_errors;
+    const totalErrors = totalRejected + staff_errors + guest_errors + unresolved_claim_count;
     const heartbeatSent = heartbeat === "cat" || heartbeat === "already_notified" ? 1 : 0;
     const totalMessages = totalSent + guest_sent_count + heartbeatSent;
     const result: ReminderRunObservability["result"] =
@@ -783,6 +806,7 @@ export async function runSendLineReminder(
           totalMessages,
         rejected_count: totalRejected,
         unknown_attempt_count,
+        unresolved_claim_count,
         error: [staff_error, guest_error].filter(Boolean).join("；") || null,
       },
       started
@@ -802,8 +826,8 @@ export async function runSendLineReminder(
       staff_error_count: staff_errors,
       guest_error_count: guest_errors,
       message:
-        unknown_attempt_count > 0
-          ? `有 ${unknown_attempt_count} 則提醒的發送結果尚未確認，請先查證，避免重複發送`
+        unknown_attempt_count > 0 || unresolved_claim_count > 0
+          ? "有提醒的發送結果尚未確認，請先查證，避免重複發送"
           : totalErrors > 0
             ? "部分提醒未完成，請檢查錯誤後再處理"
             : totalMessages === 0
