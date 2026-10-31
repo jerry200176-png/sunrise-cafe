@@ -33,6 +33,8 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     const labels = page.getByLabel("3D 圖上的包廂");
     await expect(labels.getByRole("button")).toHaveCount(5);
     for (const name of ["包廂1", "包廂2", "包廂3", "包廂4", "會議室"]) await expect(labels.getByRole("button", { name, exact: true })).toBeVisible();
+    await labels.getByRole("button", { name: "包廂1", exact: true }).click();
+    await expect(page.locator("#booking-room-card-r0")).toBeFocused();
     const choices = page.getByLabel("選擇要查看照片的包廂");
     await expect(choices.getByRole("button")).toHaveCount(5);
     await choices.getByRole("button", { name: "包廂2 · 可預約" }).click();
