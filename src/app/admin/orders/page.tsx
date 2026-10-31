@@ -8,7 +8,7 @@ import { zhTW } from "date-fns/locale";
 import { supabase } from "@/lib/supabase";
 import { responseError, thrownMessage } from "@/lib/friendly-error";
 import { useAdminBranches } from "@/lib/use-admin-branches";
-import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
+import { fetchAllAdminOrders } from "@/lib/admin-orders-fetch";
 import type { Order, OrderStatus } from "@/types";
 
 const ACTIVE_STATUSES: OrderStatus[] = ["pending", "preparing", "ready"];
@@ -36,14 +36,7 @@ export default function AdminOrdersPage() {
     const seq = ++requestSeq.current;
     setLoading(true);
     try {
-      const res = await fetchWithTimeout(`/api/admin/orders?branchId=${encodeURIComponent(bid)}`, { credentials: "include" });
-      if (!res.ok) {
-        // 失敗時保留畫面上原本的單，並明說「沒更新」，不要假裝沒有訂單
-        const message = await responseError(res);
-        if (seq === requestSeq.current && currentBranch.current === bid) setLoadError(message);
-        return;
-      }
-      const data = await readJsonWithTimeout<Order[]>(res);
+      const data = await fetchAllAdminOrders(bid, () => seq === requestSeq.current && currentBranch.current === bid, "active");
       if (seq !== requestSeq.current || currentBranch.current !== bid) return;
       if (!Array.isArray(data)) throw new Error("訂單資料格式不正確，請重試");
       const active = (Array.isArray(data) ? data : []).filter((o: Order) =>

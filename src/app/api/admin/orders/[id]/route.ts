@@ -9,6 +9,22 @@ function adminClient() {
   );
 }
 
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const branchId = request.nextUrl.searchParams.get("branchId");
+  if (!branchId) return NextResponse.json({ error: "缺少 branchId" }, { status: 400 });
+  const denied = await requirePermission(request, "orders:read", branchId);
+  if (denied) return denied;
+  const { id } = await params;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    return NextResponse.json({ error: "訂單編號不正確" }, { status: 400 });
+  }
+  const { data, error } = await adminClient().from("orders").select("id,branch_id,is_printed")
+    .eq("branch_id", branchId).eq("id", id).maybeSingle();
+  if (error) return NextResponse.json({ error: "無法核對訂單列印狀態" }, { status: 503 });
+  if (!data) return NextResponse.json({ error: "找不到訂單" }, { status: 404 });
+  return NextResponse.json(data);
+}
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }

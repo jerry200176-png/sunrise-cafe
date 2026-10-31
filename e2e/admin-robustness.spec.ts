@@ -27,7 +27,7 @@ test.describe("後台穩定性", () => {
   test("訂單狀態更新失敗：卡片留在看板並顯示錯誤；提示音有真的音檔", async ({ page, context }) => {
     await seedAdminSession(context);
     await base(page);
-    await page.route("**/api/admin/orders?**", (r) => r.fulfill({ json: [order()] }));
+    await page.route("**/api/admin/orders?**", (r) => r.fulfill({ json: { items: [order()], nextCursor: null } }));
     await page.route("**/api/admin/orders/o1", (r) => r.fulfill({ status: 500, json: { error: "boom" } }));
     await page.goto("/admin/orders");
     await expect(page.getByText("拿鐵")).toBeVisible();
@@ -45,7 +45,7 @@ test.describe("後台穩定性", () => {
     const printed: string[] = [];
     const marked: string[] = [];
     await page.route("**/api/admin/orders?**", (r) =>
-      r.fulfill({ json: [order({ id: "o1" }), order({ id: "empty", order_items: [] })] })
+      r.fulfill({ json: { items: [order({ id: "o1" }), order({ id: "empty", order_items: [] })], nextCursor: null } })
     );
     await page.route("**/api/admin/orders/*", (r) => {
       marked.push(new URL(r.request().url()).pathname.split("/").pop()!);
@@ -68,7 +68,7 @@ test.describe("後台穩定性", () => {
     await seedAdminSession(context);
     await base(page);
     await page.clock.install();
-    await page.route("**/api/admin/orders?**", (r) => r.fulfill({ json: [order()] }));
+    await page.route("**/api/admin/orders?**", (r) => r.fulfill({ json: { items: [order()], nextCursor: null } }));
     await page.route("http://localhost:22222/**", (r) => r.abort());
     await page.goto("/admin/print-station");
     await page.getByRole("button", { name: /開始監聽/ }).click();
