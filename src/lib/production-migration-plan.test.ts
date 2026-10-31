@@ -45,6 +45,7 @@ const bankTransferRunner = readFileSync(
   join(root, "scripts/apply-migration-bank-transfer-reports.mjs"),
   "utf8"
 );
+const bankTransferAcl = readFileSync(join(root, "scripts/lib/bank-transfer-acl.mjs"), "utf8");
 
 describe("explicit production migration plan", () => {
   it("requires an explicit phase for every executable entry", () => {
@@ -321,9 +322,9 @@ describe("explicit production migration plan", () => {
     expect(bankTransferMigration).toMatch(
       /REVOKE ALL ON FUNCTION confirm_bank_transfer_payment\(UUID, TEXT, TEXT\) FROM anon, authenticated;/
     );
-    expect(bankTransferRunner).toContain("authenticated_report");
-    expect(bankTransferRunner).toContain("authenticated_confirm");
-    expect(bankTransferRunner).toContain("role_privileges_repaired");
+    expect(bankTransferAcl).toContain("authenticated_report");
+    expect(bankTransferAcl).toContain("authenticated_confirm");
+    expect(bankTransferRunner).not.toContain("role_privileges_repaired");
   });
 });
 

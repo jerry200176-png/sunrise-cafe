@@ -4,8 +4,10 @@
  * migration path. This script never infers payment state from customer data.
  */
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { BANK_TRANSFER_FUNCTIONS, verifyBankTransferAcl } from "./lib/bank-transfer-acl.mjs";
+import { connectOpsPostgres } from "./lib/ops-postgres.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const VERSION = "20260914-bank-transfer-reports";
@@ -22,60 +24,7 @@ const EXPECTED_COLUMNS = [
   "updated_by",
   "reviewed_by",
 ];
-const EXPECTED_FUNCTIONS = [
-  "record_bank_transfer_report(uuid,text,numeric)",
-  "confirm_bank_transfer_payment(uuid,text,text)",
-];
-
-async function repairRoleSpecificRpcPrivileges(sql) {
-  await sql.begin(async (transaction) => {
-    await transaction.unsafe(
-      "REVOKE ALL ON FUNCTION record_bank_transfer_report(UUID, TEXT, NUMERIC) FROM anon, authenticated;"
-    );
-    await transaction.unsafe(
-      "REVOKE ALL ON FUNCTION confirm_bank_transfer_payment(UUID, TEXT, TEXT) FROM anon, authenticated;"
-    );
-    await transaction.unsafe(
-      "GRANT EXECUTE ON FUNCTION record_bank_transfer_report(UUID, TEXT, NUMERIC) TO service_role;"
-    );
-    await transaction.unsafe(
-      "GRANT EXECUTE ON FUNCTION confirm_bank_transfer_payment(UUID, TEXT, TEXT) TO service_role;"
-    );
-  });
-}
-
-function postgresUrl() {
-  return (
-    process.env.SUPABASE_DB_URL ??
-    process.env.POSTGRES_URL_NON_POOLING ??
-    process.env.POSTGRES_URL ??
-    process.env.POSTGRES_PRISMA_URL ??
-    process.env.DATABASE_URL ??
-    ""
-  );
-}
-
-function usableUrl(value) {
-  return Boolean(value) && !/[\[<](?:region|ref|YOUR|PASSWORD)/i.test(value);
-}
-
-function connectionOptions(connectionString) {
-  const local = /(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(
-    connectionString
-  );
-  return { max: 1, idle_timeout: 15, ...(local ? { ssl: false } : { ssl: "require" }) };
-}
-
-async function connect() {
-  const connectionString = postgresUrl();
-  if (!usableUrl(connectionString)) {
-    throw new Error(
-      "Missing usable SUPABASE_DB_URL/POSTGRES_URL; explicit migration execution is fail-closed"
-    );
-  }
-  const { default: postgres } = await import("postgres");
-  return postgres(connectionString, connectionOptions(connectionString));
-}
+const EXPECTED_FUNCTIONS = BANK_TRANSFER_FUNCTIONS;
 
 async function relationExists(sql, relation) {
   const rows = await sql`
@@ -136,75 +85,36 @@ async function verify(sql) {
     throw new Error(`Bank-transfer functions missing: ${missingFunctions.join(", ")}`);
   }
 
-  const privileges = await sql`
-    SELECT
-      has_function_privilege('public', 'public.record_bank_transfer_report(uuid,text,numeric)', 'EXECUTE') AS public_report,
-      has_function_privilege('public', 'public.confirm_bank_transfer_payment(uuid,text,text)', 'EXECUTE') AS public_confirm,
-      has_function_privilege('anon', 'public.record_bank_transfer_report(uuid,text,numeric)', 'EXECUTE') AS anon_report,
-      has_function_privilege('anon', 'public.confirm_bank_transfer_payment(uuid,text,text)', 'EXECUTE') AS anon_confirm,
-      has_function_privilege('authenticated', 'public.record_bank_transfer_report(uuid,text,numeric)', 'EXECUTE') AS authenticated_report,
-      has_function_privilege('authenticated', 'public.confirm_bank_transfer_payment(uuid,text,text)', 'EXECUTE') AS authenticated_confirm,
-      has_function_privilege('service_role', 'public.record_bank_transfer_report(uuid,text,numeric)', 'EXECUTE') AS service_report,
-      has_function_privilege('service_role', 'public.confirm_bank_transfer_payment(uuid,text,text)', 'EXECUTE') AS service_confirm
-  `;
-  const privilege = privileges[0];
-  const functionAcl = await sql`
-    SELECT
-      p.oid::regprocedure::text AS signature,
-      owner.rolname AS owner,
-      COALESCE(array_to_string(p.proacl, ','), '') AS acl
-    FROM pg_proc p
-    JOIN pg_namespace n ON n.oid = p.pronamespace
-    JOIN pg_roles owner ON owner.oid = p.proowner
-    WHERE n.nspname = 'public'
-      AND p.oid::regprocedure::text = ANY(${sql.array(EXPECTED_FUNCTIONS)})
-    ORDER BY signature
-  `;
-  console.log(
-    JSON.stringify({
-      migration: VERSION,
-      privilege_probe: privilege,
-      function_acl: functionAcl,
-    })
-  );
-  if (
-    privilege.public_report ||
-    privilege.public_confirm ||
-    privilege.anon_report ||
-    privilege.anon_confirm ||
-    privilege.authenticated_report ||
-    privilege.authenticated_confirm ||
-    !privilege.service_report ||
-    !privilege.service_confirm
-  ) {
-    throw new Error("Bank-transfer RPC permission verification failed");
-  }
+  const acl = await verifyBankTransferAcl(sql);
+  console.log(JSON.stringify({ migration: VERSION, ...acl }));
   if (!(await migrationApplied(sql))) throw new Error(`${VERSION} missing from schema_migrations`);
   return { columns: EXPECTED_COLUMNS, indexes: 2, functions: EXPECTED_FUNCTIONS, privileges: "service_role_only" };
 }
 
-async function main() {
-  const sql = await connect();
-  try {
-    const applied = await migrationApplied(sql);
-    if (applied) {
-      console.log(JSON.stringify({ migration: VERSION, status: "already_applied" }));
-      await repairRoleSpecificRpcPrivileges(sql);
-      console.log(JSON.stringify({ migration: VERSION, status: "role_privileges_repaired" }));
-    } else {
-      console.log(JSON.stringify({ migration: VERSION, status: "applying", plan: "explicit" }));
-      await sql.begin(async (transaction) => {
-        await transaction.unsafe(SQL);
-      });
-      console.log(JSON.stringify({ migration: VERSION, status: "applied" }));
-    }
-    console.log(JSON.stringify({ migration: VERSION, verification: await verify(sql) }));
-  } finally {
-    await sql.end({ timeout: 10 });
+export async function runBankTransferMigration(sql) {
+  const applied = await migrationApplied(sql);
+  if (applied) {
+    console.log(JSON.stringify({ migration: VERSION, status: "already_applied" }));
+  } else {
+    console.log(JSON.stringify({ migration: VERSION, status: "applying", plan: "explicit" }));
+    await sql.begin(async (transaction) => {
+      await transaction.unsafe(SQL);
+    });
+    console.log(JSON.stringify({ migration: VERSION, status: "applied" }));
   }
+  const verification = await sql.begin("isolation level repeatable read read only", (transaction) => verify(transaction));
+  console.log(JSON.stringify({ migration: VERSION, verification }));
 }
 
-main().catch((error) => {
-  console.error(error?.message ?? error);
-  process.exit(1);
-});
+async function main() {
+  const sql = await connectOpsPostgres();
+  try { await runBankTransferMigration(sql); }
+  finally { await sql.end({ timeout: 10 }); }
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(error?.message ?? error);
+    process.exit(1);
+  });
+}
