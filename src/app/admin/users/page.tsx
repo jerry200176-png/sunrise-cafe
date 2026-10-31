@@ -50,23 +50,33 @@ export default function AdminUsersPage() {
   const [role, setRole] = useState("branch_manager");
   const [branchIds, setBranchIds] = useState("");
 
+  const clearDeniedAccess = useCallback((message: string) => {
+    setMe(null); setUsers([]); setMigrationRequired(false); setSubmitted(null);
+    setEmail(""); setPassword(""); setDisplayName(""); setBranchIds("");
+    setListVerified(false);
+    setError(message);
+  }, []);
+
   const load = useCallback(async () => {
     const sequence = ++listSequence.current;
     setListVerified(false);
     setLoading(true);
     setError(null);
     try {
-      const [meRes, usersRes] = await Promise.all([
+      const [meResult, usersResult] = await Promise.allSettled([
         fetchWithTimeout("/api/admin/me"),
         fetchWithTimeout("/api/admin/users"),
       ]);
       if (sequence !== listSequence.current) return null;
-      if ([401, 403].includes(usersRes.status) || [401, 403].includes(meRes.status)) {
-        setMe(null); setUsers([]); setMigrationRequired(false); setSubmitted(null);
-        setEmail(""); setPassword(""); setDisplayName(""); setBranchIds("");
-        setError(usersRes.status === 403 ? "僅 Owner 可管理使用者" : "登入或權限已失效，請重新登入");
+      const meRes = meResult.status === "fulfilled" ? meResult.value : null;
+      const usersRes = usersResult.status === "fulfilled" ? usersResult.value : null;
+      if ((usersRes && [401, 403].includes(usersRes.status)) || (meRes && [401, 403].includes(meRes.status))) {
+        clearDeniedAccess(usersRes?.status === 403 ? "僅 Owner 可管理使用者" : "登入或權限已失效，請重新登入");
         return null;
       }
+      if (meResult.status === "rejected") throw meResult.reason;
+      if (usersResult.status === "rejected") throw usersResult.reason;
+      if (!meRes || !usersRes) throw new Error("使用者資料載入失敗");
       if (!usersRes.ok) throw new Error(await responseError(usersRes));
       if (!meRes.ok) throw new Error(await responseError(meRes));
       const currentMe = await readJsonWithTimeout<Me>(meRes);
@@ -77,9 +87,7 @@ export default function AdminUsersPage() {
           typeof user.email !== "string" || typeof user.role !== "string" || !Array.isArray(user.branch_ids) ||
           user.branch_ids.some((id) => typeof id !== "string"))) throw new Error("使用者清單格式不正確，請重新整理");
       if (!currentMe.permissions.users_manage) {
-        setMe(null); setUsers([]); setMigrationRequired(false); setSubmitted(null);
-        setEmail(""); setPassword(""); setDisplayName(""); setBranchIds("");
-        setError("僅 Owner 可管理使用者");
+        clearDeniedAccess("僅 Owner 可管理使用者");
         return null;
       }
       setMe(currentMe);
@@ -87,12 +95,12 @@ export default function AdminUsersPage() {
       setMigrationRequired(Boolean(uData.migration_required));
       return !uData.migration_required && currentMe.permissions.users_manage ? sequence : null;
     } catch (e) {
-      if (sequence === listSequence.current) setError(thrownMessage(e, "使用者資料載入失敗，請重新整理"));
+      if (sequence === listSequence.current) clearDeniedAccess(thrownMessage(e, "使用者資料載入失敗，請重新整理"));
       return null;
     } finally {
       if (sequence === listSequence.current) setLoading(false);
     }
-  }, []);
+  }, [clearDeniedAccess]);
 
   useEffect(() => {
     try {
@@ -132,6 +140,12 @@ export default function AdminUsersPage() {
         headers: { "Content-Type": "application/json" },
         body: requestBody,
       });
+      if ([401, 403].includes(res.status)) {
+        // An older in-flight GET must not restore data after permission loss.
+        ++listSequence.current;
+        setLoading(false);
+        clearDeniedAccess("登入或權限已失效，請重新登入");
+      }
       const data = await readJsonWithTimeout<{ ok?: boolean; id?: unknown; error?: unknown }>(res);
       if (!res.ok && [400, 401, 403, 404, 422].includes(res.status) && typeof data?.error === "string") {
         clearCreateHold();

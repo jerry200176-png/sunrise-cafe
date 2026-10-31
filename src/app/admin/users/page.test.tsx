@@ -114,7 +114,7 @@ describe("admin user creation recovery", () => {
     failList(true);
     fireEvent.click(screen.getByRole("button", { name: "建立" }));
     expect(await screen.findByText(/帳號已建立，但清單未能更新/)).toBeTruthy();
-    expect((screen.getByRole("button", { name: "建立" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "建立" })).toBeNull();
     expect(sessionStorage.getItem("sunrise.admin-user-create.pending.v1")).toBe("1");
     expect(calls).toHaveLength(1);
   });
@@ -129,7 +129,7 @@ describe("admin user creation recovery", () => {
     fireEvent.click(screen.getByRole("button", { name: "重新整理使用者清單" }));
     expect(await screen.findByText(/無法確認使用者清單/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "已核對，允許重新操作" })).toBeNull();
-    expect((screen.getByRole("button", { name: "建立" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "建立" })).toBeNull();
   });
 
   it("clears the previous owner form and user list when refresh is denied", async () => {
@@ -139,6 +139,85 @@ describe("admin user creation recovery", () => {
     fireEvent.click(screen.getByRole("button", { name: "重新整理使用者清單" }));
     expect(await screen.findByText("僅 Owner 可管理使用者")).toBeTruthy();
     expect(screen.queryByPlaceholderText("Email")).toBeNull();
+    expect(screen.queryByText("test@example.test · staff")).toBeNull();
+  });
+
+  it.each(["me", "users"])("clears owner data when %s denies access and the other list request fails", async (deniedEndpoint) => {
+    let denied = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: string, init: RequestInit = {}) => {
+      if (init.method === "POST") throw new TypeError("network lost");
+      if (denied) {
+        if (input === `/api/admin/${deniedEndpoint}`) return json({ error: "Forbidden" }, 403);
+        throw new TypeError("network lost");
+      }
+      return input === "/api/admin/me" ? json(me) : json({ users });
+    }));
+    render(<AdminUsersPage />);
+    fireEvent.change(await screen.findByPlaceholderText("Email"), { target: { value: "new@example.test" } });
+    fireEvent.change(screen.getByPlaceholderText("密碼（至少 8 字）"), { target: { value: "test-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "建立" }));
+    expect(await screen.findByText(/建立結果尚未確認/)).toBeTruthy();
+    denied = true;
+    fireEvent.click(screen.getByRole("button", { name: "重新整理並核對清單" }));
+    await waitFor(() => expect(screen.queryByPlaceholderText("Email")).toBeNull());
+    expect(screen.queryByText("test@example.test · staff")).toBeNull();
+    expect(screen.queryByLabelText("原送出申請摘要")).toBeNull();
+    expect(screen.queryByRole("button", { name: "已核對，允許重新操作" })).toBeNull();
+    expect(sessionStorage.getItem("sunrise.admin-user-create.pending.v1")).toBe("1");
+  });
+
+  it.each([401, 403])("clears old owner data when account creation returns %s", async (status) => {
+    await setup(async () => json({ error: "Forbidden" }, status));
+    fireEvent.click(screen.getByRole("button", { name: "建立" }));
+    expect(await screen.findByText("登入或權限已失效，請重新登入")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Email")).toBeNull();
+    expect(screen.queryByText("test@example.test · staff")).toBeNull();
+    await waitFor(() => expect(sessionStorage.getItem("sunrise.admin-user-create.pending.v1")).toBeNull());
+  });
+
+  it("does not let an older successful refresh restore access after POST is denied", async () => {
+    let finishPost!: (response: Response) => void;
+    let finishUsers!: (response: Response) => void;
+    let delayed = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: string, init: RequestInit = {}) => {
+      if (init.method === "POST") return new Promise<Response>((resolve) => { finishPost = resolve; });
+      if (input === "/api/admin/me") return json(me);
+      if (delayed) return new Promise<Response>((resolve) => { finishUsers = resolve; });
+      return json({ users });
+    }));
+    render(<AdminUsersPage />);
+    fireEvent.change(await screen.findByPlaceholderText("Email"), { target: { value: "new@example.test" } });
+    fireEvent.change(screen.getByPlaceholderText("密碼（至少 8 字）"), { target: { value: "test-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "建立" }));
+    delayed = true;
+    fireEvent.click(screen.getByRole("button", { name: "重新整理使用者清單" }));
+    await act(async () => { finishPost(json({ error: "Forbidden" }, 403)); });
+    expect(await screen.findByText("登入或權限已失效，請重新登入")).toBeTruthy();
+    await act(async () => { finishUsers(json({ users })); });
+    expect(screen.queryByPlaceholderText("Email")).toBeNull();
+    expect(screen.queryByText("test@example.test · staff")).toBeNull();
+  });
+
+  it("preserves the hold when an access-denied creation response has an unreadable body", async () => {
+    await setup(async () => new Response("unreadable", { status: 403 }));
+    fireEvent.click(screen.getByRole("button", { name: "建立" }));
+    expect(await screen.findByText(/建立結果尚未確認/)).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Email")).toBeNull();
+    expect(screen.queryByText("test@example.test · staff")).toBeNull();
+    expect(sessionStorage.getItem("sunrise.admin-user-create.pending.v1")).toBe("1");
+  });
+
+  it("clears stale owner data when access is revoked and the users JSON is malformed", async () => {
+    let revoked = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+      if (input === "/api/admin/me") return json(revoked ? { role: "staff", permissions: { users_manage: false } } : me);
+      return revoked ? new Response("not json") : json({ users });
+    }));
+    render(<AdminUsersPage />);
+    expect(await screen.findByText("test@example.test · staff")).toBeTruthy();
+    revoked = true;
+    fireEvent.click(screen.getByRole("button", { name: "重新整理使用者清單" }));
+    await waitFor(() => expect(screen.queryByPlaceholderText("Email")).toBeNull());
     expect(screen.queryByText("test@example.test · staff")).toBeNull();
   });
 
@@ -172,7 +251,7 @@ describe("admin user creation recovery", () => {
     expect(await screen.findByText(/無法確認使用者清單/)).toBeTruthy();
     await act(async () => { resolveOlder(json({ users })); });
     expect(screen.queryByRole("button", { name: "已核對，允許重新操作" })).toBeNull();
-    expect((screen.getByRole("button", { name: "建立" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "建立" })).toBeNull();
   });
 
   it.each(["network", "header timeout", "body timeout", "non-json", "non-json success", "server error"])("holds a %s outcome for manual verification without resending", async (failure) => {
