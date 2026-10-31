@@ -144,6 +144,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   const branchGeneration = useRef(0);
   const currentBranch = useRef(branchId);
   const activeRequest = useRef(0);
+  const verificationRequired = useRef(false);
   const batchRequest = useRef(0);
   const focusLookupRef = useRef<string | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
@@ -418,6 +419,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     currentBranch.current = branchId;
     branchGeneration.current += 1;
     activeRequest.current += 1;
+    verificationRequired.current = false;
     historyRequest.current += 1;
     batchRequest.current += 1;
     for (const id of reservationMutationsSnapshot()) stalePendingMutations.current.add(id);
@@ -527,7 +529,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       setLoading(false);
       return;
     }
-    if (showLoading) setLoading(true);
+    if (showLoading || verificationRequired.current) setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams({ branchId, scope: "active", _t: String(Date.now()) });
@@ -536,19 +538,20 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       if (!isCurrent()) return;
       if (!res.ok) {
         setError(data.error ?? "無法載入訂位");
-        if (showLoading) {
+        if (showLoading || verificationRequired.current) {
           activeRowsRef.current = [];
           publishRows();
         }
       } else {
         activeRowsRef.current = data.items ?? [];
+        verificationRequired.current = false;
         setActiveWarnings(data.warnings ?? []);
         publishRows();
       }
     } catch (e) {
       if (!isCurrent()) return;
       setError(e instanceof Error ? e.message : "連線失敗");
-      if (showLoading) {
+      if (showLoading || verificationRequired.current) {
         activeRowsRef.current = [];
         publishRows();
       }
@@ -559,15 +562,21 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     if (isCurrent() && historyKeyRef.current !== null) void fetchHistory("refresh");
   }, [branchId, fetchHistory, publishRows]);
 
+  const refreshAfterMutation = useCallback(async () => {
+    if (currentBranch.current !== branchId) return;
+    verificationRequired.current = true;
+    await fetchReservations(true);
+  }, [branchId, fetchReservations]);
+
   // An earlier request may finish while this branch is being revisited. Reload
   // before allowing an editor to act on the older snapshot.
   useLayoutEffect(() => {
     const released = [...stalePendingMutations.current].filter((id) => !pendingMutations.has(id));
     for (const id of released) stalePendingMutations.current.delete(id);
     if (released.length > 0 && currentBranch.current === branchId && branchId) {
-      void fetchReservations(true);
+      void refreshAfterMutation();
     }
-  }, [branchId, pendingMutations, fetchReservations]);
+  }, [branchId, pendingMutations, refreshAfterMutation]);
 
   // 搜尋字輸入停 300ms 才送到伺服器（只用於歷史紀錄；未結案列表已全部載入，在本機篩選）
   useEffect(() => {
@@ -744,7 +753,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         return;
       }
       closeEdit();
-      fetchReservations(false);
+      await refreshAfterMutation();
     } catch (e) {
       if (!isCurrent()) return;
       setEditSubmitting(false);
@@ -779,7 +788,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         return;
       }
       showToast("已還原訂位", "success");
-      fetchReservations(false);
+      await refreshAfterMutation();
     } catch {
       if (isCurrent()) showToast("連線失敗，還原未完成", "error");
     } finally {
@@ -814,14 +823,15 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         if (!isCurrent()) return;
         showToast(data.error ?? "狀態更新失敗，請重新整理後再試", "error");
-        void fetchReservations(true);
+        await refreshAfterMutation();
         return;
       }
       const data = (await res.json().catch(() => ({}))) as {
         lineResult?: string | null;
       };
       if (!isCurrent()) return;
-      fetchReservations(false);
+      await refreshAfterMutation();
+      if (!isCurrent()) return;
       const lineResult = data.lineResult;
       if (
         status === "confirmed" &&
@@ -835,7 +845,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     } catch {
       if (!isCurrent()) return;
       showToast("連線中斷，狀態可能已更新；請先重新整理確認。", "error");
-      void fetchReservations(true);
+      await refreshAfterMutation();
     } finally {
       endReservationMutation(id);
     }
@@ -871,14 +881,15 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         if (!isCurrent()) return;
         showToast(data.error ?? "訂金狀態更新失敗，請重新整理後再試", "error");
-        void fetchReservations(true);
+        await refreshAfterMutation();
         return;
       }
       const data = (await res.json().catch(() => ({}))) as {
         paymentNotification?: { status?: string; error?: string } | null;
       };
       if (!isCurrent()) return;
-      fetchReservations(false);
+      await refreshAfterMutation();
+      if (!isCurrent()) return;
       if (
         is_deposit_paid &&
         data.paymentNotification &&
@@ -894,7 +905,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     } catch {
       if (!isCurrent()) return;
       showToast("連線中斷，訂金狀態可能已更新；請先重新整理確認。", "error");
-      void fetchReservations(true);
+      await refreshAfterMutation();
     } finally {
       endReservationMutation(id);
     }
@@ -919,15 +930,16 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         if (!isCurrent()) return;
         showToast(data.error ?? "付款資料更新失敗", "error");
-        void fetchReservations(true);
+        await refreshAfterMutation();
         return;
       }
-      fetchReservations(false);
+      await refreshAfterMutation();
+      if (!isCurrent()) return;
       showToast("已更新付款資料", "success");
     } catch {
       if (!isCurrent()) return;
       showToast("連線中斷，付款資料可能已更新；請先重新整理確認。", "error");
-      void fetchReservations(true);
+      await refreshAfterMutation();
     } finally {
       endReservationMutation(id);
     }
@@ -946,7 +958,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         if (isCurrent()) showToast(data.error ?? "刪除失敗", "error");
         return;
       }
-      void fetchReservations(false);
+      await refreshAfterMutation();
     } catch {
       if (isCurrent()) showToast("連線失敗，請重新整理確認刪除結果。", "error");
     } finally {
@@ -1020,7 +1032,8 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   if (error) {
     return (
       <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">
-        {error}
+        <p role="alert">{error}</p>
+        <button type="button" onClick={() => void fetchReservations(true)} className="mt-2 rounded border border-red-300 bg-white px-3 py-2 text-sm">重試</button>
       </div>
     );
   }

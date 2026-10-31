@@ -4,6 +4,15 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import { ReservationList } from "./ReservationList";
 
+const realtime = vi.hoisted(() => ({ handlers: [] as Array<() => void> }));
+vi.mock("@/lib/supabase", () => ({ supabase: {
+  channel: () => {
+    const channel = { on: (_type: string, _filter: unknown, callback: () => void) => { realtime.handlers.push(callback); return channel; }, subscribe: () => channel };
+    return channel;
+  },
+  removeChannel: () => undefined,
+} }));
+
 const base = {
   room_id: "room-1", phone: "0900", email: null, guest_count: 2, total_price: 600,
   is_deposit_paid: false, notes: null, created_at: "2026-10-01T00:00:00Z",
@@ -33,7 +42,7 @@ function mockFetch() {
   return writes;
 }
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); realtime.handlers.length = 0; });
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -97,6 +106,49 @@ describe("reservation selection visibility", () => {
 });
 
 describe("branch-scoped reservation requests", () => {
+  it("stays fail-closed when the newest post-mutation read fails, including the next background refresh", async () => {
+    const firstMutation = deferred<Response>();
+    const secondMutation = deferred<Response>();
+    const olderRead = deferred<Response>();
+    const latestRead = deferred<Response>();
+    const backgroundRead = deferred<Response>();
+    let activeReads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH" && url.endsWith("/one")) return firstMutation.promise;
+      if (init?.method === "PATCH" && url.endsWith("/two")) return secondMutation.promise;
+      if (url.startsWith("/api/reservations?")) {
+        activeReads += 1;
+        if (activeReads === 1) return list(rows);
+        if (activeReads === 2) return olderRead.promise;
+        if (activeReads === 3) return latestRead.promise;
+        return backgroundRead.promise;
+      }
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    render(<ReservationList branchId="b1" rooms={[]} />);
+    const firstRow = (await screen.findByRole("checkbox", { name: /選取 甲 A01/ })).closest("li")!;
+    await user.click(within(firstRow).getByRole("button", { name: /✅ 確認/ }));
+    const secondRow = screen.getByRole("checkbox", { name: /選取 乙 B02/ }).closest("li")!;
+    await user.click(within(secondRow).getByRole("button", { name: /✅ 確認/ }));
+    await act(async () => { firstMutation.resolve(Response.json({ error: "first failed" }, { status: 500 })); await firstMutation.promise; });
+    await waitFor(() => expect(activeReads).toBe(2));
+    await act(async () => { secondMutation.resolve(Response.json({ ok: true })); await secondMutation.promise; });
+    await waitFor(() => expect(activeReads).toBe(3));
+    await act(async () => { latestRead.resolve(Response.json({ error: "最新讀取失敗" }, { status: 503 })); await latestRead.promise; });
+    expect(await screen.findByText("最新讀取失敗")).toBeTruthy();
+    await act(async () => { olderRead.resolve(list(rows)); await olderRead.promise; });
+    expect(screen.getByText("最新讀取失敗")).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: /選取 甲 A01/ })).toBeNull();
+    act(() => { realtime.handlers.at(-1)?.(); });
+    await waitFor(() => expect(activeReads).toBe(4));
+    expect(screen.getByText("載入中…")).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: /選取 乙 B02/ })).toBeNull();
+    await act(async () => { backgroundRead.resolve(list([rows[0], { ...rows[1], status: "confirmed" }])); await backgroundRead.promise; });
+    expect(await screen.findByRole("checkbox", { name: /選取 甲 A01/ })).toBeTruthy();
+    expect(screen.queryByText("最新讀取失敗")).toBeNull();
+  });
+
   it("refreshes after one reservation fails without reverting another reservation's success", async () => {
     const first = deferred<Response>();
     let secondSaved = false;
