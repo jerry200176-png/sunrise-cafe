@@ -8,4 +8,6 @@
 
 驗收：PR 測試覆蓋缺 token、非法模式、inspect 不洩漏假憑證及不執行修改；假 CLI 不得聯網。workflow PR 不取得正式 secrets 或 actions 寫入權限；手動路徑保留原有操作及檢查，不測試正式環境或進行支付。執行既有 Actions SHA gate、lint 與定向測試。上線後由 CI 檢查最終提交；回滾可恢復原 workflow，但應注意它會讓 PR 接觸正式環境。
 
+安全補強：原始 stdout、stderr 和操作報告只寫私有暫存，檢查成功後輸出限定欄位的摘要；偵測疑似 channel 值或任何錯誤都不發布 artifact。sandbox URL 已存在但不相同或無法讀取時，不修改環境並中止後續部署。測試只使用假的 CLI、假的憑證和隔離目錄。
+
 參考：[GitHub Actions 安全強化](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions) 建議最低權限及限制 secrets；[actions/checkout](https://github.com/actions/checkout)（MIT）以完整 commit SHA 固定。原失敗是 credential-dependent 檢查與 PR 自動驗證耦合，具體 Vercel 錯誤尚無可讀日誌佐證。
