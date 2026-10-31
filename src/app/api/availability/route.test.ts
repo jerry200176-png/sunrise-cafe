@@ -11,7 +11,10 @@ vi.mock("@/lib/supabase-admin", () => ({
 }));
 vi.mock("@/lib/supabase-fetch", () => ({ fetchSettings: vi.fn(async () => ({ closed_dates: [] })) }));
 
+import * as bookable from "@/lib/bookable";
 import { GET } from "./route";
+
+const resolveDaySpy = vi.spyOn(bookable, "resolveDay");
 
 const tongde = {
   id: "b1", name: "昇咖啡 桃園同德店", open_time: "10:00", close_time: "18:00", closed_dates: [],
@@ -26,7 +29,34 @@ const get = (q: string) => GET(new NextRequest(`http://localhost/api/availabilit
 const taipei = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit" });
 
 describe("availability with weekly hours", () => {
-  beforeEach(() => { mocks.branch = tongde; });
+  beforeEach(() => {
+    mocks.branch = tongde;
+    resolveDaySpy.mockClear();
+  });
+
+  it.each([
+    ["date=2099-10-06", "room list"],
+    ["date=2099-10-06&roomId=room-1", "room slots"],
+  ])("rejects an archived branch before resolving %s", async (query) => {
+    mocks.branch = { ...tongde, archived_at: "2099-10-01T00:00:00Z" };
+
+    const response = await get(query);
+    expect(response.status).toBe(410);
+    expect(await response.json()).toEqual({ error: "該分店已停止接受線上預約" });
+    expect(resolveDaySpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["date=2099-10-06", "room list"],
+    ["date=2099-10-06&roomId=room-1", "room slots"],
+  ])("rejects a missing branch before resolving %s", async (query) => {
+    mocks.branch = null;
+
+    const response = await get(query);
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "分店不存在" });
+    expect(resolveDaySpy).not.toHaveBeenCalled();
+  });
 
   it("a weekday marked closed is a closed day (both room list and slot views)", async () => {
     expect(await (await get("date=2099-10-05")).json()).toEqual({ closed: true });
