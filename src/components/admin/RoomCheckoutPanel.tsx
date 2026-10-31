@@ -11,6 +11,8 @@ import type { MenuCategory, MenuItem, Order, OrderItem } from "@/types";
 import { EXTEND_STEPS_MINUTES, addMinutes, foodStillOwed, newEndProblem, overtimeSettledEnd, resolveClockNear, type CheckoutBill } from "@/lib/room-checkout";
 import { fmtClock, minutesText } from "@/components/admin/RoomFloor3D";
 import { PAYMENT_METHODS, type PaymentMethod } from "@/lib/room-settlement";
+import { useOrderAddRecovery, type PendingOrderAdd } from "@/lib/use-order-add-recovery";
+import { OrderAddRecovery } from "@/components/admin/OrderAddRecovery";
 
 type View = {
   reservation: { customer_name: string; booking_code: string; start_time: string; status: string; guest_count?: number | null };
@@ -50,7 +52,12 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   const [discount, setDiscount] = useState("");
   const [discountReason, setDiscountReason] = useState("");
   const [busy, setBusy] = useState(false);
+  const mutationInFlight = useRef(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [needsRefresh, setNeedsRefresh] = useState(false);
+  const recovery = useOrderAddRecovery(reservationId);
+  const actionDisabled = busy || needsRefresh || !recovery.ready || Boolean(recovery.storageError) || recovery.pending.length > 0;
   /** 第一次載入就失敗：沒有畫面可顯示，要給「重試」而不是一直顯示載入中 */
   const [loadFailed, setLoadFailed] = useState("");
   const [menuState, setMenuState] = useState<"loading" | "ready" | "error">("loading");
@@ -70,8 +77,10 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
     const data = response.ok ? await response.json() : null;
     if (currentApi.current !== requested || gen !== requestGen.current) return;
     if (!response.ok) throw new Error(await responseError(response));
+    if (!data || typeof data !== "object" || !("order" in data) || !data.billing?.end_time) throw new Error("訂單資料不完整");
     setView(data as View);
     setLoadFailed("");
+    setNeedsRefresh(false);
     setCustomEnd(fmtClock((data as View).billing.end_time));
   }, [api]);
 
@@ -81,7 +90,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   }, [load]);
 
   useEffect(() => {
-    setView(null); setError(""); setPicking(null); setConfirmCheckout(false);
+    setView(null); setError(""); setNotice(""); setNeedsRefresh(false); setPicking(null); setConfirmCheckout(false);
     setMethod("cash"); setDiscount(""); setDiscountReason("");
     firstLoad();
   }, [firstLoad]);
@@ -108,25 +117,67 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   useEffect(() => { loadMenu(); }, [loadMenu]);
 
   async function act(action: string, extra: Record<string, unknown> = {}) {
-    setBusy(true); setError("");
+    if (mutationInFlight.current) return false;
+    if (actionDisabled) { setError("請先處理待確認的加點或儲存狀態。"); return false; }
+    mutationInFlight.current = true;
+    setBusy(true); setError(""); setNotice("");
     const requested = api;
     const gen = ++requestGen.current;
     try {
-      const response = await fetch(requested, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, ...extra }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(friendlyMessage(data.error, response.status));
+      let data: { billing?: View["billing"]; order?: View["order"]; error?: string };
+      if (action === "add_items") {
+        data = await recovery.begin(extra.items as DraftItemInput[]) as { billing?: View["billing"]; order?: View["order"]; error?: string };
+      } else {
+        const response = await fetch(requested, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action, ...extra }) });
+        data = await response.json();
+        if (!response.ok) throw new Error(friendlyMessage(data.error, response.status));
+      }
       // 回應已帶最新資料：直接套用。動作已成功，就不要因為之後的重新整理失敗而回報失敗（避免重按而重複加點）。
       if (currentApi.current !== requested || gen !== requestGen.current) { onChanged(); return true; }
       // POST 回應帶 order／billing／preorder（沒有 reservation）：合併進目前畫面
-      if (data?.billing) {
+      if (data?.billing && "order" in data) {
         setView((previous) => previous ? { ...previous, ...(data as Partial<View>) } : previous);
         setCustomEnd(fmtClock((data as View).billing.end_time));
-      } else await load().catch(() => undefined);
+      } else await load().catch(() => {
+        if (currentApi.current === requested) {
+          setNeedsRefresh(true);
+          setNotice(action === "add_items" ? "加點已完成，但訂單畫面未更新。請重新載入並核對訂單，暫勿再次加點。" : "操作已完成，但訂單畫面未更新。請重新載入並核對訂單。");
+        }
+      });
       onChanged();
       return true;
     } catch (cause) { setError(thrownMessage(cause)); return false; }
-    finally { setBusy(false); }
+    finally { mutationInFlight.current = false; setBusy(false); }
+  }
+
+  async function resolveAdd(record: PendingOrderAdd, cancel: boolean) {
+    if (mutationInFlight.current || busy) return;
+    if (cancel && !window.confirm("若這筆加點尚未完成，系統會阻止原請求繼續寫入；若已完成，系統會顯示已完成，請先核對訂單。確定繼續？")) return;
+    mutationInFlight.current = true;
+    const requested = api;
+    const gen = ++requestGen.current;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const state = await (cancel ? recovery.cancel(record) : recovery.check(record));
+      if (currentApi.current !== requested || gen !== requestGen.current) { onChanged(); return; }
+      if (state === "committed") setPicking(null);
+      setNotice(state === "committed" ? "這筆加點已完成，請確認訂單。" : "尚未完成的加點已安全取消，可重新選餐。");
+      await load().catch(() => {
+        if (currentApi.current === requested) { setNeedsRefresh(true); setNotice("結果已確認，但畫面未更新。請重新載入並核對訂單，暫勿再次加點。"); }
+      });
+      onChanged();
+    } catch (cause) { setError(thrownMessage(cause, "加點結果仍未確認，請稍後再試。")); }
+    finally { mutationInFlight.current = false; setBusy(false); }
+  }
+
+  async function refreshAfterMutation() {
+    if (mutationInFlight.current) return;
+    mutationInFlight.current = true;
+    setBusy(true);
+    try { await load(); setNotice(""); }
+    catch { setNotice("訂單仍無法更新，請稍後重新載入，暫勿再次加點。"); }
+    finally { mutationInFlight.current = false; setBusy(false); }
   }
 
   const shown = useMemo(() => menu.filter((item) => category === "all" || item.category_id === category), [menu, category]);
@@ -136,7 +187,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   const paid = Boolean(order?.paid_at);
   const checkedIn = billing?.status === "checked_in";
   // 延長只看客人是否還在包廂（餐費先結過也能延長，伺服器同樣只檢查 checked_in）
-  const canEditTime = checkedIn && !busy;
+  const canEditTime = checkedIn && !actionDisabled;
   const roomSettled = billing?.status === "completed";
   // 報到後被取消的組：不收包廂費，只剩餐費要補記
   const stayCancelled = billing?.status === "cancelled" || billing?.status === "no_show";
@@ -183,6 +234,10 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
 
       <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
         {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>}
+        {notice && <div role="status" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{notice}
+          {needsRefresh && <button type="button" disabled={busy} onClick={() => void refreshAfterMutation()} className="ml-2 rounded-lg border border-amber-700 px-3 py-2 disabled:opacity-50">重新載入訂單</button>}
+        </div>}
+        {view && <OrderAddRecovery pending={recovery.pending} storageError={recovery.storageError} busy={busy} onCheck={(record) => void resolveAdd(record, false)} onCancel={(record) => void resolveAdd(record, true)} />}
         {!view && loadFailed && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
           <p>{loadFailed}</p>
           <button type="button" onClick={firstLoad} className="mt-3 h-11 rounded-xl bg-ink px-4 font-semibold text-paper">重試</button>
@@ -219,7 +274,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
           <p className="text-sm text-ink-soft">{view.preorder?.requires_reconfirmation ? "這組的預約改過，請先打開「看預點的餐」確認一下餐點。"
             : checkedIn ? "這組已經報到，但還沒開點餐單。按下去就可以開始點餐、結帳。" : "客人到了嗎？按下去之後，他們先點好的餐會通知廚房準備。"}</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" disabled={busy || Boolean(view.preorder?.requires_reconfirmation)} onClick={() => act("check_in")}
+            <button type="button" disabled={actionDisabled || Boolean(view.preorder?.requires_reconfirmation)} onClick={() => act("check_in")}
               className="h-11 rounded-xl bg-gradient-to-br from-[#b5742c] to-[#9d6519] px-5 font-semibold text-white shadow-[0_10px_30px_-12px_rgba(157,101,25,0.45)] disabled:opacity-50">{checkedIn ? "開始點餐" : "客人到了"}</button>
             <Link href={`/admin/reservation-orders/${encodeURIComponent(reservationId)}`} className="flex h-11 items-center rounded-xl border border-ink/15 px-4 text-sm">看預點的餐</Link>
           </div>
@@ -238,16 +293,16 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
                 </p>
               </div>
               {item.served_at || paid || !checkedIn ? <span className="w-24 text-center text-sm tabular-nums">×{item.quantity}</span> : <div className="flex items-center">
-                <button type="button" aria-label={`${item.item_name}減一`} disabled={busy}
+                <button type="button" aria-label={`${item.item_name}減一`} disabled={actionDisabled}
                   onClick={() => item.quantity <= 1 ? act("remove_item", { item_id: item.id }) : act("update_quantity", { item_id: item.id, quantity: item.quantity - 1 })}
                   className="flex h-9 w-9 items-center justify-center rounded-lg border border-ink/15 disabled:opacity-40"><Minus className="h-4 w-4" /></button>
                 <span className="w-8 text-center tabular-nums">{item.quantity}</span>
-                <button type="button" aria-label={`${item.item_name}加一`} disabled={busy || item.quantity >= 99}
+                <button type="button" aria-label={`${item.item_name}加一`} disabled={actionDisabled || item.quantity >= 99}
                   onClick={() => act("update_quantity", { item_id: item.id, quantity: item.quantity + 1 })}
                   className="flex h-9 w-9 items-center justify-center rounded-lg border border-ink/15 disabled:opacity-40"><Plus className="h-4 w-4" /></button>
               </div>}
               <span className="w-20 text-right text-sm tabular-nums">{money(Number(item.unit_price) * item.quantity)}</span>
-              {!item.served_at && (checkedIn || roomSettled || stayCancelled) && <button type="button" disabled={busy} onClick={() => act("serve_item", { item_id: item.id })}
+              {!item.served_at && (checkedIn || roomSettled || stayCancelled) && <button type="button" disabled={actionDisabled} onClick={() => act("serve_item", { item_id: item.id })}
                 className="h-9 rounded-lg bg-emerald-700/90 px-2 text-xs font-semibold text-white disabled:opacity-40">送了</button>}
             </li>)}
           </ul>
@@ -264,16 +319,16 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
             </div> : menuState === "loading" ? <p className="text-sm text-ink-faint">菜單載入中…</p>
             : menu.length === 0 ? <p className="text-sm text-ink-faint">這間分店還沒有可以點的品項，請先到「菜單」新增。</p>
             : picking ? <div className="rounded-xl bg-paper-deep/60 p-3">
-              <MenuPicker items={menu.filter((item) => item.id === picking[0]?.menu_item_id)} value={picking} onChange={setPicking} disabled={busy} />
+              <MenuPicker items={menu.filter((item) => item.id === picking[0]?.menu_item_id)} value={picking} onChange={setPicking} disabled={actionDisabled} />
               {selectionProblem(menu, picking) && <p role="alert" className="mt-2 text-sm text-rose-700">{selectionProblem(menu, picking)}</p>}
               <div className="mt-3 flex gap-2">
-                <button type="button" disabled={busy || picking.length !== 1 || Boolean(selectionProblem(menu, picking))}
+                <button type="button" disabled={actionDisabled || picking.length !== 1 || Boolean(selectionProblem(menu, picking))}
                   onClick={async () => { if (await act("add_items", { items: picking })) setPicking(null); }}
                   className="h-11 rounded-xl bg-ink px-4 text-sm font-semibold text-paper disabled:opacity-40">加入</button>
                 <button type="button" onClick={() => setPicking(null)} className="h-11 rounded-xl border border-ink/15 px-4 text-sm">取消</button>
               </div>
             </div> : <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {shown.map((item) => <button key={item.id} type="button" disabled={busy} onClick={() => tapItem(item)}
+              {shown.map((item) => <button key={item.id} type="button" disabled={actionDisabled} onClick={() => tapItem(item)}
                 className="flex min-h-[64px] flex-col justify-between rounded-xl border border-ink/10 bg-white px-3 py-2 text-left transition-[border-color,transform] duration-150 hover:border-caramel active:scale-[0.97] disabled:opacity-50">
                 <span className="line-clamp-2 text-sm font-medium">{item.name}</span>
                 <span className="text-xs text-caramel-deep">{money(Number(item.price))}{item.options?.length ? " · 可選口味" : ""}</span>
@@ -303,7 +358,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
         {foodStillOwed(billing?.status, order.paid_at, bill.foodTotal) && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
           {stayCancelled ? "這組已經取消" : "這組已經結束"}，但餐費 {money(bill.foodTotal)} 還沒記收款。
           {ready && <MethodPicker value={method} onChange={setMethod} />}
-          <button type="button" disabled={busy} onClick={() => act("settle", payment)}
+          <button type="button" disabled={actionDisabled} onClick={() => act("settle", payment)}
             className="mt-2 block h-11 w-full rounded-xl bg-ink font-semibold text-paper disabled:opacity-50">收到餐費 {money(bill.foodTotal)}，補記</button>
         </div>}
         {!roomSettled && !stayCancelled && (confirmCheckout ? <div className="mt-3 space-y-2">
@@ -320,14 +375,14 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
           </details>}
           <div className="grid grid-cols-2 gap-2">
             <button type="button" onClick={() => setConfirmCheckout(false)} className="h-12 rounded-xl border border-ink/15 font-medium">再等等</button>
-            <button type="button" disabled={busy || Boolean(discountProblem)} onClick={async () => {
+            <button type="button" disabled={actionDisabled || Boolean(discountProblem)} onClick={async () => {
               const ok = await act("checkout", { expected_due: bill.due, expected_refund: bill.refund, ...payment,
                 ...(discountAmount > 0 ? { discount_amount: discountAmount, discount_reason: discountReason.trim() } : {}) });
               if (ok) setConfirmCheckout(false); else void load().catch(() => undefined);
             }}
               className="h-12 rounded-xl bg-ink font-semibold text-paper disabled:opacity-50">{bill.refund > 0 ? `已退客人 ${money(bill.refund)}，結帳` : `確定收到 ${money(collect)}`}</button>
           </div>
-        </div> : <button type="button" disabled={busy || !checkedIn} onClick={() => setConfirmCheckout(true)}
+        </div> : <button type="button" disabled={actionDisabled || !checkedIn} onClick={() => setConfirmCheckout(true)}
           className="mt-3 h-12 w-full rounded-[1.25rem] bg-gradient-to-br from-[#b5742c] to-[#9d6519] font-semibold text-white shadow-[0_10px_30px_-12px_rgba(157,101,25,0.45)] transition-transform duration-150 active:scale-[0.985] disabled:opacity-50">
           收好錢了，結帳
         </button>)}

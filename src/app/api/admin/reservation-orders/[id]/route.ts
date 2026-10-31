@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { getAdminContext, requirePermission } from "@/lib/admin-api-auth";
 import { getReservationForPreorder, getReservationPreorder, validateAndSnapshotItems, canonicalDraftItems, type DraftItemInput } from "@/lib/reservation-preorder";
 import { supabaseAdmin } from "@/lib/supabase-admin";
@@ -10,7 +11,7 @@ import { canAccessBranch, type AdminContext } from "@/lib/rbac";
 import { logOps } from "@/lib/ops-log";
 
 type Params = { params: Promise<{ id: string }> };
-type Action = "check_in" | "save_preorder" | "add_items" | "replace_item" | "update_quantity" | "remove_item" | "serve_item" | "settle"
+type Action = "check_in" | "save_preorder" | "add_items" | "add_status" | "cancel_add" | "replace_item" | "update_quantity" | "remove_item" | "serve_item" | "settle"
   | "extend" | "checkout";
 
 async function authorized(request: NextRequest, id: string, write: boolean) {
@@ -73,18 +74,6 @@ async function loadBilling(id: string) {
   };
 }
 
-async function updateStatus(orderId: string) {
-  const db = supabaseAdmin();
-  const { data: order, error } = await db.from("orders").select("paid_at,order_items(served_at)").eq("id", orderId).single();
-  if (error) throw error;
-  const rows = order.order_items ?? [];
-  const allServed = rows.length > 0 && rows.every((row) => row.served_at);
-  const status = allServed ? (order.paid_at ? "completed" : "ready")
-    : rows.some((row) => row.served_at) ? "preparing" : order.paid_at && rows.length === 0 ? "completed" : "pending";
-  const result = await db.from("orders").update({ status }).eq("id", orderId);
-  if (result.error) throw result.error;
-}
-
 /** 呼叫 settle_reservation_checkout：expected 是店員畫面上（打折前）的應收與應退，伺服器會重算核對。 */
 async function settle(
   id: string,
@@ -144,6 +133,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       action: Action; item?: DraftItemInput; items?: DraftItemInput[];
       item_id?: string; notes?: string | null; quantity?: number; end_time?: string; expected_due?: number; expected_refund?: number;
       payment_method?: string; discount_amount?: number; discount_reason?: string | null;
+      idempotency_key?: string;
     };
     const db = supabaseAdmin();
     const { order, billing: current, settlementsReady } = await load(id);
@@ -171,6 +161,46 @@ export async function POST(request: NextRequest, { params }: Params) {
       return NextResponse.json({ ok: true, ...(await load(id)) });
     }
     if (!order) return NextResponse.json({ error: "請先確認客人到店" }, { status: 409 });
+    if (body.action === "add_status" || body.action === "cancel_add") {
+      const key = typeof body.idempotency_key === "string" ? body.idempotency_key.trim() : "";
+      if (!/^[a-zA-Z0-9_-]{16,128}$/.test(key)) return NextResponse.json({ error: "加點識別碼不正確" }, { status: 400 });
+      if (body.action === "add_status") {
+        const result = await db.from("reservation_order_add_requests").select("state")
+          .eq("reservation_id", id).eq("request_key", key).maybeSingle();
+        if (result.error) return NextResponse.json({ error: "無法確認加點狀態" }, { status: 503 });
+        const state = result.data?.state ?? "unknown";
+        if (!["unknown", "committed", "canceled"].includes(state)) return NextResponse.json({ error: "無法確認加點狀態" }, { status: 503 });
+        return NextResponse.json({ ok: true, state });
+      }
+      const result = await db.rpc("cancel_reservation_order_add", { p_reservation_id: id, p_order_id: order.id, p_request_key: key });
+      if (result.error || !["committed", "canceled"].includes(result.data?.state)) return NextResponse.json({ error: "無法確認加點狀態" }, { status: 503 });
+      return NextResponse.json({ ok: true, state: result.data.state });
+    }
+    // A replay must be recognized before checking the reservation's current
+    // state or today's menu: the first request may have committed before the
+    // connection failed, even if the stay has since ended or items sold out.
+    let addRequest: { key: string; hash: string; items: DraftItemInput[] } | null = null;
+    if (body.action === "add_items") {
+      const key = typeof body.idempotency_key === "string" ? body.idempotency_key.trim() : "";
+      if (!/^[a-zA-Z0-9_-]{16,128}$/.test(key)) {
+        return NextResponse.json({ error: "加點頁面需要更新，請重新整理後再試" }, { status: 400 });
+      }
+      let items: DraftItemInput[];
+      try { items = canonicalDraftItems(body.items ?? []); }
+      catch { return NextResponse.json({ error: "餐點資料不正確，請確認後再試" }, { status: 400 }); }
+      if (!items.length) return NextResponse.json({ error: "缺少餐點" }, { status: 400 });
+      const hash = createHash("sha256").update(JSON.stringify(items)).digest("hex");
+      const previous = await db.from("reservation_order_add_requests").select("payload_hash,state")
+        .eq("reservation_id", id).eq("request_key", key).maybeSingle();
+      if (previous.error) return NextResponse.json({ error: "無法確認加點狀態，請勿重複加點；請稍後以原請求重試" }, { status: 503 });
+      if (previous.data) {
+        if (previous.data.state === "canceled") return NextResponse.json({ error: "此筆加點已取消，請重新選擇餐點" }, { status: 409 });
+        if (previous.data.payload_hash !== hash) return NextResponse.json({ error: "加點識別碼與餐點內容不一致，請先確認訂單" }, { status: 409 });
+        try { return NextResponse.json({ ok: true, committed: true, already_processed: true, ...(await load(id)) }); }
+        catch { return NextResponse.json({ ok: true, committed: true, already_processed: true, refresh_failed: true }); }
+      }
+      addRequest = { key, hash, items };
+    }
     if (body.action === "extend") {
       // 只給已報到、尚未結帳的組調整結束時間（店員現場延時／提早離開）；不改 total_price，不推 LINE。
       if (auth.reservation!.status !== "checked_in") return NextResponse.json({ error: "客人到了以後才能改時間" }, { status: 409 });
@@ -228,7 +258,6 @@ export async function POST(request: NextRequest, { params }: Params) {
         } catch (error) {
           logOps("admin", "admin.room_checkout_side_effect_failed", { reservation_id: id, error: error instanceof Error ? error.message : String(error) });
         }
-        await updateStatus(order.id);
         logOps("admin", "admin.room_checked_out", { reservation_id: id, due, actor: ctx.user_id ?? ctx.role, settlement_id: settled.id });
         return NextResponse.json({ ok: true, ...(await load(id)) });
       }
@@ -279,7 +308,6 @@ export async function POST(request: NextRequest, { params }: Params) {
           return NextResponse.json(failure, { status });
         }
       }
-      await updateStatus(order.id);
       logOps("admin", "admin.room_checked_out", { reservation_id: id, due, actor: ctx.user_id ?? ctx.role });
       return NextResponse.json({ ok: true, ...(await load(id)) });
     }
@@ -307,19 +335,29 @@ export async function POST(request: NextRequest, { params }: Params) {
       }
     } else if (body.action === "add_items" || body.action === "replace_item") {
       if (order.paid_at) return NextResponse.json({ error: "已結帳，不能修改餐點" }, { status: 409 });
-      const input = body.action === "add_items" ? body.items : body.item ? [body.item] : null;
+      const input = body.action === "add_items" ? addRequest?.items : body.item ? [body.item] : null;
       if (!input?.length) return NextResponse.json({ error: "缺少餐點" }, { status: 400 });
       const snapshots = await validateAndSnapshotItems(auth.reservation!, input, false);
       const changes = snapshots.map((snapshot) => ({ menu_item_id: snapshot.source_menu_item_id, item_name: snapshot.item_name_snapshot,
         quantity: snapshot.quantity, unit_price: snapshot.unit_price_snapshot,
         selected_options: snapshot.selected_options_snapshot, special_notes: snapshot.special_notes }));
       if (body.action === "add_items") {
-        const result = await db.from("order_items").insert(changes.map((item) => ({ order_id: order.id, ...item })));
-        if (result.error) throw result.error;
-        // The insert is committed. A refresh failure must not invite another add.
-        // This cannot deduplicate a retry if the client never receives the response.
+        const result = await db.rpc("add_reservation_order_items_once", {
+          p_reservation_id: id, p_order_id: order.id, p_request_key: addRequest!.key,
+          p_payload_hash: addRequest!.hash, p_items: changes,
+        });
+        if (result.error) {
+          const message = String(result.error.message ?? "");
+          if (message.includes("add_request_canceled")) return NextResponse.json({ error: "此筆加點已取消，請重新選擇餐點" }, { status: 409 });
+          if (message.includes("add_request_key_mismatch")) return NextResponse.json({ error: "加點識別碼與餐點內容不一致，請先確認訂單" }, { status: 409 });
+          if (message.includes("order_cannot_add")) return NextResponse.json({ error: "訂單狀態已變更，請先確認是否已結帳" }, { status: 409 });
+          return NextResponse.json({ error: "無法確認加點狀態，請勿重複加點；請稍後以原請求重試" }, { status: 503 });
+        }
+        if (!result.data || result.data.committed !== true) {
+          return NextResponse.json({ error: "無法確認加點狀態，請勿重複加點；請稍後以原請求重試" }, { status: 503 });
+        }
+        // The RPC commits all items, the ledger and status atomically.
         try {
-          await updateStatus(order.id);
           return NextResponse.json({ ok: true, ...(await load(id)) });
         } catch {
           return NextResponse.json({ ok: true, committed: true, refresh_failed: true });
@@ -354,7 +392,6 @@ export async function POST(request: NextRequest, { params }: Params) {
     } else {
       return NextResponse.json({ error: "未知操作" }, { status: 400 });
     }
-    await updateStatus(order.id);
     return NextResponse.json({ ok: true, ...(await load(id)) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "操作失敗";
