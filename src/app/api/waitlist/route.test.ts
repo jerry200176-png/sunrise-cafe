@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   room: { id: "room-1", branch_id: "branch-1" } as { id: string; branch_id: string } | null,
   branch: { id: "branch-1", archived_at: null } as { id: string; archived_at: string | null } | null,
   existing: [] as { id: string }[],
+  existingError: null as null | { message: string },
   from: vi.fn(),
   createClient: vi.fn(),
 }));
@@ -24,11 +25,12 @@ function query(result: { data: unknown; error: unknown }) {
   return builder;
 }
 
-function post() {
+function post(branch_id?: unknown) {
   return POST(new NextRequest("http://localhost/api/waitlist", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
+      ...(branch_id === undefined ? {} : { branch_id }),
       room_id: "room-1",
       start_time: "2099-10-06T10:00:00+08:00",
       end_time: "2099-10-06T12:00:00+08:00",
@@ -43,12 +45,13 @@ describe("waitlist API branch availability", () => {
     mocks.room = { id: "room-1", branch_id: "branch-1" };
     mocks.branch = { id: "branch-1", archived_at: null };
     mocks.existing = [];
+    mocks.existingError = null;
     mocks.from.mockReset().mockImplementation((table: string) => {
       if (table === "rooms") return query({ data: mocks.room, error: null });
       if (table === "branches") return query({ data: mocks.branch, error: null });
       if (table === "waitlist") {
         return {
-          select: () => query({ data: mocks.existing, error: null }),
+          select: () => query({ data: mocks.existingError ? null : mocks.existing, error: mocks.existingError }),
           insert: vi.fn(async () => ({ error: null })),
         };
       }
@@ -95,6 +98,28 @@ describe("waitlist API branch availability", () => {
     expect(mocks.from.mock.calls.map(([table]) => table)).toEqual([
       "rooms", "branches", "waitlist", "waitlist",
     ]);
+  });
+
+  it("does not insert when checking for an existing entry fails", async () => {
+    mocks.existingError = { message: "sensitive database detail" };
+    const response = await post();
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "暫時無法確認候位狀態，請聯絡店家確認" });
+    expect(mocks.from.mock.calls.map(([table]) => table)).toEqual(["rooms", "branches", "waitlist"]);
+  });
+
+  it("rejects a room from a different selected branch before creating an entry", async () => {
+    const response = await post("branch-2");
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "包廂不屬於所選分店，請重新選擇" });
+    expect(mocks.from.mock.calls.map(([table]) => table)).toEqual(["rooms"]);
+  });
+
+  it("accepts a matching selected branch and rejects malformed branch ids", async () => {
+    expect((await post("branch-1")).status).toBe(200);
+    mocks.from.mockClear();
+    expect((await post(null)).status).toBe(400);
+    expect(mocks.from).not.toHaveBeenCalled();
   });
 
   it("keeps phone-based waitlist history lookup available", async () => {

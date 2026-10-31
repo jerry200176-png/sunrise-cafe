@@ -78,3 +78,20 @@ test("a failed store model download can be retried without leaving booking", asy
   await page.getByRole("button", { name: "重試", exact: true }).click();
   await expect(page.locator("canvas")).toHaveAttribute("data-store-ready", "true");
 });
+
+test("a fragmented room's waitlist link selects the same branch and room", async ({ page }) => {
+  const date = bookingDateOffset(2);
+  await setupBookingApiMocks(page, date);
+  await page.route("**/api/rooms?**", (route) => route.fulfill({ json: [{ id: "r3", name: "包廂4", branch_id: "e2e-branch-1" }] }));
+  await page.route("**/api/availability**", (route) => route.fulfill({ json: {
+    branchName: "大安店", rooms: [{ roomId: "r3", roomName: "包廂4", capacity: 4, price_weekday: 100, price_weekend: 120,
+      slots: mockSlotsForDate(date).map((slot, index) => ({ ...slot, available: index === 0 })) }],
+  } }));
+  await page.goto("/book");
+  await page.locator("#booking-date").fill(date);
+  await page.getByRole("button", { name: "下一步" }).click();
+  await page.locator("#booking-room-card-r3").getByRole("link", { name: "加入等位清單" }).click();
+  await expect(page.locator("#waitlist-branch")).toHaveValue("e2e-branch-1");
+  await expect(page.locator("#waitlist-room")).toHaveValue("r3");
+  await expect(page.locator("#waitlist-room").locator("option:checked")).toHaveText("包廂4");
+});

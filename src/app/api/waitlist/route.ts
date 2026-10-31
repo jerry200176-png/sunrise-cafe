@@ -12,7 +12,8 @@ function supabaseAdmin() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { room_id, start_time, end_time, customer_name, phone } = body as {
+    const { branch_id, room_id, start_time, end_time, customer_name, phone } = body as {
+      branch_id?: unknown;
       room_id: string;
       start_time: string;
       end_time: string;
@@ -23,6 +24,9 @@ export async function POST(request: NextRequest) {
     if (!room_id || !start_time || !end_time || !customer_name || !phone) {
       return NextResponse.json({ error: "缺少必要欄位" }, { status: 400 });
     }
+    if (branch_id !== undefined && (typeof branch_id !== "string" || !branch_id.trim())) {
+      return NextResponse.json({ error: "分店格式錯誤" }, { status: 400 });
+    }
 
     const { data: room, error: roomError } = await supabaseAdmin()
       .from("rooms")
@@ -32,6 +36,9 @@ export async function POST(request: NextRequest) {
     if (roomError) throw roomError;
     if (!room?.branch_id) {
       return NextResponse.json({ error: "分店或包廂不存在，無法加入候位" }, { status: 404 });
+    }
+    if (typeof branch_id === "string" && branch_id.trim() !== room.branch_id) {
+      return NextResponse.json({ error: "包廂不屬於所選分店，請重新選擇" }, { status: 400 });
     }
 
     const { data: branch, error: branchError } = await supabaseAdmin()
@@ -48,7 +55,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 防止重複等位（同電話、同包廂、同時段）
-    const { data: existing } = await supabaseAdmin()
+    const { data: existing, error: existingError } = await supabaseAdmin()
       .from("waitlist")
       .select("id")
       .eq("room_id", room_id)
@@ -58,7 +65,10 @@ export async function POST(request: NextRequest) {
       .eq("status", "waiting")
       .limit(1);
 
-    if (existing && existing.length > 0) {
+    if (existingError || !Array.isArray(existing)) {
+      return NextResponse.json({ error: "暫時無法確認候位狀態，請聯絡店家確認" }, { status: 503 });
+    }
+    if (existing.length > 0) {
       return NextResponse.json({ error: "您已在此時段的等位清單中" }, { status: 409 });
     }
 
