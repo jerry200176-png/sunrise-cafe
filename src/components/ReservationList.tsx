@@ -436,10 +436,18 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   }, []);
 
   useLayoutEffect(() => {
+    const previousFocus = currentFocusId.current;
+    if (previousFocus !== focusReservationId && openedFocusReservationId.current === previousFocus) {
+      setEditing(null);
+      setEditError(null);
+      openedFocusReservationId.current = null;
+    }
     currentFocusId.current = focusReservationId;
     focusLookupRequest.current += 1;
     focusLookupRef.current = null;
-  }, [focusReservationId]);
+    extraRowsRef.current = [];
+    publishRows();
+  }, [focusReservationId, publishRows]);
 
   const loadFocusedReservation = useCallback(async (id: string): Promise<boolean> => {
     if (!branchId || currentBranch.current !== branchId || currentFocusId.current !== id) return false;
@@ -741,7 +749,8 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
           () => {
             clearTimeout(timeoutId);
             timeoutId = setTimeout(() => {
-              fetchReservations(false);
+              if (focusReservationId || verificationRequired.current) void refreshAfterMutation();
+              else void fetchReservations(false);
             }, 500);
           }
         )
@@ -753,7 +762,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     } catch {
       return undefined;
     }
-  }, [branchId, fetchReservations]);
+  }, [branchId, focusReservationId, fetchReservations, refreshAfterMutation]);
 
   const openEdit = useCallback((r: Reservation) => {
     if (reservationMutationsSnapshot().has(r.id)) {
@@ -787,7 +796,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       return;
     }
     if (
-      loading ||
+      loading || verificationPending ||
       editing ||
       openedFocusReservationId.current === focusReservationId
     ) {
@@ -809,7 +818,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     }
     openedFocusReservationId.current = focusReservationId;
     openEdit(target);
-  }, [branchId, editing, focusReservationId, loading, loadFocusedReservation, openEdit, reservations]);
+  }, [branchId, editing, focusReservationId, loading, verificationPending, loadFocusedReservation, openEdit, reservations]);
 
   const submitEdit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -114,6 +114,82 @@ describe("reservation selection visibility", () => {
 });
 
 describe("branch-scoped reservation requests", () => {
+  it("rechecks an out-of-range focused record on realtime refresh", async () => {
+    const focusId = "11111111-1111-4111-8111-111111111111";
+    const old = { ...rows[0], id: focusId, status: "completed", customer_name: "即時舊值" };
+    const updated = deferred<Response>();
+    let focusReads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.startsWith("/api/reservations?")) {
+        const p = new URL(url, "http://localhost").searchParams;
+        if (p.get("id") === focusId) return ++focusReads === 1 ? list([old]) : updated.promise;
+        return list([]);
+      }
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    render(<ReservationList branchId="b1" focusReservationId={focusId} rooms={[]} />);
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "關閉" }));
+    act(() => { realtime.handlers.at(-1)?.(); });
+    await waitFor(() => expect(focusReads).toBe(2));
+    expect(screen.getByText("載入中…")).toBeTruthy();
+    expect(screen.queryByText("即時舊值")).toBeNull();
+    await act(async () => { updated.resolve(list([{ ...old, customer_name: "即時新值" }])); await updated.promise; });
+    await user.click(await screen.findByRole("button", { name: "歷史紀錄" }));
+    expect(await screen.findByText("即時新值")).toBeTruthy();
+    expect(screen.queryByText("即時舊值")).toBeNull();
+  });
+
+  it("clears the old focused record and editor when the focus id changes", async () => {
+    const firstId = "11111111-1111-4111-8111-111111111111";
+    const secondId = "22222222-2222-4222-8222-222222222222";
+    const second = deferred<Response>();
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.startsWith("/api/reservations?")) {
+        const p = new URL(url, "http://localhost").searchParams;
+        if (p.get("id") === firstId) return list([{ ...rows[0], id: firstId, status: "completed", customer_name: "第一筆" }]);
+        if (p.get("id") === secondId) return second.promise;
+        return list([]);
+      }
+      return Response.json([]);
+    }));
+    const view = render(<ReservationList branchId="b1" focusReservationId={firstId} rooms={[]} />);
+    expect(within(await screen.findByRole("dialog")).getByDisplayValue("第一筆")).toBeTruthy();
+    view.rerender(<ReservationList branchId="b1" focusReservationId={secondId} rooms={[]} />);
+    await waitFor(() => expect(screen.queryByDisplayValue("第一筆")).toBeNull());
+    await act(async () => { second.resolve(list([{ ...rows[1], id: secondId, status: "completed", customer_name: "第二筆" }])); await second.promise; });
+    expect(within(await screen.findByRole("dialog")).getByDisplayValue("第二筆")).toBeTruthy();
+    expect(screen.queryByDisplayValue("第一筆")).toBeNull();
+  });
+
+  it("does not start a competing focus lookup while verification is already checking it", async () => {
+    const focusId = "11111111-1111-4111-8111-111111111111";
+    const item = { ...rows[0], status: "confirmed" };
+    const focusVerification = deferred<Response>();
+    let focusReads = 0;
+    let changed = false;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") { changed = true; return Response.json({ ok: true }); }
+      if (url.startsWith("/api/reservations?")) {
+        const p = new URL(url, "http://localhost").searchParams;
+        if (p.get("id") === focusId) return ++focusReads === 1 ? list([]) : focusVerification.promise;
+        return list(changed ? [] : [item]);
+      }
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    render(<ReservationList branchId="b1" focusReservationId={focusId} rooms={[]} />);
+    await waitFor(() => expect(focusReads).toBe(1));
+    await user.click(screen.getByRole("button", { name: "即將到來" }));
+    await user.click(await screen.findByRole("button", { name: /已完成/ }));
+    await waitFor(() => expect(focusReads).toBe(2));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+    expect(focusReads).toBe(2);
+    await act(async () => { focusVerification.resolve(list([])); await focusVerification.promise; });
+    expect(screen.queryByText("無法核對訂位資料，請重試。")).toBeNull();
+  });
+
   it("rechecks an out-of-range focused reservation before showing an edit result", async () => {
     const focusId = "11111111-1111-4111-8111-111111111111";
     const old = { ...rows[0], id: focusId, status: "completed", customer_name: "舊值" };
@@ -334,8 +410,8 @@ describe("branch-scoped reservation requests", () => {
     await waitFor(() => expect(reads).toBe(3));
     expect(screen.getByText("載入中…")).toBeTruthy();
     await act(async () => { background.resolve(list([rows[0]])); await background.promise; });
-    expect(await screen.findByText("請重新核對訂位資料後再繼續。")).toBeTruthy();
-    expect(screen.queryByRole("checkbox", { name: /選取 甲 A01/ })).toBeNull();
+    expect(await screen.findByRole("checkbox", { name: /選取 甲 A01/ })).toBeTruthy();
+    expect(screen.getByText(/以下訂位的操作結果尚未確認/)).toBeTruthy();
   });
 
   it("stays fail-closed when the newest post-mutation read fails, including the next background refresh", async () => {
@@ -378,8 +454,6 @@ describe("branch-scoped reservation requests", () => {
     expect(screen.getByText("載入中…")).toBeTruthy();
     expect(screen.queryByRole("checkbox", { name: /選取 乙 B02/ })).toBeNull();
     await act(async () => { backgroundRead.resolve(list([rows[0], { ...rows[1], status: "confirmed" }])); await backgroundRead.promise; });
-    expect(await screen.findByText("請重新核對訂位資料後再繼續。")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "重試" }));
     expect(await screen.findByRole("checkbox", { name: /選取 甲 A01/ })).toBeTruthy();
     expect(screen.queryByText("最新讀取失敗")).toBeNull();
   });
