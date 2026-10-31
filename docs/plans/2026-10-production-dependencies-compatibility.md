@@ -1,0 +1,11 @@
+# Production dependency update compatibility (#496)
+
+Problem: Dependabot's nine-package update changes Stripe SDK from 22.3.2 to 22.6.2. CI's typecheck baseline gate fails because the application fixes the Stripe API contract at `2026-06-24.dahlia`, while the newer SDK's types expect `2026-08-26.dahlia`. This blocks unrelated maintenance updates.
+
+Inventory: searched the open dependency PRs, `package.json`, `package-lock.json`, `.github/dependabot.yml`, `src/lib/stripe.ts`, and the failed CI job. #457 already proposes the same Stripe hold, along with separate npm override maintenance. Reuse that hold; preserve the other eight #496 updates and current npm overrides. CI uses Node 22; both the old and new Supabase JS versions declare Node >=22, while several operational workflows still use Node 20 and require separate review.
+
+Options: (1) retain Stripe 22.3.x and keep the existing payment API contract; (2) upgrade the Stripe API version or suppress its type mismatch. Choose option 1: upgrading the payment contract needs a separate migration and validation, and suppressing the error would hide incompatible type definitions. Ignore automated Stripe upgrades >=22.4 until that migration is approved. No payment runtime behavior or API version is changed.
+
+Verification: regenerate the lockfile with Stripe 22.3.2, install with `npm ci`, inspect installed versions and run the baseline typecheck plus targeted Stripe, Supabase and 3D tests. CI must run its normal tests, build and browser checks on the exact final head. Do not execute production payments, migrations, messages or queries. Roll back the dependency PR if new versions cause failures. Monitor reservation and customer workflows after an approved deployment.
+
+References: [Stripe's SDK TypeScript guidance](https://github.com/stripe/stripe-node#using-old-api-versions-with-typescript) (stripe-node, MIT) explains that SDK types track its latest API version; pinning preserves the existing contract without copying code. [npm package overrides](https://docs.npmjs.com/cli/v11/configuring-npm/package-json#overrides) explains direct dependency references, relevant to #457's separate updater repair. [Supabase changelog](https://supabase.com/changelog) documents supported runtime requirements; no database configuration changes are made here.
