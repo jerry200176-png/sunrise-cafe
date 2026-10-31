@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
@@ -21,6 +21,7 @@ import {
 } from "@/lib/reservation-message";
 import { preorderStatusLabel, reservationStatusLabel } from "@/lib/status-labels";
 import type { BatchReservationMessageItem } from "@/lib/reservation-message-batch";
+import { beginReservationMutation, endReservationMutation, reservationMutationsServerSnapshot, reservationMutationsSnapshot, subscribeReservationMutations } from "@/lib/admin-reservation-mutation-lock";
 
 function getPricePerHour(room: Room, dateStr: string): number {
   return isWeekendDate(dateStr) ? Number(room.price_weekend) : Number(room.price_weekday);
@@ -106,6 +107,8 @@ interface ReservationListProps {
 
 export function ReservationList({ branchId, rooms = [], focusReservationId = null }: ReservationListProps) {
   const [reservations, setReservations] = useState<Reservation[]>([]);
+  const pendingMutations = useSyncExternalStore(subscribeReservationMutations, reservationMutationsSnapshot, reservationMutationsServerSnapshot);
+  const stalePendingMutations = useRef(new Set(reservationMutationsSnapshot()));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Reservation | null>(null);
@@ -142,16 +145,15 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   const currentBranch = useRef(branchId);
   const activeRequest = useRef(0);
   const batchRequest = useRef(0);
-  const paymentSendRequest = useRef(0);
-  const paymentSendInFlight = useRef(false);
   const focusLookupRef = useRef<string | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"time_desc" | "time_asc" | "price_desc" | "price_asc">(
     "time_asc"
   );
   const [sendingLine, setSendingLine] = useState(false);
-  const [sendingLinePaymentTo, setSendingLinePaymentTo] = useState<string | null>(null);
   const [branchConfig, setBranchConfig] = useState<BranchPaymentConfig | null>(null);
+  const [branchConfigStatus, setBranchConfigStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [branchConfigRetry, setBranchConfigRetry] = useState(0);
   const [messageWorkbench, setMessageWorkbench] = useState<Reservation | null>(null);
   const [messageTemplate, setMessageTemplate] =
     useState<ReservationMessageTemplateKey>("booking_confirmation");
@@ -291,6 +293,9 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   }, [branchId, messageLoading, messageText, showToast, submitMessageAction]);
 
   const toggleReservationSelection = useCallback((reservationId: string) => {
+    batchRequest.current += 1;
+    setBatchLoading(false);
+    setBatchWorkbench(null);
     setSelectedReservationIds((current) =>
       current.includes(reservationId)
         ? current.filter((id) => id !== reservationId)
@@ -299,12 +304,22 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   }, []);
 
   const selectVisibleReservations = useCallback((ids: string[], checked: boolean) => {
+    batchRequest.current += 1;
+    setBatchLoading(false);
+    setBatchWorkbench(null);
     setSelectedReservationIds((current) => {
       if (checked) return Array.from(new Set([...current, ...ids]));
       const visible = new Set(ids);
       return current.filter((id) => !visible.has(id));
     });
   }, []);
+
+  useLayoutEffect(() => {
+    if (!selectedReservationIds.some((id) => pendingMutations.has(id))) return;
+    batchRequest.current += 1;
+    setBatchLoading(false);
+    setBatchWorkbench(null);
+  }, [pendingMutations, selectedReservationIds]);
 
   const openBatchDepositWorkbench = useCallback(async () => {
     if (currentBranch.current !== branchId) return;
@@ -314,6 +329,10 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     const reservationIds = [...selectedReservationIds];
     if (reservationIds.length === 0) {
       showToast("請先選取至少一筆訂位", "error");
+      return;
+    }
+    if (reservationIds.some((id) => reservationMutationsSnapshot().has(id))) {
+      showToast("選取的訂位仍在處理，請稍候並重新確認資料。", "info");
       return;
     }
     setBatchLoading(true);
@@ -385,8 +404,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     activeRequest.current += 1;
     historyRequest.current += 1;
     batchRequest.current += 1;
-    paymentSendRequest.current += 1;
-    paymentSendInFlight.current = false;
+    for (const id of reservationMutationsSnapshot()) stalePendingMutations.current.add(id);
     messagePreviewRequest.current += 1;
     activeRowsRef.current = [];
     historyRowsRef.current = [];
@@ -406,10 +424,10 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     setMessageLoading(false);
     setMessageSubmitting(false);
     setBranchConfig(null);
+    setBranchConfigStatus("loading");
     setEditSubmitting(false);
     setRestoringId(null);
     setSendingLine(false);
-    setSendingLinePaymentTo(null);
     confirmResolver.current?.(false);
     confirmResolver.current = null;
     setConfirmDialog(null);
@@ -525,6 +543,16 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     if (isCurrent() && historyKeyRef.current !== null) void fetchHistory("refresh");
   }, [branchId, fetchHistory, publishRows]);
 
+  // An earlier request may finish while this branch is being revisited. Reload
+  // before allowing an editor to act on the older snapshot.
+  useLayoutEffect(() => {
+    const released = [...stalePendingMutations.current].filter((id) => !pendingMutations.has(id));
+    for (const id of released) stalePendingMutations.current.delete(id);
+    if (released.length > 0 && currentBranch.current === branchId && branchId) {
+      void fetchReservations(true);
+    }
+  }, [branchId, pendingMutations, fetchReservations]);
+
   // 搜尋字輸入停 300ms 才送到伺服器（只用於歷史紀錄；未結案列表已全部載入，在本機篩選）
   useEffect(() => {
     const timer = setTimeout(() => setHistorySearch(searchTerm.trim()), 300);
@@ -552,8 +580,9 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     let active = true;
     const generation = branchGeneration.current;
     const isCurrent = () => active && currentBranch.current === branchId && branchGeneration.current === generation;
+    setBranchConfigStatus("loading");
     fetch(`/api/branches`)
-      .then((res) => res.json())
+      .then((res) => { if (!res.ok) throw new Error("branch config unavailable"); return res.json(); })
       .then((list: unknown) => {
         if (!isCurrent()) return;
         const found = Array.isArray(list)
@@ -561,15 +590,17 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
               (b) => (b as { id?: string }).id === branchId
             )
           : null;
-        setBranchConfig((found as BranchPaymentConfig) ?? null);
+        if (!found || !Object.hasOwn(found, "payment_info") || !Object.hasOwn(found, "line_pay_url")) throw new Error("branch config unavailable");
+        setBranchConfig(found as BranchPaymentConfig);
+        setBranchConfigStatus("ready");
       })
       .catch(() => {
-        if (isCurrent()) setBranchConfig(null);
+        if (isCurrent()) { setBranchConfig(null); setBranchConfigStatus("error"); }
       });
     return () => {
       active = false;
     };
-  }, [branchId]);
+  }, [branchId, branchConfigRetry]);
 
   useEffect(() => {
     if (!branchId) return;
@@ -598,6 +629,10 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   }, [branchId, fetchReservations]);
 
   const openEdit = useCallback((r: Reservation) => {
+    if (reservationMutationsSnapshot().has(r.id)) {
+      showToast("此訂位正在處理，請稍候並重新確認資料。", "info");
+      return;
+    }
     setEditing(r);
     setEditName(r.customer_name);
     setEditPhone(r.phone);
@@ -612,7 +647,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     setEditNotes(r.notes ?? "");
     setEditStatus(r.status as ReservationStatus);
     setEditError(null);
-  }, []);
+  }, [showToast]);
 
   const closeEdit = () => {
     setEditing(null);
@@ -659,6 +694,11 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     if (!editing || currentBranch.current !== branchId) return;
     const generation = branchGeneration.current;
     const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation;
+    const reservationId = editing.id;
+    if (!beginReservationMutation(reservationId)) {
+      setEditError("此訂位正在處理，請稍候並重新確認資料。");
+      return;
+    }
     setEditSubmitting(true);
     setEditError(null);
     try {
@@ -693,6 +733,8 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       if (!isCurrent()) return;
       setEditSubmitting(false);
       setEditError(e instanceof Error ? e.message : "連線失敗");
+    } finally {
+      endReservationMutation(reservationId);
     }
   };
 
@@ -705,6 +747,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       "確定要還原這筆訂位嗎？原時段若已被其他訂位佔用將無法還原。還原不會改變付款狀態，也不會自動傳 LINE 給客人；先點的餐需重新確認。"
     );
     if (!ok || !isCurrent()) return;
+    if (!beginReservationMutation(id)) { showToast("此訂位正在處理，請稍候並重新確認資料。", "info"); return; }
     setRestoringId(id);
     try {
       const res = await fetch(`${RESERVATIONS_API}/${id}`, {
@@ -724,6 +767,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     } catch {
       if (isCurrent()) showToast("連線失敗，還原未完成", "error");
     } finally {
+      endReservationMutation(id);
       if (isCurrent()) setRestoringId(null);
     }
   };
@@ -739,6 +783,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     if (currentBranch.current !== branchId) return;
     const generation = branchGeneration.current;
     const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation;
+    if (!beginReservationMutation(id)) { showToast("此訂位正在處理，請稍候並重新確認資料。", "info"); return; }
     const prev = reservations;
     setReservations((list) =>
       list.map((r) => (r.id === id ? { ...r, status } : r))
@@ -775,7 +820,9 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     } catch {
       if (!isCurrent()) return;
       setReservations(prev);
-      showToast("連線失敗，狀態未更新", "error");
+      showToast("連線中斷，狀態可能已更新；請先重新整理確認。", "error");
+    } finally {
+      endReservationMutation(id);
     }
   };
 
@@ -791,6 +838,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       );
       if (!ok || !isCurrent()) return;
     }
+    if (!beginReservationMutation(id)) { showToast("此訂位正在處理，請稍候並重新確認資料。", "info"); return; }
     const prev = reservations;
     setReservations((list) =>
       list.map((r) =>
@@ -832,7 +880,9 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     } catch {
       if (!isCurrent()) return;
       setReservations(prev);
-      showToast("連線失敗，訂金狀態未更新", "error");
+      showToast("連線中斷，訂金狀態可能已更新；請先重新整理確認。", "error");
+    } finally {
+      endReservationMutation(id);
     }
   };
 
@@ -840,6 +890,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     if (currentBranch.current !== branchId) return;
     const generation = branchGeneration.current;
     const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation;
+    if (!beginReservationMutation(id)) { showToast("此訂位正在處理，請稍候並重新確認資料。", "info"); return; }
     const prev = reservations;
     setReservations((list) =>
       list.map((r) => (r.id === id ? { ...r, ...info } : r))
@@ -863,7 +914,30 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     } catch {
       if (!isCurrent()) return;
       setReservations(prev);
-      showToast("連線失敗，付款資料未更新", "error");
+      showToast("連線中斷，付款資料可能已更新；請先重新整理確認。", "error");
+    } finally {
+      endReservationMutation(id);
+    }
+  };
+
+  const deleteReservation = async (id: string) => {
+    if (currentBranch.current !== branchId) return;
+    const generation = branchGeneration.current;
+    const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation;
+    if (!beginReservationMutation(id)) { showToast("此訂位正在處理，請稍候並重新確認資料。", "info"); return; }
+    try {
+      const res = await fetch(`${RESERVATIONS_API}/${id}`, { method: "DELETE" });
+      if (!isCurrent()) return;
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (isCurrent()) showToast(data.error ?? "刪除失敗", "error");
+        return;
+      }
+      void fetchReservations(false);
+    } catch {
+      if (isCurrent()) showToast("連線失敗，請重新整理確認刪除結果。", "error");
+    } finally {
+      endReservationMutation(id);
     }
   };
 
@@ -892,12 +966,10 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   };
 
   const sendPaymentRequest = async (id: string) => {
-    if (currentBranch.current !== branchId || paymentSendInFlight.current) return;
-    paymentSendInFlight.current = true;
+    if (currentBranch.current !== branchId) return;
+    if (!beginReservationMutation(id)) { showToast("此訂位正在處理，請稍候並重新確認資料。", "info"); return; }
     const generation = branchGeneration.current;
-    const requestId = ++paymentSendRequest.current;
-    const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation && paymentSendRequest.current === requestId;
-    setSendingLinePaymentTo(id);
+    const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation;
     try {
       const res = await fetch("/api/reservations/send-line", {
         method: "POST",
@@ -906,15 +978,13 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       });
       const data = await res.json();
       if (!isCurrent()) return;
-      if (!res.ok) showToast(`傳送失敗：${(data as { error?: string }).error}`, "error");
+      if (!res.ok && res.status >= 500) showToast("無法確認 LINE 是否已接受，請先核對通知紀錄，勿立即重送。", "error");
+      else if (!res.ok) showToast(`傳送失敗：${(data as { error?: string }).error}`, "error");
       else showToast("LINE 平台已接受繳費通知（不代表客人手機已收到）", "success");
     } catch {
-      if (isCurrent()) showToast("傳送失敗，請確認網路連線", "error");
+      if (isCurrent()) showToast("無法確認 LINE 是否已接受，請先核對通知紀錄，勿立即重送。", "error");
     } finally {
-      if (isCurrent()) {
-        paymentSendInFlight.current = false;
-        setSendingLinePaymentTo(null);
-      }
+      endReservationMutation(id);
     }
   };
 
@@ -1017,8 +1087,10 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   const visibleReservationIds = new Set(sortedList.map((reservation) => reservation.id));
   const visibleSelectedCount = selectedReservationIds.filter((id) => visibleReservationIds.has(id)).length;
   const hiddenSelectedCount = selectedReservationIds.length - visibleSelectedCount;
-  const allVisibleSelected = sortedList.length > 0 && visibleSelectedCount === sortedList.length;
-  const someVisibleSelected = visibleSelectedCount > 0 && !allVisibleSelected;
+  const selectableIds = sortedList.filter((reservation) => !pendingMutations.has(reservation.id)).map((reservation) => reservation.id);
+  const selectableSelectedCount = selectableIds.filter((id) => selectedReservationIds.includes(id)).length;
+  const allVisibleSelected = selectableIds.length > 0 && selectableSelectedCount === selectableIds.length;
+  const someVisibleSelected = selectableSelectedCount > 0 && !allVisibleSelected;
 
   return (
     <>
@@ -1122,18 +1194,22 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         </p>
       )}
 
+      {branchConfigStatus === "loading" && <p role="status" className="mx-4 mb-3 text-sm text-gray-600">正在讀取分店繳費設定，暫無法複製繳費通知。</p>}
+      {branchConfigStatus === "error" && <p role="status" className="mx-4 mb-3 text-sm text-amber-800">無法讀取或無權查看分店繳費設定，暫無法複製繳費通知。 <button type="button" className="underline" onClick={() => { setBranchConfigStatus("loading"); setBranchConfigRetry((value) => value + 1); }}>重試</button></p>}
+      {branchConfigStatus === "ready" && !branchConfig?.payment_info && !branchConfig?.line_pay_url && <p role="status" className="mx-4 mb-3 text-sm text-amber-800">此分店尚未設定匯款或 LINE Pay 資訊，複製內容會請客人依店內指示付款。</p>}
+
       <div className="mb-3 flex flex-wrap items-center gap-2 px-4">
         <label className="flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700">
           <input
             type="checkbox"
             checked={allVisibleSelected}
             ref={(element) => { if (element) element.indeterminate = someVisibleSelected; }}
-            disabled={sortedList.length === 0}
-            onChange={(event) => selectVisibleReservations(sortedList.map((reservation) => reservation.id), event.target.checked)}
+            disabled={selectableIds.length === 0}
+            onChange={(event) => selectVisibleReservations(selectableIds, event.target.checked)}
             aria-label="選取目前列表訂位"
             className="h-5 w-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
           />
-          全選目前列表
+          全選目前可用訂位
         </label>
         <input
           type="text"
@@ -1166,7 +1242,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
           <span className="text-sm text-indigo-900">目前清單 {visibleSelectedCount} 筆{hiddenSelectedCount > 0 ? `，清單外 ${hiddenSelectedCount} 筆（包含其他分頁、篩選或尚未載入的訂位）` : ""}</span>
           <button
             type="button"
-            onClick={() => selectVisibleReservations(sortedList.map((reservation) => reservation.id), true)}
+            onClick={() => selectVisibleReservations(selectableIds, true)}
             className="min-h-11 rounded-lg border border-indigo-300 bg-white px-3 py-2 text-sm text-indigo-700 hover:bg-indigo-100"
           >
             加選目前列表
@@ -1181,7 +1257,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
           </button>
           <button
             type="button"
-            onClick={() => setSelectedReservationIds([])}
+            onClick={() => { batchRequest.current += 1; setBatchLoading(false); setBatchWorkbench(null); setSelectedReservationIds([]); }}
             className="min-h-11 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-white"
           >
             清除選取
@@ -1243,12 +1319,13 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
             const roomName = roomNameMap.get(r.room_id) ?? "—";
             const visitCount = visitCountOf(r);
             return (
-              <li key={r.id} className="space-y-2 p-4 hover:bg-gray-50/80">
+              <li key={r.id} aria-busy={pendingMutations.has(r.id)} className="space-y-2 p-4 hover:bg-gray-50/80">
                 {/* Row 1: Name · Phone · Status */}
                 <div className="flex items-center gap-3">
                   <input
                     type="checkbox"
                     checked={selectedReservationIds.includes(r.id)}
+                    disabled={pendingMutations.has(r.id)}
                     onChange={() => toggleReservationSelection(r.id)}
                     aria-label={`選取 ${r.customer_name} ${r.booking_code ?? ""} ${format(toTaipei(r.start_time), "yyyy/MM/dd")}`}
                     className="h-5 w-5 shrink-0 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
@@ -1275,6 +1352,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     </span>
                   )}
                 </div>
+                {pendingMutations.has(r.id) && <p role="status" className="text-sm text-amber-800">此訂位正在處理，請稍候並重新確認資料。若長時間未完成，請先核對，勿重複送出。</p>}
 
                 {/* Row 2: Room · Code · Guest count · Date · Time · Price */}
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-600">
@@ -1384,6 +1462,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     <button
                       type="button"
                       onClick={() => updateStatus(r.id, "confirmed")}
+                        disabled={pendingMutations.has(r.id)}
                       className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
                     >
                       ✅ 確認
@@ -1409,6 +1488,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     {isDepositRequired(reservationDateKey(r.start_time)) && r.total_price != null && !r.is_deposit_paid && (
                       <button
                         type="button"
+                        disabled={branchConfigStatus !== "ready"}
                         onClick={async () => {
                           const branchName = r.room_with_branch?.branch?.name ?? "";
                           // 話術由分店設定驅動，與伺服器推播共用同一產生器，確保內容一致
@@ -1437,7 +1517,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                             showToast("複製失敗，請手動複製。", "error");
                           }
                         }}
-                        className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
+                        className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
                       >
                         📋 複製繳費通知
                       </button>
@@ -1445,18 +1525,18 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     {isDepositRequired(reservationDateKey(r.start_time)) && r.total_price != null && (
                       <button
                         type="button"
-                        disabled={sendingLinePaymentTo !== null}
+                        disabled={pendingMutations.has(r.id)}
                         onClick={() => void sendPaymentRequest(r.id)}
                         className="rounded-lg border border-green-300 bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 hover:bg-green-100 disabled:opacity-50"
                       >
-                        {sendingLinePaymentTo === r.id ? "傳送中…" : "💬 重送 LINE 繳費"}
+                        {pendingMutations.has(r.id) ? "處理中…" : "💬 重送 LINE 繳費"}
                       </button>
                     )}
                     {r.status === "cancelled" && (
                       <button
                         type="button"
                         onClick={() => restoreReservation(r.id)}
-                        disabled={restoringId !== null}
+                        disabled={restoringId !== null || pendingMutations.has(r.id)}
                         className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
                       >
                         {restoringId === r.id ? "還原中…" : "↩️ 還原"}
@@ -1476,6 +1556,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                       <button
                         type="button"
                         onClick={() => updateStatus(r.id, "checked_in")}
+                        disabled={pendingMutations.has(r.id)}
                         className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
                       >
                         ✅ 已到店
@@ -1485,6 +1566,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                       <button
                         type="button"
                         onClick={() => updateStatus(r.id, "no_show")}
+                        disabled={pendingMutations.has(r.id)}
                         className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100"
                       >
                         🚫 沒來
@@ -1494,6 +1576,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                       <button
                         type="button"
                         onClick={() => updateStatus(r.id, "completed")}
+                        disabled={pendingMutations.has(r.id)}
                         className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
                       >
                         💵 已完成
@@ -1502,11 +1585,11 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     {isDepositRequired(reservationDateKey(r.start_time)) && r.total_price != null && !r.is_deposit_paid && (
                       <button
                         type="button"
-                        disabled={sendingLinePaymentTo !== null}
+                        disabled={pendingMutations.has(r.id)}
                         onClick={() => void sendPaymentRequest(r.id)}
                         className="rounded-lg border border-green-300 bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 hover:bg-green-100 disabled:opacity-50"
                       >
-                        {sendingLinePaymentTo === r.id ? "傳送中…" : "💬 重送 LINE 繳費"}
+                        {pendingMutations.has(r.id) ? "處理中…" : "💬 重送 LINE 繳費"}
                       </button>
                     )}
                     {r.status !== "cancelled" && (
@@ -1525,6 +1608,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     <button
                       type="button"
                       onClick={() => openEdit(r)}
+                      disabled={pendingMutations.has(r.id)}
                       className="rounded-lg border border-gray-300 p-2 text-gray-600 hover:bg-gray-100"
                       aria-label="編輯訂位"
                     >
@@ -1538,18 +1622,9 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                           "確定要永久刪除此訂位嗎？此動作無法復原！"
                         );
                         if (!ok) return;
-                        try {
-                          const res = await fetch(`${RESERVATIONS_API}/${r.id}`, { method: "DELETE" });
-                          if (!res.ok) {
-                            const data = (await res.json().catch(() => ({}))) as { error?: string };
-                            showToast(data.error ?? "刪除失敗", "error");
-                            return;
-                          }
-                          fetchReservations(false);
-                        } catch {
-                          showToast("連線失敗，刪除未完成", "error");
-                        }
+                        await deleteReservation(r.id);
                       }}
+                      disabled={pendingMutations.has(r.id)}
                       className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
                     >
                       🗑️ 刪除
@@ -1560,6 +1635,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     <button
                       type="button"
                       onClick={() => openEdit(r)}
+                      disabled={pendingMutations.has(r.id)}
                       className="rounded-lg border border-gray-300 p-2 text-gray-600 hover:bg-gray-100"
                       aria-label="檢視/編輯訂位"
                     >
@@ -1569,7 +1645,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                       <button
                         type="button"
                         onClick={() => restoreReservation(r.id)}
-                        disabled={restoringId !== null}
+                        disabled={restoringId !== null || pendingMutations.has(r.id)}
                         className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
                       >
                         {restoringId === r.id ? "還原中…" : "↩️ 一鍵還原"}
@@ -1583,18 +1659,9 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                           "確定要永久刪除此訂位歷史嗎？此動作無法復原！"
                         );
                         if (!ok) return;
-                        try {
-                          const res = await fetch(`${RESERVATIONS_API}/${r.id}`, { method: "DELETE" });
-                          if (!res.ok) {
-                            const data = (await res.json().catch(() => ({}))) as { error?: string };
-                            showToast(data.error ?? "刪除失敗", "error");
-                            return;
-                          }
-                          fetchReservations(false);
-                        } catch {
-                          showToast("連線失敗，刪除未完成", "error");
-                        }
+                        await deleteReservation(r.id);
                       }}
+                      disabled={pendingMutations.has(r.id)}
                       className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
                     >
                       🗑️ 刪除
@@ -1884,7 +1951,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                 </button>
                 <button
                   type="submit"
-                  disabled={editSubmitting}
+                disabled={editSubmitting || pendingMutations.has(editing.id)}
                   className="min-h-[44px] flex-1 rounded-lg bg-amber-600 px-4 py-2 text-white hover:bg-amber-700 disabled:opacity-50"
                 >
                   {editSubmitting ? "儲存中…" : "儲存"}
