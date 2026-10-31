@@ -114,6 +114,87 @@ describe("reservation selection visibility", () => {
 });
 
 describe("branch-scoped reservation requests", () => {
+  it("invalidates an unfinished history request after leaving the tab and receiving realtime", async () => {
+    const oldRequest = deferred<Response>();
+    const historical = { ...rows[0], id: "historical", status: "completed" };
+    let historyReads = 0;
+    let activeReads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.startsWith("/api/reservations?")) {
+        const p = new URL(url, "http://localhost").searchParams;
+        if (p.get("scope") === "history") return ++historyReads === 1 ? oldRequest.promise : list([{ ...historical, customer_name: "新讀取" }]);
+        activeReads++;
+        return list(rows);
+      }
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    render(<ReservationList branchId="b1" rooms={[]} />);
+    await user.click(await screen.findByRole("button", { name: "歷史紀錄" }));
+    await waitFor(() => expect(historyReads).toBe(1));
+    await user.click(screen.getByRole("button", { name: /^待審核/ }));
+    act(() => { realtime.handlers.at(-1)?.(); });
+    await waitFor(() => expect(activeReads).toBeGreaterThanOrEqual(2));
+    await act(async () => { oldRequest.resolve(list([{ ...historical, customer_name: "延遲舊資料" }])); await oldRequest.promise; });
+    await user.click(await screen.findByRole("button", { name: "歷史紀錄" }));
+    expect(await screen.findByText("新讀取")).toBeTruthy();
+    expect(screen.queryByText("延遲舊資料")).toBeNull();
+  });
+
+  it("waits for previously loaded history before unblocking after realtime", async () => {
+    const old = { ...rows[0], status: "completed", customer_name: "歷史舊值" };
+    const historyRefresh = deferred<Response>();
+    let historyReads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.startsWith("/api/reservations?")) {
+        const p = new URL(url, "http://localhost").searchParams;
+        if (p.get("scope") === "history") return ++historyReads === 1 ? list([old]) : historyRefresh.promise;
+        return list(rows);
+      }
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    render(<ReservationList branchId="b1" rooms={[]} />);
+    await user.click(await screen.findByRole("button", { name: "歷史紀錄" }));
+    await screen.findByText("歷史舊值");
+    await user.click(screen.getByRole("button", { name: /^待審核/ }));
+    act(() => { realtime.handlers.at(-1)?.(); });
+    await waitFor(() => expect(historyReads).toBe(2));
+    expect(screen.getByText("載入中…")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "編輯訂位" })).toBeNull();
+    await act(async () => { historyRefresh.resolve(list([{ ...old, customer_name: "歷史新值" }])); await historyRefresh.promise; });
+    await user.click(await screen.findByRole("button", { name: "歷史紀錄" }));
+    expect(await screen.findByText("歷史新值")).toBeTruthy();
+    expect(screen.queryByText("歷史舊值")).toBeNull();
+  });
+
+  it("keeps history unavailable after a realtime refresh failure until a successful retry", async () => {
+    const old = { ...rows[0], status: "completed", customer_name: "失敗前資料" };
+    let historyReads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.startsWith("/api/reservations?")) {
+        const p = new URL(url, "http://localhost").searchParams;
+        if (p.get("scope") === "history") {
+          historyReads++;
+          if (historyReads === 2) return Response.json({ error: "暫時無法讀取" }, { status: 503 });
+          return list([{ ...old, customer_name: historyReads === 1 ? "失敗前資料" : "重試後資料" }]);
+        }
+        return list([]);
+      }
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    render(<ReservationList branchId="b1" rooms={[]} />);
+    await user.click(await screen.findByRole("button", { name: "歷史紀錄" }));
+    await screen.findByText("失敗前資料");
+    act(() => { realtime.handlers.at(-1)?.(); });
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.queryByText("失敗前資料")).toBeNull();
+    expect(screen.queryByRole("button", { name: "檢視/編輯訂位" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "重試" }));
+    expect(await screen.findByText("重試後資料")).toBeTruthy();
+  });
+
   it("keeps the realtime refresh barrier when switching tabs during debounce", async () => {
     let activeReads = 0;
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {

@@ -654,7 +654,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       if (isCurrent()) setLoading(false);
     }
     // 歷史紀錄已載入過才一起刷新（保留已載入的筆數）
-    if (isCurrent() && historyKeyRef.current !== null) void fetchHistory("refresh");
+    if (isCurrent() && !verificationInProgress.current && historyKeyRef.current !== null) void fetchHistory("refresh");
     return isCurrent();
   }, [branchId, fetchHistory, publishRows]);
 
@@ -786,13 +786,9 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
             clearTimeout(timeoutId);
             timeoutId = setTimeout(() => {
               if (currentBranch.current !== branchId || branchGeneration.current !== generation || realtimeVersion.current !== eventVersion) return;
-              if (focusReservationId || editingRef.current || verificationRequired.current) void refreshAfterMutation();
-              else void fetchReservations(false).then((ok) => {
-                if (ok && currentBranch.current === branchId && branchGeneration.current === generation && realtimeVersion.current === eventVersion && !verificationRequired.current) {
-                  realtimePendingRef.current = false;
-                  setRealtimePending(false);
-                }
-              });
+              // A history request started before the event can still be in
+              // flight even if no history page has been published yet.
+              void refreshAfterMutation();
             }, 500);
           }
         )
@@ -813,7 +809,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     } catch {
       return undefined;
     }
-  }, [branchId, focusReservationId, fetchReservations, refreshAfterMutation]);
+  }, [activeTab, branchId, focusReservationId, fetchReservations, refreshAfterMutation]);
 
   const openEdit = useCallback((r: Reservation) => {
     if (realtimePendingRef.current || reservationMutationsSnapshot().has(r.id)) {
