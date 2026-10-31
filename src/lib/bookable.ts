@@ -21,6 +21,8 @@ const TAIWAN_OFFSET = "+08:00";
 export type BookableActor = "guest" | "admin";
 
 export type BookableReason =
+  | "branch_not_found"
+  | "branch_archived"
   | "invalid_time"
   | "too_short"
   | "too_long"
@@ -32,6 +34,7 @@ export type BookableReason =
 export type BookableResult = { ok: true } | { ok: false; reason: BookableReason };
 
 export type BranchSchedule = {
+  archived_at?: string | null;
   open_time?: string | null;
   close_time?: string | null;
   weekly_hours?: WeeklyHours | null;
@@ -105,6 +108,8 @@ export function evaluateBookable(input: {
 }
 
 export const BOOKABLE_HTTP: Record<BookableReason, { status: number; error: string }> = {
+  branch_not_found: { status: 404, error: "分店或包廂不存在，請重新選擇" },
+  branch_archived: { status: 410, error: "該分店已停止接受線上預約" },
   invalid_time: { status: 400, error: "結束時間必須晚於開始時間" },
   too_short: { status: 400, error: "包廂最少需預約 2 小時" },
   too_long: { status: 400, error: "單次預約時長不得超過 8 小時" },
@@ -147,10 +152,13 @@ export async function checkBookable(
   let globalClosed: string[] = [];
   if (opts.actor === "guest") {
     const branchId = await deps.roomBranchId(roomId);
+    if (!branchId) return { ok: false, reason: "branch_not_found" };
     [branch, globalClosed] = await Promise.all([
-      branchId ? deps.branch(branchId) : Promise.resolve(null),
+      deps.branch(branchId),
       deps.globalClosedDates(),
     ]);
+    if (!branch) return { ok: false, reason: "branch_not_found" };
+    if (branch.archived_at) return { ok: false, reason: "branch_archived" };
   }
   const conflict =
     opts.checkConflict === false ? false : await deps.hasConflict(roomId, start, end, opts.excludeId);
