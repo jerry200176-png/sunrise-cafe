@@ -4,6 +4,7 @@ import { isAdminConfigured } from "@/lib/supabase-admin";
 import { getAdminContext, requirePermission } from "@/lib/admin-api-auth";
 import { paymentNotificationStatus } from "@/lib/payment-notify";
 import { logOps, type AdminPaymentInteraction } from "@/lib/ops-log";
+import { paymentEventInScope } from "@/lib/payment-event-scope";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -28,6 +29,9 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   try {
     const adminContext = await getAdminContext(request);
+    if (!await paymentEventInScope(id, adminContext)) {
+      return NextResponse.json({ error: "找不到付款事件" }, { status: 404 });
+    }
     const actor = adminContext.user_id || adminContext.email || "admin_session";
     const result = await approvePaymentEvent(id, reviewNote, actor);
 
