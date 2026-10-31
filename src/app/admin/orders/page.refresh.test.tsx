@@ -1,0 +1,268 @@
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const realtime = vi.hoisted(() => ({ callbacks: new Map<string, () => void>() }));
+vi.mock("@/lib/use-admin-branches", () => ({ useAdminBranches: () => ({ branches: [{ id: "b1", name: "甲店" }, { id: "b2", name: "乙店" }], loading: false, error: null, retry: vi.fn() }) }));
+vi.mock("@/lib/supabase", () => ({ supabase: {
+  channel: (name: string) => {
+    const channel = { on: (_event: string, _filter: unknown, callback: () => void) => { realtime.callbacks.set(name, callback); return channel; }, subscribe: () => channel };
+    return channel;
+  },
+  removeChannel: vi.fn(),
+} }));
+import AdminOrdersPage from "./page";
+
+const order = (id: string, name: string) => ({ id, status: "pending", created_at: "2026-10-31T10:00:00.000Z", total_amount: 100, table: { number: id }, order_items: [{ id: `item-${id}`, item_name: name, quantity: 1, unit_price: 100 }] });
+const page = (items: unknown[], nextCursor: string | null) => ({ ok: true, status: 200, json: async () => ({ items, nextCursor }) }) as Response;
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+describe("order board refresh scheduling", () => {
+  let interval: (() => void) | undefined;
+  beforeEach(() => {
+    realtime.callbacks.clear();
+    interval = undefined;
+    const realInterval = window.setInterval.bind(window);
+    vi.spyOn(window, "setInterval").mockImplementation(((callback: () => void, ms?: number) => {
+      if (ms === 15000) interval = callback;
+      return realInterval(callback, ms);
+    }) as typeof window.setInterval);
+  });
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("lets a slow multi-page scan finish and coalesces timer and Realtime refreshes", async () => {
+    const secondPage = deferred<Response>();
+    const refresh = deferred<Response>();
+    const fetch = vi.fn().mockResolvedValueOnce(page([order("a", "第一頁餐點")], "next"))
+      .mockReturnValueOnce(secondPage.promise).mockReturnValueOnce(refresh.promise);
+    vi.stubGlobal("fetch", fetch);
+    render(<AdminOrdersPage />);
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(interval).toBeDefined();
+    expect(realtime.callbacks.has("orders-b1")).toBe(true);
+    act(() => { interval?.(); interval?.(); realtime.callbacks.get("orders-b1")?.(); realtime.callbacks.get("orders-b1")?.(); });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await act(async () => { secondPage.resolve(page([order("b", "第二頁餐點")], null)); });
+    await screen.findByText("第一頁餐點");
+    expect(screen.getByText("第二頁餐點")).toBeTruthy();
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    await act(async () => { refresh.resolve(page([order("c", "刷新後餐點")], null)); });
+    await screen.findByText("刷新後餐點");
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("starts a new branch immediately and never applies the old branch's delayed page", async () => {
+    const oldPage = deferred<Response>();
+    const fetch = vi.fn().mockResolvedValueOnce(page([order("a", "舊店第一頁")], "next"))
+      .mockReturnValueOnce(oldPage.promise).mockResolvedValueOnce(page([order("b", "新店餐點")], null));
+    vi.stubGlobal("fetch", fetch);
+    render(<AdminOrdersPage />);
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    await userEvent.setup().selectOptions(screen.getByRole("combobox"), "b2");
+    await screen.findByText("新店餐點");
+    await act(async () => { oldPage.resolve(page([order("old", "舊店第二頁")], null)); });
+    expect(screen.queryByText("舊店第一頁")).toBeNull();
+    expect(screen.queryByText("舊店第二頁")).toBeNull();
+    expect(screen.getByText("新店餐點")).toBeTruthy();
+  });
+
+  it.each(["success", "failure"] as const)("keeps acknowledged status while an old scan and a %s follow-up complete", async (outcome) => {
+    const oldPage = deferred<Response>();
+    const followup = deferred<Response>();
+    let gets = 0;
+    const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") return { ok: true, status: 200, json: async () => ({ ok: true }) } as Response;
+      gets++;
+      if (gets === 1) return page([order("a", "需要備餐")], null);
+      if (gets === 2) return page([order("a", "需要備餐")], "old-next");
+      if (gets === 3) return oldPage.promise;
+      if (gets === 4) return followup.promise;
+      throw new Error("unexpected request");
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+    render(<AdminOrdersPage />);
+    await screen.findByRole("button", { name: "開始備餐" });
+    await user.click(screen.getByRole("button", { name: "重新整理" }));
+    await waitFor(() => expect(gets).toBe(3));
+    await user.click(screen.getByRole("button", { name: "開始備餐" }));
+    await screen.findByRole("button", { name: "完成出餐" });
+    act(() => { interval?.(); realtime.callbacks.get("orders-b1")?.(); });
+    await act(async () => { oldPage.resolve(page([], null)); });
+    await waitFor(() => expect(gets).toBe(4));
+    expect(screen.queryByRole("button", { name: "開始備餐" })).toBeNull();
+    expect(screen.getByRole("button", { name: "完成出餐" })).toBeTruthy();
+    const preparing = { ...order("a", "需要備餐"), status: "preparing" };
+    const result = outcome === "success" ? page([preparing], null) : ({ ok: false, status: 503, json: async () => ({ error: "暫時無法刷新" }) } as Response);
+    await act(async () => { followup.resolve(result); });
+    if (outcome === "failure") await screen.findByText(/訂單沒有更新成功/);
+    expect(screen.queryByRole("button", { name: "開始備餐" })).toBeNull();
+    expect(screen.getByRole("button", { name: "完成出餐" })).toBeTruthy();
+  });
+
+  it("invalidates an old A session after A→B→A and retains the newer state when rechecking fails", async () => {
+    const oldPatch = deferred<Response>();
+    let aGets = 0;
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") return oldPatch.promise;
+      if (url.startsWith("/api/admin/orders/a?")) return { ok: true, status: 200, json: async () => ({ id: "a", branch_id: "b1", is_printed: false, status: "ready" }) } as Response;
+      const branch = new URL(url, "http://localhost").searchParams.get("branchId");
+      if (branch === "b2") return page([order("b", "乙店餐點")], null);
+      aGets++;
+      if (aGets === 1) return page([order("a", "甲店")], null);
+      if (aGets === 3) return { ok: false, status: 503, json: async () => ({ error: "重新核對失敗" }) } as Response;
+      return page([{ ...order("a", "甲店"), status: "ready" }], null);
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+    render(<AdminOrdersPage />);
+    await user.click(await screen.findByRole("button", { name: "開始備餐" }));
+    await user.selectOptions(screen.getByRole("combobox"), "b2");
+    await screen.findByText("乙店餐點");
+    await user.selectOptions(screen.getByRole("combobox"), "b1");
+    const ready = await screen.findByRole("button", { name: "已出餐" });
+    expect((ready as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => { oldPatch.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) } as Response); });
+    await screen.findByText(/訂單沒有更新成功/);
+    expect(screen.queryByRole("button", { name: "完成出餐" })).toBeNull();
+    expect((screen.getByRole("button", { name: "已出餐" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/核對尚未完成/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "重新整理" }));
+    await waitFor(() => expect((screen.getByRole("button", { name: "已出餐" }) as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.queryByText(/核對尚未完成/)).toBeNull();
+  });
+
+  it("synchronously blocks repeated PATCH and retains an unknown result until explicit review", async () => {
+    const patch = deferred<Response>();
+    let patches = 0;
+    let gets = 0;
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") { patches++; return patch.promise; }
+      if (url.startsWith("/api/admin/orders/a?")) return { ok: true, status: 200, json: async () => ({ id: "a", branch_id: "b1", is_printed: false, status: "pending" }) } as Response;
+      gets++;
+      if (gets === 2) return { ok: false, status: 503, json: async () => ({ error: "刷新失敗" }) } as Response;
+      return page([order("a", "需要備餐")], null);
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+    render(<AdminOrdersPage />);
+    const button = await screen.findByRole("button", { name: "開始備餐" });
+    act(() => { fireEvent.click(button); fireEvent.click(button); });
+    expect(patches).toBe(1);
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => { patch.resolve({ ok: false, status: 500, json: async () => ({ error: "結果未知" }) } as Response); });
+    await screen.findByText(/訂單操作結果尚未確認/);
+    await screen.findByText(/訂單沒有更新成功/);
+    expect((screen.getByRole("button", { name: "開始備餐" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "已核對，解除鎖定" }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "重新整理" }));
+    const release = await screen.findByRole("button", { name: "已核對，解除鎖定" });
+    await waitFor(() => expect((release as HTMLButtonElement).disabled).toBe(false));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await user.click(release);
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("原請求可能仍會延遲完成"));
+    expect((screen.getByRole("button", { name: "開始備餐" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(patches).toBe(1);
+  });
+
+  it("checks a completed order by ID, revokes prior review on refresh and ignores superseded results", async () => {
+    const delayed = deferred<Response>();
+    let lists = 0;
+    let details = 0;
+    const detail = (status: string) => ({ ok: true, status: 200, json: async () => ({ id: "a", branch_id: "b1", is_printed: false, status }) }) as Response;
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") return { ok: false, status: 500, json: async () => ({ error: "結果未知" }) } as Response;
+      if (url.startsWith("/api/admin/orders/a?")) {
+        details++;
+        if (details === 1) return detail("completed");
+        if (details === 2) return delayed.promise;
+        return { ok: false, status: 404, json: async () => ({ error: "找不到訂單" }) } as Response;
+      }
+      lists++;
+      if (lists === 3) return { ok: false, status: 503, json: async () => ({ error: "清單讀取失敗" }) } as Response;
+      return page(lists === 1 ? [order("a", "待核對餐點")] : [], null);
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+    render(<AdminOrdersPage />);
+    await user.click(await screen.findByRole("button", { name: "開始備餐" }));
+    await screen.findByText(/目前後台狀態：已出餐/);
+    expect((screen.getByRole("button", { name: "已核對，解除鎖定" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText("待核對餐點")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "重新整理" }));
+    await screen.findByText(/訂單沒有更新成功/);
+    expect((screen.getByRole("button", { name: "已核對，解除鎖定" }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "重新整理" }));
+    await waitFor(() => expect(details).toBe(2));
+    expect((screen.getByRole("button", { name: "已核對，解除鎖定" }) as HTMLButtonElement).disabled).toBe(true);
+    act(() => realtime.callbacks.get("orders-b1")?.());
+    await act(async () => { delayed.resolve(detail("completed")); });
+    await waitFor(() => expect(details).toBe(3));
+    await screen.findByText(/核對尚未完成/);
+    expect((screen.getByRole("button", { name: "已核對，解除鎖定" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText(/目前後台狀態：已出餐/)).toBeNull();
+  });
+
+  it("removes an outdated active card when the direct order check says completed", async () => {
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") return { ok: false, status: 500, json: async () => ({ error: "結果未知" }) } as Response;
+      if (url.startsWith("/api/admin/orders/a?")) return { ok: true, status: 200, json: async () => ({ id: "a", branch_id: "b1", is_printed: false, status: "completed" }) } as Response;
+      return page([order("a", "先前的待處理")], null);
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+    render(<AdminOrdersPage />);
+    await user.click(await screen.findByRole("button", { name: "開始備餐" }));
+    await screen.findByText(/目前後台狀態：已出餐/);
+    expect(screen.queryByRole("button", { name: "開始備餐" })).toBeNull();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await user.click(screen.getByRole("button", { name: "已核對，解除鎖定" }));
+    expect(screen.queryByRole("button", { name: "開始備餐" })).toBeNull();
+  });
+
+  it.each(["html", "truncated", "false", "wrong-shape"] as const)("treats a 200 %s body as unknown and keeps the order locked", async (body) => {
+    let patches = 0;
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") {
+        patches++;
+        const content = body === "html" ? "<html>unexpected</html>" : body === "truncated" ? '{"ok":' : body === "false" ? '{"ok":false}' : '{"ok":"true"}';
+        return new Response(content, { status: 200 });
+      }
+      if (url.startsWith("/api/admin/orders/a?")) return { ok: true, status: 200, json: async () => ({ id: "a", branch_id: "b1", is_printed: false, status: "pending" }) } as Response;
+      return page([order("a", "待核對餐點")], null);
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+    render(<AdminOrdersPage />);
+    await user.click(await screen.findByRole("button", { name: "開始備餐" }));
+    await screen.findByText(/訂單操作結果尚未確認/);
+    await screen.findByText(/目前後台狀態：待處理/);
+    expect((screen.getByRole("button", { name: "開始備餐" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(patches).toBe(1);
+  });
+
+  it("times out a stalled 200 response body and keeps the order locked", async () => {
+    let patches = 0;
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") {
+        patches++;
+        return new Response(new ReadableStream({ start() {} }), { status: 200 });
+      }
+      if (url.startsWith("/api/admin/orders/a?")) return { ok: true, status: 200, json: async () => ({ id: "a", branch_id: "b1", is_printed: false, status: "pending" }) } as Response;
+      return page([order("a", "待核對餐點")], null);
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+    render(<AdminOrdersPage />);
+    await user.click(await screen.findByRole("button", { name: "開始備餐" }));
+    await screen.findByText(/訂單操作結果尚未確認/, {}, { timeout: 18000 });
+    await screen.findByText(/目前後台狀態：待處理/);
+    expect((screen.getByRole("button", { name: "開始備餐" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(patches).toBe(1);
+  }, 22000);
+});

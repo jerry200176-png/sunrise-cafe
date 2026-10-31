@@ -18,7 +18,7 @@ import type { Order } from "@/types";
 import { pickUnprinted, reconnectDelayMs } from "@/lib/print-queue";
 import { thrownMessage } from "@/lib/friendly-error";
 import { useAdminBranches } from "@/lib/use-admin-branches";
-import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
+import { fetchAllAdminOrders, fetchPendingPrintStatus } from "@/lib/admin-orders-fetch";
 import { Printer, Wifi, WifiOff, Volume2 } from "lucide-react";
 
 // Star WebPRNT Browser 預設 port
@@ -133,7 +133,9 @@ export default function PrintStationPage() {
   const [pendingPrintStorageError, setPendingPrintStorageError] = useState<string | null>(null);
   const [pendingPrintStorageReady, setPendingPrintStorageReady] = useState(false);
   const [checkingPending, setCheckingPending] = useState(false);
+  const checkingPendingRef = useRef(false);
   const [resolvingPendingId, setResolvingPendingId] = useState<string | null>(null);
+  const resolvingPendingRef = useRef(false);
   const [printerPostInFlight, setPrinterPostInFlight] = useState<Set<string>>(new Set());
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const reconnectTimer = useRef<number | null>(null);
@@ -296,21 +298,10 @@ export default function PrintStationPage() {
     sweeping.current = true;
     setSweepingNow(true);
     try {
-      const res = await fetchWithTimeout(`/api/admin/orders?branchId=${encodeURIComponent(requestedBranch)}`, { credentials: "include" });
+      const data = await fetchAllAdminOrders(requestedBranch, () => isCurrentSession(requestedBranch, epoch), "printable");
       if (!isCurrentSession(requestedBranch, epoch)) return;
-      if (res.status === 401) {
-        setSessionExpired(true);
-        return;
-      }
-      if (!res.ok) {
-        addLog("讀取訂單失敗，稍後會再試", false);
-        return;
-      }
       setSessionExpired(false);
-      const data: unknown = await readJsonWithTimeout(res);
-      if (!isCurrentSession(requestedBranch, epoch)) return;
-      if (!Array.isArray(data)) throw new Error("訂單資料格式不正確，稍後會再試");
-      const orders = data as Order[];
+      const orders = data;
       reconcilePendingPrintIds(orders);
       const excludedIds = new Set([...printedIds.current, ...pendingPrintIds.current.keys()]);
       for (const order of pickUnprinted(orders, excludedIds)) {
@@ -353,8 +344,11 @@ export default function PrintStationPage() {
           break;
         }
       }
-    } catch {
-      if (isCurrentSession(requestedBranch, epoch)) addLog("連不上系統，稍後會再試", false);
+    } catch (err) {
+      if (isCurrentSession(requestedBranch, epoch)) {
+        if (err instanceof Error && "status" in err && err.status === 401) setSessionExpired(true);
+        else addLog("讀取訂單失敗，稍後會再試", false);
+      }
     } finally {
       if (activeSweepRun.current === run) {
         activeSweepRun.current = null;
@@ -365,27 +359,44 @@ export default function PrintStationPage() {
   }, [addPendingPrintId, clearPendingPrintId, isCurrentSession, reconcilePendingPrintIds]);
 
   const checkPendingPrints = async () => {
-    if (!branchId || branchesLoading || branchesError || !branches.some((branch) => branch.id === branchId) || pendingPrintStorageBlocked.current) return;
+    if (!branchId || branchesLoading || branchesError || !branches.some((branch) => branch.id === branchId) || pendingPrintStorageBlocked.current || checkingPendingRef.current || resolvingPendingRef.current) return;
+    checkingPendingRef.current = true;
     pauseForManualReview();
     setCheckingPending(true);
     try {
-      const res = await fetchWithTimeout(`/api/admin/orders?branchId=${encodeURIComponent(branchId)}`, { credentials: "include" });
-      if (!res.ok) throw new Error("讀取訂單列印標記失敗");
-      const data: unknown = await readJsonWithTimeout(res);
-      if (!Array.isArray(data)) throw new Error("訂單資料格式不正確");
+      const requestedBranch = branchId;
+      const epoch = sessionEpoch.current;
+      const pending = [...pendingPrintIds.current.values()].filter((entry) => !entry.branchId || entry.branchId === requestedBranch);
+      const data: Order[] = [];
+      let unconfirmed = 0;
+      for (const entry of pending) {
+        if (!isCurrentSession(requestedBranch, epoch)) return;
+        try {
+          data.push(await fetchPendingPrintStatus(requestedBranch, entry.id));
+        } catch {
+          unconfirmed++;
+        }
+      }
+      if (!isCurrentSession(requestedBranch, epoch)) return;
       const before = pendingPrintIds.current.size;
       reconcilePendingPrintIds(data as Order[]);
-      addLog(pendingPrintIds.current.size < before
-        ? "已確認部分訂單已在後台標記列印完成。列印站保持停止。"
-        : "已檢查目前分店；待確認單仍未標記完成，沒有送印或更新訂單。", true);
+      if (unconfirmed > 0) {
+        addLog(`已核對 ${data.length} 筆；另有 ${unconfirmed} 筆無法確認或不屬於本店，仍保持鎖定，請人工核對。列印站保持停止。`, false);
+      } else {
+        addLog(pendingPrintIds.current.size < before
+          ? "已確認部分訂單已在後台標記列印完成。列印站保持停止。"
+          : "已檢查目前分店；待確認單仍未標記完成，沒有送印或更新訂單。", true);
+      }
     } catch (err) {
       addLog(`檢查待確認列印失敗：${thrownMessage(err, "請稍後重試")}`, false);
     } finally {
+      checkingPendingRef.current = false;
       setCheckingPending(false);
     }
   };
 
   const resolvePendingPrint = async (pending: PendingPrint, resolution: "printed" | "allow-reprint") => {
+    if (checkingPendingRef.current || resolvingPendingRef.current) return;
     if (printerPostInFlightRef.current.has(pending.id)) {
       addLog(`訂單 ${pending.id} 的印表機請求仍未完成，不能解除待確認鎖定。請保持列印站停止並等待結果。`, false);
       return;
@@ -394,6 +405,7 @@ export default function PrintStationPage() {
       ? window.confirm(`請先現場核對實體紙單與後台訂單。原列印請求可能延遲出紙；若頁面曾重載，請視為請求狀態未知。只有確認紙單確實已出才標記訂單 ${pending.id} 為已列印。`)
       : window.confirm(`請先現場核對實體紙單與後台訂單。原列印請求可能仍會稍後出紙，尤其頁面重載後狀態未知；解除鎖定後再次啟動可能重印。確認已核對無紙單並允許之後重新列印訂單 ${pending.id}？此操作現在不會送印。`);
     if (!confirmed) return;
+    resolvingPendingRef.current = true;
     pauseForManualReview();
     setResolvingPendingId(pending.id);
     try {
@@ -421,6 +433,7 @@ export default function PrintStationPage() {
     } catch (err) {
       addLog(`待確認訂單處理失敗，列印仍保持鎖定：${thrownMessage(err, "請聯絡管理者")}`, false);
     } finally {
+      resolvingPendingRef.current = false;
       setResolvingPendingId(null);
     }
   };
@@ -591,14 +604,14 @@ export default function PrintStationPage() {
                 <p>{branchName} · 訂單 ID：{pending.id}</p>
                 {requestInFlight && <p className="text-amber-200">此訂單的印表機請求仍未完成；暫不可標記或解除待確認。</p>}
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => void resolvePendingPrint(pending, "printed")} disabled={resolvingPendingId !== null || requestInFlight} className="min-h-10 rounded-lg border border-amber-500 px-3 disabled:opacity-50">我已核對紙單已出，手動標記已列印</button>
-                  <button type="button" onClick={() => void resolvePendingPrint(pending, "allow-reprint")} disabled={resolvingPendingId !== null || requestInFlight} className="min-h-10 rounded-lg border border-amber-500 px-3 disabled:opacity-50">我已核對無紙單，解除鎖定</button>
+                  <button type="button" onClick={() => void resolvePendingPrint(pending, "printed")} disabled={checkingPending || resolvingPendingId !== null || requestInFlight} className="min-h-10 rounded-lg border border-amber-500 px-3 disabled:opacity-50">我已核對紙單已出，手動標記已列印</button>
+                  <button type="button" onClick={() => void resolvePendingPrint(pending, "allow-reprint")} disabled={checkingPending || resolvingPendingId !== null || requestInFlight} className="min-h-10 rounded-lg border border-amber-500 px-3 disabled:opacity-50">我已核對無紙單，解除鎖定</button>
                 </div>
               </li>;
             })}
           </ul>
           <p className="mt-2">請選取對應分店並檢查實體紙單與後台列印標記。只會檢查狀態，不會送印；若仍無法確認，請保持列印站停止並聯絡管理者處理。</p>
-          <button type="button" onClick={() => void checkPendingPrints()} disabled={checkingPending || branchesLoading || Boolean(branchesError) || !branches.some((branch) => branch.id === branchId)} className="mt-2 min-h-10 rounded-lg border border-amber-500 px-3 disabled:opacity-50">
+          <button type="button" onClick={() => void checkPendingPrints()} disabled={checkingPending || resolvingPendingId !== null || branchesLoading || Boolean(branchesError) || !branches.some((branch) => branch.id === branchId)} className="mt-2 min-h-10 rounded-lg border border-amber-500 px-3 disabled:opacity-50">
             {checkingPending ? "檢查中…" : "只檢查目前分店的列印標記"}
           </button>
         </div>}

@@ -1,6 +1,6 @@
 import type { Order } from "@/types";
 
-const MAX_AGE_MS = 8 * 60 * 60 * 1000;
+export const MAX_AGE_MS = 8 * 60 * 60 * 1000;
 
 /**
  * 該補印的訂單：還沒印、有餐點明細（訂單先建立、明細後寫入，空的先跳過等下一輪）、
