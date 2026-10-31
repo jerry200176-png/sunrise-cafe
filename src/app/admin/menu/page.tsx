@@ -47,6 +47,9 @@ export default function AdminMenuPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [menuUrl, setMenuUrl] = useState("");
+  const [copyingMenuUrl, setCopyingMenuUrl] = useState(false);
+  const copyingMenuUrlRef = useRef(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
   // 表單狀態
@@ -82,6 +85,26 @@ export default function AdminMenuPage() {
   const dismissToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
+
+  useEffect(() => {
+    setMenuUrl(`${window.location.origin}/menu`);
+  }, []);
+
+  const copyMenuUrl = async () => {
+    if (!menuUrl || copyingMenuUrlRef.current) return;
+    copyingMenuUrlRef.current = true;
+    setCopyingMenuUrl(true);
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
+      await navigator.clipboard.writeText(menuUrl);
+      showToast("已複製菜單網址", "success");
+    } catch {
+      showToast("無法自動複製，請選取下方菜單網址後手動複製", "error");
+    } finally {
+      copyingMenuUrlRef.current = false;
+      setCopyingMenuUrl(false);
+    }
+  };
 
   useEffect(() => {
     if (!branchId && branches.length > 0) { activeBranchId.current = branches[0].id; setBranchId(branches[0].id); }
@@ -334,12 +357,16 @@ export default function AdminMenuPage() {
       </header>
 
       <div className="mx-auto max-w-4xl px-4 py-6 space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <div><p className="font-semibold text-stone-900">官方 LINE 菜單網址</p><p className="text-sm text-stone-600">客人無須訂位即可瀏覽，開啟後選擇分店。</p></div>
-          <button type="button" onClick={async () => {
-            await navigator.clipboard.writeText(`${window.location.origin}/menu`);
-            showToast("已複製菜單網址", "success");
-          }} className="rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white">複製網址</button>
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <p className="font-semibold text-stone-900">官方 LINE 菜單網址</p>
+          <p className="text-sm text-stone-600">客人無須訂位即可瀏覽，開啟後選擇分店。</p>
+          <label htmlFor="menu-url" className="mt-3 block text-sm text-stone-700">菜單網址（可手動複製）</label>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <input id="menu-url" type="text" readOnly value={menuUrl} className="min-h-[44px] w-full rounded-lg border border-amber-300 bg-white px-3 text-sm text-stone-900 sm:min-w-0 sm:flex-1" />
+            <button type="button" onClick={() => void copyMenuUrl()} disabled={!menuUrl || copyingMenuUrl} className="min-h-[44px] rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{copyingMenuUrl ? "複製中…" : "複製網址"}</button>
+            <a href="/menu" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[44px] items-center rounded-lg px-2 text-sm font-medium text-amber-900 underline">開啟菜單（新分頁）</a>
+          </div>
+          {copyingMenuUrl && <p role="status" className="mt-1 text-sm text-stone-700">正在複製菜單網址…</p>}
         </div>
         {error && (
           <div role="alert" className="flex items-center justify-between gap-3 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800">
