@@ -113,8 +113,24 @@ describe("db-backup-restore-drill workflow (static)", () => {
     for (const role of ["anon", "authenticated", "service_role"]) {
       expect(restore?.run).toContain(`CREATE ROLE ${role} `);
     }
+    expect(restore?.run).toContain(
+      "CREATE ROLE backup_ro NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;"
+    );
+    expect(restore?.run).toContain("drill_quiet restore-prepare");
     expect(restore?.run).toContain('cmp -s "${PLAIN_DIR}/source.counts" "${PLAIN_DIR}/restore.counts"');
     expect(restore?.run).toContain('cmp -s "${PLAIN_DIR}/source.identity" "${PLAIN_DIR}/restore.identity"');
+  });
+
+  it("uses only a fixed unprivileged ACL stub and never exports source role names", () => {
+    const restore = steps.find((s) => s.name === "Restore drill into isolated service DB");
+    const manifest = steps.find((s) => s.name?.startsWith("Bundle + encrypt"));
+    const summary = steps.find((s) => s.name?.startsWith("Step summary"));
+    expect(restore?.run).not.toMatch(/pg_roles|pg_auth_members|role_table_grants|pg_get_userbyid/);
+    expect(restore?.run?.match(/CREATE ROLE backup_ro\b/g)).toHaveLength(1);
+    expect(restore?.run).not.toContain("CREATE ROLE backup_ro LOGIN");
+    expect(manifest?.run).not.toMatch(/backup_ro|pg_roles|pg_auth_members|pg_get_userbyid/);
+    expect(summary?.run).not.toMatch(/backup_ro|pg_roles|pg_auth_members|pg_get_userbyid/);
+    expect(manifest?.run).toContain('age --encrypt --recipient "${AGE_RECIPIENT}"');
   });
 
   it("never prints dump contents", () => {

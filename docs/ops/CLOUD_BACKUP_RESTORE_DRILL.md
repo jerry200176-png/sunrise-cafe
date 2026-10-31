@@ -143,6 +143,8 @@ straight onto production. Mirror the drill's preparation:
 ```sql
 CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN;
 CREATE ROLE service_role NOLOGIN BYPASSRLS; CREATE ROLE supabase_admin NOLOGIN;
+-- ACL placeholder only for the optional #461 backup role; never a login here.
+CREATE ROLE backup_ro NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE SCHEMA IF NOT EXISTS extensions;
 CREATE EXTENSION IF NOT EXISTS btree_gist SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS pgcrypto SCHEMA extensions;
@@ -155,6 +157,21 @@ pg_restore --list restore/sunrise-public.dump | grep -vE '^[0-9]+; [0-9]+ [0-9]+
 pg_restore --no-owner --exit-on-error --single-transaction --use-list=toc.filtered \
   --dbname="$TARGET_DSN" restore/sunrise-public.dump
 ```
+
+The fixed `backup_ro` stub is created only in the throwaway restore database so
+`pg_restore` can apply public-schema ACLs if a source dump grants them to the
+dedicated backup role. It has no login, password, inherited role, or RLS bypass.
+The workflow does not query or export source role catalogs; the public manifest
+and step summary contain no role list. The dump itself preserves ACL names and
+is included only inside the age-encrypted bundle. `backup_login` credentials
+and role definitions are not part of this schema-only dump.
+
+For a local synthetic regression of the ACL failure/recovery path, run
+`bash scripts/db-drill/test-restore-role-stub.sh`. It requires Docker, creates
+two PostgreSQL 17 containers with no published ports and no network, and uses
+only generated rows/roles. All database output is suppressed; it emits one
+fixed pass line or a fixed stage name. It does not read a DSN or create an
+artifact and is not part of the production backup workflow.
 
 Because this is public-schema only, a real recovery also has to re-create
 what lives outside `public`:
