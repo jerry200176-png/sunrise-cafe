@@ -9,7 +9,7 @@ import { supabase } from "@/lib/supabase";
 import { responseError, thrownMessage } from "@/lib/friendly-error";
 import { useAdminBranches } from "@/lib/use-admin-branches";
 import { fetchAdminOrderStatus, fetchAllAdminOrders } from "@/lib/admin-orders-fetch";
-import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import type { Order, OrderStatus } from "@/types";
 
 const ACTIVE_STATUSES: OrderStatus[] = ["pending", "preparing", "ready"];
@@ -189,6 +189,8 @@ export default function AdminOrdersPage() {
         holdForReview("unknown");
         return;
       }
+      const result = await readJsonWithTimeout<{ ok?: unknown } | null>(res);
+      if (!result || typeof result !== "object" || result.ok !== true) throw new Error("無法確認訂單更新結果");
     } catch (err) {
       if (currentBranch.current === bid) setActionError(`訂單操作結果尚未確認：${thrownMessage(err)}`);
       holdForReview("unknown");

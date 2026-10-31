@@ -76,7 +76,7 @@ describe("order board refresh scheduling", () => {
     const followup = deferred<Response>();
     let gets = 0;
     const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
-      if (init?.method === "PATCH") return { ok: true, status: 200 } as Response;
+      if (init?.method === "PATCH") return { ok: true, status: 200, json: async () => ({ ok: true }) } as Response;
       gets++;
       if (gets === 1) return page([order("a", "需要備餐")], null);
       if (gets === 2) return page([order("a", "需要備餐")], "old-next");
@@ -127,7 +127,7 @@ describe("order board refresh scheduling", () => {
     await user.selectOptions(screen.getByRole("combobox"), "b1");
     const ready = await screen.findByRole("button", { name: "已出餐" });
     expect((ready as HTMLButtonElement).disabled).toBe(true);
-    await act(async () => { oldPatch.resolve({ ok: true, status: 200 } as Response); });
+    await act(async () => { oldPatch.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) } as Response); });
     await screen.findByText(/訂單沒有更新成功/);
     expect(screen.queryByRole("button", { name: "完成出餐" })).toBeNull();
     expect((screen.getByRole("button", { name: "已出餐" }) as HTMLButtonElement).disabled).toBe(true);
@@ -224,4 +224,45 @@ describe("order board refresh scheduling", () => {
     await user.click(screen.getByRole("button", { name: "已核對，解除鎖定" }));
     expect(screen.queryByRole("button", { name: "開始備餐" })).toBeNull();
   });
+
+  it.each(["html", "truncated", "false", "wrong-shape"] as const)("treats a 200 %s body as unknown and keeps the order locked", async (body) => {
+    let patches = 0;
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") {
+        patches++;
+        const content = body === "html" ? "<html>unexpected</html>" : body === "truncated" ? '{"ok":' : body === "false" ? '{"ok":false}' : '{"ok":"true"}';
+        return new Response(content, { status: 200 });
+      }
+      if (url.startsWith("/api/admin/orders/a?")) return { ok: true, status: 200, json: async () => ({ id: "a", branch_id: "b1", is_printed: false, status: "pending" }) } as Response;
+      return page([order("a", "待核對餐點")], null);
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+    render(<AdminOrdersPage />);
+    await user.click(await screen.findByRole("button", { name: "開始備餐" }));
+    await screen.findByText(/訂單操作結果尚未確認/);
+    await screen.findByText(/目前後台狀態：待處理/);
+    expect((screen.getByRole("button", { name: "開始備餐" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(patches).toBe(1);
+  });
+
+  it("times out a stalled 200 response body and keeps the order locked", async () => {
+    let patches = 0;
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") {
+        patches++;
+        return new Response(new ReadableStream({ start() {} }), { status: 200 });
+      }
+      if (url.startsWith("/api/admin/orders/a?")) return { ok: true, status: 200, json: async () => ({ id: "a", branch_id: "b1", is_printed: false, status: "pending" }) } as Response;
+      return page([order("a", "待核對餐點")], null);
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+    render(<AdminOrdersPage />);
+    await user.click(await screen.findByRole("button", { name: "開始備餐" }));
+    await screen.findByText(/訂單操作結果尚未確認/, {}, { timeout: 18000 });
+    await screen.findByText(/目前後台狀態：待處理/);
+    expect((screen.getByRole("button", { name: "開始備餐" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(patches).toBe(1);
+  }, 22000);
 });
