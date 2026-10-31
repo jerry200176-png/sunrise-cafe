@@ -3,18 +3,24 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Plus, QrCode, Printer, LogOut } from "lucide-react";
-import type { Branch, Table } from "@/types";
+import type { Table } from "@/types";
 import { responseError, thrownMessage } from "@/lib/friendly-error";
+import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
+import { useAdminBranches } from "@/lib/use-admin-branches";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 
 export default function AdminTablesPage() {
-  const [branches, setBranches] = useState<Branch[]>([]);
+  const { branches, loading: branchesLoading, error: branchesError, retry: retryBranches } = useAdminBranches();
   const [branchId, setBranchId] = useState("");
   const [tables, setTables] = useState<Table[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [newNumber, setNewNumber] = useState("");
   const [qrMap, setQrMap] = useState<Record<string, { qr_data_url: string; order_url: string }>>({});
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const toastId = useRef(0);
+  const requestSequence = useRef(0);
+  const activeBranchId = useRef(branchId);
 
   const showToast = (message: string, variant: ToastVariant = "info") => {
     const id = ++toastId.current;
@@ -22,21 +28,33 @@ export default function AdminTablesPage() {
   };
 
   useEffect(() => {
-    fetch("/api/branches").then(r => r.json()).then(d => {
-      const list = Array.isArray(d) ? d : [];
-      setBranches(list);
-      if (list.length > 0) setBranchId(list[0].id);
-    });
-  }, []);
+    if (!branchId && branches.length > 0) { activeBranchId.current = branches[0].id; setBranchId(branches[0].id); }
+    else if (branchId && !branches.some((branch) => branch.id === branchId)) {
+      requestSequence.current++;
+      activeBranchId.current = "";
+      setBranchId(""); setTables([]); setError(null); setLoading(false);
+    }
+  }, [branches, branchId]);
 
   const loadTables = async (bid: string) => {
-    if (!bid) return;
-    const res = await fetch(`/api/admin/tables?branchId=${encodeURIComponent(bid)}`);
-    const data = await res.json();
-    setTables(Array.isArray(data) ? data : []);
+    if (bid !== activeBranchId.current) return;
+    const current = ++requestSequence.current;
+    if (!bid) { setTables([]); setLoading(false); return; }
+    setLoading(true); setError(null);
+    try {
+      const res = await fetchWithTimeout(`/api/admin/tables?branchId=${encodeURIComponent(bid)}`, { credentials: "include" });
+      if (!res.ok) throw new Error(await responseError(res));
+      const data = await readJsonWithTimeout<Table[]>(res);
+      if (!Array.isArray(data)) throw new Error("桌位資料格式不正確，請重試");
+      if (current === requestSequence.current && bid === activeBranchId.current) setTables(data as Table[]);
+    } catch (cause) {
+      if (current === requestSequence.current && bid === activeBranchId.current) { setTables([]); setError(thrownMessage(cause, "桌位載入失敗，請重試")); }
+    } finally {
+      if (current === requestSequence.current) setLoading(false);
+    }
   };
 
-  useEffect(() => { if (branchId) loadTables(branchId); }, [branchId]);
+  useEffect(() => { void loadTables(branchId); }, [branchId]);
 
   const addTable = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,9 +80,12 @@ export default function AdminTablesPage() {
 
   const loadQr = async (table: Table) => {
     if (qrMap[table.id]) return;
-    const res = await fetch(`/api/admin/tables/${table.id}/qr`);
-    const data = await res.json();
-    setQrMap(prev => ({ ...prev, [table.id]: data }));
+    try {
+      const res = await fetchWithTimeout(`/api/admin/tables/${table.id}/qr`, { credentials: "include" });
+      if (!res.ok) throw new Error(await responseError(res));
+      const data = await readJsonWithTimeout<{ qr_data_url: string; order_url: string }>(res);
+      setQrMap(prev => ({ ...prev, [table.id]: data }));
+    } catch (cause) { showToast(thrownMessage(cause, "QR 載入失敗，請重試"), "error"); }
   };
 
   const printQr = (table: Table) => {
@@ -98,7 +119,13 @@ export default function AdminTablesPage() {
           </div>
           <div className="flex items-center gap-2">
             <label htmlFor="tables-branch" className="sr-only">選擇分店</label>
-            <select id="tables-branch" value={branchId} onChange={e => setBranchId(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-h-[44px]">
+            <select id="tables-branch" value={branchId} onChange={e => {
+              const nextBranchId = e.target.value;
+              requestSequence.current++;
+              activeBranchId.current = nextBranchId;
+              setTables([]); setError(null); setLoading(Boolean(nextBranchId));
+              setBranchId(nextBranchId);
+            }} className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-h-[44px]">
               {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
             <button type="button" onClick={async () => { await fetch("/api/admin/logout", { method: "POST" }); window.location.href = "/admin/login"; }} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50" aria-label="登出">
@@ -113,7 +140,7 @@ export default function AdminTablesPage() {
           <h2 className="font-semibold text-gray-900 mb-3">新增桌位</h2>
           <form onSubmit={addTable} className="flex gap-2">
             <input type="text" required value={newNumber} onChange={e => setNewNumber(e.target.value)} placeholder="桌號，例：A1、B3" className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm min-h-[44px]" />
-            <button type="submit" className="inline-flex min-h-[44px] items-center gap-1 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700">
+            <button type="submit" disabled={!branchId || branchesLoading || loading || Boolean(error)} className="inline-flex min-h-[44px] items-center gap-1 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50">
               <Plus className="h-4 w-4" /> 新增
             </button>
           </form>
@@ -121,7 +148,11 @@ export default function AdminTablesPage() {
 
         <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <h2 className="font-semibold text-gray-900 mb-3">桌位列表</h2>
-          {tables.length === 0 ? (
+      {branchesError && <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"><span>{branchesError}</span><button type="button" onClick={() => void retryBranches()} disabled={branchesLoading} className="min-h-[44px] rounded-lg border border-red-300 bg-white px-3 disabled:opacity-50">重試分店</button></div>}
+      {branchesLoading && <p role="status" className="text-sm text-gray-500">載入分店中…</p>}
+      {!branchesLoading && !branchesError && branches.length === 0 && <p role="status" className="rounded-lg bg-stone-100 px-4 py-3 text-sm text-stone-600">目前沒有可管理的分店。</p>}
+      {error && <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"><span>{error}</span><button type="button" onClick={() => void loadTables(branchId)} disabled={!branchId || loading} className="min-h-[44px] rounded-lg border border-red-300 bg-white px-3 disabled:opacity-50">重試</button></div>}
+      {branchId && loading ? <p role="status" className="text-sm text-gray-500">載入桌位中…</p> : error || !branchId ? null : tables.length === 0 ? (
             <p className="text-sm text-gray-500">尚無桌位</p>
           ) : (
             <div className="divide-y divide-gray-100">

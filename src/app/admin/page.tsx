@@ -15,19 +15,43 @@ import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toas
 import { formatRentalNotesText, parseRentalNotesText } from "@/lib/branch-guest-settings";
 import { formRowsToWeekly, weeklyToFormRows, WEEKDAY_LABELS, type WeekdayFormRow } from "@/lib/branch-hours";
 import { responseError, thrownMessage } from "@/lib/friendly-error";
+import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
+
+type RoomLoadState = {
+  branchId: string | null;
+  status: "idle" | "loading" | "ready" | "error";
+  rooms: Room[];
+  message: string | null;
+};
+
+const emptyRooms: RoomLoadState = { branchId: null, status: "idle", rooms: [], message: null };
+
+async function fetchRooms(branchId: string): Promise<Room[]> {
+  const response = await fetchWithTimeout(`/api/rooms?branchId=${encodeURIComponent(branchId)}`);
+  if (!response.ok) throw new Error(await responseError(response));
+  const data: unknown = await readJsonWithTimeout(response);
+  if (!Array.isArray(data)) throw new Error("包廂資料格式不正確，請重試");
+  return data as Room[];
+}
 
 export default function AdminBranchesRoomsPage() {
   const [focusBranchId, setFocusBranchId] = useState<string | null>(null);
   const [focusReservationId, setFocusReservationId] = useState<string | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [archivedBranches, setArchivedBranches] = useState<Branch[]>([]);
-  const [rooms, setRooms] = useState<Room[]>([]);
+  const [roomState, setRoomState] = useState<RoomLoadState>(emptyRooms);
   const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
   const [reservationBranchId, setReservationBranchId] = useState<string | null>(null);
-  const [roomsForReservations, setRoomsForReservations] = useState<Room[]>([]);
+  const [reservationRoomState, setReservationRoomState] = useState<RoomLoadState>(emptyRooms);
+  const [reservationRoomRetry, setReservationRoomRetry] = useState(0);
   const [addFormOpen, setAddFormOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [branchError, setBranchError] = useState<string | null>(null);
+  const [branchSaveError, setBranchSaveError] = useState<string | null>(null);
+  const [branchSaveWaiting, setBranchSaveWaiting] = useState(false);
+  const [identityError, setIdentityError] = useState(false);
+  const [identityRetry, setIdentityRetry] = useState(0);
   const [modalError, setModalError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -85,6 +109,25 @@ export default function AdminBranchesRoomsPage() {
   const [confirmDeleteRoomId, setConfirmDeleteRoomId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const toastId = useRef(0);
+  const mounted = useRef(true);
+  const branchRequest = useRef(0);
+  const roomRequest = useRef(0);
+  const reservationRoomRequest = useRef(0);
+  const selectedBranchRef = useRef(selectedBranchId);
+  const reservationBranchRef = useRef(reservationBranchId);
+  const hasUrlBranch = useRef(false);
+  const userSelectedBranch = useRef(false);
+  const appliedUrlBranch = useRef(false);
+  // Unknown or failed role checks must not write the shared default branch.
+  const canPersistBranch = useRef(false);
+  const roleChecked = useRef(false);
+  const pendingBranchChoice = useRef<{ id: string | null } | null>(null);
+  const writingBranchChoice = useRef<{ id: string | null } | null>(null);
+  const queuedBranchChoice = useRef<{ id: string | null } | null>(null);
+  selectedBranchRef.current = selectedBranchId;
+  reservationBranchRef.current = reservationBranchId;
+  const rooms = roomState.branchId === selectedBranchId && roomState.status === "ready" ? roomState.rooms : [];
+  const roomsForReservations = reservationRoomState.branchId === reservationBranchId && reservationRoomState.status === "ready" ? reservationRoomState.rooms : [];
 
   const showToast = useCallback((message: string, variant: ToastVariant = "info") => {
     const id = ++toastId.current;
@@ -95,79 +138,192 @@ export default function AdminBranchesRoomsPage() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    setFocusBranchId(params.get("branchId"));
-    setFocusReservationId(params.get("reservation"));
-  }, []);
-
-  const loadBranches = async () => {
-    const res = await fetch("/api/branches?include=archived");
-    const data = await res.json();
-    if (res.ok) {
-      const all: Branch[] = Array.isArray(data) ? data : [];
-      setBranches(all.filter((b) => !b.archived_at));
-      setArchivedBranches(all.filter((b) => b.archived_at));
-    }
-  };
-
-  const loadRooms = async () => {
-    if (!selectedBranchId) {
-      setRooms([]);
+  const persistCurrentBranch = useCallback((id: string | null) => {
+    if (!canPersistBranch.current) return;
+    if (writingBranchChoice.current?.id === id) {
+      // A → B → A while A is in flight already ends at the desired value.
+      queuedBranchChoice.current = null;
       return;
     }
-    const res = await fetch(`/api/rooms?branchId=${encodeURIComponent(selectedBranchId)}`);
-    const data = await res.json();
-    if (res.ok) setRooms(Array.isArray(data) ? data : []);
-  };
+    queuedBranchChoice.current = { id };
+    if (writingBranchChoice.current) return;
 
-  useEffect(() => {
-    setError(null);
-    (async () => {
-      try {
-        await loadBranches();
-      } catch (e) {
-        setError(thrownMessage(e, "載入失敗，請重新整理"));
+    void (async () => {
+      while (mounted.current && canPersistBranch.current && queuedBranchChoice.current) {
+        const choice = queuedBranchChoice.current;
+        queuedBranchChoice.current = null;
+        writingBranchChoice.current = choice;
+        const timer = setTimeout(() => {
+          if (mounted.current) setBranchSaveWaiting(true);
+        }, 15000);
+        try {
+          // Keep one actual request in flight: aborting locally cannot prove the server stopped writing.
+          const response = await fetch("/api/settings", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ current_branch_id: choice.id }),
+          });
+          if (!response.ok) throw new Error(await responseError(response));
+          if (mounted.current) setBranchSaveError(null);
+        } catch (err) {
+          // The write outcome may be unknown. Do not automatically send another write.
+          queuedBranchChoice.current = null;
+          if (mounted.current) setBranchSaveError(`無法確認全站預設分店已儲存：${thrownMessage(err, "連線或儲存失敗")}。目前畫面仍可使用。`);
+          break;
+        } finally {
+          clearTimeout(timer);
+          writingBranchChoice.current = null;
+          if (mounted.current) setBranchSaveWaiting(false);
+        }
       }
-      setLoading(false);
     })();
   }, []);
 
   useEffect(() => {
-    if (focusBranchId && branches.some((branch) => branch.id === focusBranchId)) {
+    const params = new URLSearchParams(window.location.search);
+    hasUrlBranch.current = Boolean(params.get("branchId"));
+    setFocusBranchId(params.get("branchId"));
+    setFocusReservationId(params.get("reservation"));
+  }, []);
+
+  const loadBranches = useCallback(async () => {
+    const request = ++branchRequest.current;
+    setBranchError(null);
+    try {
+      const res = await fetchWithTimeout("/api/branches?include=archived");
+      if (!res.ok) throw new Error(await responseError(res));
+      const data: unknown = await readJsonWithTimeout(res);
+      if (!Array.isArray(data)) throw new Error("分店資料格式不正確，請重試");
+      if (!mounted.current || request !== branchRequest.current) return;
+      const all = data as Branch[];
+      setBranches(all.filter((b) => !b.archived_at));
+      setArchivedBranches(all.filter((b) => b.archived_at));
+    } catch (err) {
+      if (!mounted.current || request !== branchRequest.current) return;
+      setBranches([]);
+      setArchivedBranches([]);
+      setBranchError(thrownMessage(err, "讀取分店失敗，請重試"));
+    }
+  }, []);
+
+  const loadRooms = useCallback(async (branchId: string | null) => {
+    if (branchId !== selectedBranchRef.current) return;
+    const request = ++roomRequest.current;
+    if (!branchId) { setRoomState(emptyRooms); return; }
+    setRoomState({ branchId, status: "loading", rooms: [], message: null });
+    try {
+      const data = await fetchRooms(branchId);
+      if (!mounted.current || request !== roomRequest.current || selectedBranchRef.current !== branchId) return;
+      setRoomState({ branchId, status: "ready", rooms: data, message: null });
+    } catch (err) {
+      if (!mounted.current || request !== roomRequest.current || selectedBranchRef.current !== branchId) return;
+      setRoomState({ branchId, status: "error", rooms: [], message: thrownMessage(err, "讀取包廂失敗，請重試") });
+    }
+  }, []);
+
+  useEffect(() => {
+    mounted.current = true;
+    let active = true;
+    const branchCounter = branchRequest;
+    const roomCounter = roomRequest;
+    const reservationCounter = reservationRoomRequest;
+    void loadBranches().finally(() => { if (active) setLoading(false); });
+    return () => {
+      active = false;
+      mounted.current = false;
+      branchCounter.current++;
+      roomCounter.current++;
+      reservationCounter.current++;
+    };
+  }, [loadBranches]);
+
+  useEffect(() => {
+    if (focusBranchId && !userSelectedBranch.current && !appliedUrlBranch.current && branches.some((branch) => branch.id === focusBranchId)) {
+      appliedUrlBranch.current = true;
       setReservationBranchId(focusBranchId);
     }
   }, [branches, focusBranchId]);
 
   useEffect(() => {
-    loadRooms();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedBranchId]);
+    const requestCounter = roomRequest;
+    void loadRooms(selectedBranchId);
+    return () => { requestCounter.current++; };
+  }, [selectedBranchId, loadRooms]);
 
   useEffect(() => {
+    const requestCounter = reservationRoomRequest;
+    const request = ++reservationRoomRequest.current;
     if (!reservationBranchId) {
-      setRoomsForReservations([]);
+      setReservationRoomState(emptyRooms);
       return;
     }
-    fetch(`/api/rooms?branchId=${encodeURIComponent(reservationBranchId)}`)
-      .then((r) => r.json())
-      .then((d) => setRoomsForReservations(Array.isArray(d) ? d : []))
-      .catch(() => setRoomsForReservations([]));
-  }, [reservationBranchId]);
+    const branchId = reservationBranchId;
+    setReservationRoomState({ branchId, status: "loading", rooms: [], message: null });
+    void fetchRooms(branchId).then((data) => {
+      if (!mounted.current || request !== reservationRoomRequest.current || reservationBranchRef.current !== branchId) return;
+      setReservationRoomState({ branchId, status: "ready", rooms: data, message: null });
+    }).catch((err) => {
+      if (!mounted.current || request !== reservationRoomRequest.current || reservationBranchRef.current !== branchId) return;
+      setReservationRoomState({ branchId, status: "error", rooms: [], message: thrownMessage(err, "讀取包廂失敗，請重試") });
+    });
+    return () => { requestCounter.current++; };
+  }, [reservationBranchId, reservationRoomRetry]);
 
   useEffect(() => {
-    fetch("/api/settings")
-      .then((r) => r.json())
+    let active = true;
+    void fetchWithTimeout("/api/admin/me", { credentials: "include" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("讀取身分失敗");
+        const data: unknown = await readJsonWithTimeout(response);
+        if (!active) return;
+        const role = typeof data === "object" && data !== null && "role" in data ? data.role : null;
+        if (role !== "owner" && role !== "staff" && role !== "branch_manager" && role !== "finance" && role !== "none") {
+          throw new Error("無法確認身分");
+        }
+        canPersistBranch.current = role === "owner";
+        roleChecked.current = true;
+        setIdentityError(false);
+        const pending = pendingBranchChoice.current;
+        pendingBranchChoice.current = null;
+        if (canPersistBranch.current && pending) persistCurrentBranch(pending.id);
+      }).catch(() => {
+        if (!active) return;
+        canPersistBranch.current = false;
+        roleChecked.current = true;
+        pendingBranchChoice.current = null;
+        setIdentityError(true);
+      });
+    return () => { active = false; canPersistBranch.current = false; };
+  }, [persistCurrentBranch, identityRetry]);
+
+  useEffect(() => {
+    let active = true;
+    fetchWithTimeout("/api/settings")
+      .then((r) => { if (!r.ok) throw new Error("讀取設定失敗"); return r; })
+      .then((r) => readJsonWithTimeout<unknown>(r))
       .then((d) => {
+        if (!active) return;
         const data = d as { current_branch_id?: string | null; rental_notes?: RentalNoteSection[]; closed_dates?: string[]; deposit_info?: string | null; payment_keywords?: string[]; google_review_url?: string | null };
-        if (data?.current_branch_id) setReservationBranchId(data.current_branch_id);
+        if (data?.current_branch_id && !hasUrlBranch.current && !userSelectedBranch.current) setReservationBranchId(data.current_branch_id);
         if (Array.isArray(data?.rental_notes)) setRentalNotes(data.rental_notes);
         if (data?.deposit_info) setDepositInfo(data.deposit_info);
         if (Array.isArray(data?.payment_keywords)) setPaymentKeywords(data.payment_keywords);
         if (data?.google_review_url) setGoogleReviewUrl(data.google_review_url);
       })
       .catch(() => { });
+    return () => { active = false; };
   }, []);
+
+  const changeReservationBranch = (id: string | null) => {
+    userSelectedBranch.current = true;
+    setReservationBranchId(id);
+    if (canPersistBranch.current) {
+      persistCurrentBranch(id);
+    } else if (!roleChecked.current) {
+      // Apply the user's latest choice once, only if the identity response confirms owner.
+      pendingBranchChoice.current = { id };
+    }
+  };
 
   useEffect(() => {
     if (!reservationBranchId) {
@@ -269,7 +425,7 @@ export default function AdminBranchesRoomsPage() {
         if (!res.ok) throw new Error(await responseError(res));
       }
       setBranchFormOpen(false);
-      loadBranches();
+      void loadBranches();
     } catch (err) {
       setModalError(thrownMessage(err, "儲存失敗，請稍後再試"));
     } finally {
@@ -365,7 +521,7 @@ export default function AdminBranchesRoomsPage() {
         if (!res.ok) throw new Error(await responseError(res));
       }
       setRoomFormOpen(false);
-      loadRooms();
+      void loadRooms(selectedBranchId);
     } catch (err) {
       setModalError(thrownMessage(err, "儲存失敗，請稍後再試"));
     } finally {
@@ -377,7 +533,7 @@ export default function AdminBranchesRoomsPage() {
     try {
       const res = await fetch(`/api/rooms/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error(await responseError(res));
-      loadRooms();
+      void loadRooms(selectedBranchId);
       showToast("已刪除包廂", "success");
     } catch (err) {
       setError(thrownMessage(err, "刪除失敗，請稍後再試"));
@@ -545,6 +701,12 @@ export default function AdminBranchesRoomsPage() {
         backHref="/"
       >
         <div className="space-y-6">
+        {branchError && (
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
+            <span>分店載入失敗：{branchError}</span>
+            <button type="button" className="min-h-11 rounded-lg border border-red-300 bg-white px-3 font-medium" onClick={() => { setLoading(true); void loadBranches().finally(() => { if (mounted.current) setLoading(false); }); }}>重試載入分店</button>
+          </div>
+        )}
         {/* 訂位管理 */}
         <span id="reservations" />
         <section id="reservation-management" className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
@@ -557,28 +719,50 @@ export default function AdminBranchesRoomsPage() {
               <BranchSwitcher
                 branches={branches}
                 currentBranchId={reservationBranchId}
-                onBranchChange={(id) => {
-                  setReservationBranchId(id);
-                  fetch("/api/settings", {
-                    method: "PATCH",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ current_branch_id: id }),
-                  }).catch(() => { });
-                }}
-                disabled={loading}
+                onBranchChange={changeReservationBranch}
+                disabled={loading || Boolean(branchError)}
               />
-              <button type="button" onClick={() => setAddFormOpen(true)} disabled={!reservationBranchId}
+              <button type="button" onClick={() => setAddFormOpen(true)} disabled={!reservationBranchId || Boolean(branchError) || reservationRoomState.branchId !== reservationBranchId || reservationRoomState.status !== "ready"}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50 transition-colors">
                 <Plus className="h-3.5 w-3.5" /> 新增訂位
               </button>
             </div>
           </div>
           <div className="p-4">
-            <ReservationList
-              branchId={reservationBranchId}
-              rooms={roomsForReservations}
-              focusReservationId={focusReservationId}
-            />
+            {identityError && (
+              <div role="alert" className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                <span>無法確認身分，切換分店只影響目前畫面，無法儲存全站預設。</span>
+                <button type="button" className="min-h-11 rounded-lg border border-amber-300 bg-white px-3" onClick={() => {
+                  roleChecked.current = false;
+                  if (userSelectedBranch.current) pendingBranchChoice.current = { id: reservationBranchRef.current };
+                  setIdentityError(false);
+                  setIdentityRetry((n) => n + 1);
+                }}>重試確認身分</button>
+              </div>
+            )}
+            {branchSaveWaiting && <p role="status" className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">全站預設分店仍在儲存中，請稍候；請勿重複操作。</p>}
+            {branchSaveError && (
+              <div role="alert" className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                <span>{branchSaveError}</span>
+                <button type="button" className="min-h-11 rounded-lg border border-red-300 bg-white px-3" onClick={() => persistCurrentBranch(reservationBranchRef.current)}>手動重試儲存預設分店</button>
+              </div>
+            )}
+            {branchError ? (
+              <p className="text-sm text-red-700">請先重試載入分店，再查看訂位。</p>
+            ) : reservationBranchId && (reservationRoomState.branchId !== reservationBranchId || reservationRoomState.status === "loading") ? (
+              <p role="status" className="text-sm text-stone-500">正在載入包廂資料…</p>
+            ) : reservationBranchId && reservationRoomState.status === "error" ? (
+              <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-red-700">
+                <span>訂位包廂載入失敗：{reservationRoomState.message}</span>
+                <button type="button" className="min-h-11 rounded-lg border border-red-300 bg-white px-3" onClick={() => setReservationRoomRetry((n) => n + 1)}>重試訂位包廂</button>
+              </div>
+            ) : (
+              <ReservationList
+                branchId={reservationBranchId}
+                rooms={roomsForReservations}
+                focusReservationId={focusReservationId}
+              />
+            )}
           </div>
         </section>
 
@@ -673,7 +857,9 @@ export default function AdminBranchesRoomsPage() {
             </button>
           </div>
           <div className="p-4">
-          {branches.length === 0 ? (
+          {branchError ? (
+            <p className="text-sm text-red-700">分店資料暫時無法顯示，請重試。</p>
+          ) : branches.length === 0 ? (
             <p className="text-sm text-stone-400 py-2">尚無分店，請新增。</p>
           ) : (
             <ul className="divide-y divide-stone-100">
@@ -731,8 +917,10 @@ export default function AdminBranchesRoomsPage() {
                 <h2 className="text-sm font-semibold tracking-wide text-stone-700">包廂管理</h2>
               </div>
               <select
+                aria-label="選擇要管理包廂的分店"
                 value={selectedBranchId ?? ""}
                 onChange={(e) => setSelectedBranchId(e.target.value || null)}
+                disabled={Boolean(branchError)}
                 className="rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-sm text-stone-700 focus:border-amber-400 focus:outline-none"
               >
                 <option value="">選擇分店</option>
@@ -741,7 +929,7 @@ export default function AdminBranchesRoomsPage() {
                 ))}
               </select>
             </div>
-            {selectedBranchId && (
+            {selectedBranchId && !branchError && (
               <button type="button" onClick={openAddRoom}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 transition-colors">
                 <Plus className="h-3.5 w-3.5" /> 新增包廂
@@ -749,8 +937,17 @@ export default function AdminBranchesRoomsPage() {
             )}
           </div>
           <div className="p-4">
-          {!selectedBranchId ? (
+          {branchError ? (
+            <p className="py-2 text-sm text-red-700">請先重試載入分店，再管理包廂。</p>
+          ) : !selectedBranchId ? (
             <p className="py-2 text-sm text-stone-400">請先選擇分店以管理包廂。</p>
+          ) : roomState.branchId !== selectedBranchId || roomState.status === "loading" ? (
+            <p role="status" className="py-2 text-sm text-stone-500">正在載入包廂資料…</p>
+          ) : roomState.status === "error" ? (
+            <div role="alert" className="flex flex-wrap items-center gap-3 py-2 text-sm text-red-700">
+              <span>包廂載入失敗：{roomState.message}</span>
+              <button type="button" className="min-h-11 rounded-lg border border-red-300 bg-white px-3" onClick={() => void loadRooms(selectedBranchId)}>重試包廂</button>
+            </div>
           ) : rooms.length === 0 ? (
             <p className="py-2 text-sm text-stone-400">此分店尚無包廂，請新增。</p>
           ) : (
@@ -931,14 +1128,7 @@ export default function AdminBranchesRoomsPage() {
               <BranchSwitcher
                 branches={branches}
                 currentBranchId={reservationBranchId}
-                onBranchChange={(id) => {
-                  setReservationBranchId(id);
-                  fetch("/api/settings", {
-                    method: "PATCH",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ current_branch_id: id }),
-                  }).catch(() => {});
-                }}
+                onBranchChange={changeReservationBranch}
                 disabled={loading || branches.length === 0}
               />
             </div>
@@ -1024,7 +1214,7 @@ export default function AdminBranchesRoomsPage() {
       <AddReservationForm
         branchId={reservationBranchId}
         rooms={roomsForReservations}
-        open={addFormOpen}
+        open={addFormOpen && !branchError && reservationRoomState.branchId === reservationBranchId && reservationRoomState.status === "ready"}
         onClose={() => setAddFormOpen(false)}
         onSuccess={(result) => {
           setAddFormOpen(false);

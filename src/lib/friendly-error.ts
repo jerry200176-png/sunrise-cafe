@@ -1,3 +1,5 @@
+import { readJsonWithTimeout } from "@/lib/fetch-with-timeout";
+
 /** 把 API 的英文/技術錯誤轉成店員看得懂的中文。 */
 const KNOWN: [RegExp, string][] = [
   [/unauthori[sz]ed/i, "登入已過期，請重新登入"],
@@ -27,7 +29,7 @@ export function friendlyMessage(raw: unknown, status?: number): string {
 export async function responseError(res: Response): Promise<string> {
   let raw: unknown;
   try {
-    const body = await res.clone().json();
+    const body = await readJsonWithTimeout<{ error?: unknown; message?: unknown }>(res.clone());
     raw = body?.error ?? body?.message;
   } catch {
     // 非 JSON（例如 502 網頁）

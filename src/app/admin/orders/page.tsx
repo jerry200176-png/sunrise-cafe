@@ -1,18 +1,20 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, RefreshCw, CheckCircle, ChefHat, Bell, LogOut } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { supabase } from "@/lib/supabase";
 import { responseError, thrownMessage } from "@/lib/friendly-error";
-import type { Branch, Order, OrderStatus } from "@/types";
+import { useAdminBranches } from "@/lib/use-admin-branches";
+import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
+import type { Order, OrderStatus } from "@/types";
 
 const ACTIVE_STATUSES: OrderStatus[] = ["pending", "preparing", "ready"];
 
 export default function AdminOrdersPage() {
-  const [branches, setBranches] = useState<Branch[]>([]);
+  const { branches, loading: branchesLoading, error: branchesError, retry: retryBranches } = useAdminBranches();
   const [branchId, setBranchId] = useState<string>("");
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
@@ -22,28 +24,28 @@ export default function AdminOrdersPage() {
   const [soundOn, setSoundOn] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const prevOrderIds = useRef<Set<string>>(new Set());
+  const requestSeq = useRef(0);
+  const currentBranch = useRef("");
 
   useEffect(() => {
-    fetch("/api/branches")
-      .then((r) => r.json())
-      .then((d) => {
-        const list = Array.isArray(d) ? d : [];
-        setBranches(list);
-        if (list.length > 0) setBranchId(list[0].id);
-      });
-  }, []);
+    if (branches.length && !branchId) setBranchId(branches[0].id);
+  }, [branches, branchId]);
 
-  const loadOrders = async (bid: string) => {
-    if (!bid) return;
+  const loadOrders = useCallback(async (bid: string) => {
+    if (!bid || currentBranch.current !== bid) return;
+    const seq = ++requestSeq.current;
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/orders?branchId=${encodeURIComponent(bid)}`);
+      const res = await fetchWithTimeout(`/api/admin/orders?branchId=${encodeURIComponent(bid)}`, { credentials: "include" });
       if (!res.ok) {
         // 失敗時保留畫面上原本的單，並明說「沒更新」，不要假裝沒有訂單
-        setLoadError(await responseError(res));
+        const message = await responseError(res);
+        if (seq === requestSeq.current && currentBranch.current === bid) setLoadError(message);
         return;
       }
-      const data = await res.json();
+      const data = await readJsonWithTimeout<Order[]>(res);
+      if (seq !== requestSeq.current || currentBranch.current !== bid) return;
+      if (!Array.isArray(data)) throw new Error("訂單資料格式不正確，請重試");
       const active = (Array.isArray(data) ? data : []).filter((o: Order) =>
         ACTIVE_STATUSES.includes(o.status)
       );
@@ -53,18 +55,23 @@ export default function AdminOrdersPage() {
         new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: "Asia/Taipei" })
       );
     } catch (err) {
-      setLoadError(thrownMessage(err));
+      if (seq === requestSeq.current && currentBranch.current === bid) setLoadError(thrownMessage(err));
     } finally {
-      setLoading(false);
+      if (seq === requestSeq.current && currentBranch.current === bid) setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
+    currentBranch.current = branchId;
+    requestSeq.current++;
+    setOrders([]);
+    setLastUpdated(null);
+    setLoadError(null);
     if (!branchId) return;
     loadOrders(branchId);
     const timer = window.setInterval(() => loadOrders(branchId), 15000);
     return () => window.clearInterval(timer);
-  }, [branchId]);
+  }, [branchId, loadOrders]);
 
   // Supabase Realtime 訂閱
   useEffect(() => {
@@ -84,7 +91,7 @@ export default function AdminOrdersPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [branchId]);
+  }, [branchId, loadOrders]);
 
   // 偵測新訂單 → 播放音效
   useEffect(() => {
@@ -147,7 +154,14 @@ export default function AdminOrdersPage() {
           <div className="flex items-center gap-2">
             <select
               value={branchId}
-              onChange={(e) => setBranchId(e.target.value)}
+              onChange={(e) => {
+                currentBranch.current = e.target.value;
+                requestSeq.current++;
+                setOrders([]);
+                setLastUpdated(null);
+                setLoadError(null);
+                setBranchId(e.target.value);
+              }}
               className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
             >
               {branches.map((b) => (
@@ -189,6 +203,10 @@ export default function AdminOrdersPage() {
           </div>
         </div>
       </header>
+      {branchesError && <p role="alert" className="mx-auto max-w-7xl border-b border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        無法載入分店：{branchesError} <button type="button" className="ml-2 underline" onClick={() => void retryBranches()}>重試</button>
+      </p>}
+      {!branchesLoading && !branchesError && branches.length === 0 && <p role="status" className="mx-auto max-w-7xl px-4 py-6 text-center text-sm text-gray-500">目前沒有可管理的分店。</p>}
       {loadError && (
         <p role="alert" className="mx-auto max-w-7xl border-b border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           訂單沒有更新成功{lastUpdated ? `（畫面是 ${lastUpdated} 的資料）` : ""}：{loadError}
