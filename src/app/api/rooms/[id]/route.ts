@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateRoom, deleteRoom } from "@/lib/supabase-fetch";
-import { requireAdminApiAuth } from "@/lib/admin-api-auth";
+import { requirePermission } from "@/lib/admin-api-auth";
 import { roomPhotoUrlError } from "@/lib/room-photo";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: NextRequest, { params }: Params) {
-  const denied = await requireAdminApiAuth(request);
+  const denied = await requirePermission(request, "rooms:write");
   if (denied) return denied;
 
   const { id } = await params;
@@ -41,7 +41,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 }
 
 export async function DELETE(request: NextRequest, { params }: Params) {
-  const denied = await requireAdminApiAuth(request);
+  const denied = await requirePermission(request, "rooms:write");
   if (denied) return denied;
 
   const { id } = await params;

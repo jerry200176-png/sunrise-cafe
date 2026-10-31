@@ -21,3 +21,46 @@ export async function fetchWithTimeout(
     clearTimeout(id);
   }
 }
+
+/**
+ * Read a response body as JSON with its own deadline. Fetch's timeout only covers
+ * response headers; streaming bodies can otherwise remain pending indefinitely.
+ * This helper consumes the supplied response and never retries the request.
+ */
+export async function readJsonWithTimeout<T>(
+  response: Response,
+  timeoutMs = 15000
+): Promise<T> {
+  const reader = response.body?.getReader();
+  if (!reader) return response.json() as Promise<T>;
+
+  const decoder = new TextDecoder();
+  let text = "";
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const readBody = (async () => {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+    return JSON.parse(text) as T;
+  })();
+
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      void reader.cancel().catch(() => {});
+      reject(new Error("讀取資料逾時，請重試"));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([readBody, timeout]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    if (timedOut) void reader.cancel().catch(() => {});
+  }
+}

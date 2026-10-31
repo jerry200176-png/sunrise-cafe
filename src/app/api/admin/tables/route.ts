@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { requireAdminApiAuth, requirePermission } from "@/lib/admin-api-auth";
 
 function adminClient() {
   return createClient(
@@ -9,10 +10,14 @@ function adminClient() {
 }
 
 export async function GET(request: NextRequest) {
+  const authDenied = await requireAdminApiAuth(request);
+  if (authDenied) return authDenied;
   const branchId = request.nextUrl.searchParams.get("branchId");
   if (!branchId) {
     return NextResponse.json({ error: "缺少 branchId" }, { status: 400 });
   }
+  const denied = await requirePermission(request, "orders:read", branchId);
+  if (denied) return denied;
 
   const { data, error } = await adminClient()
     .from("tables")
@@ -25,12 +30,16 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const body = await request.json();
-  const { branch_id, number } = body as { branch_id: string; number: string };
+  const authDenied = await requireAdminApiAuth(request);
+  if (authDenied) return authDenied;
+  const body = await request.json().catch(() => null) as { branch_id?: unknown; number?: unknown } | null;
+  const { branch_id, number } = body ?? {};
 
-  if (!branch_id || !number?.trim()) {
+  if (typeof branch_id !== "string" || !branch_id.trim() || typeof number !== "string" || !number.trim()) {
     return NextResponse.json({ error: "缺少 branch_id 或桌號" }, { status: 400 });
   }
+  const denied = await requirePermission(request, "orders:write", branch_id);
+  if (denied) return denied;
 
   const { data, error } = await adminClient()
     .from("tables")

@@ -23,6 +23,7 @@ import {
   computeDepositDeadline,
   formatDepositDeadlineLabel,
   getDepositUrgency,
+  isDepositAutoCancelEnabled,
   shouldAutoRelease,
   shouldSendDepositReminder,
   shouldSendUrgentDepositReminder,
@@ -106,9 +107,15 @@ async function handleRun() {
   }
 
   try {
-  const rows = (await fetchUnpaidDepositDueReservations()) as unknown as Row[];
   const now = new Date();
+  // ADR-012（Founder 2026-10-21）：預設不因未付訂金取消訂位。
+  // 只有 DEPOSIT_DEADLINE_AUTO_CANCEL=true 才恢復逾期自動取消。
+  const autoCancel = isDepositAutoCancelEnabled();
+  const rows = (await fetchUnpaidDepositDueReservations(
+    autoCancel ? {} : { startAfter: now.toISOString() }
+  )) as unknown as Row[];
   let released = 0;
+  let deadlinePassed = 0;
   let reminded = 0;
   let urgentReminded = 0;
   let errors = 0;
@@ -137,13 +144,18 @@ async function handleRun() {
     console.error("[deposit-deadline] failed group release recovery unavailable:", safeLineDeliveryError(err));
   }
 
-  logPayment("deposit_deadline.cron_run", { candidate_count: rows.length });
+  logPayment("deposit_deadline.cron_run", { candidate_count: rows.length, auto_cancel_enabled: autoCancel });
 
   for (const r of rows) {
     const deadline = computeDepositDeadline(r.created_at, r.start_time);
     const { branchName } = describe(r);
 
     if (shouldAutoRelease(deadline, now)) {
+      if (!autoCancel) {
+        // 逾期但不取消：訂位維持原狀態與未付，等店家決定。
+        deadlinePassed++;
+        continue;
+      }
       try {
         const guestClaim = r.line_user_id
           ? await claimLineReminderDelivery({
@@ -396,7 +408,9 @@ async function handleRun() {
     message_count: messageCount,
     accepted_count: messageCount,
     rejected_count: errors,
+    auto_cancel_enabled: autoCancel,
     released,
+    deadline_passed: deadlinePassed,
     reminded,
     urgentReminded,
     errors,

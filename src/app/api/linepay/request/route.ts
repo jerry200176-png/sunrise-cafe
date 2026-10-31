@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDepositAmount } from "@/lib/booking-utils";
-import { computeDepositDeadline, shouldAutoRelease } from "@/lib/deposit-deadline";
+import { computeDepositDeadline, isDepositAutoCancelEnabled, shouldAutoRelease } from "@/lib/deposit-deadline";
 import { verifyGuestBookingById } from "@/lib/guest-auth";
 import {
   isLinePayConfigured,
@@ -66,9 +66,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "訂位金額無法確認，請聯繫店家" }, { status: 409 });
     }
 
-    const deadline = computeDepositDeadline(reservation.created_at, reservation.start_time);
-    if (shouldAutoRelease(deadline)) {
-      return NextResponse.json({ error: "訂金期限已過，請聯繫店家確認訂位" }, { status: 409 });
+    // ADR-012：逾期不自動取消時訂位仍有效，客人可以付到訂位開始為止。
+    if (isDepositAutoCancelEnabled()) {
+      const deadline = computeDepositDeadline(reservation.created_at, reservation.start_time);
+      if (shouldAutoRelease(deadline)) {
+        return NextResponse.json({ error: "訂金期限已過，請聯繫店家確認訂位" }, { status: 409 });
+      }
+    } else if (shouldAutoRelease(new Date(reservation.start_time))) {
+      return NextResponse.json({ error: "訂位時間已開始，請直接聯繫店家" }, { status: 409 });
     }
 
     const amount = getDepositAmount(Number(reservation.total_price));

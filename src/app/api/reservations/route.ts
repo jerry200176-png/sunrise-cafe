@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  fetchReservationsAdmin,
   insertReservationAdmin,
   isAdminConfigured,
   fetchRoom,
@@ -8,7 +7,6 @@ import {
 import { sendLineFlexToBranchGroup, buildNewBookingFlex } from "@/lib/line-notify";
 import { requireAdminApiAuth, getAdminContext } from "@/lib/admin-api-auth";
 import { assertReservationReadAllowed } from "@/lib/reservation-access";
-import { fetchPendingPaymentCountsByReservation } from "@/lib/payment-events-admin";
 import { computeReservationTotalPrice } from "@/lib/booking-utils";
 import { BOOKABLE_HTTP, checkBookable } from "@/lib/bookable";
 import { SlotConflictError } from "@/lib/slot-conflict";
@@ -16,8 +14,9 @@ import { createClient } from "@supabase/supabase-js";
 import { logOps } from "@/lib/ops-log";
 import { signLookupToken } from "@/lib/lookup-token";
 import { stableLineRetryKey } from "@/lib/line-retry-key";
-import { canonicalDraftItems, fetchPreorderSummaries, isReservationPreorderEnabled, type DraftItemInput } from "@/lib/reservation-preorder";
+import { canonicalDraftItems, isReservationPreorderEnabled, type DraftItemInput } from "@/lib/reservation-preorder";
 import { branchLineGroupIdForRoom } from "@/lib/branch-line-group";
+import { listReservationsForAdmin, parseReservationListParams } from "@/lib/reservation-list-query";
 
 function supabaseAdmin() {
   return createClient(
@@ -30,12 +29,13 @@ export async function GET(request: NextRequest) {
   const denied = await requireAdminApiAuth(request);
   if (denied) return denied;
 
-  const branchId = request.nextUrl.searchParams.get("branchId");
-  if (!branchId) {
-    return NextResponse.json({ error: "缺少 branchId" }, { status: 400 });
+  const parsed = parseReservationListParams(request.nextUrl.searchParams);
+  if (!parsed.ok) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
+  const { params } = parsed;
   const ctx = await getAdminContext(request);
-  const rbacDenied = assertReservationReadAllowed(ctx, branchId);
+  const rbacDenied = assertReservationReadAllowed(ctx, params.branchId);
   if (rbacDenied) {
     return NextResponse.json({ error: rbacDenied }, { status: 403 });
   }
@@ -46,16 +46,12 @@ export async function GET(request: NextRequest) {
     );
   }
   try {
-    const data = (await fetchReservationsAdmin(branchId)) as { id: string }[];
-    const ids = data.map((r) => r.id);
-    const pendingCounts = await fetchPendingPaymentCountsByReservation(ids).catch(() => new Map());
-    const preorders = await fetchPreorderSummaries(ids).catch(() => new Map());
-    const enriched = data.map((r) => ({
-      ...r,
-      pending_payment_reviews: pendingCounts.get(r.id) ?? 0,
-      preorder: preorders.get(r.id) ?? null,
-    }));
-    return NextResponse.json(enriched);
+    const result = await listReservationsForAdmin(params);
+    if (result.warnings.length) {
+      // 讀取路徑不寫 ops_events；留在 Vercel log 供追查，畫面另有提示列
+      console.warn("[reservations.list] partial", { branch_id: params.branchId, scope: params.scope, warnings: result.warnings });
+    }
+    return NextResponse.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法載入訂位";
     return NextResponse.json({ error: message }, { status: 500 });

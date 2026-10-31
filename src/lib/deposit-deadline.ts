@@ -1,5 +1,8 @@
 /**
- * 訂金到期邏輯（自動釋放未付款訂位 + 到期前提醒）
+ * 訂金到期邏輯（到期前提醒；逾期自動取消預設關閉，見 ADR-012）
+ *
+ * 2026-10-21 Founder：未付訂金不再自動取消訂位。逾期自動取消改由環境變數
+ * `DEPOSIT_DEADLINE_AUTO_CANCEL` 控制，未設定＝不取消；設成 `true` 才恢復舊行為。
  *
  * 規則（2026-08-14 調整，見 docs/DECISIONS.md ADR-009）：
  * 訂金繳款期限 = max(建立訂位起 48 小時, 訂位開始前 6 小時)，並以「訂位開始時間」封頂。
@@ -50,6 +53,24 @@ export function depositDeadlineRemainingMs(deadline: Date, now: Date = new Date(
   return Math.max(0, deadline.getTime() - now.getTime());
 }
 
+const TRUTHY = new Set(["1", "true", "on", "yes"]);
+
+/**
+ * 逾期是否自動取消訂位。預設關閉（ADR-012）；只有明確設定
+ * `DEPOSIT_DEADLINE_AUTO_CANCEL=true`（或 1/on/yes）才開啟。
+ */
+export function isDepositAutoCancelEnabled(
+  env: Record<string, string | undefined> = process.env
+): boolean {
+  return TRUTHY.has(String(env.DEPOSIT_DEADLINE_AUTO_CANCEL ?? "").trim().toLowerCase());
+}
+
+/** 對客說明：逾期未付會怎樣（依開關決定，避免承諾不會發生的自動釋放）。 */
+export function depositOverdueNote(autoCancel: boolean = isDepositAutoCancelEnabled()): string {
+  return autoCancel ? "逾期座位將自動釋放。" : "逾期未付，店家可能取消訂位。";
+}
+
+/** 期限是否已過（顯示、LINE Pay 期限判斷；是否取消另看 isDepositAutoCancelEnabled） */
 export function shouldAutoRelease(deadline: Date, now: Date = new Date()): boolean {
   return now.getTime() >= deadline.getTime();
 }

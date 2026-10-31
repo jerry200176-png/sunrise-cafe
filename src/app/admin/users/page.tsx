@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, UserPlus, RefreshCw, Shield } from "lucide-react";
+import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
+import { responseError, thrownMessage } from "@/lib/friendly-error";
 
 type AdminUser = {
   id: string;
@@ -36,21 +38,21 @@ export default function AdminUsersPage() {
     setError(null);
     try {
       const [meRes, usersRes] = await Promise.all([
-        fetch("/api/admin/me"),
-        fetch("/api/admin/users"),
+        fetchWithTimeout("/api/admin/me"),
+        fetchWithTimeout("/api/admin/users"),
       ]);
-      if (meRes.ok) setMe(await meRes.json());
-      const uData = await usersRes.json();
       if (usersRes.status === 403) {
         setError("僅 Owner 可管理使用者");
         return;
       }
-      if (usersRes.ok) {
-        setUsers(uData.users ?? []);
-        setMigrationRequired(Boolean(uData.migration_required));
-      }
+      if (!usersRes.ok) throw new Error(await responseError(usersRes));
+      if (!meRes.ok) throw new Error(await responseError(meRes));
+      setMe(await readJsonWithTimeout<Me>(meRes));
+      const uData = await readJsonWithTimeout<{ users?: AdminUser[]; migration_required?: boolean }>(usersRes);
+      setUsers(uData.users ?? []);
+      setMigrationRequired(Boolean(uData.migration_required));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "載入失敗");
+      setError(thrownMessage(e, "使用者資料載入失敗，請重新整理"));
     } finally {
       setLoading(false);
     }
@@ -183,11 +185,13 @@ export default function AdminUsersPage() {
         <section className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="font-semibold text-stone-800">使用者清單</h2>
-            <button type="button" onClick={load} className="text-stone-500 hover:text-stone-700">
+            <button type="button" onClick={load} disabled={loading} aria-label="重新整理使用者清單" className="text-stone-500 hover:text-stone-700 disabled:opacity-50">
               <RefreshCw className="h-4 w-4" />
             </button>
           </div>
-          {users.length === 0 ? (
+          {error ? (
+            <p className="text-sm text-stone-500">無法確認使用者清單，請重新整理。</p>
+          ) : users.length === 0 ? (
             <p className="text-sm text-stone-400">尚無 RBAC 使用者（仍可使用 ADMIN_PASSWORD 登入）</p>
           ) : (
             <ul className="divide-y text-sm">

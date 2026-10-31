@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { ArrowLeft, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, LogOut } from "lucide-react";
-import type { Branch, MenuItem, MenuCategory } from "@/types";
+import { ArrowLeft, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, LogOut, RefreshCw } from "lucide-react";
+import type { MenuItem, MenuCategory } from "@/types";
 import { responseError, thrownMessage } from "@/lib/friendly-error";
+import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
+import { useAdminBranches } from "@/lib/use-admin-branches";
 import { OptionSetsPanel } from "@/components/admin/OptionSetsPanel";
 import type { OptionSetView } from "@/lib/option-sets-db";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -36,8 +38,10 @@ interface MenuItemWithCategory extends MenuItem {
 }
 
 export default function AdminMenuPage() {
-  const [branches, setBranches] = useState<Branch[]>([]);
+  const { branches, loading: branchesLoading, error: branchesError, retry: retryBranches } = useAdminBranches();
   const [branchId, setBranchId] = useState<string>("");
+  // Keep old branch data inaccessible while the current scope is being confirmed.
+  const branchUnavailable = branchesLoading || Boolean(branchesError) || (Boolean(branchId) && !branches.some((branch) => branch.id === branchId));
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [items, setItems] = useState<MenuItemWithCategory[]>([]);
   const [loading, setLoading] = useState(false);
@@ -67,6 +71,8 @@ export default function AdminMenuPage() {
   const [confirmDeleteItemId, setConfirmDeleteItemId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const toastId = useRef(0);
+  const requestSequence = useRef(0);
+  const activeBranchId = useRef(branchId);
 
   const showToast = useCallback((message: string, variant: ToastVariant = "info") => {
     const id = ++toastId.current;
@@ -78,40 +84,55 @@ export default function AdminMenuPage() {
   }, []);
 
   useEffect(() => {
-    fetch("/api/branches")
-      .then((r) => r.json())
-      .then((d) => {
-        const list = Array.isArray(d) ? d : [];
-        setBranches(list);
-        if (list.length > 0) setBranchId(list[0].id);
-      });
-  }, []);
+    if (!branchId && branches.length > 0) { activeBranchId.current = branches[0].id; setBranchId(branches[0].id); }
+    else if (branchId && !branches.some((branch) => branch.id === branchId)) {
+      requestSequence.current++;
+      activeBranchId.current = "";
+      setBranchId("");
+      setItems([]); setCategories([]); setOptionSets([]);
+      setError(null); setLoading(false);
+      setFormOpen(false); setEditing(null); setCatFormOpen(false); setCatEditing(null); setConfirmDeleteItemId(null);
+    }
+  }, [branches, branchId]);
 
   const loadData = async (bid: string) => {
-    if (!bid) return;
+    if (bid !== activeBranchId.current) return;
+    const current = ++requestSequence.current;
+    if (!bid) {
+      setItems([]); setCategories([]); setOptionSets([]); setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
       const [itemRes, catRes, setRes] = await Promise.all([
-        fetch(`/api/admin/menu-items?branchId=${encodeURIComponent(bid)}`),
-        fetch(`/api/admin/menu-categories?branchId=${encodeURIComponent(bid)}`),
-        fetch(`/api/admin/menu-option-sets?branchId=${encodeURIComponent(bid)}`),
+        fetchWithTimeout(`/api/admin/menu-items?branchId=${encodeURIComponent(bid)}`, { credentials: "include" }),
+        fetchWithTimeout(`/api/admin/menu-categories?branchId=${encodeURIComponent(bid)}`, { credentials: "include" }),
+        fetchWithTimeout(`/api/admin/menu-option-sets?branchId=${encodeURIComponent(bid)}`, { credentials: "include" }),
       ]);
-      const itemData = await itemRes.json();
-      const catData = await catRes.json();
-      const setData = await setRes.json().catch(() => []);
-      setOptionSets(Array.isArray(setData) ? setData : []);
-      setItems(Array.isArray(itemData) ? itemData : []);
-      setCategories(Array.isArray(catData) ? catData : []);
-    } catch {
-      setError("載入失敗");
+      for (const res of [itemRes, catRes, setRes]) if (!res.ok) throw new Error(await responseError(res));
+      const [itemData, catData, setData] = await Promise.all([
+        readJsonWithTimeout<MenuItemWithCategory[]>(itemRes),
+        readJsonWithTimeout<MenuCategory[]>(catRes),
+        readJsonWithTimeout<OptionSetView[]>(setRes),
+      ]);
+      if (![itemData, catData, setData].every(Array.isArray)) throw new Error("菜單資料格式不正確，請重試");
+      if (current !== requestSequence.current || bid !== activeBranchId.current) return;
+      setOptionSets(setData as OptionSetView[]);
+      setItems(itemData as MenuItemWithCategory[]);
+      setCategories(catData as MenuCategory[]);
+    } catch (cause) {
+      if (current === requestSequence.current && bid === activeBranchId.current) {
+        setItems([]); setCategories([]); setOptionSets([]);
+        setError(thrownMessage(cause, "菜單載入失敗，請重試"));
+      }
     } finally {
-      setLoading(false);
+      if (current === requestSequence.current) setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (branchId) loadData(branchId);
+    void loadData(branchId);
   }, [branchId]);
 
   const openAdd = () => {
@@ -269,14 +290,35 @@ export default function AdminMenuPage() {
           </div>
           <div className="flex items-center gap-2">
             <select
+              aria-label="選擇分店"
+              id="menu-branch"
               value={branchId}
-              onChange={(e) => setBranchId(e.target.value)}
+              onChange={(e) => {
+                const nextBranchId = e.target.value;
+                requestSequence.current++;
+                activeBranchId.current = nextBranchId;
+                setItems([]); setCategories([]); setOptionSets([]);
+                setError(null); setLoading(Boolean(nextBranchId));
+              setFormOpen(false); setEditing(null); setCatFormOpen(false); setCatEditing(null); setConfirmDeleteItemId(null);
+                setBranchId(nextBranchId);
+              }}
+              disabled={saving || branchesLoading || Boolean(branchesError)}
               className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
             >
               {branches.map((b) => (
                 <option key={b.id} value={b.id}>{b.name}</option>
               ))}
             </select>
+            <button
+              type="button"
+              aria-label="重新整理分店"
+              title="重新整理分店"
+              onClick={() => void retryBranches()}
+              disabled={saving || branchesLoading}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            >
+              <RefreshCw className="h-4 w-4" aria-hidden />
+            </button>
             <button
               type="button"
               onClick={async () => {
@@ -300,10 +342,13 @@ export default function AdminMenuPage() {
           }} className="rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white">複製網址</button>
         </div>
         {error && (
-          <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800">
-            {error}
+          <div role="alert" className="flex items-center justify-between gap-3 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800">
+            <span>{error}</span><button type="button" onClick={() => void loadData(branchId)} disabled={!branchId || branchUnavailable || loading} className="min-h-[44px] rounded-lg border border-red-300 bg-white px-3 disabled:opacity-50">重試</button>
           </div>
         )}
+        {branchesError && <div role="alert" className="flex items-center justify-between gap-3 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800"><span>{branchesError}</span><button type="button" onClick={() => void retryBranches()} disabled={branchesLoading} className="min-h-[44px] rounded-lg border border-red-300 bg-white px-3 disabled:opacity-50">重試分店</button></div>}
+        {branchesLoading && <p role="status" className="text-sm text-gray-500">載入分店中…</p>}
+        {!branchesLoading && !branchesError && branches.length === 0 && <p role="status" className="rounded-lg bg-stone-100 px-4 py-3 text-sm text-stone-600">目前沒有可管理的分店。</p>}
 
         {/* 分類區 */}
         <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -312,12 +357,13 @@ export default function AdminMenuPage() {
             <button
               type="button"
               onClick={() => { setCatEditing(null); setCatName(""); setModalError(null); setCatFormOpen(true); }}
+              disabled={!branchId || branchUnavailable || loading || Boolean(error)}
               className="inline-flex items-center gap-1 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700"
             >
               <Plus className="h-4 w-4" /> 新增分類
             </button>
           </div>
-          {categories.length === 0 ? (
+          {loading ? <p role="status" className="text-sm text-gray-500">載入分類中…</p> : error || !branchId || branchUnavailable ? null : categories.length === 0 ? (
             <p className="text-sm text-gray-500">尚無分類</p>
           ) : (
             <div className="flex flex-wrap gap-2">
@@ -335,14 +381,14 @@ export default function AdminMenuPage() {
           )}
         </section>
 
-        <OptionSetsPanel
+        {branchId && !branchUnavailable && !loading && !error && <OptionSetsPanel
           branchId={branchId}
           sets={optionSets}
           categories={categories}
           items={items}
           onChanged={() => loadData(branchId)}
           notify={showToast}
-        />
+        />}
 
         {/* 餐點列表 */}
         <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -351,7 +397,7 @@ export default function AdminMenuPage() {
             <button
               type="button"
               onClick={openAdd}
-              disabled={!branchId}
+              disabled={!branchId || branchUnavailable || loading || Boolean(error)}
               className="inline-flex items-center gap-1 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
             >
               <Plus className="h-4 w-4" /> 新增餐點
@@ -360,7 +406,7 @@ export default function AdminMenuPage() {
 
           {loading ? (
             <p className="text-sm text-gray-500">載入中…</p>
-          ) : items.length === 0 ? (
+          ) : error || !branchId || branchUnavailable ? null : items.length === 0 ? (
             <p className="text-sm text-gray-500">尚無餐點</p>
           ) : (
             <div className="divide-y divide-gray-100">
@@ -443,7 +489,7 @@ export default function AdminMenuPage() {
       </div>
 
       {/* 餐點表單 Modal */}
-      {formOpen && (
+      {formOpen && !branchUnavailable && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-md rounded-xl bg-white p-4 shadow-xl max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-semibold mb-4">
@@ -553,7 +599,7 @@ export default function AdminMenuPage() {
       )}
 
       {/* 新增分類 Modal */}
-      {catFormOpen && (
+      {catFormOpen && !branchUnavailable && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-sm rounded-xl bg-white p-4 shadow-xl">
             <h3 className="text-lg font-semibold mb-4">{catEditing ? "編輯分類" : "新增分類"}</h3>
@@ -586,7 +632,7 @@ export default function AdminMenuPage() {
         </div>
       )}
       <ConfirmDialog
-        open={confirmDeleteItemId !== null}
+        open={confirmDeleteItemId !== null && !branchUnavailable}
         title="刪除餐點"
         message="確定要刪除此餐點嗎？"
         confirmLabel="刪除"

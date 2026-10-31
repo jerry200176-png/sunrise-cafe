@@ -35,3 +35,13 @@ updates:
       # Remove this rule in that PR. (#451)
       - dependency-name: "stripe"
         versions: [">=22.4.0"]
+  # Keeps the commit-SHA pins in .github/workflows current (version comment is updated too).
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      github-actions:
+        patterns:
+          - "*"

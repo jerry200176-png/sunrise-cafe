@@ -4,9 +4,11 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { logPayment } from "@/lib/payment-log";
 import { taipeiDateString } from "@/lib/datetime";
+import { chunk } from "@/lib/chunk";
 import { markDepositPaid } from "@/lib/deposit-paid";
 import { getDepositAmount } from "@/lib/booking-utils";
 import type { NotifyPaymentApprovedResult } from "@/lib/payment-notify";
+import { paymentRoomInScope } from "@/lib/payment-branch-scope";
 
 export type PaymentEventStatus = "pending_review" | "approved" | "rejected";
 
@@ -74,21 +76,25 @@ export async function fetchPendingPaymentCountsByReservation(
   const ready = await isPaymentEventsTableReady();
   if (!ready) return counts;
 
-  const { data, error } = await admin()
-    .from("payment_events")
-    .select("reservation_id")
-    .in("reservation_id", reservationIds)
-    .eq("status", "pending_review");
-  if (error) throw error;
+  // 切批：每批最多 100 個 id，避免 URL 過長整批失敗（任何一批失敗就往上拋，由呼叫端顯示警告）
+  for (const ids of chunk([...new Set(reservationIds)])) {
+    const { data, error } = await admin()
+      .from("payment_events")
+      .select("reservation_id")
+      .in("reservation_id", ids)
+      .eq("status", "pending_review");
+    if (error) throw error;
 
-  for (const row of data ?? []) {
-    const id = row.reservation_id as string;
-    counts.set(id, (counts.get(id) ?? 0) + 1);
+    for (const row of data ?? []) {
+      const id = row.reservation_id as string;
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
   }
   return counts;
 }
 
-export async function fetchPendingPaymentEvents(): Promise<PendingPaymentEvent[]> {
+export async function fetchPendingPaymentEvents(scope: string[] | null = null): Promise<PendingPaymentEvent[]> {
+  if (scope !== null && scope.length === 0) return [];
   const { data: events, error } = await admin()
     .from("payment_events")
     .select("id, reservation_id, source, status, raw_payload, created_at, reported_account_last_five, reported_amount, reported_at, created_by, updated_at, updated_by, reviewed_by")
@@ -98,13 +104,16 @@ export async function fetchPendingPaymentEvents(): Promise<PendingPaymentEvent[]
   if (!events?.length) return [];
 
   const resIds = [...new Set(events.map((e) => e.reservation_id))];
-  const { data: reservations, error: resErr } = await admin()
+  let reservationsQuery = admin()
     .from("reservations")
-    .select("id, booking_code, customer_name, phone, start_time, end_time, total_price, is_deposit_paid, status")
+    .select("id, booking_code, customer_name, phone, start_time, end_time, total_price, is_deposit_paid, status, rooms!inner(branch_id)")
     .in("id", resIds);
+  if (scope !== null) reservationsQuery = reservationsQuery.in("rooms.branch_id", scope);
+  const { data: reservations, error: resErr } = await reservationsQuery;
   if (resErr) throw resErr;
 
-  const byId = new Map((reservations ?? []).map((r) => [r.id, r]));
+  const visibleReservations = (reservations ?? []).filter((r) => paymentRoomInScope(r.rooms, scope));
+  const byId = new Map(visibleReservations.map((r) => [r.id, r]));
 
   return events
     .map((e): PendingPaymentEvent | null => {

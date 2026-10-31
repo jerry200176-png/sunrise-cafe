@@ -1,4 +1,4 @@
-# CODEOWNERS — require Founder review on critical paths
+# CODEOWNERS — review routing for critical paths (the ruleset requires no approvals; see governance/RULEBOOK.md)
 # https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
 * @jerry200176-png

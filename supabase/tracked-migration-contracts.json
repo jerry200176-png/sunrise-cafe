@@ -487,5 +487,34 @@
         "note": "CHECK now includes no_show — not visible via PostgREST"
       }
     ]
+  },
+  {
+    "version": "20261014-reservation-settlements",
+    "file": "migration-reservation-settlements.sql",
+    "critical": false,
+    "evidence": [
+      { "type": "table", "name": "reservation_settlements", "introspect": "rest" },
+      { "type": "table", "name": "reservation_extensions", "introspect": "rest" },
+      { "type": "column", "table": "reservation_settlements", "name": "payment_method", "introspect": "rest" },
+      {
+        "type": "function",
+        "name": "settle_reservation_checkout",
+        "introspect": "unsupported",
+        "note": "Atomic checkout: settlement row, paid_at and completed in one transaction"
+      },
+      {
+        "type": "function",
+        "name": "extend_reservation_stay",
+        "introspect": "unsupported",
+        "note": "Extension row and end_time update in one transaction"
+      },
+      {
+        "type": "constraint",
+        "name": "reservations_no_overlap_active_excl",
+        "table": "reservations",
+        "introspect": "unsupported",
+        "note": "Exclusion constraint releases cancelled and no_show slots"
+      }
+    ]
   }
 ]
