@@ -9,4 +9,4 @@ Dependabot 更新直接依賴 `postcss` 時，獨立寫死的同名 override 不
 - 症狀是 Dependabot 解析失敗；根因是相同直接套件的兩份規格可以漂移。使用單一參照處理根因，並保留 security override 的現有版本下限。
 
 ## 驗證與限制
-在隔離測試目錄重現版本規格漂移，再驗證引用後成功；確認 lockfile 的解析版本與 Stripe 契約不變，執行適當的安裝與檢查。#496 尚未合併，因此本工作不重複修改 Stripe；合併順序改變時需重新比對並於最終 SHA 重跑 CI。
+在隔離測試目錄重現版本規格漂移，再驗證引用後成功；確認 lockfile 的解析版本與 Stripe 契約不變，執行適當的安裝與檢查。#496 已合併並將 Stripe 固定在 `~22.3.2`；本工作保留該 direct dependency 與 lockfile，不改 Stripe API 版本或付款行為。日後 API/付款契約升級需獨立審查；合併順序改變時需重新比對並於最終 SHA 重跑 CI。
