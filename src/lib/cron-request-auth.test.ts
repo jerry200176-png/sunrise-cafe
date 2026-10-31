@@ -88,6 +88,13 @@ describe("authorizeCronGet", () => {
     if (!r.ok) expect(r.response.status).toBe(500);
   });
 
+  it("rejects a production request with neither secret nor cron header", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const result = authorizeCronGet(req());
+    expect(result.ok).toBe(false);
+  });
+
   it("fails closed when VERCEL_ENV=production even if NODE_ENV is not", () => {
     vi.stubEnv("VERCEL_ENV", "production");
     vi.spyOn(console, "error").mockImplementation(() => {});
