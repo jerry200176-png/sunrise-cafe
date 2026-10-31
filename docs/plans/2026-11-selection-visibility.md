@@ -13,3 +13,7 @@
 - W3C ARIA APG checkbox pattern：子項部分勾選時呈現 mixed，Space 操作核取方塊：https://www.w3.org/WAI/ARIA/apg/patterns/checkbox/
 - MDN `HTMLInputElement.indeterminate`：使用原生 checkbox 的 JavaScript 屬性反映部分狀態，與 checked 區別：https://developer.mozilla.org/en-US/docs/Web/API/HTMLInputElement/indeterminate
 - React Aria Checkbox（Apache-2.0）：以 indeterminate 表示群組部分選取；本改動沿用原生 input，不引入依賴：https://react-spectrum.adobe.com/react-aria/Checkbox.html
+
+## 切換分店的請求生命週期
+獨立複審發現原本未結案清單或批次預覽延遲回覆，可能在切換分店後覆蓋新畫面。分店切換時在繪製前清空選取、清單、預覽與編輯對話框，遞增代次使舊請求的成功、錯誤及 finally 都失效；清單同時以每次請求序號避免較慢的舊刷新覆蓋新結果。歷史記錄和單筆預覽沿用現有序號並在切店時失效，歷史深連結也檢查分店代次。A→B→A 不把第一個 A 的回覆當成目前請求。模擬資料測試涵蓋不同分店、延遲成功及錯誤、切店後新預覽仍在載入、返回第一間分店及不自動複製或傳送。
+切換時亦清除前店的繳費設定；新店設定未載入時延用既有通用話術，避免複製到前店匯款資訊。前店設定延遲回覆也須忽略。

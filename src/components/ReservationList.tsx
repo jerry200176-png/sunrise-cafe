@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
@@ -138,6 +138,10 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   /** 目前已載入的歷史篩選條件（null = 尚未載入）；切換分頁回來不重抓。 */
   const historyKeyRef = useRef<string | null>(null);
   const historyRequest = useRef(0);
+  const branchGeneration = useRef(0);
+  const currentBranch = useRef(branchId);
+  const activeRequest = useRef(0);
+  const batchRequest = useRef(0);
   const focusLookupRef = useRef<string | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"time_desc" | "time_asc" | "price_desc" | "price_asc">(
@@ -224,6 +228,9 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   const submitMessageAction = useCallback(
     async (action: "copied" | "manual_sent") => {
       if (!messageWorkbench) return false;
+      const generation = branchGeneration.current;
+      const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation;
+      if (!isCurrent()) return false;
       setMessageSubmitting(true);
       try {
         const response = await fetch(
@@ -242,21 +249,23 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
           text?: string;
           error?: string;
         };
+        if (!isCurrent()) return false;
         if (!response.ok) throw new Error(data.error ?? "訊息操作失敗");
         if (data.text) setMessageText(data.text);
         return true;
       } catch (error) {
-        showToast(error instanceof Error ? error.message : "訊息操作失敗", "error");
+        if (isCurrent()) showToast(error instanceof Error ? error.message : "訊息操作失敗", "error");
         return false;
       } finally {
-        setMessageSubmitting(false);
+        if (isCurrent()) setMessageSubmitting(false);
       }
     },
-    [messageTemplate, messageWorkbench, showToast]
+    [branchId, messageTemplate, messageWorkbench, showToast]
   );
 
   const copyWorkbenchMessage = useCallback(async () => {
     if (!messageText || messageLoading) return;
+    const generation = branchGeneration.current;
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(messageText);
@@ -268,21 +277,16 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         document.execCommand("copy");
         document.body.removeChild(textarea);
       }
+      if (branchGeneration.current !== generation || currentBranch.current !== branchId) return;
       const recorded = await submitMessageAction("copied");
       if (recorded) {
         setMessageCopied(true);
         showToast("已複製訊息；請貼到客人的 LINE 對話", "success");
       }
     } catch {
-      showToast("複製失敗，請手動選取訊息內容", "error");
+      if (branchGeneration.current === generation && currentBranch.current === branchId) showToast("複製失敗，請手動選取訊息內容", "error");
     }
-  }, [messageLoading, messageText, showToast, submitMessageAction]);
-
-  useEffect(() => {
-    setSelectedReservationIds([]);
-    setBatchWorkbench(null);
-    openedFocusReservationId.current = null;
-  }, [branchId]);
+  }, [branchId, messageLoading, messageText, showToast, submitMessageAction]);
 
   const toggleReservationSelection = useCallback((reservationId: string) => {
     setSelectedReservationIds((current) =>
@@ -301,6 +305,10 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   }, []);
 
   const openBatchDepositWorkbench = useCallback(async () => {
+    if (currentBranch.current !== branchId) return;
+    const generation = branchGeneration.current;
+    const requestId = ++batchRequest.current;
+    const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation && batchRequest.current === requestId;
     const reservationIds = [...selectedReservationIds];
     if (reservationIds.length === 0) {
       showToast("請先選取至少一筆訂位", "error");
@@ -325,6 +333,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         warnings?: string[];
         error?: string;
       };
+      if (!isCurrent()) return;
       if (!response.ok || !data.batch_id || !data.items || !data.combined_text) {
         throw new Error(data.error ?? "無法產生批次訂金訊息");
       }
@@ -337,11 +346,11 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         warnings: data.warnings ?? [],
       });
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "無法產生批次訂金訊息", "error");
+      if (isCurrent()) showToast(error instanceof Error ? error.message : "無法產生批次訂金訊息", "error");
     } finally {
-      setBatchLoading(false);
+      if (isCurrent()) setBatchLoading(false);
     }
-  }, [selectedReservationIds, showToast]);
+  }, [branchId, selectedReservationIds, showToast]);
 
   const openConfirm = useCallback((title: string, message: string) => {
     return new Promise<boolean>((resolve) => {
@@ -366,10 +375,49 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   historyFiltersRef.current = { range: historyRange, status: historyStatus, q: historySearch, key: historyKey };
   const historyCursorRef = useRef<string | null>(null);
 
+  // Invalidate every request from the previous branch before its data can be
+  // painted or an A → B → A navigation can make an old response current again.
+  useLayoutEffect(() => {
+    currentBranch.current = branchId;
+    branchGeneration.current += 1;
+    activeRequest.current += 1;
+    historyRequest.current += 1;
+    batchRequest.current += 1;
+    messagePreviewRequest.current += 1;
+    activeRowsRef.current = [];
+    historyRowsRef.current = [];
+    extraRowsRef.current = [];
+    historyKeyRef.current = null;
+    focusLookupRef.current = null;
+    openedFocusReservationId.current = null;
+    historyCursorRef.current = null;
+    setReservations([]);
+    setSelectedReservationIds([]);
+    setBatchWorkbench(null);
+    setBatchLoading(false);
+    setEditing(null);
+    setMessageWorkbench(null);
+    setMessageText("");
+    setMessageCopied(false);
+    setMessageLoading(false);
+    setMessageSubmitting(false);
+    setBranchConfig(null);
+    setLoading(Boolean(branchId));
+    setError(null);
+    setHistoryCursor(null);
+    setHistoryTotal(null);
+    setHistoryWarnings([]);
+    setHistoryError(null);
+    setHistoryLoading(false);
+    setHistoryLoadingMore(false);
+    setActiveWarnings([]);
+    return () => { branchGeneration.current += 1; };
+  }, [branchId]);
+
   /** 載入歷史紀錄：mode=replace 重抓第一頁（或目前已載入的筆數），append 為「載入更多」。 */
   const fetchHistory = useCallback(
     async (mode: "replace" | "append" | "refresh") => {
-      if (!branchId) return;
+      if (!branchId || currentBranch.current !== branchId) return;
       const requestId = ++historyRequest.current;
       const limit =
         mode === "refresh"
@@ -424,6 +472,10 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   );
 
   const fetchReservations = useCallback(async (showLoading = true) => {
+    if (currentBranch.current !== branchId) return;
+    const generation = branchGeneration.current;
+    const requestId = ++activeRequest.current;
+    const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation && activeRequest.current === requestId;
     if (!branchId) {
       activeRowsRef.current = [];
       setReservations([]);
@@ -436,6 +488,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       const params = new URLSearchParams({ branchId, scope: "active", _t: String(Date.now()) });
       const res = await fetch(`${RESERVATIONS_API}?${params.toString()}`);
       const data = (await res.json().catch(() => ({}))) as ReservationListResponse;
+      if (!isCurrent()) return;
       if (!res.ok) {
         setError(data.error ?? "無法載入訂位");
         if (showLoading) {
@@ -448,29 +501,18 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         publishRows();
       }
     } catch (e) {
+      if (!isCurrent()) return;
       setError(e instanceof Error ? e.message : "連線失敗");
       if (showLoading) {
         activeRowsRef.current = [];
         publishRows();
       }
     } finally {
-      if (showLoading) setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
     // 歷史紀錄已載入過才一起刷新（保留已載入的筆數）
-    if (historyKeyRef.current !== null) void fetchHistory("refresh");
+    if (isCurrent() && historyKeyRef.current !== null) void fetchHistory("refresh");
   }, [branchId, fetchHistory, publishRows]);
-
-  // 換分店：清掉歷史紀錄狀態
-  useEffect(() => {
-    historyRowsRef.current = [];
-    extraRowsRef.current = [];
-    historyKeyRef.current = null;
-    focusLookupRef.current = null;
-    historyCursorRef.current = null;
-    setHistoryCursor(null);
-    setHistoryTotal(null);
-    setHistoryWarnings([]);
-  }, [branchId]);
 
   // 搜尋字輸入停 300ms 才送到伺服器（只用於歷史紀錄；未結案列表已全部載入，在本機篩選）
   useEffect(() => {
@@ -497,10 +539,12 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       return;
     }
     let active = true;
+    const generation = branchGeneration.current;
+    const isCurrent = () => active && currentBranch.current === branchId && branchGeneration.current === generation;
     fetch(`/api/branches`)
       .then((res) => res.json())
       .then((list: unknown) => {
-        if (!active) return;
+        if (!isCurrent()) return;
         const found = Array.isArray(list)
           ? (list as BranchPaymentConfig & { id?: string }[]).find(
               (b) => (b as { id?: string }).id === branchId
@@ -509,7 +553,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         setBranchConfig((found as BranchPaymentConfig) ?? null);
       })
       .catch(() => {
-        if (active) setBranchConfig(null);
+        if (isCurrent()) setBranchConfig(null);
       });
     return () => {
       active = false;
@@ -581,10 +625,12 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       // 連結指到的訂位不在目前範圍（例如較早的歷史紀錄）：單獨向伺服器要這一筆
       if (!branchId || focusLookupRef.current === focusReservationId) return;
       focusLookupRef.current = focusReservationId;
+      const generation = branchGeneration.current;
       const params = new URLSearchParams({ branchId, scope: "history", id: focusReservationId });
       void fetch(`${RESERVATIONS_API}?${params.toString()}`)
         .then((res) => (res.ok ? res.json() : null))
         .then((data: ReservationListResponse | null) => {
+          if (branchGeneration.current !== generation || currentBranch.current !== branchId) return;
           const row = data?.items?.[0];
           if (!row) return;
           extraRowsRef.current = mergeById(extraRowsRef.current, [row]);
