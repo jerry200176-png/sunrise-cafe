@@ -80,7 +80,7 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@types/three": "0.185.0",
+    "@types/three": "0.186.0",
     "cross-env": "^7.0.3",
     "dotenv": "^16.4.5",
     "eslint": "^9",
