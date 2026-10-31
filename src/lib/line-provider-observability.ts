@@ -1,6 +1,7 @@
 import { logOps } from "@/lib/ops-log";
+import { lineHttpFailure } from "@/lib/line-send-error";
 
-/** Record provider rejection without logging access tokens, user IDs, or payloads. */
+/** Record provider errors without guessing acceptance or logging recipient data. */
 export function observeLineProviderRejection(input: {
   channel: "group" | "customer" | "reply";
   operation: "push" | "reply";
@@ -14,6 +15,7 @@ export function observeLineProviderRejection(input: {
     retry_key_present: Boolean(input.retryKey),
     escalation: "caller_and_cron_failure_path",
   };
-  console.error("[line] provider rejection", detail);
-  logOps("line", "line.provider_rejected", detail);
+  const unknown = lineHttpFailure(input.status) === "unknown";
+  console.error(unknown ? "[line] provider outcome unknown" : "[line] provider rejection", detail);
+  logOps("line", unknown ? "line.provider_unknown" : "line.provider_rejected", detail);
 }

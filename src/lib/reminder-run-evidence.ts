@@ -19,6 +19,7 @@ export type ReminderRunEvidence = {
   accepted_count: number;
   rejected_count: number;
   unknown_delivery_count: number;
+  unresolved_claim_count: number;
   duplicate_suppressed_count: number;
   status:
     | "succeeded"
@@ -52,6 +53,10 @@ export function buildReminderRunEvidence(input: {
   message_attempt_count: number;
   accepted_count: number;
   rejected_count: number;
+  /** Requests whose provider response could not establish acceptance. */
+  unknown_attempt_count?: number;
+  /** Existing ledger claims whose final state is not confirmed sent. */
+  unresolved_claim_count?: number;
   duplicate_suppressed_count?: number;
   result:
     | "sent"
@@ -77,8 +82,8 @@ export function buildReminderRunEvidence(input: {
     status = "succeeded_with_zero_work";
   else status = "succeeded";
 
-  const unknown =
-    input.accepted_count > 0 ? input.accepted_count : 0; // accepted ≠ delivered
+  const unresolvedClaims = input.unresolved_claim_count ?? 0;
+  const unknown = input.accepted_count + (input.unknown_attempt_count ?? 0) + unresolvedClaims; // accepted ≠ delivered
 
   return {
     run_id: input.run_id ?? `local-${input.invoked_at}`,
@@ -91,6 +96,7 @@ export function buildReminderRunEvidence(input: {
     accepted_count: input.accepted_count,
     rejected_count: input.rejected_count,
     unknown_delivery_count: unknown,
+    unresolved_claim_count: unresolvedClaims,
     duplicate_suppressed_count: duplicate,
     status,
     application_sha: input.application_sha ?? process.env.VERCEL_GIT_COMMIT_SHA ?? null,
@@ -99,7 +105,7 @@ export function buildReminderRunEvidence(input: {
       ? input.error.replace(/U[0-9a-f]{32}/gi, "[redacted_line_user]").slice(0, 200)
       : null,
     delivery_certainty:
-      input.accepted_count > 0
+      unknown > 0
         ? "delivery_unknown"
         : input.rejected_count > 0
           ? "rejected_by_line"

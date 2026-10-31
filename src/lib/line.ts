@@ -8,6 +8,7 @@ import {
 } from "@/lib/line-cards";
 import type { LineFlexContainer } from "@/lib/line-flex";
 import { observeLineProviderRejection } from "@/lib/line-provider-observability";
+import { LineSendError, lineHttpFailure } from "@/lib/line-send-error";
 import { branchCustomerBots, customerTokenForBranch } from "@/lib/customer-line-bots";
 import { branchIdForReservation, branchIdForRoom } from "@/lib/branch-line-group";
 import { supabaseAdmin } from "@/lib/supabase-admin";
@@ -49,8 +50,13 @@ async function lineCustomerFetch(
   body: Record<string, unknown>,
   options?: LineCustomerSendOptions
 ): Promise<void> {
-  const token = await customerSendToken(options);
-  if (!token) throw new Error("LINE_CUSTOMER_ACCESS_TOKEN 未設定");
+  let token: string | undefined;
+  try {
+    token = await customerSendToken(options);
+  } catch {
+    throw new LineSendError("無法確認客人 LINE 帳號", "not_sent");
+  }
+  if (!token) throw new LineSendError("LINE_CUSTOMER_ACCESS_TOKEN 未設定", "not_sent");
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -66,7 +72,7 @@ async function lineCustomerFetch(
     body: JSON.stringify(body),
   });
 
-  if (res.status === 409 && options?.retryKey) {
+  if (res.status === 409 && options?.retryKey && res.headers.get("x-line-accepted-request-id")) {
     const acceptedReqId = res.headers.get("x-line-accepted-request-id");
     console.info(
       `[line] 409 Conflict: retryKey ${options.retryKey} already accepted by LINE Platform (acceptedReqId: ${acceptedReqId})`
@@ -75,14 +81,15 @@ async function lineCustomerFetch(
   }
 
   if (!res.ok) {
-    const text = await res.text();
+    // The status classifies acceptance; never wait on or expose the provider body.
+    try { void res.body?.cancel().catch(() => {}); } catch { /* Body already locked. */ }
     observeLineProviderRejection({
       channel: "customer",
       operation: "push",
       status: res.status,
       retryKey: options?.retryKey,
     });
-    throw new Error(`LINE push 失敗：${res.status} ${text}`);
+    throw new LineSendError(`LINE push 失敗：${res.status}`, lineHttpFailure(res.status));
   }
 }
 

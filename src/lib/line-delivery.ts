@@ -14,6 +14,15 @@ export type LineDeliveryClaim =
   | { available: true; id: null }
   | { available: false; id: null };
 
+export type ExistingReminderDeliveryState = "sending" | "sent" | "failed" | "missing";
+export type ReminderDeliveryKey = {
+  reminderType: LineReminderDeliveryType;
+  reminderDate: string;
+  reservationId: string;
+  recipientType: "group" | "guest";
+  recipientId: string;
+};
+
 function isLedgerUnavailable(error: { message?: string; code?: string } | null): boolean {
   return Boolean(
     error &&
@@ -24,13 +33,7 @@ function isLedgerUnavailable(error: { message?: string; code?: string } | null):
 }
 
 /** Atomically claim one reservation/recipient reminder before calling LINE. */
-export async function claimLineReminderDelivery(input: {
-  reminderType: LineReminderDeliveryType;
-  reminderDate: string;
-  reservationId: string;
-  recipientType: "group" | "guest";
-  recipientId: string;
-}): Promise<LineDeliveryClaim> {
+export async function claimLineReminderDelivery(input: ReminderDeliveryKey): Promise<LineDeliveryClaim> {
   const { data, error } = await supabaseAdmin()
     .rpc("claim_line_reminder_delivery", {
       p_reminder_type: input.reminderType,
@@ -54,6 +57,60 @@ export async function claimLineReminderDelivery(input: {
     throw error;
   }
   return { available: true, id: (data as { delivery_id?: string } | null)?.delivery_id ?? null };
+}
+
+/** Resolve a lost claim without changing any ledger row or exposing recipient data. */
+export async function readLineReminderDeliveryState(input: ReminderDeliveryKey): Promise<ExistingReminderDeliveryState> {
+  const { data, error } = await supabaseAdmin()
+    .from("line_reminder_deliveries")
+    .select("status")
+    .eq("reminder_type", input.reminderType)
+    .eq("reminder_date", input.reminderDate)
+    .eq("reservation_id", input.reservationId)
+    .eq("recipient_type", input.recipientType)
+    .eq("recipient_id", input.recipientId)
+    .maybeSingle();
+  // Do not expose raw database errors or assume a failed read means sent.
+  if (error) throw new Error("無法確認提醒紀錄狀態");
+  const status = (data as { status?: unknown } | null)?.status;
+  return status === "sending" || status === "sent" || status === "failed" ? status : "missing";
+}
+
+/** Another branch key may represent a previous configuration with an unknown outcome. */
+export async function hasOtherGroupDelivery(input: ReminderDeliveryKey): Promise<boolean> {
+  const { data, error } = await supabaseAdmin()
+    .from("line_reminder_deliveries")
+    .select("id")
+    .eq("reminder_type", input.reminderType)
+    .eq("reminder_date", input.reminderDate)
+    .eq("reservation_id", input.reservationId)
+    .eq("recipient_type", "group")
+    .neq("recipient_id", "legacy-group")
+    .neq("recipient_id", input.recipientId)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error("無法確認群組提醒歷史紀錄");
+  return Boolean(data);
+}
+
+/** A missing claim can mean the reservation changed after the candidate query. */
+export async function isReminderNoLongerRequired(input: ReminderDeliveryKey): Promise<boolean> {
+  const { data, error } = await supabaseAdmin()
+    .from("reservations")
+    .select("status,is_notified,d1_guest_reminder_sent_at,line_user_id")
+    .eq("id", input.reservationId)
+    .maybeSingle();
+  if (error) throw new Error("無法確認訂位提醒狀態");
+  if (!data) return false;
+  const row = data as { status?: unknown; is_notified?: unknown; d1_guest_reminder_sent_at?: unknown; line_user_id?: unknown };
+  if (typeof row.status !== "string") return false;
+  if (["cancelled", "no_show", "completed"].includes(row.status)) return true;
+  if (row.status !== "pending" && row.status !== "confirmed") return false;
+  if (input.reminderType === "d1_group") return row.is_notified === true;
+  if (input.reminderType === "d1_guest") {
+    return Boolean(row.d1_guest_reminder_sent_at) || row.line_user_id === null;
+  }
+  return false;
 }
 
 export async function markLineReminderDelivery(

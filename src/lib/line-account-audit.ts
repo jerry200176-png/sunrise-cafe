@@ -78,8 +78,9 @@ async function botInfo(token: string): Promise<{ userId: string | null; displayN
     const response = await fetch("https://api.line.me/v2/bot/info", {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
     });
-    if (!response.ok) return { userId: null, displayName: null, basicId: null, error: `token 無效或已過期（LINE 回 ${response.status}）` };
+    if (!response.ok) return { userId: null, displayName: null, basicId: null, error: `LINE 回 ${response.status}，無法確認帳號` };
     const info = (await response.json()) as { userId?: string; displayName?: string; basicId?: string };
     if (!info.userId) return { userId: null, displayName: info.displayName ?? null, basicId: info.basicId ?? null, error: "LINE 沒有回帳號 ID" };
     return { userId: info.userId, displayName: info.displayName ?? null, basicId: info.basicId ?? null, error: null };

@@ -3,6 +3,9 @@ import {
   claimLineReminderDelivery,
   claimFailedLineReminderDelivery,
   markLineReminderDelivery,
+  readLineReminderDeliveryState,
+  hasOtherGroupDelivery,
+  isReminderNoLongerRequired,
   safeLineDeliveryError,
 } from "./line-delivery";
 
@@ -16,6 +19,8 @@ function mockClient(input: {
   claim?: { delivery_id?: string } | null;
   claimError?: { code?: string; message?: string } | null;
   updateError?: { code?: string; message?: string } | null;
+  status?: string | null;
+  statusError?: { message?: string } | null;
 }) {
   const maybeSingle = vi.fn().mockResolvedValue({
     data: input.claim ?? null,
@@ -24,8 +29,11 @@ function mockClient(input: {
   const rpc = vi.fn(() => ({ maybeSingle }));
   const updateEq = vi.fn().mockResolvedValue({ error: input.updateError ?? null });
   const update = vi.fn(() => ({ eq: updateEq }));
-  const from = vi.fn(() => ({ update }));
-  return { rpc, from, maybeSingle, update, updateEq };
+  const statusMaybeSingle = vi.fn().mockResolvedValue({ data: input.status ? { status: input.status } : null, error: input.statusError ?? null });
+  const statusEq: ReturnType<typeof vi.fn> = vi.fn(() => ({ eq: statusEq, maybeSingle: statusMaybeSingle }));
+  const statusSelect = vi.fn(() => ({ eq: statusEq }));
+  const from = vi.fn(() => ({ update, select: statusSelect }));
+  return { rpc, from, maybeSingle, update, updateEq, statusEq, statusSelect };
 }
 
 beforeEach(() => {
@@ -34,6 +42,47 @@ beforeEach(() => {
 });
 
 describe("line reminder delivery ledger", () => {
+  it("queries for other group history without returning recipient identifiers", async () => {
+    const maybeSingle = vi.fn().mockResolvedValue({ data: { id: "delivery" }, error: null });
+    const limit = vi.fn(() => ({ maybeSingle }));
+    const neq: ReturnType<typeof vi.fn> = vi.fn(() => ({ limit, neq }));
+    const eq: ReturnType<typeof vi.fn> = vi.fn(() => ({ eq, neq }));
+    const select = vi.fn(() => ({ eq }));
+    vi.mocked(supabaseAdmin).mockReturnValue({ from: vi.fn(() => ({ select })) } as never);
+    await expect(hasOtherGroupDelivery({ reminderType: "d1_group", reminderDate: "2026-09-05", reservationId: "r1", recipientType: "group", recipientId: "legacy-group" })).resolves.toBe(true);
+    expect(select).toHaveBeenCalledWith("id");
+    expect(neq).toHaveBeenCalledWith("recipient_id", "legacy-group");
+  });
+
+  it("excludes both the legacy guard and the current branch from historical branch checks", async () => {
+    const maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+    const limit = vi.fn(() => ({ maybeSingle }));
+    const neq: ReturnType<typeof vi.fn> = vi.fn(() => ({ limit, neq }));
+    const eq: ReturnType<typeof vi.fn> = vi.fn(() => ({ eq, neq }));
+    vi.mocked(supabaseAdmin).mockReturnValue({ from: vi.fn(() => ({ select: () => ({ eq }) })) } as never);
+    await expect(hasOtherGroupDelivery({ reminderType: "d1_group", reminderDate: "2026-09-05", reservationId: "r1", recipientType: "group", recipientId: "G-new" })).resolves.toBe(false);
+    expect(neq).toHaveBeenCalledWith("recipient_id", "legacy-group");
+    expect(neq).toHaveBeenCalledWith("recipient_id", "G-new");
+  });
+  it.each([
+    [{ status: "cancelled", is_notified: false, d1_guest_reminder_sent_at: null, line_user_id: "U-old" }, "d1_group", true],
+    [{ status: "confirmed", is_notified: true, d1_guest_reminder_sent_at: null, line_user_id: null }, "d1_group", true],
+    [{ status: "confirmed", is_notified: false, d1_guest_reminder_sent_at: "2026-01-01", line_user_id: "U-old" }, "d1_guest", true],
+    [{ status: "confirmed", is_notified: false, d1_guest_reminder_sent_at: null, line_user_id: null }, "d1_guest", true],
+    [{ status: "confirmed", is_notified: false, d1_guest_reminder_sent_at: null, line_user_id: "U-new" }, "d1_guest", false],
+    [{ status: "confirmed", is_notified: false, d1_guest_reminder_sent_at: null, line_user_id: "U-old" }, "d1_group", false],
+    [null, "d1_group", false],
+  ] as const)("checks current eligibility safely after a missing claim: %s", async (row, reminderType, expected) => {
+    const maybeSingle = vi.fn().mockResolvedValue({ data: row, error: null });
+    const eq = vi.fn(() => ({ maybeSingle }));
+    const select = vi.fn(() => ({ eq }));
+    const from = vi.fn(() => ({ select }));
+    vi.mocked(supabaseAdmin).mockReturnValue({ from } as never);
+    await expect(isReminderNoLongerRequired({ reminderType, reminderDate: "2026-09-05", reservationId: "r1", recipientType: reminderType === "d1_group" ? "group" : "guest", recipientId: "U-old" })).resolves.toBe(expected);
+    expect(from).toHaveBeenCalledWith("reservations");
+    expect(eq).toHaveBeenCalledWith("id", "r1");
+  });
+
   it("reclaims a failed delivery with a compare-and-swap", async () => {
     const readMaybeSingle = vi.fn().mockResolvedValue({
       data: { id: "delivery-1", attempt_count: 2 },
@@ -130,6 +179,26 @@ describe("line reminder delivery ledger", () => {
     });
 
     expect(result).toEqual({ available: true, id: null });
+  });
+
+  it.each(["sending", "sent", "failed"] as const)("reads the existing %s state without a write", async (status) => {
+    const client = mockClient({ status });
+    vi.mocked(supabaseAdmin).mockReturnValue(client as never);
+    const result = await readLineReminderDeliveryState({ reminderType: "d1_guest", reminderDate: "2026-09-05", reservationId: "r1", recipientType: "guest", recipientId: "private-recipient" });
+    expect(result).toBe(status);
+    expect(client.statusSelect).toHaveBeenCalledWith("status");
+    expect(client.statusEq.mock.calls).toEqual([
+      ["reminder_type", "d1_guest"], ["reminder_date", "2026-09-05"], ["reservation_id", "r1"], ["recipient_type", "guest"], ["recipient_id", "private-recipient"],
+    ]);
+    expect(client.update).not.toHaveBeenCalled();
+  });
+
+  it("does not guess that an absent or unreadable ledger record was sent", async () => {
+    const key = { reminderType: "d1_guest" as const, reminderDate: "2026-09-05", reservationId: "r1", recipientType: "guest" as const, recipientId: "private-recipient" };
+    vi.mocked(supabaseAdmin).mockReturnValue(mockClient({}) as never);
+    await expect(readLineReminderDeliveryState(key)).resolves.toBe("missing");
+    vi.mocked(supabaseAdmin).mockReturnValue(mockClient({ statusError: { message: "sensitive-provider-detail" } }) as never);
+    await expect(readLineReminderDeliveryState(key)).rejects.toThrow("無法確認提醒紀錄狀態");
   });
 
   it("marks a claimed delivery sent", async () => {

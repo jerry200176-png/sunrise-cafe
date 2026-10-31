@@ -74,6 +74,17 @@ describe("auditLineAccounts", () => {
     expect(audit.collisions).toEqual([]);
     expect(audit.identityComplete).toBe(false);
   });
+
+  it("reports a provider outage as unknown without claiming the token is invalid", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("provider detail", { status: 503 })));
+    const audit = await auditLineAccounts(env({ LINE_CUSTOMER_ACCESS_TOKEN: "customer-token" }));
+    const customer = audit.accounts.find((account) => account.role === "customer");
+    expect(customer?.error).toContain("503");
+    expect(customer?.error).toContain("無法確認");
+    expect(customer?.error).not.toContain("無效");
+    expect(audit.identityComplete).toBe(false);
+    expect(JSON.stringify(audit)).not.toMatch(/customer-token|provider detail/);
+  });
 });
 
 describe("checkLineAccountsAndAlert", () => {

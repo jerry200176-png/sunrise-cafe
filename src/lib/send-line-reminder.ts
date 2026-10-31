@@ -19,6 +19,7 @@ import {
   LineInformationalSuppressedError,
 } from "@/lib/line-notify";
 import { sendLineFlexMessage } from "@/lib/line";
+import { lineSendFailure } from "@/lib/line-send-error";
 import {
   buildGuestReminderDigestFlexChunks,
   REMINDER_DIGEST_CAROUSEL_MAX,
@@ -42,6 +43,9 @@ import { reminderScheduleWindow } from "@/lib/reminder-schedule";
 import {
   claimLineReminderDelivery,
   markLineReminderDelivery,
+  readLineReminderDeliveryState,
+  hasOtherGroupDelivery,
+  isReminderNoLongerRequired,
   safeLineDeliveryError,
   type LineReminderDeliveryType,
 } from "@/lib/line-delivery";
@@ -81,6 +85,9 @@ export type ReminderRunObservability = {
   /** Phase 1: LINE acceptance ≠ end-user delivery */
   accepted_count: number;
   rejected_count: number;
+  unknown_attempt_count: number;
+  /** Ledger claims not confirmed sent; they are not current provider attempts. */
+  unresolved_claim_count: number;
   delivery_certainty: "accepted_by_line" | "rejected_by_line" | "delivery_unknown" | "not_attempted";
 };
 
@@ -114,8 +121,8 @@ function reminderDate(row: Record<string, unknown>): string {
   return taipeiDateString(new Date(String(row.start_time)));
 }
 
-type ClaimedRow = { row: Record<string, unknown>; deliveryId: string | null };
-type ClaimRowsResult = { toSend: ClaimedRow[]; handledRows: Record<string, unknown>[] };
+type ClaimedRow = { row: Record<string, unknown>; deliveryId: string | null; guardDeliveryId?: string | null };
+type ClaimRowsResult = { toSend: ClaimedRow[]; handledRows: Record<string, unknown>[]; unresolvedRows: Record<string, unknown>[]; claimError?: unknown };
 
 async function claimRows(
   rows: Record<string, unknown>[],
@@ -126,33 +133,103 @@ async function claimRows(
 ): Promise<ClaimRowsResult> {
   const toSend: ClaimedRow[] = [];
   const handledRows: Record<string, unknown>[] = [];
+  const unresolvedRows: Record<string, unknown>[] = [];
   for (const row of rows) {
-    const result = await claimLineReminderDelivery({
-      reminderType,
-      reminderDate: reminderDateValue,
-      reservationId: String(row.id),
-      recipientType,
-      recipientId,
-    });
-    // Before the migration is available, preserve the old flag-based behavior.
-    // Once the ledger exists, only an explicit claim may send.
-    if (!result.available || result.id) toSend.push({ row, deliveryId: result.id });
-    else handledRows.push(row);
+    let guardDeliveryId: string | null = null;
+    try {
+      const key = {
+        reminderType,
+        reminderDate: reminderDateValue,
+        reservationId: String(row.id),
+        recipientType,
+        recipientId,
+      };
+      // Share the old key with legacy deployments so a configuration change cannot
+      // bypass an in-flight send. The branch-specific row records the actual target.
+      if (recipientType === "group" && recipientId !== "legacy-group") {
+        const guardKey = { ...key, recipientId: "legacy-group" };
+        const guard = await claimLineReminderDelivery(guardKey);
+        if (!guard.available) {
+          toSend.push({ row, deliveryId: null });
+          continue;
+        }
+        if (!guard.id) {
+          const state = await readLineReminderDeliveryState(guardKey);
+          if (state === "sent") {
+            // Historic legacy rows cannot prove the destination; require a
+            // matching branch-specific sent row before calling this complete.
+            if (await readLineReminderDeliveryState(key) === "sent") handledRows.push(row);
+            else unresolvedRows.push(row);
+          } else if (state === "missing") {
+            const branchState = await readLineReminderDeliveryState(key);
+            if (branchState === "sent" || (branchState === "missing" && !await hasOtherGroupDelivery(key) && await isReminderNoLongerRequired(key))) handledRows.push(row);
+            else unresolvedRows.push(row);
+          } else unresolvedRows.push(row);
+          continue;
+        }
+        // Older branch configurations wrote only their actual group key. Hold
+        // the shared guard if such history exists or the safety read fails.
+        if (await hasOtherGroupDelivery(key)) {
+          unresolvedRows.push(row);
+          continue;
+        }
+        guardDeliveryId = guard.id;
+      }
+      const result = await claimLineReminderDelivery(key);
+      if (recipientType === "group" && recipientId === "legacy-group" && result.available) {
+        // Once held, keep this guard on read failure or ambiguous older branch
+        // history; releasing it could allow an unverified duplicate send.
+        if (await hasOtherGroupDelivery(key)) {
+          unresolvedRows.push(row);
+          continue;
+        }
+      }
+      if (guardDeliveryId && !result.available) throw new Error("無法確認分店提醒紀錄");
+      if (result.available && !result.id) {
+        const state = await readLineReminderDeliveryState(key);
+        if (state === "sent") {
+          if (guardDeliveryId) {
+            const heldGuard = guardDeliveryId;
+            guardDeliveryId = null; // Prior delivery is proven; never release this guard as failed.
+            await markLineReminderDelivery(heldGuard, { status: "sent", error: null });
+          }
+          handledRows.push(row);
+        } else if (state === "missing" && await isReminderNoLongerRequired(key)) {
+          if (guardDeliveryId) await markLineReminderDelivery(guardDeliveryId, { status: "failed", error: null });
+          handledRows.push(row);
+        } else {
+          // Keep the guard held if another request may already be in flight.
+          unresolvedRows.push(row);
+        }
+        continue;
+      }
+      if (!result.available || result.id) toSend.push({ row, deliveryId: result.id, guardDeliveryId });
+    } catch (claimError) {
+      if (guardDeliveryId) toSend.push({ row, deliveryId: null, guardDeliveryId });
+      return { toSend, handledRows, unresolvedRows, claimError };
+    }
   }
-  return { toSend, handledRows };
+  return { toSend, handledRows, unresolvedRows };
 }
 
 async function settleClaims(claimed: ClaimedRow[], status: "sent" | "failed", error?: unknown) {
   await Promise.all(
-    claimed
-      .filter((item) => item.deliveryId)
-      .map((item) =>
-        markLineReminderDelivery(item.deliveryId!, {
+    claimed.flatMap((item) => [item.deliveryId, item.guardDeliveryId].filter((id): id is string => Boolean(id)))
+      .map((id) =>
+        markLineReminderDelivery(id, {
           status,
           error: status === "failed" ? safeLineDeliveryError(error) : null,
         })
       )
   );
+}
+
+/** Only release claims that definitely never reached LINE, or were explicitly rejected. */
+async function releaseClaims(claimed: ClaimedRow[], error: unknown): Promise<boolean> {
+  const results = await Promise.allSettled(claimed.flatMap((item) => [item.deliveryId, item.guardDeliveryId].filter((id): id is string => Boolean(id))).map((id) =>
+    markLineReminderDelivery(id, { status: "failed", error: safeLineDeliveryError(error) })
+  ));
+  return results.every((result) => result.status === "fulfilled");
 }
 
 async function pushDigestToGroup(
@@ -165,12 +242,31 @@ async function pushDigestToGroup(
   const handledRows: Record<string, unknown>[] = [];
   let messageCount = 0;
   let errorCount = 0;
+  let runtimeErrors = 0;
+  let unknownAttempts = 0;
+  let unresolvedClaims = 0;
+  let runtimeError: string | null = null;
   const recipientId = groupId ?? "legacy-group";
   const date = reminderDate(rows[0]!);
   for (let offset = 0; offset < rows.length; offset += REMINDER_DIGEST_CAROUSEL_MAX) {
     const rowChunk = rows.slice(offset, offset + REMINDER_DIGEST_CAROUSEL_MAX);
     const claims = await claimRows(rowChunk, reminderType, date, "group", recipientId);
-    handledRows.push(...claims.handledRows);
+    unresolvedClaims += claims.unresolvedRows.length;
+    if (claims.unresolvedRows.length) runtimeError = "群組提醒紀錄尚未確認，請先查證";
+    if ("claimError" in claims) {
+      // Preserve earlier chunk acceptances and any partially acquired claims.
+      // This chunk must not fall through to another staff recipient on claim failure.
+      handledRows.push(...rowChunk);
+      runtimeErrors++;
+      runtimeError = safeLineDeliveryError(claims.claimError);
+      if (!await releaseClaims(claims.toSend, claims.claimError)) {
+        runtimeErrors++;
+        runtimeError = "無法釋放尚未送出的群組提醒，需人工確認";
+      }
+      console.error(`[send-line] group claim failed: ${runtimeError}`);
+      continue;
+    }
+    handledRows.push(...claims.handledRows, ...claims.unresolvedRows);
     if (claims.toSend.length === 0) continue;
     const claimed = claims.toSend;
     handledRows.push(...claimed.map((item) => item.row));
@@ -180,8 +276,11 @@ async function pushDigestToGroup(
       : "";
     const alt = `${labelPrefix}，共 ${rows.length} 筆${part}`;
     let accepted = false;
+    let invoked = false;
     try {
       const [chunk] = buildReminderDigestFlexChunks(enriched);
+      if (!chunk) throw new Error("無法建立群組提醒內容");
+      invoked = true;
       if (groupId) await sendLineFlexToGroup(alt, chunk!, groupId);
       else await sendLineFlex(alt, chunk!);
       accepted = true;
@@ -192,12 +291,25 @@ async function pushDigestToGroup(
       );
       sentRows.push(...claimed.map((item) => item.row));
     } catch (error) {
-      errorCount++;
-      await settleClaims(claimed, accepted ? "sent" : "failed", error);
+      runtimeError = safeLineDeliveryError(error);
+      if (accepted) {
+        runtimeErrors++;
+        try { await settleClaims(claimed, "sent"); }
+        catch (settlementError) { runtimeError = safeLineDeliveryError(settlementError); }
+      } else {
+        const outcome = invoked ? lineSendFailure(error) : "not_sent";
+        if (outcome === "rejected") errorCount++;
+        else runtimeErrors++;
+        if (outcome === "unknown") unknownAttempts++;
+        else if (!await releaseClaims(claimed, error)) {
+          runtimeErrors++;
+          runtimeError = "無法釋放尚未送出或已拒絕的群組提醒，需人工確認";
+        }
+      }
       console.error(`[send-line] 群組摘要傳送失敗: ${safeLineDeliveryError(error)}`);
     }
   }
-  return { sent: messageCount, errors: errorCount, rows: sentRows, handled: handledRows };
+  return { sent: messageCount, errors: errorCount, runtimeErrors, unknownAttempts, unresolvedClaims, runtimeError, rows: sentRows, handled: handledRows };
 }
 
 async function sendInformationalMessage(
@@ -297,14 +409,18 @@ function finalizeObs(
       error?: string | null;
       accepted_count?: number;
       rejected_count?: number;
+      unknown_attempt_count?: number;
+      unresolved_claim_count?: number;
     },
   started: Date
 ): ReminderRunObservability & { reminder_evidence: ReturnType<typeof buildReminderRunEvidence> } {
   const finished = new Date();
   const accepted_count = partial.accepted_count ?? (partial.result === "error" ? 0 : partial.sent_count);
-  const rejected_count = partial.rejected_count ?? (partial.result === "error" ? 1 : 0);
+  const rejected_count = partial.rejected_count ?? 0;
+  const unknown_attempt_count = partial.unknown_attempt_count ?? 0;
+  const unresolved_claim_count = partial.unresolved_claim_count ?? 0;
   const delivery_certainty: ReminderRunObservability["delivery_certainty"] =
-    accepted_count > 0
+    accepted_count > 0 || unknown_attempt_count > 0 || unresolved_claim_count > 0
       ? "delivery_unknown"
       : rejected_count > 0
         ? "rejected_by_line"
@@ -326,6 +442,8 @@ function finalizeObs(
     duplicate: partial.duplicate,
     accepted_count,
     rejected_count,
+    unknown_attempt_count,
+    unresolved_claim_count,
     delivery_certainty,
   };
   const reminder_evidence = buildReminderRunEvidence({
@@ -333,12 +451,14 @@ function finalizeObs(
     source: mapTriggerToSource(observability.trigger_source),
     candidate_reservation_count: observability.reservation_count,
     recipient_count: Math.max(observability.sent_count, observability.guest_sent_count),
-    message_attempt_count: accepted_count + rejected_count,
+    message_attempt_count: accepted_count + rejected_count + unknown_attempt_count,
     accepted_count,
     rejected_count,
+    unknown_attempt_count,
+    unresolved_claim_count,
     duplicate_suppressed_count: observability.duplicate ? 1 : 0,
     result:
-      observability.result === "error" && rejected_count > 0 && accepted_count > 0
+      observability.result === "partial" || (observability.result === "error" && rejected_count > 0 && accepted_count > 0)
         ? "partial"
         : observability.result === "error"
           ? "error"
@@ -440,168 +560,182 @@ export async function runSendLineReminder(
       }
     }
 
-    const branches = (await fetchBranches()) as BranchRow[];
-    const activeBranches = branches.filter((b) => b.line_group_id);
-    const useLegacyMode = activeBranches.length === 0;
     const allRows = (await fetchReservationsForReminder(force)) as Record<string, unknown>[];
     let totalSent = 0;
     let line_rejected = 0;
+    let staff_errors = 0;
+    let staff_error: string | null = null;
+    let unknown_attempt_count = 0;
+    let unresolved_claim_count = 0;
     let heartbeat: ReminderHeartbeat = "none";
     const heartbeat_keys: string[] = [];
     let skipped_count = 0;
 
-    if (useLegacyMode) {
-      if (!isLineConfigured()) {
-        const observability = finalizeObs(
-          {
-            ...base,
-            reservation_count: allRows.length,
-            sent_count: 0,
-            skipped_count: 0,
-            guest_sent_count: 0,
-            result: "error",
-            heartbeat: "none",
-            duplicate: false,
-            error: "未設定 LINE_CHANNEL_ACCESS_TOKEN 或 LINE_GROUP_ID",
-          },
-          started
-        );
-        return NextResponse.json({ ok: false, ...observability }, { status: 503 });
-      }
-
-      if (allRows.length === 0) {
-        if (sendHeartbeatOnEmpty) {
-          const allTomorrow = await fetchTomorrowsReservations();
-          const tomorrowRows = (allTomorrow ?? []) as Record<string, unknown>[];
-          const tomorrowCount = tomorrowRows.length;
-          skipped_count = tomorrowCount;
-          if (tomorrowRows.length === 0) {
-            if (await sendInformationalMessage(emptyCatMessage(), "legacy-group:empty_cat", started)) {
-              heartbeat = "cat";
-              heartbeat_keys.push("legacy-group:empty_cat");
-            }
-          } else {
-            const heartbeatCount = await pushTextToGroups(
-              alreadyNotifiedCronMessage(tomorrowCount, started),
-              activeBranches,
-              true,
-              "legacy-group:already_notified",
-              started
-            );
-            if (heartbeatCount > 0) {
-              heartbeat = "already_notified";
-              heartbeat_keys.push("legacy-group:already_notified");
-            }
-          }
+    // A staff provider/claim/settlement failure must not abort independent guest claims.
+    // Do not reset an uncertain group claim or retry its provider request here.
+    try {
+      const branches = (await fetchBranches()) as BranchRow[];
+      const activeBranches = branches.filter((b) => b.line_group_id);
+      const useLegacyMode = activeBranches.length === 0;
+      if (useLegacyMode) {
+        if (!isLineConfigured()) {
+          // Staff configuration is independent of the customer's Official Account.
+          throw new Error("未設定 LINE_CHANNEL_ACCESS_TOKEN 或 LINE_GROUP_ID");
         }
-        const result =
-          heartbeat === "cat"
-            ? "empty_cat"
-            : heartbeat === "already_notified"
-              ? "already_notified"
-              : "already_notified";
-        const heartbeatSent = heartbeat === "cat" || heartbeat === "already_notified" ? 1 : 0;
-        const observability = finalizeObs(
-          {
-            ...base,
-            reservation_count: skipped_count,
-            sent_count: heartbeatSent,
-            skipped_count,
-            guest_sent_count: 0,
-            result,
-            heartbeat: heartbeat === "none" ? "already_notified" : heartbeat,
-            heartbeat_keys,
-            duplicate: false,
-          },
-          started
-        );
-        return NextResponse.json({
-          ok: true,
-          sent: heartbeatSent,
-          message_count: heartbeatSent,
-          message: "沒有尚未通知的明日訂位（可能已全部發送過）",
-          ...observability,
-        });
-      }
 
-      const result = await pushDigestToGroup(allRows, null, "📅 明日訂位提醒");
-      totalSent = result.sent;
-      line_rejected += result.errors;
-      heartbeat = result.sent > 0 ? "digest" : "none";
-    } else {
-      const matchedIds = new Set<string>();
-      const allTomorrow = sendHeartbeatOnEmpty ? await fetchTomorrowsReservations() : null;
-
-      for (const branch of activeBranches) {
-        const groupId = branch.line_group_id!;
-        const branchRows = allRows.filter((r) =>
-          reservationMatchesBranch(r as ReminderReservationShape, branch)
-        );
-
-        if (branchRows.length === 0) {
-          if (sendHeartbeatOnEmpty && allTomorrow) {
-            const branchTomorrow = allTomorrow.filter((r: Record<string, unknown>) =>
-              reservationMatchesBranch(r as ReminderReservationShape, branch)
-            );
-            if (branchTomorrow.length === 0) {
-              const sent = await sendInformationalMessageToGroup(
-                emptyCatMessage(),
-                groupId,
-                branch.name,
-                `${groupId}:empty_cat`,
-                started
-              );
-              if (sent) {
-                heartbeat = heartbeat === "digest" ? "digest" : "cat";
-                heartbeat_keys.push(`${groupId}:empty_cat`);
+        if (allRows.length === 0) {
+          if (sendHeartbeatOnEmpty) {
+            const allTomorrow = await fetchTomorrowsReservations();
+            const tomorrowRows = (allTomorrow ?? []) as Record<string, unknown>[];
+            const tomorrowCount = tomorrowRows.length;
+            skipped_count = tomorrowCount;
+            if (tomorrowRows.length === 0) {
+              if (await sendInformationalMessage(emptyCatMessage(), "legacy-group:empty_cat", started)) {
+                heartbeat = "cat";
+                heartbeat_keys.push("legacy-group:empty_cat");
               }
             } else {
-              skipped_count += branchTomorrow.length;
-              const sent = await sendInformationalMessageToGroup(
-                alreadyNotifiedCronMessage(branchTomorrow.length, started),
-                groupId,
-                branch.name,
-                `${groupId}:already_notified`,
+              const heartbeatCount = await pushTextToGroups(
+                alreadyNotifiedCronMessage(tomorrowCount, started),
+                activeBranches,
+                true,
+                "legacy-group:already_notified",
                 started
               );
-              if (sent) {
-                if (heartbeat !== "digest") heartbeat = "already_notified";
-                heartbeat_keys.push(`${groupId}:already_notified`);
+              if (heartbeatCount > 0) {
+                heartbeat = "already_notified";
+                heartbeat_keys.push("legacy-group:already_notified");
               }
             }
           }
-          continue;
+          const result =
+            heartbeat === "cat"
+              ? "empty_cat"
+              : heartbeat === "already_notified"
+                ? "already_notified"
+                : "already_notified";
+          const heartbeatSent = heartbeat === "cat" || heartbeat === "already_notified" ? 1 : 0;
+          const observability = finalizeObs(
+            {
+              ...base,
+              reservation_count: skipped_count,
+              sent_count: heartbeatSent,
+              skipped_count,
+              guest_sent_count: 0,
+              result,
+              heartbeat: heartbeat === "none" ? "already_notified" : heartbeat,
+              heartbeat_keys,
+              duplicate: false,
+            },
+            started
+          );
+          return NextResponse.json({
+            ok: true,
+            sent: heartbeatSent,
+            message_count: heartbeatSent,
+            message: "沒有尚未通知的明日訂位（可能已全部發送過）",
+            ...observability,
+          });
         }
 
-        const result = await pushDigestToGroup(branchRows, groupId, "📅 明日訂位提醒");
-        for (const r of result.handled) matchedIds.add(r.id as string);
-        totalSent += result.sent;
+        const result = await pushDigestToGroup(allRows, null, "📅 明日訂位提醒");
+        totalSent = result.sent;
         line_rejected += result.errors;
-        heartbeat = result.sent > 0 ? "digest" : heartbeat;
-      }
+        staff_errors += result.runtimeErrors;
+        unknown_attempt_count += result.unknownAttempts;
+        unresolved_claim_count += result.unresolvedClaims;
+        staff_error = result.runtimeError ?? staff_error;
+        heartbeat = result.sent > 0 ? "digest" : "none";
+      } else {
+        const matchedIds = new Set<string>();
+        const allTomorrow = sendHeartbeatOnEmpty ? await fetchTomorrowsReservations() : null;
 
-      const unmatched = allRows.filter((r) => !matchedIds.has(r.id as string));
-      if (unmatched.length > 0) {
-        if (isLineConfigured()) {
-          const result = await pushDigestToGroup(unmatched, null, "📅 明日訂位提醒（未設定分店群組）");
+        for (const branch of activeBranches) {
+          const groupId = branch.line_group_id!;
+          const branchRows = allRows.filter((r) =>
+            reservationMatchesBranch(r as ReminderReservationShape, branch)
+          );
+
+          if (branchRows.length === 0) {
+            if (sendHeartbeatOnEmpty && allTomorrow) {
+              const branchTomorrow = allTomorrow.filter((r: Record<string, unknown>) =>
+                reservationMatchesBranch(r as ReminderReservationShape, branch)
+              );
+              if (branchTomorrow.length === 0) {
+                const sent = await sendInformationalMessageToGroup(
+                  emptyCatMessage(),
+                  groupId,
+                  branch.name,
+                  `${groupId}:empty_cat`,
+                  started
+                );
+                if (sent) {
+                  heartbeat = heartbeat === "digest" ? "digest" : "cat";
+                  heartbeat_keys.push(`${groupId}:empty_cat`);
+                }
+              } else {
+                skipped_count += branchTomorrow.length;
+                const sent = await sendInformationalMessageToGroup(
+                  alreadyNotifiedCronMessage(branchTomorrow.length, started),
+                  groupId,
+                  branch.name,
+                  `${groupId}:already_notified`,
+                  started
+                );
+                if (sent) {
+                  if (heartbeat !== "digest") heartbeat = "already_notified";
+                  heartbeat_keys.push(`${groupId}:already_notified`);
+                }
+              }
+            }
+            continue;
+          }
+
+          const result = await pushDigestToGroup(branchRows, groupId, "📅 明日訂位提醒");
+          for (const r of result.handled) matchedIds.add(r.id as string);
           totalSent += result.sent;
           line_rejected += result.errors;
+          staff_errors += result.runtimeErrors;
+          unknown_attempt_count += result.unknownAttempts;
+          unresolved_claim_count += result.unresolvedClaims;
+          staff_error = result.runtimeError ?? staff_error;
           heartbeat = result.sent > 0 ? "digest" : heartbeat;
-          console.warn(
-            `[send-line] multi-branch: ${unmatched.length} row(s) fell back to LINE_GROUP_ID`
-          );
-        } else {
-          console.error(
-            `[send-line] multi-branch: ${unmatched.length} pending tomorrow reservation(s) matched no line_group_id and LINE_GROUP_ID unset`
-          );
+        }
+
+        const unmatched = allRows.filter((r) => !matchedIds.has(r.id as string));
+        if (unmatched.length > 0) {
+          if (isLineConfigured()) {
+            const result = await pushDigestToGroup(unmatched, null, "📅 明日訂位提醒（未設定分店群組）");
+            totalSent += result.sent;
+            line_rejected += result.errors;
+            staff_errors += result.runtimeErrors;
+            unknown_attempt_count += result.unknownAttempts;
+            unresolved_claim_count += result.unresolvedClaims;
+            staff_error = result.runtimeError ?? staff_error;
+            heartbeat = result.sent > 0 ? "digest" : heartbeat;
+            console.warn(
+              `[send-line] multi-branch: ${unmatched.length} row(s) fell back to LINE_GROUP_ID`
+            );
+          } else {
+            console.error(
+              `[send-line] multi-branch: ${unmatched.length} pending tomorrow reservation(s) matched no line_group_id and LINE_GROUP_ID unset`
+            );
+          }
         }
       }
+    } catch (error) {
+      if (allRows.length === 0) throw error;
+      staff_errors++;
+      staff_error = safeLineDeliveryError(error);
+      console.error(`[send-line] staff reminder failed: ${safeLineDeliveryError(error)}`);
     }
 
     // Paid guest reminders are batched per recipient. The separate marker prevents
     // a group-only success from suppressing a guest retry after a LINE failure.
     let guest_sent_count = 0;
     let guest_rejected = 0;
+    let guest_errors = 0;
+    let guest_error: string | null = null;
     const guestRows = allRows.filter(
       (row) => row.line_user_id && !row.d1_guest_reminder_sent_at
     );
@@ -626,9 +760,21 @@ export async function runSendLineReminder(
           "guest",
           lineUserId
         );
+        unresolved_claim_count += claims.unresolvedRows.length;
+        if (claims.unresolvedRows.length) guest_error = "客人提醒紀錄尚未確認，請先查證";
+        if ("claimError" in claims) {
+          guest_errors++;
+          guest_error = safeLineDeliveryError(claims.claimError);
+          if (!await releaseClaims(claims.toSend, claims.claimError)) {
+            guest_errors++;
+            guest_error = "無法釋放尚未送出的客人提醒，需人工確認";
+          }
+          continue;
+        }
         if (claims.toSend.length === 0) continue;
         const claimed = claims.toSend;
         let accepted = false;
+        let invoked = false;
         try {
           const flexRows = claimed.map(({ row }) => {
             const room = row.room as { name?: string; branch?: { name?: string } } | undefined;
@@ -645,10 +791,12 @@ export async function runSendLineReminder(
             };
           });
           const [flex] = buildGuestReminderDigestFlexChunks(flexRows);
+          if (!flex) throw new Error("無法建立客人提醒內容");
           const part = rows.length > REMINDER_DIGEST_CAROUSEL_MAX
             ? `（${Math.floor(offset / REMINDER_DIGEST_CAROUSEL_MAX) + 1}/${Math.ceil(rows.length / REMINDER_DIGEST_CAROUSEL_MAX)}）`
             : "";
-          await sendLineFlexMessage(lineUserId, `明日訂位提醒${part}`, flex!, { reservationId: String(claimed[0]!.row.id) });
+          invoked = true;
+          await sendLineFlexMessage(lineUserId, `明日訂位提醒${part}`, flex, { reservationId: String(claimed[0]!.row.id) });
           accepted = true;
           guest_sent_count += 1;
           await settleClaims(claimed, "sent");
@@ -660,20 +808,34 @@ export async function runSendLineReminder(
             )
           );
         } catch (error) {
-          guest_rejected += 1;
-          await settleClaims(claimed, accepted ? "sent" : "failed", error);
+          guest_error = safeLineDeliveryError(error);
+          if (accepted) {
+            guest_errors++;
+            try { await settleClaims(claimed, "sent"); }
+            catch (settlementError) { guest_error = safeLineDeliveryError(settlementError); }
+          } else {
+            const outcome = invoked ? lineSendFailure(error) : "not_sent";
+            if (outcome === "rejected") guest_rejected++;
+            else guest_errors++;
+            if (outcome === "unknown") unknown_attempt_count++;
+            else if (!await releaseClaims(claimed, error)) {
+              guest_errors++;
+              guest_error = "無法釋放尚未送出或已拒絕的客人提醒，需人工確認";
+            }
+          }
           console.error(`[send-line] 客人摘要傳送失敗: ${safeLineDeliveryError(error)}`);
         }
       }
     }
 
     const totalRejected = line_rejected + guest_rejected;
+    const totalErrors = totalRejected + staff_errors + guest_errors + unresolved_claim_count;
     const heartbeatSent = heartbeat === "cat" || heartbeat === "already_notified" ? 1 : 0;
     const totalMessages = totalSent + guest_sent_count + heartbeatSent;
     const result: ReminderRunObservability["result"] =
-      totalRejected > 0 && totalSent + guest_sent_count > 0
+      totalErrors > 0 && totalSent + guest_sent_count > 0
         ? "partial"
-        : totalRejected > 0
+        : totalErrors > 0
           ? "error"
           : totalSent > 0 || guest_sent_count > 0
           ? "sent"
@@ -695,6 +857,9 @@ export async function runSendLineReminder(
         accepted_count:
           totalMessages,
         rejected_count: totalRejected,
+        unknown_attempt_count,
+        unresolved_claim_count,
+        error: [staff_error, guest_error].filter(Boolean).join("；") || null,
       },
       started
     );
@@ -706,14 +871,20 @@ export async function runSendLineReminder(
     }
 
     return NextResponse.json({
-      ok: totalRejected === 0,
+      ok: totalErrors === 0,
       sent: totalMessages,
       message_count: totalMessages,
-      errors: line_rejected + guest_rejected,
+      errors: totalErrors,
+      staff_error_count: staff_errors,
+      guest_error_count: guest_errors,
       message:
-        totalMessages === 0
-          ? "沒有尚未通知的明日訂位（可能已全部發送過）"
-          : `已發送 ${totalMessages} 則 LINE 訊息（LINE accepted≠delivered）`,
+        unknown_attempt_count > 0 || unresolved_claim_count > 0
+          ? "有提醒的發送結果尚未確認，請先查證，避免重複發送"
+          : totalErrors > 0
+            ? "部分提醒未完成，請檢查錯誤後再處理"
+            : totalMessages === 0
+              ? "沒有尚未通知的明日訂位（可能已全部發送過）"
+              : `已發送 ${totalMessages} 則 LINE 訊息（LINE accepted≠delivered）`,
       ...observability,
     });
   } catch (err) {
@@ -731,7 +902,7 @@ export async function runSendLineReminder(
         duplicate: false,
         error: message,
         accepted_count: 0,
-        rejected_count: 1,
+        rejected_count: 0,
       },
       started
     );

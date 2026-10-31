@@ -228,6 +228,20 @@ describe("payment-notify", () => {
     expect(sendLineFlexMessageSpy).not.toHaveBeenCalled();
   });
 
+  it("staff quota rejection still attempts the customer and preserves retry identity", async () => {
+    const client = createFakeSupabase(defaultRow);
+    vi.spyOn(lineNotify, "sendLineFlexToBranchGroup").mockRejectedValue(new Error("429 monthly limit"));
+    const guest = vi.spyOn(line, "sendLineFlexMessage").mockResolvedValue(undefined);
+    const first = await notifyPaymentApproved("res-123", { client });
+    expect(first).toMatchObject({ ok: false, group_notified: false, guest_notified: true });
+    const key = client.getRow().deposit_approved_guest_retry_key;
+    expect(client.getRow().deposit_approved_notified_at).toBeNull();
+    await notifyPaymentApproved("res-123", { client });
+    expect(guest).toHaveBeenCalledTimes(2);
+    expect(guest.mock.calls.every((call) => call[3]?.retryKey === key)).toBe(true);
+    expect(client.getRow().deposit_approved_guest_retry_key).toBe(key);
+  });
+
   it("only marks deposit_approved_notified_at upon confirmed sent", async () => {
     const mockClient = createFakeSupabase(defaultRow);
 

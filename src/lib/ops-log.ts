@@ -45,6 +45,7 @@ export type OpsLogAction =
   | "payment.deposit_confirmed"
   | "payment.approved_notified"
   | "line.provider_rejected"
+  | "line.provider_unknown"
   | "payment.refund_processed"
   | "stripe.signature_failed"
   | "stripe.payment_intent_succeeded"

@@ -20,6 +20,7 @@ import {
   type LineNotificationPriority,
 } from "@/lib/line-usage";
 import { observeLineProviderRejection } from "@/lib/line-provider-observability";
+import { LineSendError, lineHttpFailure } from "@/lib/line-send-error";
 import { tokenForGroup } from "@/lib/line-group-bots";
 
 export {
@@ -86,9 +87,14 @@ async function sendGroupPayload(
   options?: LineSendOptions
 ): Promise<void> {
   const { token: defaultToken } = getLineConfig();
-  if (!defaultToken) throw new Error("缺少 LINE_CHANNEL_ACCESS_TOKEN");
+  if (!defaultToken) throw new LineSendError("缺少 LINE_CHANNEL_ACCESS_TOKEN", "not_sent");
   // A branch with its own Official Account pushes from that account (its own quota).
-  const token = await tokenForGroup(groupId, defaultToken);
+  let token: string;
+  try {
+    token = await tokenForGroup(groupId, defaultToken);
+  } catch {
+    throw new LineSendError("無法確認群組 LINE 帳號", "not_sent");
+  }
 
   const budget = readLineUsageBudget();
   if (
@@ -111,7 +117,7 @@ async function sendGroupPayload(
     headers: lineHeaders(token, options),
     body: JSON.stringify({ to: groupId, messages }),
   });
-  if (res.status === 409 && options?.retryKey) {
+  if (res.status === 409 && options?.retryKey && res.headers.get("x-line-accepted-request-id")) {
     const acceptedReqId = res.headers.get("x-line-accepted-request-id");
     console.info(
       `[line-notify] 409 Conflict: retryKey ${options.retryKey} already accepted by LINE Platform (acceptedReqId: ${acceptedReqId})`
@@ -119,14 +125,16 @@ async function sendGroupPayload(
     return;
   }
   if (!res.ok) {
-    const body = await res.text();
+    // HTTP status is enough to classify the outcome. Never log or wait on a
+    // provider body that may contain personal data or stop mid-stream.
+    try { void res.body?.cancel().catch(() => {}); } catch { /* Body already locked. */ }
     observeLineProviderRejection({
       channel: "group",
       operation: "push",
       status: res.status,
       retryKey: options?.retryKey,
     });
-    throw new Error(`LINE API 錯誤 (${res.status}): ${body}`);
+    throw new LineSendError(`LINE API 錯誤 (${res.status})`, lineHttpFailure(res.status));
   }
 }
 
@@ -141,8 +149,8 @@ export async function sendLineMessageToGroup(
 export async function sendLineMessage(text: string, options?: LineSendOptions): Promise<void> {
   const { token, groupId } = getLineConfig();
   if (!token || !groupId) {
-    throw new Error(
-      "缺少 LINE 設定：請在 .env.local 填入 LINE_CHANNEL_ACCESS_TOKEN 和 LINE_GROUP_ID"
+    throw new LineSendError(
+      "缺少 LINE 設定：請在 .env.local 填入 LINE_CHANNEL_ACCESS_TOKEN 和 LINE_GROUP_ID", "not_sent"
     );
   }
   return sendLineMessageToGroup(text, groupId, options);
@@ -188,8 +196,8 @@ export async function sendLineFlex(
 ): Promise<void> {
   const { token, groupId } = getLineConfig();
   if (!token || !groupId) {
-    throw new Error(
-      "缺少 LINE 設定：請在 .env.local 填入 LINE_CHANNEL_ACCESS_TOKEN 和 LINE_GROUP_ID"
+    throw new LineSendError(
+      "缺少 LINE 設定：請在 .env.local 填入 LINE_CHANNEL_ACCESS_TOKEN 和 LINE_GROUP_ID", "not_sent"
     );
   }
   return sendLineFlexToGroup(altText, contents, groupId, options);
@@ -213,8 +221,8 @@ export async function sendLineFlexBatch(
 ): Promise<void> {
   const { token, groupId } = getLineConfig();
   if (!token || !groupId) {
-    throw new Error(
-      "缺少 LINE 設定：請在 .env.local 填入 LINE_CHANNEL_ACCESS_TOKEN 和 LINE_GROUP_ID"
+    throw new LineSendError(
+      "缺少 LINE 設定：請在 .env.local 填入 LINE_CHANNEL_ACCESS_TOKEN 和 LINE_GROUP_ID", "not_sent"
     );
   }
   return sendLineFlexBatchToGroup(messages, groupId, options);
