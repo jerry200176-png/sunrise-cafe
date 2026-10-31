@@ -37,8 +37,9 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
-  return { promise, resolve };
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 }
 
 function list(items: typeof rows) {
@@ -96,6 +97,85 @@ describe("reservation selection visibility", () => {
 });
 
 describe("branch-scoped reservation requests", () => {
+  it("does not let a prior branch's late notification response unlock the new branch request", async () => {
+    const oldSend = deferred<Response>();
+    const newSend = deferred<Response>();
+    let sends = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/reservations/send-line" && init?.method === "POST") return ++sends === 1 ? oldSend.promise : newSend.promise;
+      if (url.startsWith("/api/reservations?")) {
+        const p = new URL(url, "http://localhost").searchParams;
+        return list(p.get("scope") === "active" ? [p.get("branchId") === "b1" ? rows[0] : rows[1]] : []);
+      }
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    const view = render(<ReservationList branchId="b1" rooms={[]} />);
+    await screen.findByRole("checkbox", { name: /選取 甲 A01/ });
+    await user.click(screen.getByRole("button", { name: /重送 LINE 繳費/ }));
+    await waitFor(() => expect(sends).toBe(1));
+    view.rerender(<ReservationList branchId="b2" rooms={[]} />);
+    await screen.findByRole("checkbox", { name: /選取 乙 B02/ });
+    await user.click(screen.getByRole("button", { name: /重送 LINE 繳費/ }));
+    await waitFor(() => expect(sends).toBe(2));
+    await act(async () => { oldSend.resolve(Response.json({ ok: true })); await oldSend.promise; });
+    expect((screen.getByRole("button", { name: "傳送中…" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText("LINE 平台已接受繳費通知（不代表客人手機已收到）")).toBeNull();
+    await act(async () => { newSend.resolve(Response.json({ ok: true })); await newSend.promise; });
+    expect(await screen.findByText("LINE 平台已接受繳費通知（不代表客人手機已收到）")).toBeTruthy();
+    expect(sends).toBe(2);
+  });
+
+  it.each(["error", "network failure"])("does not roll old branch rows back into the new branch after a late mutation %s", async (outcome) => {
+    const pending = deferred<Response>();
+    let writes = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") { writes += 1; return pending.promise; }
+      if (url.startsWith("/api/reservations?")) {
+        const p = new URL(url, "http://localhost").searchParams;
+        return list(p.get("scope") === "active" ? [p.get("branchId") === "b1" ? rows[0] : rows[1]] : []);
+      }
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    const view = render(<ReservationList branchId="b1" rooms={[]} />);
+    await screen.findByRole("checkbox", { name: /選取 甲 A01/ });
+    await user.click(screen.getByRole("button", { name: /✅ 確認/ }));
+    await waitFor(() => expect(writes).toBe(1));
+    view.rerender(<ReservationList branchId="b2" rooms={[]} />);
+    expect(await screen.findByRole("checkbox", { name: /選取 乙 B02/ })).toBeTruthy();
+    await act(async () => {
+      if (outcome === "network failure") pending.reject(new Error("old failure"));
+      else pending.resolve(Response.json({ error: "old mutation error" }, { status: 500 }));
+      await pending.promise.catch(() => undefined);
+    });
+    expect(screen.queryByRole("checkbox", { name: /選取 甲 A01/ })).toBeNull();
+    expect(screen.getByRole("checkbox", { name: /選取 乙 B02/ })).toBeTruthy();
+    expect(screen.queryByText("old mutation error")).toBeNull();
+    expect(screen.queryByText("連線失敗，狀態未更新")).toBeNull();
+  });
+
+  it("cancels the old branch confirmation when the branch changes without sending a mutation", async () => {
+    let writes = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") { writes += 1; return Response.json({ ok: true }); }
+      if (url.startsWith("/api/reservations?")) {
+        const p = new URL(url, "http://localhost").searchParams;
+        return list(p.get("scope") === "active" ? [p.get("branchId") === "b1" ? rows[0] : rows[1]] : []);
+      }
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    const view = render(<ReservationList branchId="b1" rooms={[]} />);
+    await screen.findByRole("checkbox", { name: /選取 甲 A01/ });
+    await user.click(screen.getByRole("button", { name: /拒絕/ }));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    view.rerender(<ReservationList branchId="b2" rooms={[]} />);
+    await screen.findByRole("checkbox", { name: /選取 乙 B02/ });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(writes).toBe(0);
+  });
+
   it("clears the old branch's payment instructions before the new branch config loads", async () => {
     const nextConfig = deferred<Response>();
     let configRequests = 0;

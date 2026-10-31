@@ -142,6 +142,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   const currentBranch = useRef(branchId);
   const activeRequest = useRef(0);
   const batchRequest = useRef(0);
+  const paymentSendRequest = useRef(0);
   const focusLookupRef = useRef<string | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"time_desc" | "time_asc" | "price_desc" | "price_asc">(
@@ -383,6 +384,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     activeRequest.current += 1;
     historyRequest.current += 1;
     batchRequest.current += 1;
+    paymentSendRequest.current += 1;
     messagePreviewRequest.current += 1;
     activeRowsRef.current = [];
     historyRowsRef.current = [];
@@ -402,6 +404,13 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     setMessageLoading(false);
     setMessageSubmitting(false);
     setBranchConfig(null);
+    setEditSubmitting(false);
+    setRestoringId(null);
+    setSendingLine(false);
+    setSendingLinePaymentTo(null);
+    confirmResolver.current?.(false);
+    confirmResolver.current = null;
+    setConfirmDialog(null);
     setLoading(Boolean(branchId));
     setError(null);
     setHistoryCursor(null);
@@ -645,7 +654,9 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
 
   const submitEdit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editing) return;
+    if (!editing || currentBranch.current !== branchId) return;
+    const generation = branchGeneration.current;
+    const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation;
     setEditSubmitting(true);
     setEditError(null);
     try {
@@ -668,6 +679,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         }),
       });
       const data = await res.json();
+      if (!isCurrent()) return;
       setEditSubmitting(false);
       if (!res.ok) {
         setEditError((data as { error?: string })?.error ?? "無法更新");
@@ -676,18 +688,21 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       closeEdit();
       fetchReservations(false);
     } catch (e) {
+      if (!isCurrent()) return;
       setEditSubmitting(false);
       setEditError(e instanceof Error ? e.message : "連線失敗");
     }
   };
 
   const restoreReservation = async (id: string) => {
-    if (restoringId) return;
+    if (restoringId || currentBranch.current !== branchId) return;
+    const generation = branchGeneration.current;
+    const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation;
     const ok = await openConfirm(
       "還原訂位",
       "確定要還原這筆訂位嗎？原時段若已被其他訂位佔用將無法還原。還原不會改變付款狀態，也不會自動傳 LINE 給客人；先點的餐需重新確認。"
     );
-    if (!ok) return;
+    if (!ok || !isCurrent()) return;
     setRestoringId(id);
     try {
       const res = await fetch(`${RESERVATIONS_API}/${id}`, {
@@ -695,17 +710,19 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ intent: "restore" }),
       });
+      if (!isCurrent()) return;
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!isCurrent()) return;
         showToast(data.error ?? "還原失敗，請重新整理後再試", "error");
         return;
       }
       showToast("已還原訂位", "success");
       fetchReservations(false);
     } catch {
-      showToast("連線失敗，還原未完成", "error");
+      if (isCurrent()) showToast("連線失敗，還原未完成", "error");
     } finally {
-      setRestoringId(null);
+      if (isCurrent()) setRestoringId(null);
     }
   };
 
@@ -717,6 +734,9 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   };
 
   const updateStatus = async (id: string, status: ReservationStatus) => {
+    if (currentBranch.current !== branchId) return;
+    const generation = branchGeneration.current;
+    const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation;
     const prev = reservations;
     setReservations((list) =>
       list.map((r) => (r.id === id ? { ...r, status } : r))
@@ -727,15 +747,18 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
+      if (!isCurrent()) return;
       if (!res.ok) {
-        setReservations(prev);
         const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!isCurrent()) return;
+        setReservations(prev);
         showToast(data.error ?? "狀態更新失敗，請重新整理後再試", "error");
         return;
       }
       const data = (await res.json().catch(() => ({}))) as {
         lineResult?: string | null;
       };
+      if (!isCurrent()) return;
       fetchReservations(false);
       const lineResult = data.lineResult;
       if (
@@ -748,19 +771,23 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         showToast(`訂位已更新，但 LINE 繳費通知未發送：${lineResult}`, "error");
       }
     } catch {
+      if (!isCurrent()) return;
       setReservations(prev);
       showToast("連線失敗，狀態未更新", "error");
     }
   };
 
   const updateDepositStatus = async (id: string, is_deposit_paid: boolean, info?: DepositInfo) => {
+    if (currentBranch.current !== branchId) return;
+    const generation = branchGeneration.current;
+    const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation;
     const row = reservations.find((r) => r.id === id);
     if (is_deposit_paid && (row?.pending_payment_reviews ?? 0) > 0) {
       const ok = await openConfirm(
         "付款待審核",
         `此訂位有 ${row?.pending_payment_reviews} 筆付款待審核。\n\n建議至「付款審核」頁面核准，避免與 LINE 截圖審核流程脫鉤。\n\n仍要手動標記已付訂金？`
       );
-      if (!ok) return;
+      if (!ok || !isCurrent()) return;
     }
     const prev = reservations;
     setReservations((list) =>
@@ -775,15 +802,18 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      if (!isCurrent()) return;
       if (!res.ok) {
-        setReservations(prev);
         const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!isCurrent()) return;
+        setReservations(prev);
         showToast(data.error ?? "訂金狀態更新失敗，請重新整理後再試", "error");
         return;
       }
       const data = (await res.json().catch(() => ({}))) as {
         paymentNotification?: { status?: string; error?: string } | null;
       };
+      if (!isCurrent()) return;
       fetchReservations(false);
       if (
         is_deposit_paid &&
@@ -798,12 +828,16 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         showToast(is_deposit_paid ? "已核准訂金並記錄" : "已改為未付訂金", "success");
       }
     } catch {
+      if (!isCurrent()) return;
       setReservations(prev);
       showToast("連線失敗，訂金狀態未更新", "error");
     }
   };
 
   const updateDepositInfo = async (id: string, info: DepositInfo) => {
+    if (currentBranch.current !== branchId) return;
+    const generation = branchGeneration.current;
+    const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation;
     const prev = reservations;
     setReservations((list) =>
       list.map((r) => (r.id === id ? { ...r, ...info } : r))
@@ -814,37 +848,67 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(info),
       });
+      if (!isCurrent()) return;
       if (!res.ok) {
-        setReservations(prev);
         const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!isCurrent()) return;
+        setReservations(prev);
         showToast(data.error ?? "付款資料更新失敗", "error");
         return;
       }
       fetchReservations(false);
       showToast("已更新付款資料", "success");
     } catch {
+      if (!isCurrent()) return;
       setReservations(prev);
       showToast("連線失敗，付款資料未更新", "error");
     }
   };
 
   const handleSendLine = async () => {
+    if (currentBranch.current !== branchId) return;
+    const generation = branchGeneration.current;
+    const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation;
     const ok = await openConfirm(
       "發送明日提醒",
       "確定要手動發送明日訂位提醒嗎？\n\n僅會發送「尚未通知」的訂位，不會重複推播已發送過的。"
     );
-    if (!ok) return;
+    if (!ok || !isCurrent()) return;
     setSendingLine(true);
     try {
       const res = await fetch("/api/admin/reminders/send-line", { method: "POST" });
       const data = await res.json();
+      if (!isCurrent()) return;
       if (!res.ok) throw new Error(data.error || "發送失敗");
       showToast(data.message || `成功發送，共 ${data.sent} 筆`, "success");
       fetchReservations(false);
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "發生未知錯誤", "error");
+      if (isCurrent()) showToast(err instanceof Error ? err.message : "發生未知錯誤", "error");
     } finally {
-      setSendingLine(false);
+      if (isCurrent()) setSendingLine(false);
+    }
+  };
+
+  const sendPaymentRequest = async (id: string) => {
+    if (currentBranch.current !== branchId) return;
+    const generation = branchGeneration.current;
+    const requestId = ++paymentSendRequest.current;
+    const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation && paymentSendRequest.current === requestId;
+    setSendingLinePaymentTo(id);
+    try {
+      const res = await fetch("/api/reservations/send-line", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const data = await res.json();
+      if (!isCurrent()) return;
+      if (!res.ok) showToast(`傳送失敗：${(data as { error?: string }).error}`, "error");
+      else showToast("LINE 平台已接受繳費通知（不代表客人手機已收到）", "success");
+    } catch {
+      if (isCurrent()) showToast("傳送失敗，請確認網路連線", "error");
+    } finally {
+      if (isCurrent()) setSendingLinePaymentTo(null);
     }
   };
 
@@ -1375,24 +1439,8 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     {isDepositRequired(reservationDateKey(r.start_time)) && r.total_price != null && (
                       <button
                         type="button"
-                        disabled={sendingLinePaymentTo === r.id}
-                        onClick={async () => {
-                          setSendingLinePaymentTo(r.id);
-                          try {
-                            const res = await fetch("/api/reservations/send-line", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ id: r.id }),
-                            });
-                            const data = await res.json();
-                            if (!res.ok) showToast(`傳送失敗：${(data as { error?: string }).error}`, "error");
-                            else showToast("LINE 平台已接受繳費通知（不代表客人手機已收到）", "success");
-                          } catch {
-                            showToast("傳送失敗，請確認網路連線", "error");
-                          } finally {
-                            setSendingLinePaymentTo(null);
-                          }
-                        }}
+                        disabled={sendingLinePaymentTo !== null}
+                        onClick={() => void sendPaymentRequest(r.id)}
                         className="rounded-lg border border-green-300 bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 hover:bg-green-100 disabled:opacity-50"
                       >
                         {sendingLinePaymentTo === r.id ? "傳送中…" : "💬 重送 LINE 繳費"}
@@ -1448,24 +1496,8 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     {isDepositRequired(reservationDateKey(r.start_time)) && r.total_price != null && !r.is_deposit_paid && (
                       <button
                         type="button"
-                        disabled={sendingLinePaymentTo === r.id}
-                        onClick={async () => {
-                          setSendingLinePaymentTo(r.id);
-                          try {
-                            const res = await fetch("/api/reservations/send-line", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ id: r.id }),
-                            });
-                            const data = await res.json();
-                            if (!res.ok) showToast(`傳送失敗：${(data as { error?: string }).error}`, "error");
-                            else showToast("LINE 平台已接受繳費通知（不代表客人手機已收到）", "success");
-                          } catch {
-                            showToast("傳送失敗，請確認網路連線", "error");
-                          } finally {
-                            setSendingLinePaymentTo(null);
-                          }
-                        }}
+                        disabled={sendingLinePaymentTo !== null}
+                        onClick={() => void sendPaymentRequest(r.id)}
                         className="rounded-lg border border-green-300 bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 hover:bg-green-100 disabled:opacity-50"
                       >
                         {sendingLinePaymentTo === r.id ? "傳送中…" : "💬 重送 LINE 繳費"}
