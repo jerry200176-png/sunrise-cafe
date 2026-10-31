@@ -34,7 +34,7 @@ test.describe("後台穩定性", () => {
     await expect(page.locator("audio")).toHaveAttribute("src", "/sounds/new-order.wav");
     expect((await page.request.get("/sounds/new-order.wav")).ok()).toBe(true);
     await page.getByRole("button", { name: /開始備餐/ }).first().click();
-    await expect(page.getByRole("alert").filter({ hasText: "訂單沒有更新" })).toBeVisible();
+    await expect(page.getByRole("alert").filter({ hasText: "訂單操作結果尚未確認" })).toBeVisible();
     await expect(page.getByText("拿鐵")).toBeVisible();
   });
 

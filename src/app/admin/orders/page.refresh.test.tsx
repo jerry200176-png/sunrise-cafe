@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -103,5 +103,68 @@ describe("order board refresh scheduling", () => {
     if (outcome === "failure") await screen.findByText(/訂單沒有更新成功/);
     expect(screen.queryByRole("button", { name: "開始備餐" })).toBeNull();
     expect(screen.getByRole("button", { name: "完成出餐" })).toBeTruthy();
+  });
+
+  it("invalidates an old A session after A→B→A and retains the newer state when rechecking fails", async () => {
+    const oldPatch = deferred<Response>();
+    let aGets = 0;
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") return oldPatch.promise;
+      const branch = new URL(url, "http://localhost").searchParams.get("branchId");
+      if (branch === "b2") return page([order("b", "乙店餐點")], null);
+      aGets++;
+      if (aGets === 1) return page([order("a", "甲店")], null);
+      if (aGets === 3) return { ok: false, status: 503, json: async () => ({ error: "重新核對失敗" }) } as Response;
+      return page([{ ...order("a", "甲店"), status: "ready" }], null);
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+    render(<AdminOrdersPage />);
+    await user.click(await screen.findByRole("button", { name: "開始備餐" }));
+    await user.selectOptions(screen.getByRole("combobox"), "b2");
+    await screen.findByText("乙店餐點");
+    await user.selectOptions(screen.getByRole("combobox"), "b1");
+    const ready = await screen.findByRole("button", { name: "已出餐" });
+    expect((ready as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => { oldPatch.resolve({ ok: true, status: 200 } as Response); });
+    await screen.findByText(/訂單沒有更新成功/);
+    expect(screen.queryByRole("button", { name: "完成出餐" })).toBeNull();
+    expect((screen.getByRole("button", { name: "已出餐" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/核對尚未完成/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "重新整理" }));
+    await waitFor(() => expect((screen.getByRole("button", { name: "已出餐" }) as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.queryByText(/核對尚未完成/)).toBeNull();
+  });
+
+  it("synchronously blocks repeated PATCH and retains an unknown result until explicit review", async () => {
+    const patch = deferred<Response>();
+    let patches = 0;
+    let gets = 0;
+    const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") { patches++; return patch.promise; }
+      gets++;
+      if (gets === 2) return { ok: false, status: 503, json: async () => ({ error: "刷新失敗" }) } as Response;
+      return page([order("a", "需要備餐")], null);
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+    render(<AdminOrdersPage />);
+    const button = await screen.findByRole("button", { name: "開始備餐" });
+    act(() => { fireEvent.click(button); fireEvent.click(button); });
+    expect(patches).toBe(1);
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => { patch.resolve({ ok: false, status: 500, json: async () => ({ error: "結果未知" }) } as Response); });
+    await screen.findByText(/訂單操作結果尚未確認/);
+    await screen.findByText(/訂單沒有更新成功/);
+    expect((screen.getByRole("button", { name: "開始備餐" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "已核對，解除鎖定" }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "重新整理" }));
+    const release = await screen.findByRole("button", { name: "已核對，解除鎖定" });
+    await waitFor(() => expect((release as HTMLButtonElement).disabled).toBe(false));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await user.click(release);
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("原請求可能仍會延遲完成"));
+    expect((screen.getByRole("button", { name: "開始備餐" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(patches).toBe(1);
   });
 });
