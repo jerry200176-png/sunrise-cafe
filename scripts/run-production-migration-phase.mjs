@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { assertPlanSqlGate } from "./lib/sql-additive-lint.mjs";
+import { assertRecoveryPoint } from "./apply-migration-reservation-settlements.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const PLAN_PATH = resolve(ROOT, "scripts/production-migration-plan.json");
@@ -70,6 +71,20 @@ export async function executePhase(plan, phase, execute = executeRunner) {
   };
 }
 
+/**
+ * All executable phases require this job's encrypted and uploaded backup.
+ * @param {string} phase
+ * @param {Record<string, string | undefined>} env
+ * @param {Date} now
+ */
+export function validatePhaseBackup(phase, env = process.env, now = new Date()) {
+  const recovery = assertRecoveryPoint({ phase, env, now });
+  if (!/^[0-9a-f]{64}$/i.test(String(env.BACKUP_ARTIFACT_DIGEST ?? ""))) {
+    throw new Error("Encrypted backup artifact SHA-256 missing; refusing to migrate");
+  }
+  return recovery;
+}
+
 function executeRunner(runner) {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(process.execPath, [resolve(ROOT, runner)], {
@@ -97,6 +112,7 @@ async function main() {
     console.log(JSON.stringify({ status: "plan_gate_ok", entries: plan.entries.length }));
     return;
   }
+  validatePhaseBackup(phase);
   const result = await executePhase(plan, phase);
   console.log(JSON.stringify({ ...result, status: result.runners.length ? "complete" : "no_op" }));
 }

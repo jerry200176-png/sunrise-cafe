@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      # age PUBLIC key; optional. Absent = NO retained backup (dump verified, then deleted at job end).
+      # Public encryption recipient is mandatory; no plaintext artifact fallback.
       BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -42,8 +42,9 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
-      - name: Install age (only when BACKUP_AGE_RECIPIENT secret exists)
-        if: ${{ env.BACKUP_AGE_RECIPIENT != '' }}
+      - name: Require backup encryption recipient
+        run: '[ -n "${BACKUP_AGE_RECIPIENT//[[:space:]]/}" ] || { echo "::error::backup encryption recipient missing: migrations will not run"; exit 1; }'
+      - name: Install age
         run: sudo apt-get install -y -qq --no-install-recommends age
       - name: Resolve database URL for the backup
         env:
@@ -56,38 +57,38 @@ jobs:
           [ -n "${SUPABASE_DB_URL:-}" ] || { echo "::error::no database URL available: migrations will not run"; exit 1; }
           echo "::add-mask::$SUPABASE_DB_URL"
           echo "SUPABASE_DB_URL=$SUPABASE_DB_URL" >>"$GITHUB_ENV"
-
-      # Fail-closed ordering (Gap #4): backup -> upload -> verify upload -> migrate.
-      # Any failing step stops the job before the migration step starts.
       - name: Pre-migration backup (predeploy)
         id: backup
         run: bash scripts/pre-migration-backup.sh predeploy
-
-      - name: Upload encrypted predeploy backup
+      - name: Validate backup files before upload
+        env:
+          BACKUP_FILE: ${{ steps.backup.outputs.artifact_path }}
+          MANIFEST_FILE: ${{ steps.backup.outputs.manifest_path }}
+        run: |
+          set -euo pipefail
+          [[ "$BACKUP_FILE" == *.dump.age && -s "$BACKUP_FILE" && -s "$MANIFEST_FILE" ]] || { echo "::error::encrypted backup or manifest missing"; exit 1; }
+      - name: Upload encrypted backup
         id: upload
-        if: ${{ steps.backup.outputs.encrypted == 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: db-backup-predeploy-${{ github.run_id }}
+          name: db-backup-predeploy_migrate-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ steps.backup.outputs.artifact_path }}
             ${{ steps.backup.outputs.manifest_path }}
           retention-days: 3
           if-no-files-found: error
-
       - name: Verify backup upload completed
-        if: ${{ steps.backup.outputs.encrypted == 'true' }}
         env:
           ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
-        run: |
-          [ -n "$ARTIFACT_ID" ] || { echo "::error::backup artifact upload not confirmed: migrations will not run"; exit 1; }
-          echo "backup artifact id $ARTIFACT_ID uploaded"
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        run: bash scripts/verify-backup-upload.sh
 
       - name: Apply canonical predeploy phase
         env:
+          BACKUP_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          BACKUP_ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
@@ -111,6 +112,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: predeploy_migrate
     timeout-minutes: 15
+    env:
+      BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -118,11 +121,53 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      - name: Require backup encryption recipient
+        run: '[ -n "${BACKUP_AGE_RECIPIENT//[[:space:]]/}" ] || { echo "::error::backup encryption recipient missing: migrations will not run"; exit 1; }'
+      - name: Install age
+        run: sudo apt-get install -y -qq --no-install-recommends age
+      - name: Resolve database URL for the backup
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          trap 'rm -f .env.vercel.prod' EXIT
+          source scripts/resolve-db-url.sh
+          [ -n "${SUPABASE_DB_URL:-}" ] || { echo "::error::no database URL available: migrations will not run"; exit 1; }
+          echo "::add-mask::$SUPABASE_DB_URL"
+          echo "SUPABASE_DB_URL=$SUPABASE_DB_URL" >>"$GITHUB_ENV"
+      - name: Pre-migration backup (predeploy)
+        id: backup
+        run: bash scripts/pre-migration-backup.sh predeploy
+      - name: Validate backup files before upload
+        env:
+          BACKUP_FILE: ${{ steps.backup.outputs.artifact_path }}
+          MANIFEST_FILE: ${{ steps.backup.outputs.manifest_path }}
+        run: |
+          set -euo pipefail
+          [[ "$BACKUP_FILE" == *.dump.age && -s "$BACKUP_FILE" && -s "$MANIFEST_FILE" ]] || { echo "::error::encrypted backup or manifest missing"; exit 1; }
+      - name: Upload encrypted backup
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: db-backup-predeploy_verify-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ steps.backup.outputs.artifact_path }}
+            ${{ steps.backup.outputs.manifest_path }}
+          retention-days: 3
+          if-no-files-found: error
+      - name: Verify backup upload completed
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        run: bash scripts/verify-backup-upload.sh
+
       - name: Re-run canonical predeploy verification
         env:
+          BACKUP_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          BACKUP_ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
@@ -193,7 +238,7 @@ jobs:
     needs: deploy
     timeout-minutes: 15
     env:
-      # age PUBLIC key; optional. Absent = NO retained backup (dump verified, then deleted at job end).
+      # Public encryption recipient is mandatory; no plaintext artifact fallback.
       BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -202,8 +247,9 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
-      - name: Install age (only when BACKUP_AGE_RECIPIENT secret exists)
-        if: ${{ env.BACKUP_AGE_RECIPIENT != '' }}
+      - name: Require backup encryption recipient
+        run: '[ -n "${BACKUP_AGE_RECIPIENT//[[:space:]]/}" ] || { echo "::error::backup encryption recipient missing: migrations will not run"; exit 1; }'
+      - name: Install age
         run: sudo apt-get install -y -qq --no-install-recommends age
       - name: Resolve database URL for the backup
         env:
@@ -216,40 +262,39 @@ jobs:
           [ -n "${SUPABASE_DB_URL:-}" ] || { echo "::error::no database URL available: migrations will not run"; exit 1; }
           echo "::add-mask::$SUPABASE_DB_URL"
           echo "SUPABASE_DB_URL=$SUPABASE_DB_URL" >>"$GITHUB_ENV"
-
-      # Fail-closed ordering (Gap #4): backup -> upload -> verify upload -> migrate.
-      # Any failing step stops the job before the migration step starts.
       - name: Pre-migration backup (postdeploy)
         id: backup
         run: bash scripts/pre-migration-backup.sh postdeploy
-
-      - name: Upload encrypted postdeploy backup
+      - name: Validate backup files before upload
+        env:
+          BACKUP_FILE: ${{ steps.backup.outputs.artifact_path }}
+          MANIFEST_FILE: ${{ steps.backup.outputs.manifest_path }}
+        run: |
+          set -euo pipefail
+          [[ "$BACKUP_FILE" == *.dump.age && -s "$BACKUP_FILE" && -s "$MANIFEST_FILE" ]] || { echo "::error::encrypted backup or manifest missing"; exit 1; }
+      - name: Upload encrypted backup
         id: upload
-        if: ${{ steps.backup.outputs.encrypted == 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: db-backup-postdeploy-${{ github.run_id }}
+          name: db-backup-postdeploy_migrate-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ steps.backup.outputs.artifact_path }}
             ${{ steps.backup.outputs.manifest_path }}
           retention-days: 3
           if-no-files-found: error
-
       - name: Verify backup upload completed
-        if: ${{ steps.backup.outputs.encrypted == 'true' }}
         env:
           ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
-        run: |
-          [ -n "$ARTIFACT_ID" ] || { echo "::error::backup artifact upload not confirmed: migrations will not run"; exit 1; }
-          echo "backup artifact id $ARTIFACT_ID uploaded"
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        run: bash scripts/verify-backup-upload.sh
 
       - name: Apply canonical postdeploy phase
         env:
-          # Confirmed upload id; founder_approved runners refuse to migrate without it.
           BACKUP_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          BACKUP_ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+          # Confirmed upload id; founder_approved runners refuse to migrate without it.
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
@@ -372,6 +417,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: postdeploy_migrate
     timeout-minutes: 15
+    env:
+      BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -379,11 +426,53 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      - name: Require backup encryption recipient
+        run: '[ -n "${BACKUP_AGE_RECIPIENT//[[:space:]]/}" ] || { echo "::error::backup encryption recipient missing: migrations will not run"; exit 1; }'
+      - name: Install age
+        run: sudo apt-get install -y -qq --no-install-recommends age
+      - name: Resolve database URL for the backup
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          trap 'rm -f .env.vercel.prod' EXIT
+          source scripts/resolve-db-url.sh
+          [ -n "${SUPABASE_DB_URL:-}" ] || { echo "::error::no database URL available: migrations will not run"; exit 1; }
+          echo "::add-mask::$SUPABASE_DB_URL"
+          echo "SUPABASE_DB_URL=$SUPABASE_DB_URL" >>"$GITHUB_ENV"
+      - name: Pre-migration backup (postdeploy)
+        id: backup
+        run: bash scripts/pre-migration-backup.sh postdeploy
+      - name: Validate backup files before upload
+        env:
+          BACKUP_FILE: ${{ steps.backup.outputs.artifact_path }}
+          MANIFEST_FILE: ${{ steps.backup.outputs.manifest_path }}
+        run: |
+          set -euo pipefail
+          [[ "$BACKUP_FILE" == *.dump.age && -s "$BACKUP_FILE" && -s "$MANIFEST_FILE" ]] || { echo "::error::encrypted backup or manifest missing"; exit 1; }
+      - name: Upload encrypted backup
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: db-backup-postdeploy_verify-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ steps.backup.outputs.artifact_path }}
+            ${{ steps.backup.outputs.manifest_path }}
+          retention-days: 3
+          if-no-files-found: error
+      - name: Verify backup upload completed
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        run: bash scripts/verify-backup-upload.sh
+
       - name: Re-run canonical postdeploy verification
         env:
+          BACKUP_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          BACKUP_ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
