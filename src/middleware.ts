@@ -11,6 +11,7 @@ import {
 } from "@/lib/admin-api-auth";
 import {
   authorizeCronGet,
+  isAdminCronBearerRoute,
   isAdminCronGetPath,
   isVercelCronRequest,
 } from "@/lib/cron-request-auth";
@@ -107,10 +108,9 @@ export async function middleware(request: NextRequest) {
       if (isVercelCronRequest(request) || request.headers.get("authorization")) {
         return withRateLimitMode(cronAuth.response);
       }
-    } else {
-      const cronSecret = process.env.CRON_SECRET;
-      const authHeader = request.headers.get("authorization");
-      if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
+    } else if (isAdminCronBearerRoute(request.method, pathname) && process.env.CRON_SECRET?.trim()) {
+      const cronAuth = authorizeCronGet(request);
+      if (cronAuth.ok && cronAuth.via === "cron_secret") {
         return withRateLimitMode(NextResponse.next());
       }
     }

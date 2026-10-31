@@ -25,6 +25,15 @@ export function isAdminCronGetPath(pathname: string): boolean {
   return (ADMIN_CRON_GET_PATHS as readonly string[]).includes(pathname);
 }
 
+/** Existing, specifically scoped machine callers outside the scheduled GETs. */
+export function isAdminCronBearerRoute(method: string, pathname: string): boolean {
+  return (method === "GET" && pathname === "/api/admin/reminders/verify") ||
+    (method === "POST" && (
+      pathname === "/api/admin/migrations/apply-reminded-7d" ||
+      pathname === "/api/admin/migrations/apply-ops-events"
+    ));
+}
+
 /**
  * True when the request carries Vercel's cron schedule header. Informational
  * only (trigger-source labelling); it is NOT an authentication signal.
