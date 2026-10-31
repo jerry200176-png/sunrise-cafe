@@ -20,6 +20,8 @@ type Me = {
   permissions: { users_manage: boolean };
 };
 
+type SubmissionSummary = { email: string; displayName: string; role: string; branches: string[] };
+
 const CREATE_PENDING_KEY = "sunrise.admin-user-create.pending.v1";
 const UNKNOWN_MESSAGE = "建立結果尚未確認。請先重新整理並核對使用者清單、角色與分店；原請求可能稍後才完成，請勿立即重送。";
 
@@ -38,6 +40,7 @@ export default function AdminUsersPage() {
   const [creating, setCreating] = useState(false);
   const [unknown, setUnknown] = useState(false);
   const [listVerified, setListVerified] = useState(false);
+  const [submitted, setSubmitted] = useState<SubmissionSummary | null>(null);
   const createInFlight = useRef(false);
   const listSequence = useRef(0);
 
@@ -58,8 +61,10 @@ export default function AdminUsersPage() {
         fetchWithTimeout("/api/admin/users"),
       ]);
       if (sequence !== listSequence.current) return null;
-      if (usersRes.status === 403) {
-        setError("僅 Owner 可管理使用者");
+      if ([401, 403].includes(usersRes.status) || [401, 403].includes(meRes.status)) {
+        setMe(null); setUsers([]); setMigrationRequired(false); setSubmitted(null);
+        setEmail(""); setPassword(""); setDisplayName(""); setBranchIds("");
+        setError(usersRes.status === 403 ? "僅 Owner 可管理使用者" : "登入或權限已失效，請重新登入");
         return null;
       }
       if (!usersRes.ok) throw new Error(await responseError(usersRes));
@@ -71,6 +76,12 @@ export default function AdminUsersPage() {
       if (!Array.isArray(uData.users) || uData.users.some((user) => !user || typeof user.id !== "string" ||
           typeof user.email !== "string" || typeof user.role !== "string" || !Array.isArray(user.branch_ids) ||
           user.branch_ids.some((id) => typeof id !== "string"))) throw new Error("使用者清單格式不正確，請重新整理");
+      if (!currentMe.permissions.users_manage) {
+        setMe(null); setUsers([]); setMigrationRequired(false); setSubmitted(null);
+        setEmail(""); setPassword(""); setDisplayName(""); setBranchIds("");
+        setError("僅 Owner 可管理使用者");
+        return null;
+      }
       setMe(currentMe);
       setUsers(uData.users);
       setMigrationRequired(Boolean(uData.migration_required));
@@ -110,20 +121,21 @@ export default function AdminUsersPage() {
         setCreateMessage("無法安全保存建立狀態，尚未送出請求；請檢查瀏覽器儲存功能。");
         return;
       }
+      const submittedBranches = branchIds.split(",").map((s) => s.trim()).filter(Boolean);
+      setSubmitted({ email: email.trim().toLowerCase(), displayName: displayName.trim() || email.trim(), role, branches: submittedBranches });
+      const requestBody = JSON.stringify({
+        email, password, display_name: displayName || email, role, branch_ids: submittedBranches,
+      });
+      setPassword("");
       const res = await fetchWithTimeout("/api/admin/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          password,
-          display_name: displayName || email,
-          role,
-          branch_ids: branchIds.split(",").map((s) => s.trim()).filter(Boolean),
-        }),
+        body: requestBody,
       });
       const data = await readJsonWithTimeout<{ ok?: boolean; id?: unknown; error?: unknown }>(res);
       if (!res.ok && [400, 401, 403, 404, 422].includes(res.status) && typeof data?.error === "string") {
         clearCreateHold();
+        setSubmitted(null);
         setCreateMessage(friendlyMessage(data.error, res.status));
         return;
       }
@@ -135,6 +147,7 @@ export default function AdminUsersPage() {
         setCreateMessage("帳號已建立，但清單未能更新；請重新整理並核對角色與分店，暫勿再次建立。");
       } else {
         clearCreateHold();
+        setSubmitted(null);
         setEmail("");
         setDisplayName("");
         setCreateMessage("帳號已建立，請確認清單中的角色與分店。");
@@ -187,17 +200,23 @@ export default function AdminUsersPage() {
         )}
 
         {createMessage && <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">{createMessage}</div>}
-        {unknown && <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+        {(creating || unknown) && <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          {submitted ? <div aria-label="原送出申請摘要" className="mb-2">
+            <p>原送出申請：{submitted.email} · {submitted.displayName} · {submitted.role}</p>
+            <p>分店：{submitted.branches.length ? submitted.branches.join(", ") : "未指定"}</p>
+          </div> : unknown && <p className="mb-2">原申請內容未保存在瀏覽器，請依照原申請核對帳號、角色及分店。</p>}
+          {unknown && <>
           <p>請核對清單中是否已有此帳號，以及角色和分店是否完整。若尚未出現，原請求仍可能稍後完成。</p>
           <button type="button" onClick={() => void verifyList()} disabled={loading || creating} className="mt-2 rounded-lg border border-amber-700 px-3 py-2 disabled:opacity-50">重新整理並核對清單</button>
           {listVerified && <button type="button" onClick={() => {
             if (window.confirm("原請求仍可能稍後完成。你已核對帳號、角色及分店，並了解再次建立可能重複嗎？")) {
               try {
                 clearCreateHold();
-                setUnknown(false); setListVerified(false); setCreateMessage(null);
+                setUnknown(false); setListVerified(false); setCreateMessage(null); setSubmitted(null);
               } catch { setCreateMessage("無法保存確認結果，請檢查瀏覽器儲存功能。"); }
             }
           }} className="ml-2 mt-2 rounded-lg border border-amber-700 px-3 py-2">已核對，允許重新操作</button>}
+          </>}
         </div>}
 
         {migrationRequired && (
@@ -215,6 +234,7 @@ export default function AdminUsersPage() {
               <input
                 type="email"
                 required
+                disabled={creating || unknown}
                 placeholder="Email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -223,6 +243,7 @@ export default function AdminUsersPage() {
               <input
                 type="password"
                 required
+                disabled={creating || unknown}
                 minLength={8}
                 placeholder="密碼（至少 8 字）"
                 value={password}
@@ -231,6 +252,7 @@ export default function AdminUsersPage() {
               />
               <input
                 type="text"
+                disabled={creating || unknown}
                 placeholder="顯示名稱"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
@@ -238,6 +260,7 @@ export default function AdminUsersPage() {
               />
               <select
                 value={role}
+                disabled={creating || unknown}
                 onChange={(e) => setRole(e.target.value)}
                 className="w-full rounded-lg border border-stone-200 px-3 py-2"
               >
@@ -248,6 +271,7 @@ export default function AdminUsersPage() {
               </select>
               <input
                 type="text"
+                disabled={creating || unknown}
                 placeholder="分店 UUID（逗號分隔，owner 可留空）"
                 value={branchIds}
                 onChange={(e) => setBranchIds(e.target.value)}

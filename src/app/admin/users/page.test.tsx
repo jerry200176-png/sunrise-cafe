@@ -20,9 +20,11 @@ afterEach(() => { cleanup(); sessionStorage.clear(); vi.unstubAllGlobals(); vi.r
 async function setup(post: (init: RequestInit) => Promise<Response>) {
   const calls: string[] = [];
   let failList = false;
+  let denyList = false;
   vi.stubGlobal("fetch", vi.fn(async (input: string, init: RequestInit = {}) => {
     if (init.method === "POST") { calls.push(String(init.body)); return post(init); }
     if (input === "/api/admin/me") return json(me);
+    if (denyList) return json({ error: "Forbidden" }, 403);
     if (failList) return json({ error: "unavailable" }, 503);
     return json({ users });
   }));
@@ -30,7 +32,7 @@ async function setup(post: (init: RequestInit) => Promise<Response>) {
   fireEvent.change(await screen.findByPlaceholderText("Email"), { target: { value: "new@example.test" } });
   fireEvent.change(screen.getByPlaceholderText("密碼（至少 8 字）"), { target: { value: "test-password" } });
   fireEvent.change(screen.getByPlaceholderText("分店 UUID（逗號分隔，owner 可留空）"), { target: { value: "b1" } });
-  return { calls, failList: (value: boolean) => { failList = value; } };
+  return { calls, failList: (value: boolean) => { failList = value; }, denyList: (value: boolean) => { denyList = value; } };
 }
 
 describe("admin user creation recovery", () => {
@@ -59,6 +61,30 @@ describe("admin user creation recovery", () => {
     expect(sessionStorage.length).toBe(0);
   });
 
+  it("locks the original account details during a delayed request and preserves its password-free summary if unknown", async () => {
+    let fail!: (error: Error) => void;
+    const pending = new Promise<Response>((_resolve, reject) => { fail = reject; });
+    const { calls } = await setup(() => pending);
+    fireEvent.change(screen.getByPlaceholderText("顯示名稱"), { target: { value: "Original User" } });
+    fireEvent.click(screen.getByRole("button", { name: "建立" }));
+    expect((screen.getByPlaceholderText("Email") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByPlaceholderText("顯示名稱") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByPlaceholderText("分店 UUID（逗號分隔，owner 可留空）") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole("combobox") as HTMLSelectElement).disabled).toBe(true);
+    expect((screen.getByPlaceholderText("密碼（至少 8 字）") as HTMLInputElement).value).toBe("");
+    const summary = screen.getByLabelText("原送出申請摘要");
+    expect(summary.textContent).toContain("new@example.test");
+    expect(summary.textContent).toContain("Original User");
+    expect(summary.textContent).toContain("branch_manager");
+    expect(summary.textContent).toContain("b1");
+    expect(summary.textContent).not.toContain("test-password");
+    fail(new TypeError("network lost"));
+    expect(await screen.findByText(/建立結果尚未確認/)).toBeTruthy();
+    expect((screen.getByPlaceholderText("Email") as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByLabelText("原送出申請摘要").textContent).toContain("new@example.test");
+    expect(calls).toHaveLength(1);
+  });
+
   it("keeps the hold after reload without storing account details", async () => {
     const { calls } = await setup(async () => { throw new TypeError("network lost"); });
     fireEvent.click(screen.getByRole("button", { name: "建立" }));
@@ -69,6 +95,8 @@ describe("admin user creation recovery", () => {
     cleanup();
     render(<AdminUsersPage />);
     expect(await screen.findByText(/建立結果尚未確認/)).toBeTruthy();
+    expect(screen.getByText(/原申請內容未保存在瀏覽器/)).toBeTruthy();
+    expect(screen.queryByLabelText("原送出申請摘要")).toBeNull();
     expect((await screen.findByRole("button", { name: "建立" }) as HTMLButtonElement).disabled).toBe(true);
     expect(calls).toHaveLength(1);
   });
@@ -102,6 +130,16 @@ describe("admin user creation recovery", () => {
     expect(await screen.findByText(/無法確認使用者清單/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "已核對，允許重新操作" })).toBeNull();
     expect((screen.getByRole("button", { name: "建立" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("clears the previous owner form and user list when refresh is denied", async () => {
+    const { denyList } = await setup(async () => json({ ok: true, id: "created" }));
+    expect(screen.getByText("test@example.test · staff")).toBeTruthy();
+    denyList(true);
+    fireEvent.click(screen.getByRole("button", { name: "重新整理使用者清單" }));
+    expect(await screen.findByText("僅 Owner 可管理使用者")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Email")).toBeNull();
+    expect(screen.queryByText("test@example.test · staff")).toBeNull();
   });
 
   it("clearly labels a non-owner user with missing branch associations", async () => {
