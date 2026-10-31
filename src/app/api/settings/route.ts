@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchSettings, updateSettings } from "@/lib/supabase-fetch";
-import { requireAdminApiAuth, hasValidAdminSession } from "@/lib/admin-api-auth";
+import { requirePermission, hasValidAdminSession } from "@/lib/admin-api-auth";
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  const denied = await requireAdminApiAuth(request);
+  const denied = await requirePermission(request, "settings:write");
   if (denied) return denied;
 
   try {
@@ -32,7 +32,7 @@ export async function PATCH(request: NextRequest) {
       payment_keywords?: string[];
       google_review_url?: string | null;
     };
-    await updateSettings(current_branch_id ?? null, rental_notes, closed_dates, deposit_info, payment_keywords, google_review_url);
+    await updateSettings(current_branch_id, rental_notes, closed_dates, deposit_info, payment_keywords, google_review_url);
     return NextResponse.json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : "無法更新設定";

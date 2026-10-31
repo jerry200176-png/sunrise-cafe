@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe, isStripeEnabled } from "@/lib/stripe";
 import { createClient } from "@supabase/supabase-js";
-import { requirePermission } from "@/lib/admin-api-auth";
+import { getAdminContext, requirePermission } from "@/lib/admin-api-auth";
+import { fetchReservationBranchId } from "@/lib/supabase-admin";
 import { logOps } from "@/lib/ops-log";
 
 function supabaseAdmin() {
@@ -44,6 +45,14 @@ export async function POST(request: NextRequest) {
         { error: "缺少必填欄位（reservationId）" },
         { status: 400 }
       );
+    }
+
+    const scope = (await getAdminContext(request)).branch_ids;
+    if (scope !== null) {
+      const branchId = scope.length ? await fetchReservationBranchId(reservationId) : null;
+      if (!branchId || !scope.includes(branchId)) {
+        return NextResponse.json({ error: "預約不存在" }, { status: 404 });
+      }
     }
 
     const { data: reservation, error: resError } = await supabaseAdmin()
