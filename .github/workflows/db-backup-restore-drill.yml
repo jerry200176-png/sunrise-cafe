@@ -1,0 +1,363 @@
+name: DB backup + isolated restore drill
+
+# Cloud-only, dispatch-only recovery evidence for the Sunrise Postgres
+# `public` schema (CG-011). PUBLIC-SCHEMA RECOVERY ONLY — not a full Supabase
+# recovery (auth, storage, extensions, roles and realtime publication
+# membership are out of scope). Produces an age-encrypted bundle (dump + exact
+# per-table counts) whose dump has been restored into a throwaway Postgres
+# service on the job network with counts matching the source exactly.
+#
+# Safety contract (asserted by src/lib/db-backup-restore-drill-workflow.test.ts):
+# - workflow_dispatch only; job refuses any ref other than refs/heads/main.
+# - SUPABASE_DB_URL is passed via env to the source step only, never echoed,
+#   and every source session runs with default_transaction_read_only=on.
+# - psql / pg_dump / pg_restore output never reaches the log: it goes to
+#   mode-600 files under $RUNNER_TEMP/drill-logs (never uploaded, shredded in
+#   the always() cleanup); failures print only stage + exit + SQLSTATE class
+#   (scripts/db-drill/lib.sh).
+# - BEFORE any pg_dump, fails closed unless (1) the project ref derived from
+#   SUPABASE_DB_URL hashes to vars.SUNRISE_SOURCE_PROJECT_REF_SHA256 (the URL,
+#   host and ref are never printed) and (2) a read-only query finds the
+#   required Sunrise tables and schema_migrations identity markers on the
+#   source. The restore is checked again after pg_restore.
+# - The restore target has no published ports (reachable only as
+#   `restore-db` on the job network) and never receives the secret.
+# - Only the encrypted bundle, its checksum and a totals-only manifest are
+#   uploaded. Per-table counts live only inside the encrypted bundle.
+#   Plaintext lives outside the workspace and is shredded, even on failure.
+#
+# Deliberately does NOT call scripts/backup-db.sh or scripts/restore-drill.sh.
+# Runbook: docs/ops/CLOUD_BACKUP_RESTORE_DRILL.md
+
+on:
+  workflow_dispatch:
+    inputs:
+      age_recipient:
+        description: "age public key (age1...) that will be able to decrypt the backup"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sunrise-db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup-drill:
+    name: Backup, restore drill, encrypt
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: postgres:17
+    services:
+      restore-db:
+        image: postgres:17
+        env:
+          # Ephemeral, unpublished throwaway database; not a real credential.
+          POSTGRES_PASSWORD: drill-only
+          POSTGRES_DB: drill
+        options: >-
+          --health-cmd "pg_isready -U postgres -d drill"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      PLAIN_DIR: /drill-plain
+      OUT_DIR: drill-out
+      DUMP_NAME: sunrise-public.dump
+      BUNDLE_NAME: sunrise-public-bundle.tar
+      MIGRATION_FILE: supabase/migration-reservation-settlements.sql
+      # Source identity: tables every Sunrise database has, and tracked
+      # migrations recorded as applied in production (docs/MIGRATIONS.md).
+      REQUIRED_TABLES: "reservations orders order_items rooms schema_migrations"
+      IDENTITY_MARKERS: "20260710-reservations-no-overlap,20260711-job-runs"
+    steps:
+      - name: Validate inputs and secret presence
+        env:
+          AGE_RECIPIENT: ${{ inputs.age_recipient }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          EXPECTED_SOURCE_REF_SHA256: ${{ vars.SUNRISE_SOURCE_PROJECT_REF_SHA256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${AGE_RECIPIENT}" =~ ^age1[0-9a-z]{58}$ ]]; then
+            echo "::error::age_recipient must match ^age1[0-9a-z]{58}\$ (an age X25519 public key)"
+            exit 1
+          fi
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "::error::Repository secret SUPABASE_DB_URL is not set"
+            exit 1
+          fi
+          if [[ ! "${EXPECTED_SOURCE_REF_SHA256:-}" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::Repository variable SUNRISE_SOURCE_PROJECT_REF_SHA256 must be set to sha256(project ref) (64 hex)"
+            exit 1
+          fi
+          echo "inputs ok"
+
+      - name: Install age and jq; assert pg client major >= 17
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq >/dev/null
+          apt-get install -y -qq --no-install-recommends age jq ca-certificates >/dev/null
+          age --version
+          jq --version
+          pg_version="$(pg_dump --version)"
+          echo "${pg_version}"
+          major="$(printf '%s' "${pg_version}" | sed -E 's/^pg_dump \(PostgreSQL\) ([0-9]+).*/\1/')"
+          if [[ ! "${major}" =~ ^[0-9]+$ ]] || (( major < 17 )); then
+            echo "::error::pg_dump major version must be >= 17 (got '${major}')"
+            exit 1
+          fi
+          for bin in psql pg_restore sha256sum shred tar; do command -v "${bin}" >/dev/null; done
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+
+      - name: Source — identity, read-only counts, pg_dump, read-only counts
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          EXPECTED_SOURCE_REF_SHA256: ${{ vars.SUNRISE_SOURCE_PROJECT_REF_SHA256 }}
+          PGSSLMODE: require
+          PGOPTIONS: "-c default_transaction_read_only=on"
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          # shellcheck source=/dev/null
+          . scripts/db-drill/lib.sh
+          mkdir -p "${PLAIN_DIR}" "${OUT_DIR}"
+          chmod 700 "${PLAIN_DIR}"
+
+          # Gate 1 (no network): the connection must name the expected project.
+          drill_assert_source_identity "${SUPABASE_DB_URL}" "${EXPECTED_SOURCE_REF_SHA256}"
+          # Gate 2 (read-only query): required tables + migration markers.
+          # Both gates run before pg_dump, so a wrong source is never exported.
+          drill_schema_preflight source-preflight "${REQUIRED_TABLES}" "${IDENTITY_MARKERS}" \
+            "${PLAIN_DIR}/source.identity" "${SUPABASE_DB_URL}"
+
+          drill_counts source-counts-before "${PLAIN_DIR}/source-before.counts" "${SUPABASE_DB_URL}"
+
+          drill_quiet source-version "${PLAIN_DIR}/server_version.raw" \
+            psql "${SUPABASE_DB_URL}" -X -q -A -t -v ON_ERROR_STOP=1 -v VERBOSITY=sqlstate -c 'SHOW server_version'
+          awk 'NR==1 {print $1}' "${PLAIN_DIR}/server_version.raw" > "${PLAIN_DIR}/server_version"
+          if ! grep -qxE '[0-9]+(\.[0-9]+)*' "${PLAIN_DIR}/server_version"; then
+            echo "::error::drill stage 'source-version': unexpected output shape"
+            exit 1
+          fi
+          echo "source server_version: $(cat "${PLAIN_DIR}/server_version")"
+
+          drill_quiet source-pg-dump - \
+            pg_dump --dbname="${SUPABASE_DB_URL}" \
+              --schema=public \
+              --format=custom \
+              --no-owner \
+              --file="${PLAIN_DIR}/${DUMP_NAME}"
+
+          drill_counts source-counts-after "${PLAIN_DIR}/source-after.counts" "${SUPABASE_DB_URL}"
+
+          # The dump snapshot lies between the two count snapshots. If they
+          # disagree, the counts cannot be attributed to the dump: fail closed.
+          if ! cmp -s "${PLAIN_DIR}/source-before.counts" "${PLAIN_DIR}/source-after.counts"; then
+            echo "::error::source row counts changed during pg_dump; re-dispatch at a quieter time"
+            exit 1
+          fi
+          mv "${PLAIN_DIR}/source-after.counts" "${PLAIN_DIR}/source.counts"
+
+          # Belt and braces: the counted snapshot must also hold the tables.
+          # shellcheck disable=SC2086 # intentional word split of the fixed list
+          drill_require_tables "${PLAIN_DIR}/source.counts" ${REQUIRED_TABLES}
+
+          sha256sum "${PLAIN_DIR}/${DUMP_NAME}" | awk '{print $1}' > "${PLAIN_DIR}/dump.sha256"
+          stat -c '%s' "${PLAIN_DIR}/${DUMP_NAME}" > "${PLAIN_DIR}/dump.bytes"
+          echo "dump sha256: $(cat "${PLAIN_DIR}/dump.sha256") bytes: $(cat "${PLAIN_DIR}/dump.bytes")"
+
+      - name: Restore drill into isolated service DB
+        env:
+          PGHOST: restore-db
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: drill-only
+          PGDATABASE: drill
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          # shellcheck source=/dev/null
+          . scripts/db-drill/lib.sh
+          if [ -n "${SUPABASE_DB_URL:-}" ] || [ "${PGHOST}" != "restore-db" ]; then
+            echo "::error::restore step must only target the isolated restore-db service"
+            exit 1
+          fi
+          # Supabase-managed roles and out-of-`public` dependencies the dump
+          # may reference (ACLs / RLS policies / extensions / realtime).
+          drill_quiet restore-prepare - psql -X -q -v ON_ERROR_STOP=1 -v VERBOSITY=sqlstate <<'SQL'
+          CREATE ROLE anon NOLOGIN;
+          CREATE ROLE authenticated NOLOGIN;
+          CREATE ROLE service_role NOLOGIN BYPASSRLS;
+          CREATE ROLE supabase_admin NOLOGIN;
+          -- Fixed, unprivileged ACL target for the separate #461 backup role.
+          -- This is only a stub inside the disposable restore service: no login,
+          -- no BYPASSRLS, no credentials, and no source-role enumeration.
+          CREATE ROLE backup_ro NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+          CREATE SCHEMA IF NOT EXISTS extensions;
+          CREATE EXTENSION IF NOT EXISTS btree_gist SCHEMA extensions;
+          CREATE EXTENSION IF NOT EXISTS pgcrypto SCHEMA extensions;
+          CREATE EXTENSION IF NOT EXISTS "uuid-ossp" SCHEMA extensions;
+          CREATE PUBLICATION supabase_realtime;
+          SQL
+
+          # `public` already exists in the target; drop only its CREATE SCHEMA
+          # TOC entry (if pg_dump emitted one).
+          drill_quiet restore-toc "${PLAIN_DIR}/toc.list" pg_restore --list "${PLAIN_DIR}/${DUMP_NAME}"
+          grep -vE '^[0-9]+; [0-9]+ [0-9]+ SCHEMA - public ' "${PLAIN_DIR}/toc.list" > "${PLAIN_DIR}/toc.filtered"
+
+          drill_quiet restore-pg-restore - \
+            pg_restore \
+              --no-owner \
+              --exit-on-error \
+              --single-transaction \
+              --use-list="${PLAIN_DIR}/toc.filtered" \
+              --dbname=drill \
+              "${PLAIN_DIR}/${DUMP_NAME}"
+
+          drill_counts restore-counts "${PLAIN_DIR}/restore.counts"
+          # shellcheck disable=SC2086 # intentional word split of the fixed list
+          drill_require_tables "${PLAIN_DIR}/restore.counts" ${REQUIRED_TABLES}
+          drill_identity restore-identity "${PLAIN_DIR}/restore.identity" "${IDENTITY_MARKERS}"
+
+          if ! cmp -s "${PLAIN_DIR}/source.counts" "${PLAIN_DIR}/restore.counts"; then
+            echo "::error::restored row counts differ from source"
+            exit 1
+          fi
+          if ! cmp -s "${PLAIN_DIR}/source.identity" "${PLAIN_DIR}/restore.identity"; then
+            echo "::error::restored identity markers differ from source"
+            exit 1
+          fi
+          echo "pass" > "${PLAIN_DIR}/drill_result"
+          echo "drill_result=pass ($(wc -l < "${PLAIN_DIR}/restore.counts") tables match)"
+
+      - name: Bundle + encrypt, shred plaintext, write totals-only manifest
+        env:
+          AGE_RECIPIENT: ${{ inputs.age_recipient }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          # shellcheck source=/dev/null
+          . scripts/db-drill/lib.sh
+          test "$(cat "${PLAIN_DIR}/drill_result")" = "pass"
+
+          # Encrypted payload = the verified dump + per-table counts.
+          drill_quiet bundle-tar - tar -C "${PLAIN_DIR}" -cf "${PLAIN_DIR}/${BUNDLE_NAME}" \
+            "${DUMP_NAME}" source.counts restore.counts source.identity
+          bundle_sha256="$(sha256sum "${PLAIN_DIR}/${BUNDLE_NAME}" | awk '{print $1}')"
+
+          age_file="${OUT_DIR}/${BUNDLE_NAME}.age"
+          drill_quiet bundle-age - age --encrypt --recipient "${AGE_RECIPIENT}" --output "${age_file}" "${PLAIN_DIR}/${BUNDLE_NAME}"
+          (cd "${OUT_DIR}" && sha256sum "${BUNDLE_NAME}.age" > "${BUNDLE_NAME}.age.sha256")
+          age_sha256="$(awk '{print $1}' "${OUT_DIR}/${BUNDLE_NAME}.age.sha256")"
+          age_bytes="$(stat -c '%s' "${age_file}")"
+
+          shred -u "${PLAIN_DIR}/${DUMP_NAME}" "${PLAIN_DIR}/${BUNDLE_NAME}"
+          if [ -e "${PLAIN_DIR}/${DUMP_NAME}" ] || [ -e "${PLAIN_DIR}/${BUNDLE_NAME}" ]; then
+            echo "::error::plaintext still present after shred"
+            exit 1
+          fi
+
+          table_count="$(wc -l < "${PLAIN_DIR}/source.counts")"
+          total_rows="$(awk -F= '{s += $2} END {printf "%d", s}' "${PLAIN_DIR}/source.counts")"
+          migration_sha256="$(sha256sum "${MIGRATION_FILE}" | awk '{print $1}')"
+
+          jq -n \
+            --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg git_sha "${GITHUB_SHA}" \
+            --arg run_id "${GITHUB_RUN_ID}" \
+            --arg pg_dump_version "$(pg_dump --version)" \
+            --arg source_server_version "$(cat "${PLAIN_DIR}/server_version")" \
+            --arg dump_sha256 "$(cat "${PLAIN_DIR}/dump.sha256")" \
+            --argjson dump_bytes "$(cat "${PLAIN_DIR}/dump.bytes")" \
+            --arg bundle_sha256 "${bundle_sha256}" \
+            --arg age_file "${BUNDLE_NAME}.age" \
+            --arg age_sha256 "${age_sha256}" \
+            --argjson age_bytes "${age_bytes}" \
+            --arg age_recipient "${AGE_RECIPIENT}" \
+            --argjson table_count "${table_count}" \
+            --argjson total_rows "${total_rows}" \
+            --arg required_tables "${REQUIRED_TABLES}" \
+            --arg drill_result "$(cat "${PLAIN_DIR}/drill_result")" \
+            --arg migration_file "${MIGRATION_FILE}" \
+            --arg migration_sha256 "${migration_sha256}" \
+            '{
+              manifest_version: 2,
+              recovery_scope: "PUBLIC SCHEMA ONLY - not a full Supabase recovery (excludes auth, storage, extensions, roles, realtime publication membership)",
+              created_at: $created_at,
+              git_sha: $git_sha,
+              run_id: $run_id,
+              pg_dump_version: $pg_dump_version,
+              source_server_version: $source_server_version,
+              dump_format: "custom (pg_dump -Fc --no-owner --schema=public)",
+              dump_sha256: $dump_sha256,
+              dump_bytes: $dump_bytes,
+              bundle_contents: "sunrise-public.dump, source.counts, restore.counts, source.identity",
+              bundle_sha256: $bundle_sha256,
+              age_file: $age_file,
+              age_sha256: $age_sha256,
+              age_bytes: $age_bytes,
+              age_recipient: $age_recipient,
+              table_count: $table_count,
+              total_rows: $total_rows,
+              identity_check: "pass",
+              required_tables: ($required_tables | split(" ")),
+              restore_target: "postgres:17 service container, no published ports, job network only",
+              drill_result: $drill_result,
+              context_migration_file: $migration_file,
+              context_migration_sha256: $migration_sha256,
+              artifact_retention_days: 14
+            }' > "${OUT_DIR}/manifest.json"
+
+      - name: Upload encrypted backup evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sunrise-db-backup-${{ github.run_id }}
+          path: |
+            drill-out/sunrise-public-bundle.tar.age
+            drill-out/sunrise-public-bundle.tar.age.sha256
+            drill-out/manifest.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Step summary (pass/fail, checksums, totals only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          m="${OUT_DIR}/manifest.json"
+          {
+            echo "## Sunrise DB backup + restore drill"
+            echo
+            echo "Public-schema recovery only (not a full Supabase recovery)."
+            echo
+            echo "| field | value |"
+            echo "|---|---|"
+            jq -r '["drill_result","identity_check","dump_sha256","bundle_sha256","age_sha256","table_count","total_rows"][] as $k | "| \($k) | `\(.[$k])` |"' "${m}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Shred plaintext and tool logs
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          for dir in "${PLAIN_DIR}" "${RUNNER_TEMP:-/nonexistent}/drill-logs"; do
+            if [ -d "${dir}" ]; then
+              find "${dir}" -type f -exec shred -u {} + 2>/dev/null || true
+              rm -rf "${dir}"
+            fi
+          done
+          echo "plaintext and tool logs cleared"

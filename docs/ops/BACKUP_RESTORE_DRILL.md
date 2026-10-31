@@ -1,5 +1,11 @@
 # Backup & Restore Drill
 
+> **Superseded.** Use [Cloud backup + isolated restore drill](CLOUD_BACKUP_RESTORE_DRILL.md)
+> as the current source of truth. The local commands and optional encryption
+> below are historical and have known defects. This notice and the replacement
+> runbook do not authorize a production export, backup, restore, or workflow run;
+> the replacement runbook lists the required runtime authorizations.
+
 ## What “done” means (free path)
 
 Not “script exists” — must produce:
