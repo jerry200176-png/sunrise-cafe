@@ -114,6 +114,90 @@ describe("reservation selection visibility", () => {
 });
 
 describe("branch-scoped reservation requests", () => {
+  it("rechecks an out-of-range focused reservation before showing an edit result", async () => {
+    const focusId = "11111111-1111-4111-8111-111111111111";
+    const old = { ...rows[0], id: focusId, status: "completed", customer_name: "舊值" };
+    const refreshedFocus = deferred<Response>();
+    let focusReads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") return Response.json({ ok: true });
+      if (url.startsWith("/api/reservations?")) {
+        const p = new URL(url, "http://localhost").searchParams;
+        if (p.get("id") === focusId) return ++focusReads === 1 ? list([old]) : refreshedFocus.promise;
+        return list([]);
+      }
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    render(<ReservationList branchId="b1" focusReservationId={focusId} rooms={[]} />);
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByDisplayValue("舊值"), { target: { value: "新值" } });
+    await user.click(within(dialog).getByRole("button", { name: "儲存" }));
+    await waitFor(() => expect(focusReads).toBe(2));
+    expect(screen.getByText("載入中…")).toBeTruthy();
+    expect(screen.queryByText("舊值")).toBeNull();
+    await act(async () => { refreshedFocus.resolve(list([{ ...old, customer_name: "新值" }])); await refreshedFocus.promise; });
+    await user.click(await screen.findByRole("button", { name: "歷史紀錄" }));
+    expect(await screen.findByText("新值")).toBeTruthy();
+    expect(screen.queryByText("舊值")).toBeNull();
+  });
+
+  it("removes an out-of-range focused reservation after deletion", async () => {
+    const focusId = "11111111-1111-4111-8111-111111111111";
+    const item = { ...rows[0], id: focusId, status: "completed", customer_name: "舊歷史" };
+    let deleted = false;
+    let focusReads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "DELETE") { deleted = true; return Response.json({ ok: true }); }
+      if (url.startsWith("/api/reservations?")) {
+        const p = new URL(url, "http://localhost").searchParams;
+        if (p.get("id") === focusId) { focusReads += 1; return list(deleted ? [] : [item]); }
+        return list([]);
+      }
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    render(<ReservationList branchId="b1" focusReservationId={focusId} rooms={[]} />);
+    const editDialog = await screen.findByRole("dialog");
+    await user.click(within(editDialog).getByRole("button", { name: "關閉" }));
+    await user.click(screen.getByRole("button", { name: "歷史紀錄" }));
+    expect(await screen.findByText("舊歷史")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /刪除/ }));
+    const confirm = screen.getByRole("dialog");
+    const buttons = within(confirm).getAllByRole("button");
+    await user.click(buttons[buttons.length - 1]);
+    await waitFor(() => expect(focusReads).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(screen.queryByText("舊歷史")).toBeNull());
+    expect(deleted).toBe(true);
+  });
+
+  it("fails closed when a focused reservation cannot be rechecked", async () => {
+    const focusId = "11111111-1111-4111-8111-111111111111";
+    const item = { ...rows[0], id: focusId, status: "completed", customer_name: "待核對" };
+    let focusReads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") return Response.json({ ok: true });
+      if (url.startsWith("/api/reservations?")) {
+        const p = new URL(url, "http://localhost").searchParams;
+        if (p.get("id") === focusId) {
+          focusReads += 1;
+          return focusReads === 2 ? Response.json({ error: "unavailable" }, { status: 503 }) : list([item]);
+        }
+        return list([]);
+      }
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    render(<ReservationList branchId="b1" focusReservationId={focusId} rooms={[]} />);
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "儲存" }));
+    expect(await screen.findByText("無法核對訂位資料，請重試。")).toBeTruthy();
+    expect(screen.queryByDisplayValue("待核對")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "重試" }));
+    await waitFor(() => expect(focusReads).toBe(3));
+    expect(screen.queryByText("無法核對訂位資料，請重試。")).toBeNull();
+  });
+
   it("discards a history request started before a later mutation", async () => {
     const oldHistory = deferred<Response>();
     const item = { ...rows[0], status: "confirmed" };

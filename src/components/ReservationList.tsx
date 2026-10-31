@@ -167,6 +167,8 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   const [verificationPending, setVerificationPending] = useState(false);
   const batchRequest = useRef(0);
   const focusLookupRef = useRef<string | null>(null);
+  const focusLookupRequest = useRef(0);
+  const currentFocusId = useRef(focusReservationId);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"time_desc" | "time_asc" | "price_desc" | "price_asc">(
     "time_asc"
@@ -433,6 +435,36 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     setReservations(mergeById(extraRowsRef.current, activeRowsRef.current, historyRowsRef.current));
   }, []);
 
+  useLayoutEffect(() => {
+    currentFocusId.current = focusReservationId;
+    focusLookupRequest.current += 1;
+    focusLookupRef.current = null;
+  }, [focusReservationId]);
+
+  const loadFocusedReservation = useCallback(async (id: string): Promise<boolean> => {
+    if (!branchId || currentBranch.current !== branchId || currentFocusId.current !== id) return false;
+    const generation = branchGeneration.current;
+    const requestId = ++focusLookupRequest.current;
+    const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation && currentFocusId.current === id && focusLookupRequest.current === requestId;
+    focusLookupRef.current = id;
+    try {
+      const params = new URLSearchParams({ branchId, scope: "history", id });
+      const response = await fetchWithTimeout(`${RESERVATIONS_API}?${params.toString()}`);
+      const payload = responseObject(await readJsonWithTimeout(response).catch(() => null));
+      if (!isCurrent()) return false;
+      if (!response.ok || !payload || !isReservationRows(payload.items) || payload.items.length > 1 || (payload.items[0] && payload.items[0].id !== id)) {
+        focusLookupRef.current = null;
+        return false;
+      }
+      extraRowsRef.current = payload.items;
+      publishRows();
+      return true;
+    } catch {
+      if (isCurrent()) focusLookupRef.current = null;
+      return false;
+    }
+  }, [branchId, publishRows]);
+
   const historyKey = `${branchId}|${historyRange}|${historyStatus}|${historySearch}`;
   // 篩選條件與游標放在 ref：fetchHistory 保持穩定，才不會連帶讓未結案列表與即時訂閱重跑
   const historyFiltersRef = useRef({ range: historyRange, status: historyStatus, q: historySearch, key: historyKey });
@@ -450,6 +482,8 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     verificationRequest.current += 1;
     setVerificationPending(false);
     historyRequest.current += 1;
+    focusLookupRequest.current += 1;
+    focusLookupRef.current = null;
     batchRequest.current += 1;
     for (const id of reservationMutationsSnapshot().keys()) stalePendingMutations.current.add(id);
     messagePreviewRequest.current += 1;
@@ -610,6 +644,10 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     // A history request may have started before this mutation and may still
     // be pending even though no history page has been published yet.
     historyRequest.current += 1;
+    focusLookupRequest.current += 1;
+    focusLookupRef.current = null;
+    extraRowsRef.current = [];
+    publishRows();
     setHistoryLoading(false);
     setHistoryLoadingMore(false);
     setVerificationPending(true);
@@ -618,15 +656,19 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     const needsHistory = activeTab === "history" || historyKeyRef.current !== null;
     const historyOk = activeOk && (!needsHistory || await fetchHistory(historyKeyRef.current === null ? "replace" : "refresh"));
     if (!isCurrent()) return;
+    const focusedId = focusReservationId;
+    const existsInList = focusedId && [...activeRowsRef.current, ...historyRowsRef.current].some((row) => row.id === focusedId);
+    const focusOk = activeOk && historyOk && (!focusedId || Boolean(existsInList) || await loadFocusedReservation(focusedId));
+    if (!isCurrent()) return;
     verificationInProgress.current = false;
-    if (activeOk && historyOk) {
+    if (activeOk && historyOk && focusOk && currentFocusId.current === focusReservationId) {
       verificationRequired.current = false;
     } else {
       verificationRequired.current = true;
       setError((current) => current ?? "無法核對訂位資料，請重試。");
     }
     setVerificationPending(false);
-  }, [activeTab, branchId, fetchHistory, fetchReservations]);
+  }, [activeTab, branchId, fetchHistory, fetchReservations, focusReservationId, loadFocusedReservation, publishRows]);
 
   // An earlier request may finish while this branch is being revisited. Reload
   // before allowing an editor to act on the older snapshot.
@@ -755,24 +797,19 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     if (!target) {
       // 連結指到的訂位不在目前範圍（例如較早的歷史紀錄）：單獨向伺服器要這一筆
       if (!branchId || focusLookupRef.current === focusReservationId) return;
-      focusLookupRef.current = focusReservationId;
       const generation = branchGeneration.current;
-      const params = new URLSearchParams({ branchId, scope: "history", id: focusReservationId });
-      void fetch(`${RESERVATIONS_API}?${params.toString()}`)
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data: ReservationListResponse | null) => {
-          if (branchGeneration.current !== generation || currentBranch.current !== branchId) return;
-          const row = data?.items?.[0];
-          if (!row) return;
-          extraRowsRef.current = mergeById(extraRowsRef.current, [row]);
-          publishRows();
-        })
-        .catch(() => undefined);
+      const request = loadFocusedReservation(focusReservationId);
+      const requestId = focusLookupRequest.current;
+      void request.then((ok) => {
+        if (!ok && branchGeneration.current === generation && currentBranch.current === branchId && currentFocusId.current === focusReservationId && focusLookupRequest.current === requestId) {
+          setError("無法讀取指定訂位，請重試。");
+        }
+      });
       return;
     }
     openedFocusReservationId.current = focusReservationId;
     openEdit(target);
-  }, [branchId, editing, focusReservationId, loading, openEdit, publishRows, reservations]);
+  }, [branchId, editing, focusReservationId, loading, loadFocusedReservation, openEdit, reservations]);
 
   const submitEdit = async (e: React.FormEvent) => {
     e.preventDefault();
