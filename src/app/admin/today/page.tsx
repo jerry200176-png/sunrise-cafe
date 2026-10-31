@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import {
   Clock,
@@ -13,6 +13,8 @@ import {
 import { friendlyMessage } from "@/lib/friendly-error";
 import { waitlistStatusLabel } from "@/lib/status-labels";
 import { AdminShell } from "@/components/admin/AdminShell";
+import { useAdminBranches } from "@/lib/use-admin-branches";
+import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
 
 type TodayBundle = {
   date: string;
@@ -69,8 +71,6 @@ type TodayBundle = {
   }>;
 };
 
-type Branch = { id: string; name: string };
-
 function telHref(phone: string) {
   const digits = phone.replace(/[^\d+]/g, "");
   return digits ? `tel:${digits}` : `tel:${phone}`;
@@ -108,46 +108,41 @@ function fmtTime(iso: string) {
 }
 
 export default function AdminTodayPage() {
-  const [branches, setBranches] = useState<Branch[]>([]);
+  const { branches, loading: branchesLoading, error: branchesError, retry: retryBranches } = useAdminBranches();
   const [branchId, setBranchId] = useState<string>("");
   const [data, setData] = useState<TodayBundle | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [pending, startTransition] = useTransition();
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const requestSeq = useRef(0);
 
   useEffect(() => {
-    fetch("/api/branches", { credentials: "include" })
-      .then((r) => r.json())
-      .then((rows: Branch[]) => {
-        const list = Array.isArray(rows) ? rows : [];
-        setBranches(list);
-        if (list[0]) setBranchId(list[0].id);
-      })
-      .catch(() => {
-        setError("無法載入分店，請重新整理");
-        setLoading(false);
-      });
-  }, []);
+    if (branches.length && !branchId) setBranchId(branches[0].id);
+    if (!branchesLoading && (branchesError || branches.length === 0)) setLoading(false);
+  }, [branches, branchId, branchesLoading, branchesError]);
 
   const load = useCallback(() => {
     if (!branchId) return;
+    const seq = ++requestSeq.current;
+    const requestedBranch = branchId;
     setLoading(true);
     setError(null);
     startTransition(async () => {
       try {
-        const res = await fetch(`/api/admin/today?branchId=${encodeURIComponent(branchId)}`, {
+        const res = await fetchWithTimeout(`/api/admin/today?branchId=${encodeURIComponent(requestedBranch)}`, {
           credentials: "include",
         });
-        const json = await res.json();
+        const json = await readJsonWithTimeout<TodayBundle & { error?: string }>(res);
         if (!res.ok) throw new Error(friendlyMessage(json.error, res.status));
+        if (seq !== requestSeq.current) return;
         setData(json as TodayBundle);
         setUpdatedAt(fmtTime(new Date().toISOString()));
       } catch (e) {
         // 自動更新失敗時保留原本的資料，只顯示錯誤
-        setError(e instanceof Error ? e.message : "載入失敗，請重試");
+        if (seq === requestSeq.current) setError(e instanceof Error ? e.message : "載入失敗，請重試");
       } finally {
-        setLoading(false);
+        if (seq === requestSeq.current) setLoading(false);
       }
     });
   }, [branchId]);
@@ -189,7 +184,12 @@ export default function AdminTodayPage() {
           <select
             className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-sm transition-[border-color] duration-200 focus:border-amber-500 focus:outline-none"
             value={branchId}
-            onChange={(e) => setBranchId(e.target.value)}
+            onChange={(e) => {
+              requestSeq.current++;
+              setData(null);
+              setUpdatedAt(null);
+              setBranchId(e.target.value);
+            }}
             aria-label="分店"
           >
             {branches.map((b) => (
@@ -201,6 +201,10 @@ export default function AdminTodayPage() {
         ) : undefined
       }
     >
+        {branchesError && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-3 text-sm text-rose-800">
+          無法載入分店：{branchesError} <button type="button" className="ml-2 underline" onClick={() => void retryBranches()}>重試</button>
+        </div>}
+        {!branchesLoading && !branchesError && branches.length === 0 && <p role="status" className="rounded-xl border border-stone-200 bg-white p-4 text-sm text-stone-600">目前沒有可管理的分店。</p>}
         {error && (
           <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-3 text-sm text-rose-800" role="alert">
             {error}

@@ -5,7 +5,8 @@ import Link from "next/link";
 import { RefreshCw, Clock, Bell, Trash2, Phone } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
-import { friendlyMessage } from "@/lib/friendly-error";
+import { friendlyMessage, thrownMessage } from "@/lib/friendly-error";
+import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
@@ -38,6 +39,30 @@ function telHref(phone: string): string {
   return digits ? `tel:${digits}` : `tel:${phone}`;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isWaitlistPayload(value: unknown): value is { items: WaitlistItem[]; needs_call_count: number } {
+  if (!isRecord(value) || !Array.isArray(value.items) || !Number.isFinite(value.needs_call_count)) return false;
+  return value.items.every((item) => isRecord(item)
+    && typeof item.id === "string" && typeof item.customer_name === "string" && typeof item.phone === "string"
+    && typeof item.start_time === "string" && typeof item.end_time === "string" && typeof item.status === "string"
+    && typeof item.created_at === "string" && typeof item.room_name === "string" && typeof item.branch_name === "string"
+    && (item.notified_at === null || typeof item.notified_at === "string")
+    && (item.staff_called_at === undefined || item.staff_called_at === null || typeof item.staff_called_at === "string")
+    && typeof item.has_line === "boolean" && typeof item.needs_call === "boolean");
+}
+
+async function boundedError(response: Response): Promise<string> {
+  try {
+    const body = await readJsonWithTimeout<{ error?: unknown; message?: unknown }>(response.clone());
+    return friendlyMessage(body?.error ?? body?.message, response.status);
+  } catch {
+    return friendlyMessage(undefined, response.status);
+  }
+}
+
 export default function AdminWaitlistPage() {
   const [items, setItems] = useState<WaitlistItem[]>([]);
   const [needsCallCount, setNeedsCallCount] = useState(0);
@@ -50,6 +75,7 @@ export default function AdminWaitlistPage() {
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const toastId = useRef(0);
+  const loadSequence = useRef(0);
 
   const showToast = useCallback((message: string, variant: ToastVariant = "info") => {
     const id = ++toastId.current;
@@ -61,24 +87,24 @@ export default function AdminWaitlistPage() {
   }, []);
 
   const load = useCallback(async () => {
+    const sequence = ++loadSequence.current;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/admin/waitlist");
-      const data = await res.json();
-      if (!res.ok) {
-        setError(friendlyMessage(data.error, res.status));
-        return;
-      }
+      const res = await fetchWithTimeout("/api/admin/waitlist");
+      if (!res.ok) throw new Error(await boundedError(res));
+      const data = await readJsonWithTimeout<unknown>(res);
+      if (sequence !== loadSequence.current) return;
+      if (!isWaitlistPayload(data)) throw new Error("等位清單資料格式錯誤，請重新整理");
       setItems(data.items ?? []);
       setNeedsCallCount(data.needs_call_count ?? 0);
       setUpdatedAt(
         new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Taipei" })
       );
-    } catch {
-      setError("載入失敗，請按重新整理再試");
+    } catch (cause) {
+      if (sequence === loadSequence.current) setError(thrownMessage(cause, "等位清單載入失敗，請重新整理"));
     } finally {
-      setLoading(false);
+      if (sequence === loadSequence.current) setLoading(false);
     }
   }, []);
 
@@ -91,6 +117,8 @@ export default function AdminWaitlistPage() {
   }, [load]);
 
   const remove = async (id: string) => {
+    loadSequence.current++;
+    setLoading(false);
     setRemovingId(id);
     try {
       const res = await fetch(`/api/admin/waitlist/${id}`, { method: "DELETE" });
@@ -108,6 +136,8 @@ export default function AdminWaitlistPage() {
   };
 
   const markCalled = async (id: string, staff_called = true) => {
+    loadSequence.current++;
+    setLoading(false);
     setMarkingId(id);
     try {
       const res = await fetch(`/api/admin/waitlist/${id}`, {
@@ -163,7 +193,9 @@ export default function AdminWaitlistPage() {
     >
       <div className="space-y-4">
         {error && (
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">{error}</div>
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">
+            {error}{updatedAt ? "（畫面是上一次的資料）" : ""}
+          </div>
         )}
 
         {needsCallCount > 0 && (
@@ -200,6 +232,8 @@ export default function AdminWaitlistPage() {
         <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
           {loading && items.length === 0 ? (
             <p className="p-4 text-sm text-stone-500">載入中…</p>
+          ) : error && items.length === 0 ? (
+            <p className="p-4 text-sm text-stone-500">無法載入等位紀錄。</p>
           ) : visible.length === 0 ? (
             <div className="p-8 text-center text-stone-500">
               <Clock className="mx-auto mb-2 h-10 w-10 text-stone-300" strokeWidth={1.5} />

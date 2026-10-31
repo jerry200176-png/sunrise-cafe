@@ -6,7 +6,8 @@ import { format, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { parseLineImageMessageId } from "@/lib/payment-event-payload";
 import type { AdminPaymentInteraction } from "@/lib/ops-log";
-import { friendlyMessage } from "@/lib/friendly-error";
+import { friendlyMessage, responseError, thrownMessage } from "@/lib/friendly-error";
+import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import { paymentSourceLabel, reservationStatusLabel } from "@/lib/status-labels";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { isInteractiveTarget } from "@/lib/payment-shortcuts";
@@ -61,6 +62,7 @@ export default function AdminPaymentsPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   // 同步鎖：state 更新有延遲，連按時第二次請求會搶在 re-render 前送出
   const inFlight = useRef(false);
+  const loadSequence = useRef(0);
   const confirmVia = useRef<AdminPaymentInteraction>("click");
   const rejectInputRef = useRef<HTMLInputElement>(null);
   const itemRefs = useRef<(HTMLLIElement | null)[]>([]);
@@ -79,35 +81,55 @@ export default function AdminPaymentsPage() {
   }, []);
 
   const load = useCallback(async () => {
+    if (inFlight.current) return;
+    const sequence = ++loadSequence.current;
     setLoading(true);
     setError(null);
+    setItems([]);
+    setRisk([]);
+    setMigrationOk(null);
     try {
       const [statusRes, pendingRes, riskRes] = await Promise.all([
-        fetch("/api/admin/payments/migration-status"),
-        fetch("/api/admin/payments/pending"),
-        fetch("/api/admin/payments/reconcile"),
+        fetchWithTimeout("/api/admin/payments/migration-status"),
+        fetchWithTimeout("/api/admin/payments/pending"),
+        fetchWithTimeout("/api/admin/payments/reconcile"),
       ]);
-      const status = await statusRes.json();
+      if (sequence !== loadSequence.current) return;
+      if (!statusRes.ok) {
+        throw new Error(await responseError(statusRes));
+      }
+      const status = await readJsonWithTimeout<{ payment_events_ready?: boolean; error?: string }>(statusRes);
+      if (sequence !== loadSequence.current) return;
       setMigrationOk(Boolean(status.payment_events_ready));
 
       if (!status.payment_events_ready) {
         setItems([]);
         setError("付款審核功能尚未開通，請聯絡工程人員");
       } else if (pendingRes.ok) {
-        setItems(await pendingRes.json());
+        const pending = await readJsonWithTimeout<PendingItem[]>(pendingRes);
+        if (sequence !== loadSequence.current) return;
+        setItems(pending);
       } else {
-        const p = await pendingRes.json();
-        setError(friendlyMessage(p.error, pendingRes.status));
+        setItems([]);
+        setError(await responseError(pendingRes));
       }
 
       if (riskRes.ok) {
-        const r = await riskRes.json();
+        const r = await readJsonWithTimeout<{ items?: RiskItem[] }>(riskRes);
+        if (sequence !== loadSequence.current) return;
         setRisk(r.items ?? []);
+      } else if (sequence === loadSequence.current) {
+        const riskError = await responseError(riskRes);
+        if (sequence === loadSequence.current) {
+          setError((current) => current ? `${current}；風險資料：${riskError}` : `風險資料無法更新：${riskError}`);
+        }
       }
-    } catch {
-      setError("載入失敗，請按右上角重新整理");
+    } catch (cause) {
+      if (sequence === loadSequence.current) {
+        setError(thrownMessage(cause, "付款資料載入失敗，請重新整理"));
+      }
     } finally {
-      setLoading(false);
+      if (sequence === loadSequence.current) setLoading(false);
     }
   }, []);
 
@@ -135,6 +157,8 @@ export default function AdminPaymentsPage() {
   const approve = useCallback(async (id: string, interaction: AdminPaymentInteraction = "click") => {
     if (inFlight.current) return;
     inFlight.current = true;
+    loadSequence.current++;
+    setLoading(false);
     setBusyId(id);
     try {
       const res = await fetch(`/api/admin/payments/${id}/approve`, {
@@ -173,6 +197,8 @@ export default function AdminPaymentsPage() {
     }
     if (inFlight.current) return;
     inFlight.current = true;
+    loadSequence.current++;
+    setLoading(false);
     setBusyId(id);
     try {
       const res = await fetch(`/api/admin/payments/${id}/reject`, {
@@ -189,6 +215,8 @@ export default function AdminPaymentsPage() {
       setRejectId(null);
       setRejectNote("");
       setItems((prev) => prev.filter((i) => i.id !== id));
+      const rejected = itemsRef.current.find((i) => i.id === id);
+      if (rejected) setRisk((prev) => prev.filter((r) => r.booking_code !== rejected.booking_code));
     } catch {
       showToast("連不上系統，請確認網路後再試", "error");
     } finally {
@@ -286,6 +314,7 @@ export default function AdminPaymentsPage() {
         <button
           type="button"
           onClick={() => void load()}
+          disabled={loading || busyId !== null}
           className="flex h-10 w-10 items-center justify-center rounded-xl text-stone-500 transition-[background-color] duration-200 hover:bg-stone-100"
           aria-label="重新整理"
         >
