@@ -76,6 +76,22 @@ export async function readLineReminderDeliveryState(input: ReminderDeliveryKey):
   return status === "sending" || status === "sent" || status === "failed" ? status : "missing";
 }
 
+/** Legacy keys do not identify the actual group, so any branch-key history needs review. */
+export async function hasOtherGroupDelivery(input: ReminderDeliveryKey): Promise<boolean> {
+  const { data, error } = await supabaseAdmin()
+    .from("line_reminder_deliveries")
+    .select("id")
+    .eq("reminder_type", input.reminderType)
+    .eq("reminder_date", input.reminderDate)
+    .eq("reservation_id", input.reservationId)
+    .eq("recipient_type", "group")
+    .neq("recipient_id", "legacy-group")
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error("無法確認群組提醒歷史紀錄");
+  return Boolean(data);
+}
+
 /** A missing claim can mean the reservation changed after the candidate query. */
 export async function isReminderNoLongerRequired(input: ReminderDeliveryKey): Promise<boolean> {
   const { data, error } = await supabaseAdmin()

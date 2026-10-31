@@ -25,6 +25,7 @@ vi.mock("@/lib/line", () => ({
 vi.mock("@/lib/line-delivery", () => ({
   claimLineReminderDelivery: vi.fn(async () => ({ available: false, id: null })),
   readLineReminderDeliveryState: vi.fn(async () => "sent"),
+  hasOtherGroupDelivery: vi.fn(async () => false),
   isReminderNoLongerRequired: vi.fn(async () => false),
   markLineReminderDelivery: vi.fn(async () => {}),
   safeLineDeliveryError: vi.fn((error: unknown) => String(error)),
@@ -67,7 +68,7 @@ import {
 } from "@/lib/line-notify";
 import { sendLineFlexMessage } from "@/lib/line";
 import { REMINDER_DIGEST_CAROUSEL_MAX } from "@/lib/line-cards";
-import { claimLineReminderDelivery, isReminderNoLongerRequired, markLineReminderDelivery, readLineReminderDeliveryState } from "@/lib/line-delivery";
+import { claimLineReminderDelivery, hasOtherGroupDelivery, isReminderNoLongerRequired, markLineReminderDelivery, readLineReminderDeliveryState } from "@/lib/line-delivery";
 import { findRecentSendLineHeartbeat, findSuccessfulSendLineRunToday } from "@/lib/job-runs";
 import { LineSendError } from "@/lib/line-send-error";
 
@@ -426,6 +427,7 @@ describe("independent staff and customer reminder delivery", () => {
     vi.mocked(claimLineReminderDelivery).mockImplementation(async ({ reminderType, recipientId }) => ({ available: true, id: recipientId === "legacy-group" ? "d1_group_guard" : reminderType }));
     vi.mocked(readLineReminderDeliveryState).mockResolvedValue("sent");
     vi.mocked(isReminderNoLongerRequired).mockResolvedValue(false);
+    vi.mocked(hasOtherGroupDelivery).mockResolvedValue(false);
   });
 
   it.each(["quota", "configuration", "routing", "claim", "settlement"])("still sends to the customer after staff %s failure", async (failure) => {
@@ -610,6 +612,28 @@ describe("independent staff and customer reminder delivery", () => {
     expect(sendLineFlexToGroup).not.toHaveBeenCalled();
     expect(ledger.get("legacy-group")).toBe("sending");
     expect(ledger.has("G-test")).toBe(false);
+  });
+
+  it("does not resend historical branch deliveries when falling back to legacy configuration", async () => {
+    vi.mocked(fetchReservationsForReminder).mockResolvedValue([{ ...row, line_user_id: null }] as never);
+    vi.mocked(fetchBranches).mockResolvedValue([] as never);
+    vi.mocked(hasOtherGroupDelivery).mockResolvedValue(true);
+    const { sendLineFlex } = await import("@/lib/line-notify");
+    const result = await (await runSendLineReminder()).json();
+    expect(result).toMatchObject({ ok: false, unresolved_claim_count: 1 });
+    expect(sendLineFlex).not.toHaveBeenCalled();
+    expect(markLineReminderDelivery).not.toHaveBeenCalledWith("d1_group_guard", expect.anything());
+  });
+
+  it("checks the branch claim before accepting an absent guard and completed marker", async () => {
+    vi.mocked(fetchReservationsForReminder).mockResolvedValue([{ ...row, line_user_id: null }] as never);
+    vi.mocked(claimLineReminderDelivery).mockResolvedValue({ available: true, id: null });
+    vi.mocked(readLineReminderDeliveryState).mockImplementation(async ({ recipientId }) => recipientId === "legacy-group" ? "missing" : "sending");
+    vi.mocked(isReminderNoLongerRequired).mockResolvedValue(true);
+    const result = await (await runSendLineReminder()).json();
+    expect(result).toMatchObject({ ok: false, unresolved_claim_count: 1 });
+    expect(isReminderNoLongerRequired).not.toHaveBeenCalled();
+    expect(sendLineFlexToGroup).not.toHaveBeenCalled();
   });
 
   it("does not bind a historic legacy success to an unproven branch recipient", async () => {

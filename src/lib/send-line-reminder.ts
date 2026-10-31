@@ -44,6 +44,7 @@ import {
   claimLineReminderDelivery,
   markLineReminderDelivery,
   readLineReminderDeliveryState,
+  hasOtherGroupDelivery,
   isReminderNoLongerRequired,
   safeLineDeliveryError,
   type LineReminderDeliveryType,
@@ -159,14 +160,24 @@ async function claimRows(
             // matching branch-specific sent row before calling this complete.
             if (await readLineReminderDeliveryState(key) === "sent") handledRows.push(row);
             else unresolvedRows.push(row);
-          } else if (state === "missing" && await isReminderNoLongerRequired(key)) {
-            handledRows.push(row);
+          } else if (state === "missing") {
+            const branchState = await readLineReminderDeliveryState(key);
+            if (branchState === "sent" || (branchState === "missing" && await isReminderNoLongerRequired(key))) handledRows.push(row);
+            else unresolvedRows.push(row);
           } else unresolvedRows.push(row);
           continue;
         }
         guardDeliveryId = guard.id;
       }
       const result = await claimLineReminderDelivery(key);
+      if (recipientType === "group" && recipientId === "legacy-group" && result.available) {
+        // Once held, keep this guard on read failure or ambiguous older branch
+        // history; releasing it could allow an unverified duplicate send.
+        if (await hasOtherGroupDelivery(key)) {
+          unresolvedRows.push(row);
+          continue;
+        }
+      }
       if (guardDeliveryId && !result.available) throw new Error("無法確認分店提醒紀錄");
       if (result.available && !result.id) {
         const state = await readLineReminderDeliveryState(key);
