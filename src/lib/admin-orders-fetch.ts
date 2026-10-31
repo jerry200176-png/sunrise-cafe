@@ -1,6 +1,6 @@
 import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import { responseError } from "@/lib/friendly-error";
-import type { Order } from "@/types";
+import type { Order, OrderStatus } from "@/types";
 import { MAX_AGE_MS } from "@/lib/print-queue";
 
 /** Never return partial results: the caller keeps its previous state if any page fails. */
@@ -39,12 +39,19 @@ export async function fetchAllAdminOrders(branchId: string, isCurrent: () => boo
   throw new Error("訂單數量過多，請聯絡管理者處理");
 }
 
-export async function fetchPendingPrintStatus(branchId: string, id: string): Promise<Order> {
+type OrderReview = { id: string; branch_id: string; is_printed: boolean; status: OrderStatus };
+
+export async function fetchAdminOrderStatus(branchId: string, id: string): Promise<OrderReview> {
   const res = await fetchWithTimeout(`/api/admin/orders/${encodeURIComponent(id)}?branchId=${encodeURIComponent(branchId)}`, { credentials: "include" });
   if (!res.ok) throw new Error(await responseError(res));
-  const row = await readJsonWithTimeout<Order>(res);
-  if (!row || row.id !== id || row.branch_id !== branchId || typeof row.is_printed !== "boolean") {
-    throw new Error("無法核對訂單列印狀態");
+  const row = await readJsonWithTimeout<OrderReview>(res);
+  if (!row || row.id !== id || row.branch_id !== branchId || typeof row.is_printed !== "boolean" ||
+      !["pending", "preparing", "ready", "completed", "cancelled"].includes(row.status)) {
+    throw new Error("無法核對訂單狀態");
   }
   return row;
+}
+
+export async function fetchPendingPrintStatus(branchId: string, id: string): Promise<Order> {
+  return await fetchAdminOrderStatus(branchId, id) as Order;
 }

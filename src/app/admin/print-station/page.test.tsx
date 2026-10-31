@@ -101,9 +101,9 @@ describe("print station delayed sweep lifecycle", () => {
           const branch = parsed.searchParams.get("branchId");
           const id = decodeURIComponent(parsed.pathname.split("/").pop()!);
           const status = pendingStatuses[id] ?? pendingStatus;
-          if (hangPending) return new Promise<Response>((resolve) => { releasePending = () => resolve({ ok: true, status: 200, json: async () => ({ id, branch_id: branch, is_printed: true }) } as Response); });
+          if (hangPending) return new Promise<Response>((resolve) => { releasePending = () => resolve({ ok: true, status: 200, json: async () => ({ id, branch_id: branch, is_printed: true, status: "pending" }) } as Response); });
           return { ok: status !== "missing", status: status === "missing" ? 404 : 200,
-            json: async () => status === "missing" ? { error: "找不到訂單" } : { id, branch_id: branch, is_printed: status } } as Response;
+            json: async () => status === "missing" ? { error: "找不到訂單" } : { id, branch_id: branch, is_printed: status, status: "pending" } } as Response;
         }
         markWrites++;
         return { ok: !failMark, status: failMark ? 500 : 200 } as Response;

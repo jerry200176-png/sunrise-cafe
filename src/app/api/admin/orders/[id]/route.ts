@@ -18,7 +18,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
     return NextResponse.json({ error: "訂單編號不正確" }, { status: 400 });
   }
-  const { data, error } = await adminClient().from("orders").select("id,branch_id,is_printed")
+  const { data, error } = await adminClient().from("orders").select("id,branch_id,is_printed,status")
     .eq("branch_id", branchId).eq("id", id).maybeSingle();
   if (error) return NextResponse.json({ error: "無法核對訂單列印狀態" }, { status: 503 });
   if (!data) return NextResponse.json({ error: "找不到訂單" }, { status: 404 });

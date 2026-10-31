@@ -8,12 +8,15 @@ import { zhTW } from "date-fns/locale";
 import { supabase } from "@/lib/supabase";
 import { responseError, thrownMessage } from "@/lib/friendly-error";
 import { useAdminBranches } from "@/lib/use-admin-branches";
-import { fetchAllAdminOrders } from "@/lib/admin-orders-fetch";
+import { fetchAdminOrderStatus, fetchAllAdminOrders } from "@/lib/admin-orders-fetch";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import type { Order, OrderStatus } from "@/types";
 
 const ACTIVE_STATUSES: OrderStatus[] = ["pending", "preparing", "ready"];
-type Review = { branch: string; kind: "unknown" | "stale"; verified: boolean };
+type Review = { branch: string; kind: "unknown" | "stale"; verified: boolean; status?: OrderStatus };
+const STATUS_LABELS: Record<OrderStatus, string> = {
+  pending: "待處理", preparing: "準備中", ready: "完成出餐", completed: "已出餐", cancelled: "已取消",
+};
 
 export default function AdminOrdersPage() {
   const { branches, loading: branchesLoading, error: branchesError, retry: retryBranches } = useAdminBranches();
@@ -28,6 +31,7 @@ export default function AdminOrdersPage() {
   const prevOrderIds = useRef<Set<string>>(new Set());
   const requestSeq = useRef(0);
   const mutationVersion = useRef(0);
+  const reviewGeneration = useRef(0);
   const branchGeneration = useRef(0);
   const actionLocks = useRef(new Set<string>());
   const reviews = useRef(new Map<string, Review>());
@@ -42,6 +46,15 @@ export default function AdminOrdersPage() {
 
   const loadOrders = useCallback(async function load(bid: string) {
     if (!bid || currentBranch.current !== bid) return;
+    reviewGeneration.current++;
+    let revoked = false;
+    for (const [id, review] of reviews.current) {
+      if (review.branch === bid && review.verified) {
+        reviews.current.set(id, { ...review, verified: false, status: undefined });
+        revoked = true;
+      }
+    }
+    if (revoked) setReviewState(new Map(reviews.current));
     if (inFlight.current?.branch === bid) {
       inFlight.current.queued = true;
       return;
@@ -50,6 +63,7 @@ export default function AdminOrdersPage() {
     inFlight.current = run;
     const seq = ++requestSeq.current;
     const version = mutationVersion.current;
+    const reviewVersion = reviewGeneration.current;
     setLoading(true);
     try {
       const data = await fetchAllAdminOrders(bid, () => seq === requestSeq.current && currentBranch.current === bid, "active");
@@ -59,16 +73,30 @@ export default function AdminOrdersPage() {
         return;
       }
       if (!Array.isArray(data)) throw new Error("訂單資料格式不正確，請重試");
-      const active = (Array.isArray(data) ? data : []).filter((o: Order) =>
+      let active = (Array.isArray(data) ? data : []).filter((o: Order) =>
         ACTIVE_STATUSES.includes(o.status)
       );
-      for (const [id, review] of reviews.current) {
-        if (review.branch !== bid) continue;
-        if (review.kind === "stale") {
-          reviews.current.delete(id);
-          actionLocks.current.delete(id);
-        } else {
-          reviews.current.set(id, { ...review, verified: true });
+      const toReview = [...reviews.current.entries()].filter(([, review]) => review.branch === bid);
+      const checked = await Promise.all(toReview.map(async ([id, review]) => {
+        try { return { id, review, row: await fetchAdminOrderStatus(bid, id) }; }
+        catch { return { id, review, row: null }; }
+      }));
+      if (seq !== requestSeq.current || currentBranch.current !== bid) return;
+      if (version !== mutationVersion.current) { run.queued = true; return; }
+      if (reviewVersion !== reviewGeneration.current) {
+        run.queued = true;
+      } else {
+        for (const { id, review, row } of checked) {
+          if (!row || reviews.current.get(id) !== review) continue;
+          const isActive = ACTIVE_STATUSES.includes(row.status);
+          const listHasRow = active.some((order) => order.id === id);
+          active = active.flatMap((order) => order.id !== id ? [order] : isActive ? [{ ...order, status: row.status }] : []);
+          if (review.kind === "stale" && (!isActive || listHasRow)) {
+            reviews.current.delete(id);
+            actionLocks.current.delete(id);
+          } else {
+            reviews.current.set(id, { ...review, verified: true, status: row.status });
+          }
         }
       }
       setLockedOrders(new Set(actionLocks.current));
@@ -291,7 +319,7 @@ export default function AdminOrdersPage() {
       )}
       {[...reviewState.entries()].filter(([, review]) => review.branch === branchId).map(([id, review]) => (
         <div key={id} role="alert" className="mx-auto max-w-7xl border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          訂單 {id} 的操作需要重新核對；{review.verified ? "請核對畫面與現場。原請求可能仍會延遲完成。" : "核對尚未完成，請保持鎖定並重新整理。"}
+          訂單 {id} 的操作需要重新核對；{review.verified && review.status ? `目前後台狀態：${STATUS_LABELS[review.status]}。請核對現場；原請求可能仍會延遲完成。` : "核對尚未完成，請保持鎖定並重新整理。"}
           {review.kind === "unknown" && <button type="button" disabled={!review.verified} onClick={() => releaseReviewedOrder(id)} className="ml-2 underline disabled:opacity-50">已核對，解除鎖定</button>}
         </div>
       ))}

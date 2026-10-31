@@ -15,7 +15,7 @@ describe("pending print status lookup", () => {
   beforeEach(() => {
     vi.stubEnv("ADMIN_PASSWORD", "test-admin"); vi.stubEnv("SESSION_SECRET", "test-session"); vi.clearAllMocks();
     db.from.mockReturnValue(db); db.select.mockReturnValue(db); db.eq.mockReturnValue(db);
-    db.maybeSingle.mockResolvedValue({ data: { id, branch_id: "allowed", is_printed: true }, error: null });
+    db.maybeSingle.mockResolvedValue({ data: { id, branch_id: "allowed", is_printed: true, status: "completed" }, error: null });
   });
   afterEach(() => vi.unstubAllEnvs());
   it("rejects unauthorized and cross-branch requests before query", async () => {
@@ -26,7 +26,7 @@ describe("pending print status lookup", () => {
   });
   it("restricts lookup to the authorized branch and order id", async () => {
     const res = await GET(await request("staff", "allowed"), context);
-    expect(await res.json()).toEqual({ id, branch_id: "allowed", is_printed: true });
+    expect(await res.json()).toEqual({ id, branch_id: "allowed", is_printed: true, status: "completed" });
     expect(db.eq).toHaveBeenCalledWith("branch_id", "allowed");
     expect(db.eq).toHaveBeenCalledWith("id", id);
   });
