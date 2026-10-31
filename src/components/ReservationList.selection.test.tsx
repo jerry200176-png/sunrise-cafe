@@ -137,11 +137,14 @@ describe("branch-scoped reservation requests", () => {
     expect((within(dialog).getByLabelText("帳號末五碼") as HTMLInputElement).value).toBe("12345");
     await user.click(within(dialog).getByRole("button", { name: "暫時收起並核對" }));
     expect(screen.queryByRole("dialog")).toBeNull();
-    act(() => {
-      const state = reservationMutationsSnapshot().get("one")!;
-      if (state.outcome === "unknown") clearReservationMutationUnknown("one", state);
-      else endReservationMutation("one");
-    });
+    if (outcome === "unknown") {
+      await user.click(screen.getByRole("button", { name: "核對後解除待確認" }));
+      const confirmation = screen.getByRole("dialog");
+      expect(within(confirmation).getByText(/原請求仍可能稍後完成/)).toBeTruthy();
+      await user.click(within(confirmation).getByRole("button", { name: "確認" }));
+    } else {
+      act(() => { endReservationMutation("one"); });
+    }
     await user.click(screen.getByRole("button", { name: "回到未送出的付款資料" }));
     await waitFor(() => expect(within(screen.getByRole("dialog")).getByRole("button", { name: "已核對最新資料，繼續編輯" })).toBeTruthy());
     expect((within(screen.getByRole("dialog")).getByLabelText("帳號末五碼") as HTMLInputElement).value).toBe("12345");
