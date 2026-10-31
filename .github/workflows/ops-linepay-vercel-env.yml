@@ -25,13 +25,33 @@ concurrency:
 
 permissions:
   contents: read
-  actions: write
 
 jobs:
-  operate:
-    name: ${{ github.event_name }} LINE Pay Vercel env
+  validate:
+    if: github.event_name == 'pull_request'
+    name: pull_request LINE Pay Vercel env
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Validate with simulated Vercel (no production access)
+        run: |
+          npx vitest run src/lib/ops-linepay-vercel-env.test.ts
+          echo 'PR validation uses a fake Vercel CLI and does not inspect production.' >> "$GITHUB_STEP_SUMMARY"
+
+  operate:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    name: Manual LINE Pay Vercel env
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -42,17 +62,10 @@ jobs:
       - name: Resolve mode
         id: scope
         env:
-          EVENT_NAME: ${{ github.event_name }}
           INPUT_MODE: ${{ inputs.mode }}
-          HEAD_REF: ${{ github.head_ref }}
         run: |
           set -euo pipefail
-          MODE=inspect
-          if [ "$EVENT_NAME" = workflow_dispatch ]; then
-            MODE="${INPUT_MODE:-inspect}"
-          elif [ "$EVENT_NAME" = pull_request ] && [ "$HEAD_REF" = "chore/task-linepay-sandbox-land-20260815" ]; then
-            MODE=set-sandbox-url
-          fi
+          MODE="${INPUT_MODE:-inspect}"
           case "$MODE" in
             inspect|set-sandbox-url|restore-fixed-link) ;;
             *) echo "::error::mode not allowlisted"; exit 1 ;;
