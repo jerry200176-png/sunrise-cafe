@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateBranch, setBranchArchived } from "@/lib/supabase-fetch";
-import { requireAdminApiAuth } from "@/lib/admin-api-auth";
+import { requirePermission } from "@/lib/admin-api-auth";
 import type { RentalNoteSection } from "@/types";
 import { validateWeeklyHours, type WeeklyHours } from "@/lib/branch-hours";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: NextRequest, { params }: Params) {
-  const denied = await requireAdminApiAuth(request);
+  const { id } = await params;
+  const denied = await requirePermission(request, "branches:write", id);
   if (denied) return denied;
 
-  const { id } = await params;
   if (!id) return NextResponse.json({ error: "缺少 id" }, { status: 400 });
   try {
     const body = await request.json();
@@ -46,10 +46,10 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 }
 
 export async function DELETE(request: NextRequest, { params }: Params) {
-  const denied = await requireAdminApiAuth(request);
+  const { id } = await params;
+  const denied = await requirePermission(request, "branches:write", id);
   if (denied) return denied;
 
-  const { id } = await params;
   if (!id) return NextResponse.json({ error: "缺少 id" }, { status: 400 });
   try {
     // 不再真的刪除：封存。底下的包廂、訂位、訂單全部保留，可從「已封存」還原。

@@ -5,7 +5,8 @@ import {
   isAdminConfigured,
 } from "@/lib/supabase-admin";
 import { BOOKABLE_HTTP, checkBookable } from "@/lib/bookable";
-import { requireAdminApiAuth } from "@/lib/admin-api-auth";
+import { getAdminContext, requireAdminApiAuth, requirePermission } from "@/lib/admin-api-auth";
+import { assertReservationWriteAllowed } from "@/lib/reservation-access";
 import { isWeekendDate } from "@/lib/booking-utils";
 
 function getPriceForDate(room: { price_weekday: number; price_weekend: number }, dateStr: string): number {
@@ -15,6 +16,8 @@ function getPriceForDate(room: { price_weekday: number; price_weekend: number },
 export async function POST(request: NextRequest) {
   const denied = await requireAdminApiAuth(request);
   if (denied) return denied;
+  const roleDenied = await requirePermission(request, "reservations:write");
+  if (roleDenied) return roleDenied;
 
   if (!isAdminConfigured()) {
     return NextResponse.json(
@@ -73,6 +76,12 @@ export async function POST(request: NextRequest) {
     if (!room) {
       return NextResponse.json({ error: "包廂不存在" }, { status: 404 });
     }
+    if (!room.branch_id) {
+      return NextResponse.json({ error: "包廂不存在" }, { status: 404 });
+    }
+    const context = await getAdminContext(request);
+    const rbacDenied = assertReservationWriteAllowed(context, room.branch_id);
+    if (rbacDenied) return NextResponse.json({ error: "包廂不存在" }, { status: 404 });
 
     const details: { week: number; date: string; status: "created" | "skipped"; error?: string }[] = [];
     let created = 0;

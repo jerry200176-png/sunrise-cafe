@@ -45,4 +45,20 @@ describe("supabase-fetch admin mutations", () => {
     expect(headers.Authorization).toBe("Bearer service-role-key");
     expect(headers.apikey).toBe("service-role-key");
   });
+
+  it("preserves the current branch when an unrelated setting is updated, but permits explicit clearing", async () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-key";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key";
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    const { updateSettings } = await import("./supabase-fetch");
+    await updateSettings(undefined, undefined, undefined, "訂金說明");
+    const first = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(first).not.toHaveProperty("current_branch_id");
+    expect(first.deposit_info).toBe("訂金說明");
+    await updateSettings(null);
+    const second = JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string);
+    expect(second.current_branch_id).toBeNull();
+  });
 });
