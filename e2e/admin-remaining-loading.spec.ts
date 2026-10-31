@@ -42,8 +42,8 @@ test("包廂場控讀到錯誤格式會顯示錯誤，不會當成空包廂", as
   await page.route("**/api/admin/floor?**", (route) => route.fulfill({ json: { rooms: "not-an-array" } }));
 
   await page.goto("/admin/floor");
-  await expect(page.getByRole("alert")).toContainText("包廂資料格式錯誤");
-  await expect(page.getByRole("alert")).toContainText("目前無法確認包廂狀況");
+  await expect(page.getByRole("alert").filter({ hasText: "包廂資料格式錯誤" })).toContainText("包廂資料格式錯誤");
+  await expect(page.getByRole("alert").filter({ hasText: "包廂資料格式錯誤" })).toContainText("目前無法確認包廂狀況");
   await expect(page.getByText("還沒收的餐費", { exact: true })).toHaveCount(0);
   await expect(page.getByText("NT$ 0", { exact: true })).toHaveCount(0);
   await expect(page.getByText("此分店尚未建立包廂")).toHaveCount(0);
@@ -85,7 +85,7 @@ test("等位更新失敗時保留資料會標示為舊資料", async ({ page, co
   await page.goto("/admin/waitlist");
   await expect(page.getByText("等位客人")).toBeVisible();
   await page.getByRole("button", { name: "重新整理" }).click();
-  await expect(page.getByRole("alert")).toContainText("畫面是上一次的資料");
+  await expect(page.getByRole("alert").filter({ hasText: "畫面是上一次的資料" })).toContainText("畫面是上一次的資料");
   await expect(page.getByText("等位客人")).toBeVisible();
 });
 
