@@ -114,6 +114,8 @@ describe("branch-scoped reservation requests", () => {
     await screen.findByRole("checkbox", { name: /選取 甲 A01/ });
     await user.click(screen.getByRole("button", { name: /重送 LINE 繳費/ }));
     await waitFor(() => expect(sends).toBe(1));
+    await user.click(screen.getByRole("button", { name: "傳送中…" }));
+    expect(sends).toBe(1);
     view.rerender(<ReservationList branchId="b2" rooms={[]} />);
     await screen.findByRole("checkbox", { name: /選取 乙 B02/ });
     await user.click(screen.getByRole("button", { name: /重送 LINE 繳費/ }));

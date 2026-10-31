@@ -143,6 +143,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   const activeRequest = useRef(0);
   const batchRequest = useRef(0);
   const paymentSendRequest = useRef(0);
+  const paymentSendInFlight = useRef(false);
   const focusLookupRef = useRef<string | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"time_desc" | "time_asc" | "price_desc" | "price_asc">(
@@ -385,6 +386,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     historyRequest.current += 1;
     batchRequest.current += 1;
     paymentSendRequest.current += 1;
+    paymentSendInFlight.current = false;
     messagePreviewRequest.current += 1;
     activeRowsRef.current = [];
     historyRowsRef.current = [];
@@ -890,7 +892,8 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   };
 
   const sendPaymentRequest = async (id: string) => {
-    if (currentBranch.current !== branchId) return;
+    if (currentBranch.current !== branchId || paymentSendInFlight.current) return;
+    paymentSendInFlight.current = true;
     const generation = branchGeneration.current;
     const requestId = ++paymentSendRequest.current;
     const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation && paymentSendRequest.current === requestId;
@@ -908,7 +911,10 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     } catch {
       if (isCurrent()) showToast("傳送失敗，請確認網路連線", "error");
     } finally {
-      if (isCurrent()) setSendingLinePaymentTo(null);
+      if (isCurrent()) {
+        paymentSendInFlight.current = false;
+        setSendingLinePaymentTo(null);
+      }
     }
   };
 
