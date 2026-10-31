@@ -27,9 +27,12 @@ type DepositPaidDialogProps = {
   initial?: Partial<DepositInfo>;
   onConfirm: (info: DepositInfo) => void;
   onCancel: () => void;
+  reviewMessage?: string;
+  onReview?: () => void;
+  onRetry?: () => void;
 };
 
-export function DepositPaidDialog({ title, initial, onConfirm, onCancel }: DepositPaidDialogProps) {
+export function DepositPaidDialog({ title, initial, onConfirm, onCancel, reviewMessage, onReview, onRetry }: DepositPaidDialogProps) {
   const hasOtherInfo = Boolean(initial?.deposit_payment_note) && !initial?.deposit_last_five;
   const [method, setMethod] = useState<Method>(hasOtherInfo ? "other" : "transfer");
   const [paidOn, setPaidOn] = useState(
@@ -43,7 +46,7 @@ export function DepositPaidDialog({ title, initial, onConfirm, onCancel }: Depos
   const canSubmit = isTransfer ? Boolean(paidOn) && lastFiveOk : note.trim() !== "";
 
   const submit = () => {
-    if (!canSubmit) return;
+    if (!canSubmit || reviewMessage) return;
     onConfirm({
       deposit_paid_on: isTransfer ? paidOn : null,
       deposit_last_five: isTransfer ? lastFive : null,
@@ -136,6 +139,11 @@ export function DepositPaidDialog({ title, initial, onConfirm, onCancel }: Depos
             />
           </label>
         </div>
+        {reviewMessage && <div role="alert" className="mx-4 mb-2 rounded bg-amber-50 p-3 text-sm text-amber-900">
+          <p>{reviewMessage}</p>
+          {onReview && <button type="button" onClick={onReview} className="mt-2 underline">已核對最新資料，繼續編輯</button>}
+          {onRetry && <button type="button" onClick={onRetry} className="mt-2 underline">重新讀取</button>}
+        </div>}
         <div className="flex gap-2 border-t border-gray-100 px-4 py-3">
           <button
             type="button"
@@ -146,7 +154,7 @@ export function DepositPaidDialog({ title, initial, onConfirm, onCancel }: Depos
           </button>
           <button
             type="submit"
-            disabled={!canSubmit}
+            disabled={!canSubmit || Boolean(reviewMessage)}
             className="flex-1 rounded-lg bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
           >
             確認

@@ -114,6 +114,80 @@ describe("reservation selection visibility", () => {
 });
 
 describe("branch-scoped reservation requests", () => {
+  it("retains a payment draft after a failed refresh and prevents approval if the row disappears", async () => {
+    let reads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.startsWith("/api/reservations?")) {
+        const p = new URL(url, "http://localhost").searchParams;
+        if (p.get("scope") === "active") {
+          reads++;
+          if (reads === 2) return Response.json({ error: "無法讀取" }, { status: 503 });
+          return list(reads === 1 ? rows : [rows[1]]);
+        }
+        return list([]);
+      }
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    render(<ReservationList branchId="b1" rooms={[]} />);
+    const selected = await screen.findByRole("checkbox", { name: /選取 甲 A01/ });
+    await user.click(within(selected.closest("li")!).getByRole("button", { name: /核准訂金/ }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("帳號末五碼"), { target: { value: "12345" } });
+    act(() => { realtime.handlers.at(-1)?.({ new: { id: "one" } }); });
+    await screen.findByRole("button", { name: "重新讀取" });
+    expect((within(dialog).getByLabelText("帳號末五碼") as HTMLInputElement).value).toBe("12345");
+    await user.click(screen.getByRole("button", { name: "重新讀取" }));
+    await waitFor(() => expect(reads).toBe(3));
+    expect(within(dialog).queryByRole("button", { name: "已核對最新資料，繼續編輯" })).toBeNull();
+    expect((within(dialog).getByRole("button", { name: "確認" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(dialog).getByLabelText("帳號末五碼") as HTMLInputElement).value).toBe("12345");
+  });
+
+  it.each(["one", "unrelated"])("preserves and requires review of payment input after realtime (%s)", async (changedId) => {
+    const refreshed = deferred<Response>();
+    const latest = { ...rows[0], is_deposit_paid: true, deposit_paid_on: "2026-10-21", deposit_last_five: "54321", deposit_payment_note: "其他人更新" };
+    let reads = 0;
+    const writes: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") { writes.push(JSON.parse(String(init.body))); return Response.json({ ok: true }); }
+      if (url.startsWith("/api/reservations?")) {
+        const p = new URL(url, "http://localhost").searchParams;
+        if (p.get("scope") === "active") return ++reads === 1 ? list(rows) : refreshed.promise;
+        return list([]);
+      }
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    render(<ReservationList branchId="b1" rooms={[]} />);
+    const selected = await screen.findByRole("checkbox", { name: /選取 甲 A01/ });
+    await user.click(within(selected.closest("li")!).getByRole("button", { name: /核准訂金/ }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("匯款日期"), { target: { value: "2026-10-20" } });
+    fireEvent.change(within(dialog).getByLabelText("帳號末五碼"), { target: { value: "12345" } });
+    fireEvent.change(within(dialog).getByLabelText("備註（選填）"), { target: { value: "未完成筆記" } });
+    act(() => { realtime.handlers.at(-1)?.({ new: { id: changedId } }); });
+    expect((within(dialog).getByRole("button", { name: "確認" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.submit(within(dialog).getByRole("button", { name: "確認" }).closest("form")!);
+    expect(writes).toHaveLength(0);
+    await waitFor(() => expect(reads).toBe(2));
+    expect((within(screen.getByRole("dialog")).getByLabelText("帳號末五碼") as HTMLInputElement).value).toBe("12345");
+    await act(async () => { refreshed.resolve(list([latest, rows[1]])); await refreshed.promise; });
+    const updatedDialog = await screen.findByRole("dialog");
+    expect(within(updatedDialog).getByRole("alert").textContent).toContain("已付訂金");
+    expect(within(updatedDialog).getByRole("alert").textContent).toContain("54321");
+    expect((within(updatedDialog).getByLabelText("匯款日期") as HTMLInputElement).value).toBe("2026-10-20");
+    expect((within(updatedDialog).getByLabelText("帳號末五碼") as HTMLInputElement).value).toBe("12345");
+    expect((within(updatedDialog).getByLabelText("備註（選填）") as HTMLInputElement).value).toBe("未完成筆記");
+    expect((within(updatedDialog).getByRole("button", { name: "確認" }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(within(updatedDialog).getByRole("button", { name: "已核對最新資料，繼續編輯" }));
+    expect(within(updatedDialog).getByRole("heading").textContent).toBe("修改付款資料");
+    expect((within(updatedDialog).getByLabelText("帳號末五碼") as HTMLInputElement).value).toBe("12345");
+    await user.click(within(updatedDialog).getByRole("button", { name: "確認" }));
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]).toEqual({ deposit_paid_on: "2026-10-20", deposit_last_five: "12345", deposit_payment_note: "未完成筆記" });
+  });
+
   it("invalidates an unfinished history request after leaving the tab and receiving realtime", async () => {
     const oldRequest = deferred<Response>();
     const historical = { ...rows[0], id: "historical", status: "completed" };

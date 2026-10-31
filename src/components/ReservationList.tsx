@@ -13,7 +13,7 @@ import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout"
 import type { Reservation, ReservationStatus, Room } from "@/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DepositStatusControl } from "@/components/admin/DepositStatusControl";
-import { transferInfoLabel, type DepositInfo } from "@/components/admin/DepositPaidDialog";
+import { DepositPaidDialog, transferInfoLabel, type DepositInfo } from "@/components/admin/DepositPaidDialog";
 import { BatchDepositMessageWorkbench } from "@/components/BatchDepositMessageWorkbench";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 import {
@@ -129,6 +129,10 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Reservation | null>(null);
+  const [depositDialog, setDepositDialog] = useState<Reservation | null>(null);
+  const depositDialogRef = useRef<Reservation | null>(null);
+  const [depositStale, setDepositStale] = useState(false);
+  const depositStaleRef = useRef(false);
   const [editName, setEditName] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editDate, setEditDate] = useState("");
@@ -520,6 +524,10 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     setBatchWorkbench(null);
     setBatchLoading(false);
     setEditing(null);
+    depositDialogRef.current = null;
+    depositStaleRef.current = false;
+    setDepositDialog(null);
+    setDepositStale(false);
     editingRef.current = null;
     editStaleRef.current = false;
     setEditStale(false);
@@ -766,6 +774,10 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
           "postgres_changes",
           { event: "*", schema: "public", table: "reservations" },
           (payload) => {
+            if (depositDialogRef.current) {
+              depositStaleRef.current = true;
+              setDepositStale(true);
+            }
             const changedId = (payload?.new as { id?: unknown } | undefined)?.id ?? (payload?.old as { id?: unknown } | undefined)?.id;
             const editor = editingRef.current;
             if (editor && (typeof changedId !== "string" || changedId === editor.id)) {
@@ -1024,17 +1036,19 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     }
   };
 
-  const updateDepositStatus = async (id: string, is_deposit_paid: boolean, info?: DepositInfo) => {
+  const updateDepositStatus = async (id: string, is_deposit_paid: boolean, info?: DepositInfo, paymentReviewsAcknowledged = false) => {
     if (currentBranch.current !== branchId) return;
     const generation = branchGeneration.current;
+    const checkedRealtimeVersion = realtimeVersion.current;
     const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation;
     const row = reservations.find((r) => r.id === id);
-    if (is_deposit_paid && (row?.pending_payment_reviews ?? 0) > 0) {
+    if (is_deposit_paid && !paymentReviewsAcknowledged && (row?.pending_payment_reviews ?? 0) > 0) {
       const ok = await openConfirm(
         "付款待審核",
         `此訂位有 ${row?.pending_payment_reviews} 筆付款待審核。\n\n建議至「付款審核」頁面核准，避免與 LINE 截圖審核流程脫鉤。\n\n仍要手動標記已付訂金？`
       );
       if (!ok || !isCurrent()) return;
+      if (checkedRealtimeVersion !== realtimeVersion.current) { showToast("資料已更新，請重新核對付款資訊。", "error"); return; }
     }
     if (!beginMutation(id)) { showToast("此訂位正在處理，請稍候並重新確認資料。", "info"); return; }
     setReservations((list) =>
@@ -1196,8 +1210,60 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     }
   };
 
+  const closeDepositDialog = () => {
+    depositDialogRef.current = null;
+    depositStaleRef.current = false;
+    setDepositDialog(null);
+    setDepositStale(false);
+  };
+  const openDepositDialog = (row: Reservation) => {
+    if (realtimePendingRef.current || verificationRequired.current || currentBranch.current !== branchId || activeRowsRef.current.find((item) => item.id === row.id) !== row) {
+      showToast("資料已更新，請重新核對付款資訊。", "info");
+      return;
+    }
+    depositDialogRef.current = row;
+    depositStaleRef.current = false;
+    setDepositStale(false);
+    setDepositDialog(row);
+  };
+  const latestDepositRow = depositDialog && activeRowsRef.current.find((row) => row.id === depositDialog.id);
+  const canReviewDeposit = Boolean(latestDepositRow && !loading && !verificationPending && !error && !realtimePending && !pendingMutations.has(latestDepositRow.id));
+  const withDepositDialog = (content: React.ReactNode) => (
+    <>
+      {content}
+      {depositDialog && <DepositPaidDialog
+        title={depositDialog.is_deposit_paid ? "修改付款資料" : "核准訂金"}
+        initial={depositDialog}
+        reviewMessage={depositStale ? canReviewDeposit && latestDepositRow
+          ? `資料已更新。最新狀態：${latestDepositRow.is_deposit_paid ? "已付訂金" : "未付訂金"}；${transferInfoLabel(latestDepositRow) || "無匯款資料"}；備註：${latestDepositRow.deposit_payment_note || "無"}；待審核 ${latestDepositRow.pending_payment_reviews ?? 0} 筆。請核對後再繼續。`
+          : "資料正在核對或訂位已不在目前清單，請勿送出；已輸入內容會保留。"
+          : undefined}
+        onReview={depositStale && canReviewDeposit && latestDepositRow ? () => {
+          if (realtimePendingRef.current || verificationRequired.current || activeRowsRef.current.find((row) => row.id === latestDepositRow.id) !== latestDepositRow) return;
+          depositDialogRef.current = latestDepositRow;
+          depositStaleRef.current = false;
+          setDepositDialog(latestDepositRow);
+          setDepositStale(false);
+        } : undefined}
+        onRetry={depositStale && error && !loading && !verificationPending ? () => void refreshAfterMutation() : undefined}
+        onCancel={closeDepositDialog}
+        onConfirm={(info) => {
+          const row = depositDialogRef.current;
+          if (!row || depositStaleRef.current || realtimePendingRef.current || verificationRequired.current || currentBranch.current !== branchId || activeRowsRef.current.find((item) => item.id === row.id) !== row) {
+            depositStaleRef.current = true;
+            setDepositStale(true);
+            return;
+          }
+          closeDepositDialog();
+          if (row.is_deposit_paid) void updateDepositInfo(row.id, info);
+          else void updateDepositStatus(row.id, true, info, true);
+        }}
+      />}
+    </>
+  );
+
   if (!branchId) {
-    return (
+    return withDepositDialog(
       <div className="rounded-xl border border-gray-200 bg-gray-50/50 p-8 text-center text-gray-500">
         請先選擇分店以查看訂位
       </div>
@@ -1205,7 +1271,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   }
 
   if (loading || verificationPending) {
-    return (
+    return withDepositDialog(
       <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-gray-500">
         載入中…
       </div>
@@ -1213,7 +1279,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   }
 
   if (error) {
-    return (
+    return withDepositDialog(
       <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">
         <p role="alert">{error}</p>
         <button type="button" onClick={() => void refreshAfterMutation()} className="mt-2 rounded border border-red-300 bg-white px-3 py-2 text-sm">重試</button>
@@ -1302,7 +1368,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   const allVisibleSelected = selectableIds.length > 0 && selectableSelectedCount === selectableIds.length;
   const someVisibleSelected = selectableSelectedCount > 0 && !allVisibleSelected;
 
-  return (
+  return withDepositDialog(
     <>
       {realtimePending && <p role="status" className="mx-4 my-2 text-sm text-amber-800">資料正在更新，請稍候並重新確認。</p>}
       <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-gray-200 bg-gray-50 px-4 py-2">
@@ -1678,6 +1744,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                       onUpdateDepositStatus={updateDepositStatus}
                       onUpdateDepositInfo={updateDepositInfo}
                       onOpenConfirm={openConfirm}
+                      onOpenDepositDialog={openDepositDialog}
                     />
                   </div>
                 )}

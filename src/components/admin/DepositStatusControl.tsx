@@ -14,6 +14,7 @@ interface DepositStatusControlProps {
   onUpdateDepositStatus: (id: string, isPaid: boolean, info?: DepositInfo) => Promise<void>;
   onUpdateDepositInfo: (id: string, info: DepositInfo) => Promise<void>;
   onOpenConfirm?: (title: string, message: string) => Promise<boolean>;
+  onOpenDepositDialog?: (reservation: Reservation) => void;
   variant?: "desktop" | "mobile";
 }
 
@@ -23,6 +24,7 @@ export function DepositStatusControl({
   onUpdateDepositStatus,
   onUpdateDepositInfo,
   onOpenConfirm,
+  onOpenDepositDialog,
   variant = "desktop",
 }: DepositStatusControlProps) {
   const [loading, setLoading] = useState(false);
@@ -44,7 +46,8 @@ export function DepositStatusControl({
       );
       if (!ok) return;
     }
-    setDialogOpen(true);
+    if (onOpenDepositDialog) onOpenDepositDialog(r);
+    else setDialogOpen(true);
   };
 
   const handleDialogConfirm = async (info: DepositInfo) => {
