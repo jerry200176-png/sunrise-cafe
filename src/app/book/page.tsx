@@ -14,6 +14,7 @@ import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { CustomerShell } from "@/components/customer/CustomerShell";
 import { BookingStepProgress } from "@/components/customer/BookingStepProgress";
+import { RoomPreview } from "@/components/customer/RoomPreview";
 import { EmptyState } from "@/components/customer/EmptyState";
 import { PaymentModal } from "@/components/payment/PaymentModal";
 import { getBranchDepositConfig } from "@/lib/constants";
@@ -58,6 +59,7 @@ export default function BookPage() {
   const [mealNotes, setMealNotes] = useState("");
   const bookingRequestKey = useRef<string | null>(null);
   const [roomId, setRoomId] = useState("");
+  const [previewRoomId, setPreviewRoomId] = useState<string | null>(null);
   const [date, setDate] = useState("");
   const [slots, setSlots] = useState<SlotItem[]>([]);
   /** Distinguishes slot fetch success (incl. zero slots) from failure / loading. */
@@ -866,6 +868,7 @@ export default function BookPage() {
                           </Link>
                         </div>
                       )}
+                      <RoomPreview branch={branchRoomsAvailability.branchName} room={r.roomName} open={previewRoomId === r.roomId} onToggle={() => setPreviewRoomId((id) => id === r.roomId ? null : r.roomId)} />
                     </li>
                   );
                 })}
