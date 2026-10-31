@@ -8,10 +8,15 @@ import { zhTW } from "date-fns/locale";
 import { supabase } from "@/lib/supabase";
 import { responseError, thrownMessage } from "@/lib/friendly-error";
 import { useAdminBranches } from "@/lib/use-admin-branches";
+import { fetchAdminOrderStatus, fetchAllAdminOrders } from "@/lib/admin-orders-fetch";
 import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import type { Order, OrderStatus } from "@/types";
 
 const ACTIVE_STATUSES: OrderStatus[] = ["pending", "preparing", "ready"];
+type Review = { branch: string; kind: "unknown" | "stale"; verified: boolean; status?: OrderStatus };
+const STATUS_LABELS: Record<OrderStatus, string> = {
+  pending: "待處理", preparing: "準備中", ready: "完成出餐", completed: "已出餐", cancelled: "已取消",
+};
 
 export default function AdminOrdersPage() {
   const { branches, loading: branchesLoading, error: branchesError, retry: retryBranches } = useAdminBranches();
@@ -25,30 +30,77 @@ export default function AdminOrdersPage() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const prevOrderIds = useRef<Set<string>>(new Set());
   const requestSeq = useRef(0);
+  const mutationVersion = useRef(0);
+  const reviewGeneration = useRef(0);
+  const branchGeneration = useRef(0);
+  const actionLocks = useRef(new Set<string>());
+  const reviews = useRef(new Map<string, Review>());
+  const [lockedOrders, setLockedOrders] = useState<Set<string>>(new Set());
+  const [reviewState, setReviewState] = useState<Map<string, Review>>(new Map());
   const currentBranch = useRef("");
+  const inFlight = useRef<{ branch: string; queued: boolean } | null>(null);
 
   useEffect(() => {
     if (branches.length && !branchId) setBranchId(branches[0].id);
   }, [branches, branchId]);
 
-  const loadOrders = useCallback(async (bid: string) => {
+  const loadOrders = useCallback(async function load(bid: string) {
     if (!bid || currentBranch.current !== bid) return;
+    reviewGeneration.current++;
+    let revoked = false;
+    for (const [id, review] of reviews.current) {
+      if (review.branch === bid && review.verified) {
+        reviews.current.set(id, { ...review, verified: false, status: undefined });
+        revoked = true;
+      }
+    }
+    if (revoked) setReviewState(new Map(reviews.current));
+    if (inFlight.current?.branch === bid) {
+      inFlight.current.queued = true;
+      return;
+    }
+    const run = { branch: bid, queued: false };
+    inFlight.current = run;
     const seq = ++requestSeq.current;
+    const version = mutationVersion.current;
+    const reviewVersion = reviewGeneration.current;
     setLoading(true);
     try {
-      const res = await fetchWithTimeout(`/api/admin/orders?branchId=${encodeURIComponent(bid)}`, { credentials: "include" });
-      if (!res.ok) {
-        // 失敗時保留畫面上原本的單，並明說「沒更新」，不要假裝沒有訂單
-        const message = await responseError(res);
-        if (seq === requestSeq.current && currentBranch.current === bid) setLoadError(message);
+      const data = await fetchAllAdminOrders(bid, () => seq === requestSeq.current && currentBranch.current === bid, "active");
+      if (seq !== requestSeq.current || currentBranch.current !== bid) return;
+      if (version !== mutationVersion.current) {
+        run.queued = true;
         return;
       }
-      const data = await readJsonWithTimeout<Order[]>(res);
-      if (seq !== requestSeq.current || currentBranch.current !== bid) return;
       if (!Array.isArray(data)) throw new Error("訂單資料格式不正確，請重試");
-      const active = (Array.isArray(data) ? data : []).filter((o: Order) =>
+      let active = (Array.isArray(data) ? data : []).filter((o: Order) =>
         ACTIVE_STATUSES.includes(o.status)
       );
+      const toReview = [...reviews.current.entries()].filter(([, review]) => review.branch === bid);
+      const checked = await Promise.all(toReview.map(async ([id, review]) => {
+        try { return { id, review, row: await fetchAdminOrderStatus(bid, id) }; }
+        catch { return { id, review, row: null }; }
+      }));
+      if (seq !== requestSeq.current || currentBranch.current !== bid) return;
+      if (version !== mutationVersion.current) { run.queued = true; return; }
+      if (reviewVersion !== reviewGeneration.current) {
+        run.queued = true;
+      } else {
+        for (const { id, review, row } of checked) {
+          if (!row || reviews.current.get(id) !== review) continue;
+          const isActive = ACTIVE_STATUSES.includes(row.status);
+          const listHasRow = active.some((order) => order.id === id);
+          active = active.flatMap((order) => order.id !== id ? [order] : isActive ? [{ ...order, status: row.status }] : []);
+          if (review.kind === "stale" && (!isActive || listHasRow)) {
+            reviews.current.delete(id);
+            actionLocks.current.delete(id);
+          } else {
+            reviews.current.set(id, { ...review, verified: true, status: row.status });
+          }
+        }
+      }
+      setLockedOrders(new Set(actionLocks.current));
+      setReviewState(new Map(reviews.current));
       setOrders(active);
       setLoadError(null);
       setLastUpdated(
@@ -57,13 +109,21 @@ export default function AdminOrdersPage() {
     } catch (err) {
       if (seq === requestSeq.current && currentBranch.current === bid) setLoadError(thrownMessage(err));
     } finally {
-      if (seq === requestSeq.current && currentBranch.current === bid) setLoading(false);
+      if (inFlight.current === run) inFlight.current = null;
+      if (seq === requestSeq.current && currentBranch.current === bid) {
+        setLoading(false);
+        if (run.queued) void load(bid);
+      }
     }
   }, []);
 
   useEffect(() => {
+    if (currentBranch.current !== branchId) {
+      inFlight.current = null;
+      requestSeq.current++;
+      branchGeneration.current++;
+    }
     currentBranch.current = branchId;
-    requestSeq.current++;
     setOrders([]);
     setLastUpdated(null);
     setLoadError(null);
@@ -104,26 +164,63 @@ export default function AdminOrdersPage() {
   }, [orders, soundOn]);
 
   const updateStatus = async (id: string, status: OrderStatus) => {
+    const bid = currentBranch.current;
+    if (!bid || actionLocks.current.has(id)) return;
+    const generation = branchGeneration.current;
+    actionLocks.current.add(id);
+    setLockedOrders(new Set(actionLocks.current));
+    const holdForReview = (kind: Review["kind"]) => {
+      reviews.current.set(id, { branch: bid, kind, verified: false });
+      setReviewState(new Map(reviews.current));
+      if (currentBranch.current === bid) {
+        mutationVersion.current++;
+        void loadOrders(bid);
+      }
+    };
     try {
-      const res = await fetch(`/api/admin/orders/${id}`, {
+      const res = await fetchWithTimeout(`/api/admin/orders/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
       if (!res.ok) {
-        setActionError(`訂單沒有更新：${await responseError(res)}`);
+        const message = await responseError(res);
+        if (currentBranch.current === bid) setActionError(`訂單操作結果尚未確認：${message}`);
+        holdForReview("unknown");
         return;
       }
+      const result = await readJsonWithTimeout<{ ok?: unknown } | null>(res);
+      if (!result || typeof result !== "object" || result.ok !== true) throw new Error("無法確認訂單更新結果");
     } catch (err) {
-      setActionError(`訂單沒有更新：${thrownMessage(err)}`);
+      if (currentBranch.current === bid) setActionError(`訂單操作結果尚未確認：${thrownMessage(err)}`);
+      holdForReview("unknown");
       return;
     }
+    if (branchGeneration.current !== generation || currentBranch.current !== bid) {
+      holdForReview("stale");
+      return;
+    }
+    actionLocks.current.delete(id);
+    setLockedOrders(new Set(actionLocks.current));
+    mutationVersion.current++;
     setActionError(null);
     setOrders((prev) =>
       prev.map((o) => (o.id === id ? { ...o, status } : o)).filter((o) =>
         ACTIVE_STATUSES.includes(o.status)
       )
     );
+    void loadOrders(bid);
+  };
+
+  const releaseReviewedOrder = (id: string) => {
+    const review = reviews.current.get(id);
+    if (!review || review.kind !== "unknown" || !review.verified || review.branch !== currentBranch.current) return;
+    if (!window.confirm("請先核對後台狀態與現場。原請求可能仍會延遲完成；解除後再次操作可能重複。確認已核對並解除鎖定？")) return;
+    reviews.current.delete(id);
+    actionLocks.current.delete(id);
+    setReviewState(new Map(reviews.current));
+    setLockedOrders(new Set(actionLocks.current));
+    if (![...reviews.current.values()].some((item) => item.branch === currentBranch.current)) setActionError(null);
   };
 
   const pendingOrders = orders.filter((o) => o.status === "pending");
@@ -155,11 +252,15 @@ export default function AdminOrdersPage() {
             <select
               value={branchId}
               onChange={(e) => {
+                if (currentBranch.current === e.target.value) return;
+                inFlight.current = null;
                 currentBranch.current = e.target.value;
                 requestSeq.current++;
+                branchGeneration.current++;
                 setOrders([]);
                 setLastUpdated(null);
                 setLoadError(null);
+                setActionError(null);
                 setBranchId(e.target.value);
               }}
               className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
@@ -218,6 +319,12 @@ export default function AdminOrdersPage() {
       {actionError && (
         <p role="alert" className="mx-auto max-w-7xl border-b border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{actionError}</p>
       )}
+      {[...reviewState.entries()].filter(([, review]) => review.branch === branchId).map(([id, review]) => (
+        <div key={id} role="alert" className="mx-auto max-w-7xl border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          訂單 {id} 的操作需要重新核對；{review.verified && review.status ? `目前後台狀態：${STATUS_LABELS[review.status]}。請核對現場；原請求可能仍會延遲完成。` : "核對尚未完成，請保持鎖定並重新整理。"}
+          {review.kind === "unknown" && <button type="button" disabled={!review.verified} onClick={() => releaseReviewedOrder(id)} className="ml-2 underline disabled:opacity-50">已核對，解除鎖定</button>}
+        </div>
+      ))}
 
       <div className="mx-auto max-w-7xl px-4 py-4">
         {/* 看板三欄 */}
@@ -228,6 +335,7 @@ export default function AdminOrdersPage() {
             count={pendingOrders.length}
             accentColor="yellow"
             orders={pendingOrders}
+            lockedOrders={lockedOrders}
             onAction={(id) => updateStatus(id, "preparing")}
             actionLabel="開始備餐"
             actionIcon={<ChefHat className="h-4 w-4" />}
@@ -239,6 +347,7 @@ export default function AdminOrdersPage() {
             count={preparingOrders.length}
             accentColor="blue"
             orders={preparingOrders}
+            lockedOrders={lockedOrders}
             onAction={(id) => updateStatus(id, "ready")}
             actionLabel="完成出餐"
             actionIcon={<Bell className="h-4 w-4" />}
@@ -250,6 +359,7 @@ export default function AdminOrdersPage() {
             count={readyOrders.length}
             accentColor="green"
             orders={readyOrders}
+            lockedOrders={lockedOrders}
             onAction={(id) => updateStatus(id, "completed")}
             actionLabel="已出餐"
             actionIcon={<CheckCircle className="h-4 w-4" />}
@@ -272,6 +382,7 @@ function KanbanColumn({
   count,
   accentColor,
   orders,
+  lockedOrders,
   onAction,
   actionLabel,
   actionIcon,
@@ -280,6 +391,7 @@ function KanbanColumn({
   count: number;
   accentColor: "yellow" | "blue" | "green";
   orders: Order[];
+  lockedOrders: Set<string>;
   onAction: (id: string) => void;
   actionLabel: string;
   actionIcon: React.ReactNode;
@@ -311,6 +423,7 @@ function KanbanColumn({
             actionLabel={actionLabel}
             actionIcon={actionIcon}
             btnColor={btnColor}
+            locked={lockedOrders.has(order.id)}
           />
         ))}
       </div>
@@ -324,12 +437,14 @@ function OrderCard({
   actionLabel,
   actionIcon,
   btnColor,
+  locked,
 }: {
   order: Order;
   onAction: (id: string) => void;
   actionLabel: string;
   actionIcon: React.ReactNode;
   btnColor: string;
+  locked: boolean;
 }) {
   const timeStr = format(parseISO(order.created_at), "HH:mm", { locale: zhTW });
 
@@ -373,8 +488,9 @@ function OrderCard({
         {order.reservation_id ? <Link href={`/admin/reservation-orders/${order.reservation_id}`}
           className="inline-flex min-h-[44px] items-center rounded-lg bg-amber-700 px-4 text-sm font-medium text-white">查看餐點與出餐</Link> : <button
           type="button"
+          disabled={locked}
           onClick={() => onAction(order.id)}
-          className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-lg px-4 text-sm font-medium text-white ${btnColor}`}
+          className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-lg px-4 text-sm font-medium text-white disabled:opacity-50 ${btnColor}`}
         >
           {actionIcon}
           {actionLabel}

@@ -32,14 +32,13 @@ export async function readJsonWithTimeout<T>(
   timeoutMs = 15000
 ): Promise<T> {
   const reader = response.body?.getReader();
-  if (!reader) return response.json() as Promise<T>;
-
   const decoder = new TextDecoder();
   let text = "";
   let timedOut = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   const readBody = (async () => {
+    if (!reader) return response.json() as Promise<T>;
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -52,7 +51,7 @@ export async function readJsonWithTimeout<T>(
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       timedOut = true;
-      void reader.cancel().catch(() => {});
+      if (reader) void reader.cancel().catch(() => {});
       reject(new Error("讀取資料逾時，請重試"));
     }, timeoutMs);
   });
@@ -61,6 +60,6 @@ export async function readJsonWithTimeout<T>(
     return await Promise.race([readBody, timeout]);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
-    if (timedOut) void reader.cancel().catch(() => {});
+    if (timedOut && reader) void reader.cancel().catch(() => {});
   }
 }
