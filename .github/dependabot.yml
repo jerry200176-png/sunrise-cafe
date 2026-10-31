@@ -28,11 +28,7 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
-      # stripe >= 22.4 changes the pinned API version type (22.4.0 ships
-      # 2026-07-29.dahlia, 22.6 ships 2026-08-26.dahlia), which fails typecheck
-      # against src/lib/stripe.ts `apiVersion: "2026-06-24.dahlia"`. An API
-      # version change is a payment-contract change and needs its own PR.
-      # Remove this rule in that PR. (#451)
+      # Hold the SDK at the existing API contract until a payment API migration.
       - dependency-name: "stripe"
         versions: [">=22.4.0"]
   # Keeps the commit-SHA pins in .github/workflows current (version comment is updated too).
