@@ -227,11 +227,14 @@ export async function transitionReservation(
 
   const restoredStatus: ReservationStatus = snap.is_deposit_paid ? "confirmed" : "pending";
   const nextStatus = intent.type === "restore" ? restoredStatus : target;
-  if (intent.type === "restore" && effects.updateIfStatus) {
+  if (effects.updateIfStatus) {
     const won = await effects.updateIfStatus(id, snap.status, { status: nextStatus });
     if (!won) {
       const latest = await effects.load(id);
-      if (latest && isActive(latest.status)) return { ok: true, status: latest.status, already: true };
+      if (intent.type === "restore" && latest && isActive(latest.status)) {
+        return { ok: true, status: latest.status, already: true };
+      }
+      if (latest?.status === nextStatus) return { ok: true, status: nextStatus, already: true };
       return fail("invalid_transition", "訂位狀態剛被變更，請重新整理後再試", 409);
     }
   } else {

@@ -27,6 +27,12 @@ function world(over: Partial<Snapshot> = {}, bookable: { ok: true } | { ok: fals
   const fx: Effects = {
     load: async (id) => (id === row.id ? { ...row } : null),
     update: async (_id, patch) => { calls.push("update"); Object.assign(row, patch); },
+    updateIfStatus: async (_id, expected, patch) => {
+      if (row.status !== expected) return false;
+      calls.push("update");
+      Object.assign(row, patch);
+      return true;
+    },
     cancelPreorder: async (_i, reason) => { calls.push(`cancelPreorder:${reason}`); },
     lockPreorder: async () => { calls.push("lockPreorder"); },
     requirePreorderReconfirmation: async (_i, reason) => { calls.push(`reconfirm:${reason}`); },
@@ -80,6 +86,32 @@ describe("admin transition table", () => {
 
   it("unknown reservation", async () => {
     expect(await transitionReservation("nope", { type: "cancel" }, admin, world().fx)).toMatchObject({ ok: false, code: "not_found" });
+  });
+
+  it("compare-and-set makes concurrent pending cancellation and check-in first-writer-wins", async () => {
+    const cancelWins = world();
+    const [cancelled, rejectedCheckIn] = await Promise.all([
+      run(cancelWins, { type: "cancel" }, admin),
+      run(cancelWins, { type: "check_in" }, admin),
+    ]);
+    expect(cancelled).toMatchObject({ ok: true, status: "cancelled" });
+    expect(rejectedCheckIn).toMatchObject({ ok: false, code: "invalid_transition", httpStatus: 409 });
+    expect(cancelWins.row.status).toBe("cancelled");
+    expect(cancelWins.audits).toHaveLength(1);
+    expect(cancelWins.audits[0]).toMatchObject({ intent: "cancel", from: "pending", to: "cancelled" });
+    expect(cancelWins.calls).toContain("cancelPreorder:admin_cancel_or_reject");
+
+    const checkInWins = world();
+    const [checkedIn, rejectedCancel] = await Promise.all([
+      run(checkInWins, { type: "check_in" }, admin),
+      run(checkInWins, { type: "cancel" }, admin),
+    ]);
+    expect(checkedIn).toMatchObject({ ok: true, status: "checked_in" });
+    expect(rejectedCancel).toMatchObject({ ok: false, code: "invalid_transition", httpStatus: 409 });
+    expect(checkInWins.row.status).toBe("checked_in");
+    expect(checkInWins.audits).toHaveLength(1);
+    expect(checkInWins.audits[0]).toMatchObject({ intent: "check_in", from: "pending", to: "checked_in" });
+    expect(checkInWins.calls).toEqual(["update"]);
   });
 });
 
