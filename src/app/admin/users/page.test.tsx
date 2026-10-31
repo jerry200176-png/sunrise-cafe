@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import AdminUsersPage from "./page";
 
 vi.mock("@/lib/fetch-with-timeout", async (importOriginal) => {
@@ -89,6 +89,52 @@ describe("admin user creation recovery", () => {
     expect((screen.getByRole("button", { name: "建立" }) as HTMLButtonElement).disabled).toBe(true);
     expect(sessionStorage.getItem("sunrise.admin-user-create.pending.v1")).toBe("1");
     expect(calls).toHaveLength(1);
+  });
+
+  it("revokes verification when a later ordinary list refresh fails", async () => {
+    const { failList } = await setup(async () => { throw new TypeError("network lost"); });
+    fireEvent.click(screen.getByRole("button", { name: "建立" }));
+    expect(await screen.findByText(/建立結果尚未確認/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "重新整理並核對清單" }));
+    expect(await screen.findByRole("button", { name: "已核對，允許重新操作" })).toBeTruthy();
+    failList(true);
+    fireEvent.click(screen.getByRole("button", { name: "重新整理使用者清單" }));
+    expect(await screen.findByText(/無法確認使用者清單/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "已核對，允許重新操作" })).toBeNull();
+    expect((screen.getByRole("button", { name: "建立" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("clearly labels a non-owner user with missing branch associations", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => input === "/api/admin/me"
+      ? json(me) : json({ users: [{ ...users[0], branch_ids: [] }] })));
+    render(<AdminUsersPage />);
+    expect(await screen.findByText("未設定分店，請核對")).toBeTruthy();
+  });
+
+  it("ignores an older successful verification after a newer list refresh fails", async () => {
+    let requestCount = 0;
+    let resolveOlder!: (response: Response) => void;
+    const older = new Promise<Response>((resolve) => { resolveOlder = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: string, init: RequestInit = {}) => {
+      if (init.method === "POST") throw new TypeError("network lost");
+      if (input === "/api/admin/me") return json(me);
+      requestCount++;
+      if (requestCount === 2) return older;
+      if (requestCount === 3) return json({ error: "unavailable" }, 503);
+      return json({ users });
+    }));
+    render(<AdminUsersPage />);
+    fireEvent.change(await screen.findByPlaceholderText("Email"), { target: { value: "new@example.test" } });
+    fireEvent.change(screen.getByPlaceholderText("密碼（至少 8 字）"), { target: { value: "test-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "建立" }));
+    expect(await screen.findByText(/建立結果尚未確認/)).toBeTruthy();
+    const verify = screen.getByRole("button", { name: "重新整理並核對清單" });
+    const refresh = screen.getByRole("button", { name: "重新整理使用者清單" });
+    act(() => { verify.click(); refresh.click(); });
+    expect(await screen.findByText(/無法確認使用者清單/)).toBeTruthy();
+    await act(async () => { resolveOlder(json({ users })); });
+    expect(screen.queryByRole("button", { name: "已核對，允許重新操作" })).toBeNull();
+    expect((screen.getByRole("button", { name: "建立" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it.each(["network", "header timeout", "body timeout", "non-json", "non-json success", "server error"])("holds a %s outcome for manual verification without resending", async (failure) => {

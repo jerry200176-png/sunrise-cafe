@@ -39,6 +39,7 @@ export default function AdminUsersPage() {
   const [unknown, setUnknown] = useState(false);
   const [listVerified, setListVerified] = useState(false);
   const createInFlight = useRef(false);
+  const listSequence = useRef(0);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -47,6 +48,8 @@ export default function AdminUsersPage() {
   const [branchIds, setBranchIds] = useState("");
 
   const load = useCallback(async () => {
+    const sequence = ++listSequence.current;
+    setListVerified(false);
     setLoading(true);
     setError(null);
     try {
@@ -54,23 +57,29 @@ export default function AdminUsersPage() {
         fetchWithTimeout("/api/admin/me"),
         fetchWithTimeout("/api/admin/users"),
       ]);
+      if (sequence !== listSequence.current) return null;
       if (usersRes.status === 403) {
         setError("僅 Owner 可管理使用者");
-        return false;
+        return null;
       }
       if (!usersRes.ok) throw new Error(await responseError(usersRes));
       if (!meRes.ok) throw new Error(await responseError(meRes));
-      setMe(await readJsonWithTimeout<Me>(meRes));
+      const currentMe = await readJsonWithTimeout<Me>(meRes);
       const uData = await readJsonWithTimeout<{ users?: AdminUser[]; migration_required?: boolean }>(usersRes);
-      if (!Array.isArray(uData.users)) throw new Error("使用者清單格式不正確，請重新整理");
-      setUsers(uData.users ?? []);
+      if (sequence !== listSequence.current) return null;
+      if (!currentMe || typeof currentMe.permissions?.users_manage !== "boolean") throw new Error("使用者權限資料格式不正確，請重新整理");
+      if (!Array.isArray(uData.users) || uData.users.some((user) => !user || typeof user.id !== "string" ||
+          typeof user.email !== "string" || typeof user.role !== "string" || !Array.isArray(user.branch_ids) ||
+          user.branch_ids.some((id) => typeof id !== "string"))) throw new Error("使用者清單格式不正確，請重新整理");
+      setMe(currentMe);
+      setUsers(uData.users);
       setMigrationRequired(Boolean(uData.migration_required));
-      return !uData.migration_required;
+      return !uData.migration_required && currentMe.permissions.users_manage ? sequence : null;
     } catch (e) {
-      setError(thrownMessage(e, "使用者資料載入失敗，請重新整理"));
-      return false;
+      if (sequence === listSequence.current) setError(thrownMessage(e, "使用者資料載入失敗，請重新整理"));
+      return null;
     } finally {
-      setLoading(false);
+      if (sequence === listSequence.current) setLoading(false);
     }
   }, []);
 
@@ -143,7 +152,8 @@ export default function AdminUsersPage() {
 
   const verifyList = async () => {
     setListVerified(false);
-    if (await load()) setListVerified(true);
+    const sequence = await load();
+    if (sequence && sequence === listSequence.current) setListVerified(true);
   };
 
   if (loading) {
@@ -276,6 +286,9 @@ export default function AdminUsersPage() {
                   </p>
                   {u.branch_ids.length > 0 && (
                     <p className="text-xs text-stone-400">分店：{u.branch_ids.join(", ")}</p>
+                  )}
+                  {u.role !== "owner" && u.branch_ids.length === 0 && (
+                    <p className="text-xs text-amber-800">未設定分店，請核對</p>
                   )}
                 </li>
               ))}
