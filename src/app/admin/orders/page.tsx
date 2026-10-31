@@ -26,13 +26,20 @@ export default function AdminOrdersPage() {
   const prevOrderIds = useRef<Set<string>>(new Set());
   const requestSeq = useRef(0);
   const currentBranch = useRef("");
+  const inFlight = useRef<{ branch: string; queued: boolean } | null>(null);
 
   useEffect(() => {
     if (branches.length && !branchId) setBranchId(branches[0].id);
   }, [branches, branchId]);
 
-  const loadOrders = useCallback(async (bid: string) => {
+  const loadOrders = useCallback(async function load(bid: string) {
     if (!bid || currentBranch.current !== bid) return;
+    if (inFlight.current?.branch === bid) {
+      inFlight.current.queued = true;
+      return;
+    }
+    const run = { branch: bid, queued: false };
+    inFlight.current = run;
     const seq = ++requestSeq.current;
     setLoading(true);
     try {
@@ -50,13 +57,20 @@ export default function AdminOrdersPage() {
     } catch (err) {
       if (seq === requestSeq.current && currentBranch.current === bid) setLoadError(thrownMessage(err));
     } finally {
-      if (seq === requestSeq.current && currentBranch.current === bid) setLoading(false);
+      if (inFlight.current === run) inFlight.current = null;
+      if (seq === requestSeq.current && currentBranch.current === bid) {
+        setLoading(false);
+        if (run.queued) void load(bid);
+      }
     }
   }, []);
 
   useEffect(() => {
+    if (currentBranch.current !== branchId) {
+      inFlight.current = null;
+      requestSeq.current++;
+    }
     currentBranch.current = branchId;
-    requestSeq.current++;
     setOrders([]);
     setLastUpdated(null);
     setLoadError(null);
@@ -148,6 +162,7 @@ export default function AdminOrdersPage() {
             <select
               value={branchId}
               onChange={(e) => {
+                inFlight.current = null;
                 currentBranch.current = e.target.value;
                 requestSeq.current++;
                 setOrders([]);
