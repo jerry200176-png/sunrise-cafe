@@ -75,6 +75,36 @@ export async function POST(request: NextRequest) {
     if (entry.status !== "notified") {
       return NextResponse.json({ error: "此候補尚未進入可確認狀態" }, { status: 400 });
     }
+
+    // A guest confirmation must still belong to a live, bookable branch. The
+    // token can outlive the room/branch state shown when the waitlist was made.
+    const { data: roomRecord, error: roomReadError } = await supabaseAdmin()
+      .from("rooms")
+      .select("id, branch_id")
+      .eq("id", entry.room_id)
+      .maybeSingle();
+    if (roomReadError) {
+      return NextResponse.json({ error: "暫時無法確認分店狀態，請稍後再試" }, { status: 503 });
+    }
+    if (!roomRecord?.branch_id) {
+      return NextResponse.json({ error: "包廂或分店不存在，無法完成候補確認" }, { status: 404 });
+    }
+
+    const { data: branchRecord, error: branchReadError } = await supabaseAdmin()
+      .from("branches")
+      .select("id, archived_at")
+      .eq("id", roomRecord.branch_id)
+      .maybeSingle();
+    if (branchReadError) {
+      return NextResponse.json({ error: "暫時無法確認分店狀態，請稍後再試" }, { status: 503 });
+    }
+    if (!branchRecord) {
+      return NextResponse.json({ error: "包廂或分店不存在，無法完成候補確認" }, { status: 404 });
+    }
+    if (branchRecord.archived_at) {
+      return NextResponse.json({ error: "該分店已停止接受預約，無法確認候補" }, { status: 410 });
+    }
+
     if (isExpired(entry.notified_at)) {
       await supabaseAdmin().from("waitlist").update({ status: "expired" }).eq("id", entry.id);
       // Market parity: release confirm window → notify next waiting guest
