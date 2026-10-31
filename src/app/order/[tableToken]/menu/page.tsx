@@ -6,6 +6,7 @@ import { ShoppingCart, X, Plus, Minus } from "lucide-react";
 import type { MenuCategory, MenuItem, CartItem, SelectedOption } from "@/types";
 import { checkOptionSelection, optionGroupRules } from "@/lib/option-sets";
 import { BranchMenuBanner, MENU_PHOTO_NOTE, ZoomableImage } from "@/components/ZoomableImage";
+import { qrHoldEntries, qrHoldKey, qrIsHoldKey } from "@/lib/qr-order-local-hold";
 
 export default function MenuPage() {
   const { tableToken } = useParams<{ tableToken: string }>();
@@ -15,7 +16,15 @@ export default function MenuPage() {
   const [items, setItems] = useState<MenuItem[]>([]);
   const [activeCat, setActiveCat] = useState<string>("all");
   const [branchName, setBranchName] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [hold, setHold] = useState(true);
+  const [holdReady, setHoldReady] = useState(false);
+  const [loadedToken, setLoadedToken] = useState("");
+  const holdKey = qrHoldKey(tableToken);
+  const cartKey = `cart-${tableToken}`;
+  const currentHoldReady = holdReady && loadedToken === tableToken;
 
   // 選項 Sheet
   const [sheetItem, setSheetItem] = useState<MenuItem | null>(null);
@@ -24,35 +33,56 @@ export default function MenuPage() {
   const [sheetNotes, setSheetNotes] = useState("");
 
   useEffect(() => {
+    let active = true;
+    setLoading(true); setLoadError(""); setItems([]); setCategories([]);
     // 先取桌位資訊取得 branchId
     fetch(`/api/tables/${tableToken}`)
-      .then(r => r.json())
+      .then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || "無法載入桌位");
+        return data;
+      })
       .then(d => {
         if (d.branch_id) {
-          setBranchName(d.branches?.name ?? null);
+          if (active) setBranchName(d.branches?.name ?? null);
           return fetch(`/api/menu?branchId=${encodeURIComponent(d.branch_id)}`);
         }
         throw new Error("無效桌位");
       })
-      .then(r => r?.json())
+      .then(async (r) => { if (!r?.ok) throw new Error("目前無法載入菜單，請稍後再試"); return r.json(); })
       .then(d => {
-        if (!d) return;
+        if (!active || !d) return;
         setCategories(d.categories ?? []);
         setItems(d.items ?? []);
-      });
+      })
+      .catch((cause) => { if (active) setLoadError(cause instanceof Error ? cause.message : "目前無法載入菜單，請稍後再試"); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
   }, [tableToken]);
 
   // 從 localStorage 恢復購物車
   useEffect(() => {
+    setHoldReady(false);
     try {
-      const saved = localStorage.getItem(`cart-${tableToken}`);
-      if (saved) setCart(JSON.parse(saved));
-    } catch { /* ignore */ }
-  }, [tableToken]);
-
-  useEffect(() => {
-    localStorage.setItem(`cart-${tableToken}`, JSON.stringify(cart));
-  }, [cart, tableToken]);
+      const saved = localStorage.getItem(cartKey);
+      const restored = saved ? JSON.parse(saved) : [];
+      if (!Array.isArray(restored)) throw new Error("invalid cart");
+      setCart(restored);
+      setHold(qrHoldEntries(tableToken).length > 0);
+    } catch { setHold(true); }
+    setLoadedToken(tableToken);
+    setHoldReady(true);
+    const onStorage = (event: StorageEvent) => {
+      if (qrIsHoldKey(tableToken, event.key)) {
+        try { setHold(qrHoldEntries(tableToken).length > 0); } catch { setHold(true); }
+      }
+      if (event.key === cartKey || event.key === null) {
+        try { const saved = localStorage.getItem(cartKey); const restored = saved ? JSON.parse(saved) : []; if (!Array.isArray(restored)) throw new Error("invalid cart"); setCart(restored); } catch { setHold(true); }
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [tableToken, holdKey, cartKey]);
 
   const visibleItems = activeCat === "all"
     ? items.filter(i => i.is_available)
@@ -65,6 +95,7 @@ export default function MenuPage() {
   const cartCount = cart.reduce((s, ci) => s + ci.quantity, 0);
 
   const openSheet = (item: MenuItem) => {
+    if (hold || !currentHoldReady) return;
     setSheetItem(item);
     setSheetOptions([]); // 必選的由顧客自己選，不預設
     setSheetQty(1);
@@ -72,18 +103,25 @@ export default function MenuPage() {
   };
 
   const addToCart = () => {
-    if (!sheetItem) return;
-    setCart(prev => {
-      // 找相同餐點+選項的項目
+    if (!sheetItem || hold || !currentHoldReady) return;
+    try {
+      if (qrHoldEntries(tableToken).length) { setHold(true); setSheetItem(null); return; }
+      const saved = localStorage.getItem(cartKey);
+      const prev: CartItem[] = saved ? JSON.parse(saved) : [];
+      if (!Array.isArray(prev)) throw new Error("invalid cart");
       const key = JSON.stringify(sheetOptions);
       const idx = prev.findIndex(ci => ci.menuItem.id === sheetItem.id && JSON.stringify(ci.selectedOptions) === key);
+      let updated: CartItem[];
       if (idx >= 0) {
-        const updated = [...prev];
+        updated = [...prev];
         updated[idx] = { ...updated[idx], quantity: updated[idx].quantity + sheetQty };
-        return updated;
+      } else {
+        updated = [...prev, { menuItem: sheetItem, quantity: sheetQty, selectedOptions: sheetOptions, specialNotes: sheetNotes }];
       }
-      return [...prev, { menuItem: sheetItem, quantity: sheetQty, selectedOptions: sheetOptions, specialNotes: sheetNotes }];
-    });
+      if (qrHoldEntries(tableToken).length) { setHold(true); setSheetItem(null); return; }
+      localStorage.setItem(cartKey, JSON.stringify(updated));
+      setCart(updated);
+    } catch { setHold(true); setSheetItem(null); return; }
     setSheetItem(null);
   };
 
@@ -110,6 +148,7 @@ export default function MenuPage() {
   return (
     <main className="min-h-screen bg-gray-50 pb-28">
       <BranchMenuBanner branchName={branchName} />
+      {currentHoldReady && hold && <p role="alert" className="mx-4 mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">訂單結果待確認，請先向店員核對；確認前無法新增餐點。您可開啟購物車查看。</p>}
       {/* 分類 Tab */}
       <div className="sticky top-0 z-10 bg-white border-b border-gray-200 overflow-x-auto">
         <div className="flex gap-1 px-4 py-2 min-w-max">
@@ -149,21 +188,25 @@ export default function MenuPage() {
               </div>
               <button
                 type="button"
+                aria-label={`選擇${item.name}`}
+                disabled={hold || !currentHoldReady}
                 onClick={() => openSheet(item)}
-                className="ml-3 rounded-full bg-amber-600 h-9 w-9 flex items-center justify-center text-white shrink-0"
+                className="ml-3 rounded-full bg-amber-600 h-9 w-9 flex items-center justify-center text-white shrink-0 disabled:opacity-50"
               >
                 <Plus className="h-5 w-5" />
               </button>
             </div>
           </div>
         ))}
-        {visibleItems.length === 0 && (
+        {loadError && <p role="alert" className="text-center text-rose-700 py-12">{loadError}</p>}
+        {loading && <p role="status" className="text-center text-gray-500 py-12">載入菜單中…</p>}
+        {!loading && !loadError && visibleItems.length === 0 && (
           <p className="text-center text-gray-400 py-12">此分類尚無餐點</p>
         )}
       </div>
 
       {/* 浮動購物車按鈕 */}
-      {cartCount > 0 && (
+      {!loading && !loadError && cartCount > 0 && (
         <div className="fixed bottom-6 left-4 right-4 z-20">
           <button
             type="button"
@@ -248,7 +291,7 @@ export default function MenuPage() {
               <button
                 type="button"
                 onClick={addToCart}
-                disabled={Boolean(sheetProblem)}
+                disabled={hold || !currentHoldReady || Boolean(sheetProblem)}
                 className="flex-1 rounded-xl bg-amber-600 py-3 font-bold text-white disabled:opacity-50"
               >
                 {sheetProblem ?? "加入購物車"}
