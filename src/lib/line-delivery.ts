@@ -76,6 +76,26 @@ export async function readLineReminderDeliveryState(input: ReminderDeliveryKey):
   return status === "sending" || status === "sent" || status === "failed" ? status : "missing";
 }
 
+/** A missing claim can mean the reservation changed after the candidate query. */
+export async function isReminderNoLongerRequired(input: ReminderDeliveryKey): Promise<boolean> {
+  const { data, error } = await supabaseAdmin()
+    .from("reservations")
+    .select("status,is_notified,d1_guest_reminder_sent_at,line_user_id")
+    .eq("id", input.reservationId)
+    .maybeSingle();
+  if (error) throw new Error("無法確認訂位提醒狀態");
+  if (!data) return false;
+  const row = data as { status?: unknown; is_notified?: unknown; d1_guest_reminder_sent_at?: unknown; line_user_id?: unknown };
+  if (typeof row.status !== "string") return false;
+  if (["cancelled", "no_show", "completed"].includes(row.status)) return true;
+  if (row.status !== "pending" && row.status !== "confirmed") return false;
+  if (input.reminderType === "d1_group") return row.is_notified === true;
+  if (input.reminderType === "d1_guest") {
+    return Boolean(row.d1_guest_reminder_sent_at) || row.line_user_id === null;
+  }
+  return false;
+}
+
 export async function markLineReminderDelivery(
   id: string,
   result: { status: "sent" | "failed"; error?: string | null }

@@ -4,6 +4,7 @@ import {
   claimFailedLineReminderDelivery,
   markLineReminderDelivery,
   readLineReminderDeliveryState,
+  isReminderNoLongerRequired,
   safeLineDeliveryError,
 } from "./line-delivery";
 
@@ -40,6 +41,25 @@ beforeEach(() => {
 });
 
 describe("line reminder delivery ledger", () => {
+  it.each([
+    [{ status: "cancelled", is_notified: false, d1_guest_reminder_sent_at: null, line_user_id: "U-old" }, "d1_group", true],
+    [{ status: "confirmed", is_notified: true, d1_guest_reminder_sent_at: null, line_user_id: null }, "d1_group", true],
+    [{ status: "confirmed", is_notified: false, d1_guest_reminder_sent_at: "2026-01-01", line_user_id: "U-old" }, "d1_guest", true],
+    [{ status: "confirmed", is_notified: false, d1_guest_reminder_sent_at: null, line_user_id: null }, "d1_guest", true],
+    [{ status: "confirmed", is_notified: false, d1_guest_reminder_sent_at: null, line_user_id: "U-new" }, "d1_guest", false],
+    [{ status: "confirmed", is_notified: false, d1_guest_reminder_sent_at: null, line_user_id: "U-old" }, "d1_group", false],
+    [null, "d1_group", false],
+  ] as const)("checks current eligibility safely after a missing claim: %s", async (row, reminderType, expected) => {
+    const maybeSingle = vi.fn().mockResolvedValue({ data: row, error: null });
+    const eq = vi.fn(() => ({ maybeSingle }));
+    const select = vi.fn(() => ({ eq }));
+    const from = vi.fn(() => ({ select }));
+    vi.mocked(supabaseAdmin).mockReturnValue({ from } as never);
+    await expect(isReminderNoLongerRequired({ reminderType, reminderDate: "2026-09-05", reservationId: "r1", recipientType: reminderType === "d1_group" ? "group" : "guest", recipientId: "U-old" })).resolves.toBe(expected);
+    expect(from).toHaveBeenCalledWith("reservations");
+    expect(eq).toHaveBeenCalledWith("id", "r1");
+  });
+
   it("reclaims a failed delivery with a compare-and-swap", async () => {
     const readMaybeSingle = vi.fn().mockResolvedValue({
       data: { id: "delivery-1", attempt_count: 2 },

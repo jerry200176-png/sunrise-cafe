@@ -44,6 +44,7 @@ import {
   claimLineReminderDelivery,
   markLineReminderDelivery,
   readLineReminderDeliveryState,
+  isReminderNoLongerRequired,
   safeLineDeliveryError,
   type LineReminderDeliveryType,
 } from "@/lib/line-delivery";
@@ -119,7 +120,7 @@ function reminderDate(row: Record<string, unknown>): string {
   return taipeiDateString(new Date(String(row.start_time)));
 }
 
-type ClaimedRow = { row: Record<string, unknown>; deliveryId: string | null };
+type ClaimedRow = { row: Record<string, unknown>; deliveryId: string | null; guardDeliveryId?: string | null };
 type ClaimRowsResult = { toSend: ClaimedRow[]; handledRows: Record<string, unknown>[]; unresolvedRows: Record<string, unknown>[]; claimError?: unknown };
 
 async function claimRows(
@@ -133,7 +134,7 @@ async function claimRows(
   const handledRows: Record<string, unknown>[] = [];
   const unresolvedRows: Record<string, unknown>[] = [];
   for (const row of rows) {
-    let result;
+    let guardDeliveryId: string | null = null;
     try {
       const key = {
         reminderType,
@@ -142,29 +143,63 @@ async function claimRows(
         recipientType,
         recipientId,
       };
-      result = await claimLineReminderDelivery(key);
+      // Share the old key with legacy deployments so a configuration change cannot
+      // bypass an in-flight send. The branch-specific row records the actual target.
+      if (recipientType === "group" && recipientId !== "legacy-group") {
+        const guardKey = { ...key, recipientId: "legacy-group" };
+        const guard = await claimLineReminderDelivery(guardKey);
+        if (!guard.available) {
+          toSend.push({ row, deliveryId: null });
+          continue;
+        }
+        if (!guard.id) {
+          const state = await readLineReminderDeliveryState(guardKey);
+          if (state === "sent") {
+            // Historic legacy rows cannot prove the destination; require a
+            // matching branch-specific sent row before calling this complete.
+            if (await readLineReminderDeliveryState(key) === "sent") handledRows.push(row);
+            else unresolvedRows.push(row);
+          } else if (state === "missing" && await isReminderNoLongerRequired(key)) {
+            handledRows.push(row);
+          } else unresolvedRows.push(row);
+          continue;
+        }
+        guardDeliveryId = guard.id;
+      }
+      const result = await claimLineReminderDelivery(key);
+      if (guardDeliveryId && !result.available) throw new Error("無法確認分店提醒紀錄");
       if (result.available && !result.id) {
         const state = await readLineReminderDeliveryState(key);
-        if (state === "sent") handledRows.push(row);
-        else unresolvedRows.push(row);
+        if (state === "sent") {
+          if (guardDeliveryId) {
+            const heldGuard = guardDeliveryId;
+            guardDeliveryId = null; // Prior delivery is proven; never release this guard as failed.
+            await markLineReminderDelivery(heldGuard, { status: "sent", error: null });
+          }
+          handledRows.push(row);
+        } else if (state === "missing" && await isReminderNoLongerRequired(key)) {
+          if (guardDeliveryId) await markLineReminderDelivery(guardDeliveryId, { status: "failed", error: null });
+          handledRows.push(row);
+        } else {
+          // Keep the guard held if another request may already be in flight.
+          unresolvedRows.push(row);
+        }
         continue;
       }
+      if (!result.available || result.id) toSend.push({ row, deliveryId: result.id, guardDeliveryId });
     } catch (claimError) {
+      if (guardDeliveryId) toSend.push({ row, deliveryId: null, guardDeliveryId });
       return { toSend, handledRows, unresolvedRows, claimError };
     }
-    // Before the migration is available, preserve the old flag-based behavior.
-    // Once the ledger exists, only an explicit claim may send.
-    if (!result.available || result.id) toSend.push({ row, deliveryId: result.id });
   }
   return { toSend, handledRows, unresolvedRows };
 }
 
 async function settleClaims(claimed: ClaimedRow[], status: "sent" | "failed", error?: unknown) {
   await Promise.all(
-    claimed
-      .filter((item) => item.deliveryId)
-      .map((item) =>
-        markLineReminderDelivery(item.deliveryId!, {
+    claimed.flatMap((item) => [item.deliveryId, item.guardDeliveryId].filter((id): id is string => Boolean(id)))
+      .map((id) =>
+        markLineReminderDelivery(id, {
           status,
           error: status === "failed" ? safeLineDeliveryError(error) : null,
         })
@@ -174,8 +209,8 @@ async function settleClaims(claimed: ClaimedRow[], status: "sent" | "failed", er
 
 /** Only release claims that definitely never reached LINE, or were explicitly rejected. */
 async function releaseClaims(claimed: ClaimedRow[], error: unknown): Promise<boolean> {
-  const results = await Promise.allSettled(claimed.filter((item) => item.deliveryId).map((item) =>
-    markLineReminderDelivery(item.deliveryId!, { status: "failed", error: safeLineDeliveryError(error) })
+  const results = await Promise.allSettled(claimed.flatMap((item) => [item.deliveryId, item.guardDeliveryId].filter((id): id is string => Boolean(id))).map((id) =>
+    markLineReminderDelivery(id, { status: "failed", error: safeLineDeliveryError(error) })
   ));
   return results.every((result) => result.status === "fulfilled");
 }
@@ -406,7 +441,7 @@ function finalizeObs(
     unresolved_claim_count,
     duplicate_suppressed_count: observability.duplicate ? 1 : 0,
     result:
-      observability.result === "error" && rejected_count > 0 && accepted_count > 0
+      observability.result === "partial" || (observability.result === "error" && rejected_count > 0 && accepted_count > 0)
         ? "partial"
         : observability.result === "error"
           ? "error"
