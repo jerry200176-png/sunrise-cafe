@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { responseError, thrownMessage } from "@/lib/friendly-error";
+import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
+import { useAdminBranches } from "@/lib/use-admin-branches";
 import { csvRow } from "@/lib/csv";
-import type { Branch } from "@/types";
 import { ArrowLeft, Download, TrendingUp, CalendarDays, XCircle, Wallet, type LucideIcon } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -68,31 +69,42 @@ function exportCSV(data: ReportData) {
 
 export default function ReportsPage() {
   const [period, setPeriod] = useState(6);
-  const [data, setData] = useState<ReportData | null>(null);
+  const [storedData, setStoredData] = useState<{ key: string; value: ReportData } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [branches, setBranches] = useState<Branch[]>([]);
+  const { branches, loading: branchesLoading, error: branchesError, retry: retryBranches } = useAdminBranches();
+  const branchScopeKey = JSON.stringify(branches.map((branch) => branch.id).sort());
   const [branchId, setBranchId] = useState("");
+  const branchUnavailable = !branchesLoading && !branchesError && Boolean(branchId) && !branches.some((branch) => branch.id === branchId);
+  const requestSequence = useRef(0);
+  const invalidateRequests = useCallback(() => { requestSequence.current++; }, []);
+  const queryKey = JSON.stringify([period, branchId, branchScopeKey]);
+  const data = !branchUnavailable && storedData?.key === queryKey ? storedData.value : null;
 
   useEffect(() => {
-    fetch("/api/branches").then((r) => r.json()).then((d) => setBranches(Array.isArray(d) ? d : [])).catch(() => {});
-  }, []);
+    if (branchUnavailable) setBranchId("");
+  }, [branchUnavailable]);
 
   const load = useCallback(async () => {
+    const requestId = ++requestSequence.current;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/reports?months=${period}${branchId ? `&branchId=${encodeURIComponent(branchId)}` : ""}`);
+      const res = await fetchWithTimeout(`/api/admin/reports?months=${period}${branchId ? `&branchId=${encodeURIComponent(branchId)}` : ""}`);
       if (!res.ok) throw new Error(await responseError(res));
-      setData(await res.json());
+      const result = await readJsonWithTimeout<ReportData>(res);
+      if (requestId === requestSequence.current) setStoredData({ key: queryKey, value: result });
     } catch (err) {
-      setError(thrownMessage(err, "報表暫時讀不到，請重試"));
+      if (requestId === requestSequence.current) setError(thrownMessage(err, "報表暫時讀不到，請重試"));
     } finally {
-      setLoading(false);
+      if (requestId === requestSequence.current) setLoading(false);
     }
-  }, [period, branchId]);
+  }, [period, branchId, queryKey]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (!branchUnavailable) void load();
+    return invalidateRequests;
+  }, [load, invalidateRequests, branchUnavailable]);
 
   const maxHour = Math.max(...(data?.by_hour.map((h) => h.count) ?? [1]), 1);
 
@@ -116,6 +128,7 @@ export default function ReportsPage() {
               className="min-h-[44px] rounded-lg border border-gray-200 bg-white px-2 text-sm text-gray-700"
             >
               <option value="">全部分店</option>
+              {branchesLoading && <option disabled value="__loading">載入分店…</option>}
               {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
             <div className="flex rounded-lg border border-gray-200 bg-white overflow-hidden">
@@ -139,6 +152,16 @@ export default function ReportsPage() {
             )}
           </div>
         </div>
+
+        {branchesError && (
+          <div role="alert" className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+            <span>{branchesError}</span>
+            <button type="button" onClick={() => void retryBranches()} className="underline">重試載入分店</button>
+          </div>
+        )}
+        {!branchesLoading && !branchesError && branches.length === 0 && (
+          <p role="status" className="mb-4 rounded-xl bg-gray-100 px-4 py-3 text-sm text-gray-600">目前沒有可選的分店；報表仍依帳號權限顯示。</p>
+        )}
 
         {loading && !data && <p className="py-20 text-center text-sm text-gray-400">載入中…</p>}
         {error && <p className="rounded-xl bg-red-50 p-4 text-sm text-red-600">{error}</p>}

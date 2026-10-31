@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   buildDashboardStats,
+  dashboardWindows,
+  isDashboardDate,
   type DashboardReservation,
   type DashboardRoom,
 } from "@/lib/admin-dashboard-data";
-import { fetchReservationsAdmin, fetchRooms, isAdminConfigured } from "@/lib/supabase-admin";
+import { fetchReservationsOverlapping } from "@/lib/reservation-list-query";
+import { fetchRooms, isAdminConfigured } from "@/lib/supabase-admin";
 import { requirePermission } from "@/lib/admin-api-auth";
 import { taipeiDateString } from "@/lib/datetime";
 
@@ -24,9 +27,13 @@ export async function GET(request: NextRequest) {
   }
   const date = dateParam || taipeiDateString();
 
+  if (!isDashboardDate(date)) {
+    return NextResponse.json({ error: "日期格式不正確（YYYY-MM-DD）" }, { status: 400 });
+  }
+
   try {
     const [reservations, rooms] = await Promise.all([
-      fetchReservationsAdmin(branchId),
+      fetchReservationsOverlapping(branchId, dashboardWindows("stats", date)),
       fetchRooms(branchId),
     ]);
     const list = (Array.isArray(reservations) ? reservations : []) as DashboardReservation[];

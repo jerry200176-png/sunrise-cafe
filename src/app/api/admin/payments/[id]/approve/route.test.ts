@@ -32,6 +32,7 @@ vi.mock("@/lib/payment-notify", () => ({
             : "failed",
 }));
 vi.mock("@/lib/ops-log", () => ({ logOps: mocks.logOps }));
+vi.mock("@/lib/payment-event-scope", () => ({ paymentEventInScope: vi.fn(async () => true) }));
 import { POST } from "./route";
 
 function request() {

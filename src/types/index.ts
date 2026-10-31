@@ -63,6 +63,10 @@ export interface Reservation {
   review_invited_at?: string | null;
   /** Pending payment_events awaiting staff review */
   pending_payment_reviews?: number;
+  /** 同電話在本分店未取消的訂位數（後台熟客標記；由 GET /api/reservations 計算） */
+  visit_count?: number;
+  /** 已取消且曾被訂金逾期 cron 自動取消（後台標示 / 篩選用，見 ADR-012） */
+  deposit_auto_cancelled?: boolean;
   preorder?: {
     status: "draft" | "submitted" | "locked" | "cancelled";
     requires_reconfirmation: boolean;

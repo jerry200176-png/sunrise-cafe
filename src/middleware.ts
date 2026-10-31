@@ -71,10 +71,15 @@ export async function middleware(request: NextRequest) {
   } else if (
     pathname.startsWith("/api/") &&
     !pathname.startsWith("/api/webhooks/") &&
-    !(request.method === "GET" && isAdminCronGetPath(pathname) && isVercelCronRequest(request))
+    !(
+      request.method === "GET" &&
+      isAdminCronGetPath(pathname) &&
+      process.env.CRON_SECRET?.trim() &&
+      authorizeCronGet(request).ok
+    )
   ) {
     // webhooks / Vercel Cron 不套用一般 API 限流，避免排程被 429 擋下
-    // （cron header 只在 cron 路徑豁免限流；它不是驗證，cron 仍須 Bearer CRON_SECRET）
+    // 排程僅在 Bearer 驗證成功時豁免；來源 header 可以被偽造。
     const { success, reset } = await rateLimit(ip, "api");
     if (!success) return tooManyRequests(reset, pathname, "api");
   }

@@ -142,6 +142,8 @@ export function guestAllowedActions(
 export type Effects = {
   load(id: string): Promise<Snapshot | null>;
   update(id: string, patch: Record<string, unknown>): Promise<void>;
+  /** Compare-and-set: write only while status still equals `expected`; false when another writer won. */
+  updateIfStatus?(id: string, expected: string, patch: Record<string, unknown>): Promise<boolean>;
   cancelPreorder(id: string, reason: string): Promise<void>;
   lockPreorder(id: string): Promise<void>;
   requirePreorderReconfirmation(id: string, reason: string, actor: string): Promise<void>;
@@ -196,6 +198,11 @@ export async function transitionReservation(
     }
   }
 
+  // 還原是冪等的：已是有效訂位（重複點擊、別的店員剛還原過）就回成功、不重寫。
+  if (intent.type === "restore" && isActive(snap.status)) {
+    return { ok: true, status: snap.status, already: true };
+  }
+
   const target = ADMIN_TABLE[snap.status]?.[intent.type];
   if (!target) {
     const msg =
@@ -220,7 +227,16 @@ export async function transitionReservation(
 
   const restoredStatus: ReservationStatus = snap.is_deposit_paid ? "confirmed" : "pending";
   const nextStatus = intent.type === "restore" ? restoredStatus : target;
-  await effects.update(id, { status: nextStatus });
+  if (intent.type === "restore" && effects.updateIfStatus) {
+    const won = await effects.updateIfStatus(id, snap.status, { status: nextStatus });
+    if (!won) {
+      const latest = await effects.load(id);
+      if (latest && isActive(latest.status)) return { ok: true, status: latest.status, already: true };
+      return fail("invalid_transition", "訂位狀態剛被變更，請重新整理後再試", 409);
+    }
+  } else {
+    await effects.update(id, { status: nextStatus });
+  }
   effects.audit({
     reservation_id: id,
     booking_code: snap.booking_code,
@@ -261,6 +277,23 @@ export async function transitionReservation(
       break;
   }
   return { ok: true, status: nextStatus, lineResult };
+}
+
+/**
+ * 結帳 RPC（settle_reservation_checkout，#444）已在資料庫裡把訂位轉成 completed：
+ * 這裡補做 complete 的附帶動作（記稽核、鎖預點單、邀評價）。失敗不影響已完成的結帳。
+ */
+export async function afterSettledComplete(id: string, actor: Actor, from: string, effects: Effects = supabaseEffects) {
+  const snap = await effects.load(id);
+  if (!snap) return;
+  effects.audit({
+    reservation_id: id, booking_code: snap.booking_code, intent: "complete", from, to: "completed",
+    actor: actor.kind, actor_id: actorLabel(actor), via: "settle_reservation_checkout",
+  });
+  await effects.lockPreorder(id);
+  if (snap.line_user_id && !snap.review_invited_at) {
+    await safely("review invite", () => effects.sendReviewInvite(snap));
+  }
 }
 
 async function reschedule(
@@ -323,6 +356,10 @@ async function reschedule(
     console.error("[lifecycle] waitlist notify failed:", err)
   );
   return { ok: true, status: snap.status };
+}
+
+function isActive(status: string): boolean {
+  return status === "pending" || status === "confirmed";
 }
 
 function notBookable(reason: BookableReason): Failure {
@@ -388,6 +425,16 @@ export const supabaseEffects: Effects = {
   },
   async update(id, patch) {
     await updateReservationAdmin(id, patch);
+  },
+  async updateIfStatus(id, expected, patch) {
+    const { data, error } = await db()
+      .from("reservations")
+      .update(patch)
+      .eq("id", id)
+      .eq("status", expected)
+      .select("id");
+    if (error) throw error;
+    return (data ?? []).length > 0;
   },
   async cancelPreorder(id, reason) {
     await cancelReservationPreorder(id, reason);

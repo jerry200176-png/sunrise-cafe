@@ -17,6 +17,7 @@ import {
 import { resolveStoreName, type BranchPaymentConfig } from "@/lib/payment-message";
 import {
   computeDepositDeadline,
+  depositOverdueNote,
   formatDepositDeadlineLabel,
 } from "@/lib/deposit-deadline";
 import {
@@ -89,8 +90,8 @@ export function buildPaymentFlex(params: {
 
   const paragraphs = [`${params.customerName} 您好，已為您保留包廂`];
   let note = deadlineLabel
-    ? `請於 ${deadlineLabel} 前完成訂金付款，逾期座位將自動釋放。`
-    : "請於期限內（最晚建立後 48 小時或訂位開始前 6 小時，以較晚者為準）完成訂金付款，逾期座位將自動釋放。";
+    ? `請於 ${deadlineLabel} 前完成訂金付款，${depositOverdueNote()}`
+    : `請於期限內（最晚建立後 48 小時或訂位開始前 6 小時，以較晚者為準）完成訂金付款，${depositOverdueNote()}`;
   if (paymentInfo) {
     note = `${paymentInfo.replace(/\n/g, " · ")}\n\n${
       code
@@ -318,8 +319,8 @@ export function buildGuestDepositReminderFlex(params: {
 }): LineFlexContainer {
   const urgent = params.urgency === "soon";
   const deadlineNote = params.deadlineLabel
-    ? `繳款期限：${params.deadlineLabel}。逾期座位將自動釋放。`
-    : "請盡快完成匯款或 LINE Pay（資訊請參考先前訊息），逾期座位將自動釋放。";
+    ? `繳款期限：${params.deadlineLabel}。${depositOverdueNote()}`
+    : `請盡快完成匯款或 LINE Pay（資訊請參考先前訊息），${depositOverdueNote()}`;
   return flexBubble({
     icon: urgent ? "🚨" : "⏰",
     title: urgent ? "訂金即將逾期" : "訂金提醒",

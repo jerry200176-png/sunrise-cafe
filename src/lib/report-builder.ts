@@ -44,7 +44,10 @@ export function buildReport(
     const name = room ? (multiBranch && branch?.name ? `${branch.name} ${room.name}` : room.name) : "未知包廂";
     const cur = rooms.get(room?.id ?? "unknown") ?? { name, bookings: 0, booked_amount: 0 };
     cur.bookings += 1;
-    cur.booked_amount += Number(r.total_price) || 0;
+    // 在包廂裡結帳（kind=full）的組用結帳紀錄的包廂費（含延長）；其餘照預約總價。
+    // food_only 只是事後補收餐費（room_fee 一律 0），不能把沒走結帳流程就完成的組的包廂收入歸零
+    const settled = one(r.settlement);
+    cur.booked_amount += Number(settled?.kind === "full" ? settled.room_fee : r.total_price) || 0;
     rooms.set(room?.id ?? "unknown", cur);
     const h = taipeiHour(r.start_time);
     hours.set(h, (hours.get(h) ?? 0) + 1);

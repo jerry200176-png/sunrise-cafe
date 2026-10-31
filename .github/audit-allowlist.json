@@ -1,0 +1,8 @@
+[
+  {
+    "id": "GHSA-vfj7-8cjw-p6xm",
+    "package": "braces (via tailwindcss 3 -> chokidar/micromatch, build-time only)",
+    "reason": "Stack-exhaustion DoS on crafted glob patterns. Only reachable through dev/build tooling (tailwindcss 3, eslint-config-next); no runtime path takes untrusted globs. npm's fix is a tailwindcss major upgrade, tracked as a separate migration.",
+    "expires": "2026-12-31"
+  }
+]

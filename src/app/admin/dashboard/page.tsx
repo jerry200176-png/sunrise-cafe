@@ -17,8 +17,9 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { AdminEmptyState } from "@/components/admin/AdminEmptyState";
 import { formatTaipeiTime } from "@/lib/datetime";
 import { friendlyMessage, responseError, thrownMessage } from "@/lib/friendly-error";
+import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
+import { useAdminBranches } from "@/lib/use-admin-branches";
 import { reservationStatusLabel } from "@/lib/status-labels";
-import type { Branch } from "@/types";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 
 interface Stats {
@@ -74,6 +75,13 @@ interface TimelineData {
   openTime: string;
   closeTime: string;
   rooms: TimelineRoom[];
+}
+
+interface DashboardBundlePayload {
+  error?: string;
+  stats?: Stats | null;
+  timeline?: TimelineData | null;
+  trend?: { points?: TrendPoint[] };
 }
 
 const pad2 = (value: number) => String(value).padStart(2, "0");
@@ -168,21 +176,29 @@ const buildAxis = (date: string, openTime?: string, closeTime?: string) => {
 };
 
 export default function AdminDashboardPage() {
-  const [branches, setBranches] = useState<Branch[]>([]);
+  const { branches, loading: branchesLoading, error: branchesError, retry: retryBranches } = useAdminBranches();
+  const branchScopeKey = JSON.stringify(branches.map((branch) => branch.id).sort());
   const [branchId, setBranchId] = useState("");
+  const branchUnavailable = !branchesLoading && !branchesError && Boolean(branchId) && !branches.some((branch) => branch.id === branchId);
   const [date, setDate] = useState(taipeiToday);
   const [refreshToken, setRefreshToken] = useState(0);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [loadedKey, setLoadedKey] = useState("");
   const [trend, setTrend] = useState<TrendPoint[]>([]);
   const [trendLoading, setTrendLoading] = useState(false);
   const [trendError, setTrendError] = useState<string | null>(null);
   const [timeline, setTimeline] = useState<TimelineData | null>(null);
   const [reminders, setReminders] = useState<ReminderItem[]>([]);
+  const [remindersScopeKey, setRemindersScopeKey] = useState<string | null>(null);
   const [remindersLoading, setRemindersLoading] = useState(false);
   const [remindersError, setRemindersError] = useState<string | null>(null);
   const [remindersUpdating, setRemindersUpdating] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const requestSequence = useRef(0);
+  const reminderSequence = useRef(0);
+  const invalidateRequests = useCallback(() => { requestSequence.current++; }, []);
+  const invalidateReminders = useCallback(() => { reminderSequence.current++; }, []);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const toastId = useRef(0);
 
@@ -196,60 +212,69 @@ export default function AdminDashboardPage() {
   }, []);
 
   useEffect(() => {
-    fetch("/api/branches")
-      .then((r) => r.json())
-      .then((d) => {
-        const arr = Array.isArray(d) ? d : [];
-        setBranches(arr);
-        if (arr.length > 0 && !branchId) setBranchId(arr[0].id);
-      })
-      .catch(() => setBranches([]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!branchesLoading && !branchesError && (!branchId || !branches.some((branch) => branch.id === branchId))) {
+      setBranchId(branches[0]?.id ?? "");
+    }
+  }, [branches, branchesError, branchesLoading, branchId]);
 
   const loadReminders = useCallback(async () => {
+    const requestId = ++reminderSequence.current;
     setRemindersLoading(true);
     setRemindersError(null);
     try {
-      const res = await fetch("/api/admin/reminders");
-      const data = await res.json();
+      const res = await fetchWithTimeout("/api/admin/reminders");
+      const data = await readJsonWithTimeout<ReminderItem[] | { error?: string }>(res);
       if (!res.ok) {
         throw new Error(friendlyMessage((data as { error?: string })?.error, res.status));
       }
+      if (requestId !== reminderSequence.current) return;
       setReminders(Array.isArray(data) ? (data as ReminderItem[]) : []);
+      setRemindersScopeKey(branchScopeKey);
     } catch (e) {
+      if (requestId !== reminderSequence.current) return;
       setReminders([]);
+      setRemindersScopeKey(null);
       setRemindersError(thrownMessage(e, "提醒暫時讀不到，請重試"));
     } finally {
-      setRemindersLoading(false);
+      if (requestId === reminderSequence.current) setRemindersLoading(false);
     }
-  }, []);
+  }, [branchScopeKey]);
 
   useEffect(() => {
-    loadReminders();
-  }, [loadReminders]);
+    void loadReminders();
+    return invalidateReminders;
+  }, [loadReminders, invalidateReminders]);
 
   useEffect(() => {
-    if (!branchId) {
+    const requestId = ++requestSequence.current;
+    if (!branchId || branchUnavailable) {
+      setLoadedKey("");
       setStats(null);
       setTimeline(null);
       setTrend([]);
       setLoading(false);
       setTrendLoading(false);
       setTrendError(null);
-      return;
+      return invalidateRequests;
     }
+    const requestKey = `${branchId}|${date}`;
     setLoading(true);
     setTrendLoading(true);
     setError(null);
     setTrendError(null);
-    fetch(
+    setLoadedKey("");
+    fetchWithTimeout(
       `/api/admin/dashboard?branchId=${encodeURIComponent(branchId)}&date=${encodeURIComponent(date)}`
     )
-      .then((r) => r.json())
+      .then(async (r) => {
+        if (!r.ok) throw new Error(await responseError(r));
+        return readJsonWithTimeout<DashboardBundlePayload>(r);
+      })
       .then((data) => {
+        if (requestId !== requestSequence.current) return;
         if (data.error) throw new Error(friendlyMessage(data.error));
         setStats(data.stats ?? null);
+        setLoadedKey(requestKey);
         setTimeline(data.timeline ?? null);
         const points = Array.isArray(data.trend?.points) ? data.trend.points : [];
         setTrend(
@@ -261,6 +286,7 @@ export default function AdminDashboardPage() {
         );
       })
       .catch((e) => {
+        if (requestId !== requestSequence.current) return;
         const msg = thrownMessage(e, "載入失敗，請重新整理");
         setError(msg);
         setTrendError(msg);
@@ -269,12 +295,18 @@ export default function AdminDashboardPage() {
         setTrend([]);
       })
       .finally(() => {
+        if (requestId !== requestSequence.current) return;
         setLoading(false);
         setTrendLoading(false);
       });
-  }, [branchId, date, refreshToken]);
+    return invalidateRequests;
+  }, [branchId, branchUnavailable, date, refreshToken, invalidateRequests]);
 
-  const axis = buildAxis(date, timeline?.openTime, timeline?.closeTime);
+  const currentKey = branchId && !branchUnavailable ? `${branchId}|${date}` : "";
+  const currentStats = currentKey && loadedKey === currentKey ? stats : null;
+  const currentTimeline = currentKey && loadedKey === currentKey ? timeline : null;
+  const currentTrend = currentKey && loadedKey === currentKey ? trend : [];
+  const axis = buildAxis(date, currentTimeline?.openTime, currentTimeline?.closeTime);
   const timeToPercent = (iso: string) => {
     const t = new Date(iso).getTime();
     return Math.max(0, Math.min(100, ((t - axis.startMs) / (axis.endMs - axis.startMs)) * 100));
@@ -283,11 +315,11 @@ export default function AdminDashboardPage() {
   const selectedBranchName =
     branches.find((b) => b.id === branchId)?.name ?? "";
   const remindersForBranch =
-    branchId && selectedBranchName
+    branchId && !branchUnavailable && selectedBranchName && remindersScopeKey === branchScopeKey
       ? reminders.filter((r) => r.branch_name === selectedBranchName)
-      : reminders;
-  const maxTrendRevenue = Math.max(1, ...trend.map((p) => p.revenue));
-  const maxTrendCount = Math.max(1, ...trend.map((p) => p.count));
+      : [];
+  const maxTrendRevenue = Math.max(1, ...currentTrend.map((p) => p.revenue));
+  const maxTrendCount = Math.max(1, ...currentTrend.map((p) => p.count));
   const unpaidReminderCount = remindersForBranch.filter((r) => !r.is_deposit_paid).length;
   const awaitingAttendanceCount = remindersForBranch.filter(
     (r) => !r.guest_confirmed_at && !!r.status && ["pending", "confirmed"].includes(r.status)
@@ -334,9 +366,10 @@ export default function AdminDashboardPage() {
               <select
                 value={branchId}
                 onChange={(e) => setBranchId(e.target.value)}
+                disabled={branchesLoading || branches.length === 0}
                 className="mt-1.5 w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-sm text-stone-900 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-100"
               >
-                <option value="">請選擇分店</option>
+                <option value="">{branchesLoading ? "載入分店…" : "請選擇分店"}</option>
                 {branches.map((b) => (
                   <option key={b.id} value={b.id}>{b.name}</option>
                 ))}
@@ -388,6 +421,16 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
+        {branchesError && (
+          <div role="alert" className="flex flex-wrap items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <span>{branchesError}</span>
+            <button type="button" onClick={() => void retryBranches()} className="underline">重試載入分店</button>
+          </div>
+        )}
+        {!branchesLoading && !branchesError && branches.length === 0 && (
+          <p role="status" className="rounded-xl bg-stone-100 px-4 py-3 text-sm text-stone-600">目前沒有可管理的分店。</p>
+        )}
+
         {error && (
           <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
             {error}
@@ -398,7 +441,7 @@ export default function AdminDashboardPage() {
           <p className="text-stone-500">載入中…</p>
         )}
 
-        {!loading && stats && (
+        {!loading && currentStats && (
           <>
             <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4" aria-labelledby="dashboard-attention-heading">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -428,7 +471,7 @@ export default function AdminDashboardPage() {
                   <Calendar className="h-5 w-5 text-amber-700" strokeWidth={1.5} />
                   <span className="text-sm">{viewingToday ? "今日" : `${date.slice(5).replace("-", "/")} `}訂位數</span>
                 </div>
-                <p className="mt-2 text-2xl font-semibold tabular-nums text-stone-900">{stats.todayCount}</p>
+                <p className="mt-2 text-2xl font-semibold tabular-nums text-stone-900">{currentStats.todayCount}</p>
               </div>
               <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center gap-2 text-stone-500">
@@ -436,7 +479,7 @@ export default function AdminDashboardPage() {
                   <span className="text-sm">{viewingToday ? "目前使用中包廂" : "當日有訂包廂"}</span>
                 </div>
                 <p className="mt-2 text-2xl font-semibold tabular-nums text-stone-900">
-                  {viewingToday ? stats.roomsInUseCount : (stats.roomsBookedCount ?? 0)} / {stats.totalRooms}
+                  {viewingToday ? currentStats.roomsInUseCount : (currentStats.roomsBookedCount ?? 0)} / {currentStats.totalRooms}
                 </p>
               </div>
               <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
@@ -444,7 +487,7 @@ export default function AdminDashboardPage() {
                   <DollarSign className="h-5 w-5 text-amber-700" strokeWidth={1.5} />
                   <span className="text-sm">{viewingToday ? "今日" : `${date.slice(5).replace("-", "/")} `}預估營收</span>
                 </div>
-                <p className="mt-2 text-2xl font-semibold tabular-nums text-stone-900">{formatTwd(stats.todayRevenue)}</p>
+                <p className="mt-2 text-2xl font-semibold tabular-nums text-stone-900">{formatTwd(currentStats.todayRevenue)}</p>
               </div>
             </div>
 
@@ -457,7 +500,7 @@ export default function AdminDashboardPage() {
                 <p className="text-sm text-gray-500">載入統計中…</p>
               ) : trendError ? (
                 <p className="text-sm text-red-600">{trendError}</p>
-              ) : trend.length === 0 ? (
+              ) : currentTrend.length === 0 ? (
                 <AdminEmptyState
                   icon={ClipboardCheck}
                   title="目前沒有趨勢資料"
@@ -466,7 +509,7 @@ export default function AdminDashboardPage() {
               ) : (
                 <div className="-mx-1 overflow-x-auto px-1 sm:mx-0 sm:px-0">
                 <div className="flex gap-2 sm:grid sm:grid-cols-7 sm:gap-3">
-                  {trend.map((p) => {
+                  {currentTrend.map((p) => {
                     const revenuePercent = Math.max(
                       6,
                       Math.round((p.revenue / maxTrendRevenue) * 100)
@@ -504,15 +547,15 @@ export default function AdminDashboardPage() {
               </p>
             </section>
 
-            {timeline && (
+            {currentTimeline && (
               <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                 <h2 className="mb-4 text-lg font-semibold text-gray-900">
-                  時間軸 · {timeline.branchName} · {formatTaipeiDate(date)}
+                  時間軸 · {currentTimeline.branchName} · {formatTaipeiDate(date)}
                 </h2>
 
                 {/* Mobile: 清單式 */}
                 <div className="space-y-3 md:hidden">
-                  {timeline.rooms.map((room) => (
+                  {currentTimeline.rooms.map((room) => (
                     <div key={room.roomId} className="rounded-lg border border-gray-200 bg-gray-50/50 p-3">
                       <div className="mb-2 flex items-center justify-between gap-2">
                         <p className="text-sm font-semibold text-gray-800">{room.roomName}</p>
@@ -573,7 +616,7 @@ export default function AdminDashboardPage() {
                         ))}
                       </div>
                     </div>
-                    {timeline.rooms.map((room) => (
+                    {currentTimeline.rooms.map((room) => (
                       <div key={room.roomId} className="flex items-stretch gap-2">
                         <div className="w-24 shrink-0 py-1 text-sm font-medium text-gray-700">
                           {room.roomName}
@@ -686,6 +729,8 @@ export default function AdminDashboardPage() {
             <p className="text-sm text-gray-500">載入提醒中…</p>
           ) : remindersError ? (
             <p className="text-sm text-red-600">{remindersError}</p>
+          ) : !branchId || branchUnavailable ? (
+            <p className="text-sm text-stone-500">請先選擇可查看的分店。</p>
           ) : remindersForBranch.length === 0 ? (
             <AdminEmptyState
               icon={Bell}

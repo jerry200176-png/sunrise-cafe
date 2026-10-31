@@ -58,7 +58,7 @@ export function roleHasPermission(role: AdminRole, permission: string): boolean 
 
 export function canAccessBranch(ctx: AdminContext, branchId: string | null | undefined): boolean {
   if (!branchId) return ctx.role === "owner";
-  if (ctx.branch_ids === null) return true;
+  if (ctx.branch_ids === null) return ctx.role === "owner";
   return ctx.branch_ids.includes(branchId);
 }
 
@@ -68,7 +68,7 @@ export function hasPermission(
   branchId?: string | null
 ): boolean {
   if (!roleHasPermission(ctx.role, permission)) return false;
-  if (branchId && ctx.branch_ids !== null && !ctx.branch_ids.includes(branchId)) {
+  if (branchId && !canAccessBranch(ctx, branchId)) {
     return false;
   }
   return true;
@@ -78,7 +78,7 @@ export function filterBranchIds(
   ctx: AdminContext,
   allBranchIds: string[]
 ): string[] {
-  if (ctx.branch_ids === null) return allBranchIds;
+  if (ctx.branch_ids === null) return ctx.role === "owner" ? allBranchIds : [];
   return allBranchIds.filter((id) => ctx.branch_ids!.includes(id));
 }
 
@@ -94,7 +94,7 @@ export function resolveBranchScope(
   if (requested) {
     return canAccessBranch(ctx, requested) ? { ok: true, scope: [requested] } : { ok: false };
   }
-  return { ok: true, scope: ctx.branch_ids === null ? null : [...ctx.branch_ids] };
+  return { ok: true, scope: ctx.branch_ids === null ? (ctx.role === "owner" ? null : []) : [...ctx.branch_ids] };
 }
 
 export function ownerContext(legacy = false): AdminContext {
@@ -125,5 +125,5 @@ export function parseRole(value: unknown): AdminRole {
   ) {
     return value;
   }
-  return "owner";
+  return "none";
 }

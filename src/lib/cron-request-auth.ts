@@ -42,7 +42,7 @@ function isProductionRuntime(): boolean {
   return process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production";
 }
 
-/** Length-independent constant-time compare (works in the Edge runtime). */
+/** Compare all character positions without an early exit; usable in the Edge runtime. */
 function safeEqual(a: string, b: string): boolean {
   let diff = a.length ^ b.length;
   for (let i = 0; i < Math.max(a.length, b.length); i++) {
@@ -56,9 +56,9 @@ function safeEqual(a: string, b: string): boolean {
  * fail should fall through to requireAdminApiAuth in middleware.
  */
 export function authorizeCronGet(request: NextRequest): CronAuthResult {
-  const cronSecret = process.env.CRON_SECRET?.trim();
+  const cronSecret = process.env.CRON_SECRET;
 
-  if (cronSecret) {
+  if (cronSecret?.trim()) {
     const authHeader = request.headers.get("authorization") ?? "";
     if (safeEqual(authHeader, `Bearer ${cronSecret}`)) {
       return { ok: true, via: "cron_secret" };

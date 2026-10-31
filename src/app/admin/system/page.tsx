@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -17,6 +17,8 @@ import {
   GitBranch,
   type LucideIcon,
 } from "lucide-react";
+import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
+import { responseError, thrownMessage } from "@/lib/friendly-error";
 
 type OutcomeSnapshot = {
   collected_at: string;
@@ -98,6 +100,21 @@ type OrchestratorWall = {
   recent_learnings: { phase: string; task_id: string; antibody: string }[];
 };
 
+type NorthStarSnapshot = {
+  measured_count: number;
+  unmeasured_count: number;
+  metrics: {
+    id: string;
+    name: string;
+    observed: number | null;
+    value: number | null;
+    unit: string;
+    target: number;
+    delta: number | null;
+    status: string;
+  }[];
+};
+
 function Metric({
   icon: Icon,
   label,
@@ -159,45 +176,58 @@ function pct(v: number | null, target?: number) {
 
 export default function ExecutiveDashboardPage() {
   const [data, setData] = useState<OutcomeSnapshot | null>(null);
-  const [northStar, setNorthStar] = useState<{
-    measured_count: number;
-    unmeasured_count: number;
-    metrics: {
-      id: string;
-      name: string;
-      observed: number | null;
-      value: number | null;
-      unit: string;
-      target: number;
-      delta: number | null;
-      status: string;
-    }[];
-  } | null>(null);
+  const [northStar, setNorthStar] = useState<NorthStarSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [orchestrator, setOrchestrator] = useState<OrchestratorWall | null>(null);
+  const [supplementalError, setSupplementalError] = useState<string | null>(null);
+  const loadSequence = useRef(0);
 
   const load = useCallback(async () => {
+    const sequence = ++loadSequence.current;
     setLoading(true);
     setError(null);
+    setSupplementalError(null);
+    setData(null);
+    setNorthStar(null);
+    setOrchestrator(null);
     try {
-      const res = await fetch("/api/admin/outcomes", { cache: "no-store" });
-      const json = await res.json();
-      if (res.status === 403) {
-        throw new Error("您的帳號不能看這一頁，請找工程人員");
+      const res = await fetchWithTimeout("/api/admin/outcomes", { cache: "no-store" });
+      if (sequence !== loadSequence.current) return;
+      if (!res.ok) {
+        if (res.status === 403) throw new Error("您的帳號不能看這一頁，請找工程人員");
+        throw new Error(await responseError(res));
       }
-      if (!res.ok) throw new Error(json.error ?? "載入失敗");
+      const json = await readJsonWithTimeout<OutcomeSnapshot>(res);
+      if (sequence !== loadSequence.current) return;
       setData(json);
-
-      const nsRes = await fetch("/api/admin/north-star", { cache: "no-store" });
-      if (nsRes.ok) setNorthStar(await nsRes.json());
-
-      const orchRes = await fetch("/api/admin/orchestrator", { cache: "no-store" });
-      if (orchRes.ok) setOrchestrator(await orchRes.json());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "載入失敗");
-    } finally {
       setLoading(false);
+
+      // These panels are supplemental. Load them concurrently and independently so
+      // one slow endpoint cannot keep the primary system status behind a spinner.
+      const [nsResult, orchResult] = await Promise.allSettled([
+        fetchWithTimeout("/api/admin/north-star", { cache: "no-store" }).then(async (response) => {
+          if (!response.ok) throw new Error(await responseError(response));
+          return readJsonWithTimeout<NorthStarSnapshot>(response);
+        }),
+        fetchWithTimeout("/api/admin/orchestrator", { cache: "no-store" }).then(async (response) => {
+          if (!response.ok) throw new Error(await responseError(response));
+          return readJsonWithTimeout<OrchestratorWall>(response);
+        }),
+      ]);
+      if (sequence !== loadSequence.current) return;
+      const partialErrors: string[] = [];
+      if (nsResult.status === "fulfilled") setNorthStar(nsResult.value);
+      else partialErrors.push(thrownMessage(nsResult.reason));
+      if (orchResult.status === "fulfilled") setOrchestrator(orchResult.value);
+      else partialErrors.push(thrownMessage(orchResult.reason));
+      setSupplementalError(partialErrors.length ? "部分系統狀態資料暫時無法取得，主要狀態仍可使用。" : null);
+    } catch (e) {
+      if (sequence === loadSequence.current) {
+        setError(thrownMessage(e, "系統狀態載入失敗，請重新整理"));
+      }
+    } finally {
+      if (sequence === loadSequence.current) setLoading(false);
     }
   }, []);
 
@@ -262,6 +292,12 @@ export default function ExecutiveDashboardPage() {
         {error && (
           <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
             {error}
+          </div>
+        )}
+
+        {supplementalError && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status">
+            {supplementalError}
           </div>
         )}
 
