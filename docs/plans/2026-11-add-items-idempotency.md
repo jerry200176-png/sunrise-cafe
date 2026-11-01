@@ -13,6 +13,7 @@
 ## 本地測試與限制
 - 本機合成資料與 mocks 驗證兩操作入口、逾時、回應遺失、重整／未授權、最小化儲存、查詢及安全取消；不使用真實客資。
 - `tests/run-reservation-add-idempotency.sh` 以 network-isolated PostgreSQL 17 容器測同 key 競態、rollback、角色 ACL、結束後重播、取消 tombstone，以及先出餐/先加點、阻塞後的舊狀態寫入、paid/add、cancel/add 交錯。測試只使用精簡 schema 模擬 guard 和 paid_at 更新；**不等於完整 production schema、實際 settlement RPC 或付款驗證**。
+- `tests/research-add-items-postgrest.py` 另以本機既有 PostgreSQL 17、PostgREST 12 與真實 supabase-js 執行合成資料的角色拒絕、同 key 重送與並發、失敗回滾、取消及結帳後重播；加點／取消 HTTP 競爭只驗證兩種合法結果，不保證每次均在資料庫鎖上重疊。此測試使用 `--network none` 的共用網路 namespace、合成角色與金鑰，沒有開放主機 port 或正式資料；**不代表真實 Supabase grants/RLS、Next API 授權、正式 schema、真實斷線或其他 writer 已驗證**。執行方式為 `python3 tests/research-add-items-postgrest.py /absolute/path/to/node_modules`，不下載映像。
 - `tests/run-real-reservation-settlement-race.sh` 在另一個 network-isolated PG 容器依序執行 repo 的 `schema.sql`、點餐、預點、booking meals、結帳等實際 migration 與候選 migration，使用真實 `guard_reservation_order_item_change`、總額 trigger 及 `settle_reservation_checkout`。合成資料驗證 add-first 時舊金額結帳回 `amount_changed` 且無結帳紀錄；settlement-first 時加點回 `order_cannot_add`，兩情境都確認後到交易確實等待鎖。容器以 postgres 執行、模擬必要角色和 publication，並非所有專案 migration 或 Supabase 預設授權，也沒有實際付款；正式 schema/ACL 及其他 writer 仍需獨立驗證。腳本內執行的 `schema.sql` 含 DROP，僅能使用腳本自行建立並銷毀的空容器，不可改指向現有資料庫。
 - 如需強制跨分頁／裝置去重，需另設有生命週期的 reservation-level admission/查詢及交錯測試，不能假定不同 key 同一意圖。
 
