@@ -17,6 +17,14 @@ on:
         required: false
         default: false
         type: boolean
+      release_mode:
+        description: "The priority code-only mode is restricted to the reviewed one-use tree"
+        required: true
+        default: blocked-migrations
+        type: choice
+        options:
+          - blocked-migrations
+          - priority-code-only
 
 permissions:
   contents: read
@@ -28,12 +36,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  deployment_preflight:
+    name: Validate deployment intent
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.release_mode != 'priority-code-only' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject unverified forced activation
+        env:
+          FORCE_DEPLOY: ${{ inputs.force_deploy || false }}
+        run: |
+          if [ "${FORCE_DEPLOY:-false}" = "true" ]; then
+            echo "::error::Forced deployment requires independent deployment-identity verification"
+            exit 1
+          fi
+          echo "::error::Release blocked: deployment writer fencing and a D7 recovery path are not verified"
+          exit 1
+
   predeploy_migrate:
     name: Apply predeploy migrations
     runs-on: ubuntu-latest
+    needs: deployment_preflight
     timeout-minutes: 15
     env:
-      # age PUBLIC key; optional. Absent = NO retained backup (dump verified, then deleted at job end).
+      # Public encryption recipient is mandatory; no plaintext artifact fallback.
       BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -42,68 +67,53 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
-      - name: Install age (only when BACKUP_AGE_RECIPIENT secret exists)
-        if: ${{ env.BACKUP_AGE_RECIPIENT != '' }}
+      - name: Require backup encryption recipient
+        run: '[ -n "${BACKUP_AGE_RECIPIENT//[[:space:]]/}" ] || { echo "::error::backup encryption recipient missing: migrations will not run"; exit 1; }'
+      - name: Install age
         run: sudo apt-get install -y -qq --no-install-recommends age
-      - name: Resolve database URL for the backup
+      - name: Validate database URL for the backup
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          trap 'rm -f .env.vercel.prod' EXIT
           source scripts/resolve-db-url.sh
-          [ -n "${SUPABASE_DB_URL:-}" ] || { echo "::error::no database URL available: migrations will not run"; exit 1; }
-          echo "::add-mask::$SUPABASE_DB_URL"
-          echo "SUPABASE_DB_URL=$SUPABASE_DB_URL" >>"$GITHUB_ENV"
-
-      # Fail-closed ordering (Gap #4): backup -> upload -> verify upload -> migrate.
-      # Any failing step stops the job before the migration step starts.
       - name: Pre-migration backup (predeploy)
         id: backup
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: bash scripts/pre-migration-backup.sh predeploy
-
-      - name: Upload encrypted predeploy backup
+      - name: Validate backup files before upload
+        env:
+          BACKUP_FILE: ${{ steps.backup.outputs.artifact_path }}
+          MANIFEST_FILE: ${{ steps.backup.outputs.manifest_path }}
+        run: |
+          set -euo pipefail
+          [[ "$BACKUP_FILE" == *.dump.age && -s "$BACKUP_FILE" && -s "$MANIFEST_FILE" ]] || { echo "::error::encrypted backup or manifest missing"; exit 1; }
+      - name: Upload encrypted backup
         id: upload
-        if: ${{ steps.backup.outputs.encrypted == 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: db-backup-predeploy-${{ github.run_id }}
+          name: db-backup-predeploy_migrate-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ steps.backup.outputs.artifact_path }}
             ${{ steps.backup.outputs.manifest_path }}
           retention-days: 3
           if-no-files-found: error
-
       - name: Verify backup upload completed
-        if: ${{ steps.backup.outputs.encrypted == 'true' }}
         env:
           ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
-        run: |
-          [ -n "$ARTIFACT_ID" ] || { echo "::error::backup artifact upload not confirmed: migrations will not run"; exit 1; }
-          echo "backup artifact id $ARTIFACT_ID uploaded"
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        run: bash scripts/verify-backup-upload.sh
 
       - name: Apply canonical predeploy phase
         env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          BACKUP_ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          trap 'rm -f .env.vercel.prod' EXIT
-          if [ -z "${SUPABASE_DB_URL:-}" ] || echo "${SUPABASE_DB_URL:-}" | grep -q '\[region\]'; then
-            if [ -n "${VERCEL_TOKEN:-}" ]; then
-              bash scripts/vercel-production-env.sh .env.vercel.prod
-              for key in POSTGRES_URL POSTGRES_URL_NON_POOLING POSTGRES_PRISMA_URL SUPABASE_DB_URL DATABASE_URL DIRECT_URL; do
-                val=$(grep -E "^${key}=" .env.vercel.prod 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
-                if [ -n "$val" ] && ! echo "$val" | grep -q '\[region\]'; then export "$key=$val"; fi
-              done
-              if [ -z "${SUPABASE_DB_URL:-}" ] || echo "${SUPABASE_DB_URL:-}" | grep -q '\[region\]'; then
-                export SUPABASE_DB_URL="${POSTGRES_URL_NON_POOLING:-${POSTGRES_URL:-${POSTGRES_PRISMA_URL:-${DATABASE_URL:-${DIRECT_URL:-}}}}}"
-              fi
-            fi
-          fi
           node scripts/run-production-migration-phase.mjs predeploy
 
   predeploy_verify:
@@ -111,6 +121,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: predeploy_migrate
     timeout-minutes: 15
+    env:
+      BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -118,27 +130,53 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
-      - name: Re-run canonical predeploy verification
+      - name: Require backup encryption recipient
+        run: '[ -n "${BACKUP_AGE_RECIPIENT//[[:space:]]/}" ] || { echo "::error::backup encryption recipient missing: migrations will not run"; exit 1; }'
+      - name: Install age
+        run: sudo apt-get install -y -qq --no-install-recommends age
+      - name: Validate database URL for the backup
         env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          trap 'rm -f .env.vercel.prod' EXIT
-          if [ -z "${SUPABASE_DB_URL:-}" ] || echo "${SUPABASE_DB_URL:-}" | grep -q '\[region\]'; then
-            if [ -n "${VERCEL_TOKEN:-}" ]; then
-              bash scripts/vercel-production-env.sh .env.vercel.prod
-              for key in POSTGRES_URL POSTGRES_URL_NON_POOLING POSTGRES_PRISMA_URL SUPABASE_DB_URL DATABASE_URL DIRECT_URL; do
-                val=$(grep -E "^${key}=" .env.vercel.prod 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
-                if [ -n "$val" ] && ! echo "$val" | grep -q '\[region\]'; then export "$key=$val"; fi
-              done
-              if [ -z "${SUPABASE_DB_URL:-}" ] || echo "${SUPABASE_DB_URL:-}" | grep -q '\[region\]'; then
-                export SUPABASE_DB_URL="${POSTGRES_URL_NON_POOLING:-${POSTGRES_URL:-${POSTGRES_PRISMA_URL:-${DATABASE_URL:-${DIRECT_URL:-}}}}}"
-              fi
-            fi
-          fi
+          source scripts/resolve-db-url.sh
+      - name: Pre-migration backup (predeploy)
+        id: backup
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: bash scripts/pre-migration-backup.sh predeploy
+      - name: Validate backup files before upload
+        env:
+          BACKUP_FILE: ${{ steps.backup.outputs.artifact_path }}
+          MANIFEST_FILE: ${{ steps.backup.outputs.manifest_path }}
+        run: |
+          set -euo pipefail
+          [[ "$BACKUP_FILE" == *.dump.age && -s "$BACKUP_FILE" && -s "$MANIFEST_FILE" ]] || { echo "::error::encrypted backup or manifest missing"; exit 1; }
+      - name: Upload encrypted backup
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: db-backup-predeploy_verify-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ steps.backup.outputs.artifact_path }}
+            ${{ steps.backup.outputs.manifest_path }}
+          retention-days: 3
+          if-no-files-found: error
+      - name: Verify backup upload completed
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        run: bash scripts/verify-backup-upload.sh
+
+      - name: Re-run canonical predeploy verification
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          BACKUP_ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
           node scripts/run-production-migration-phase.mjs predeploy
 
   deploy:
@@ -146,6 +184,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: predeploy_verify
     timeout-minutes: 25
+    outputs:
+      deployment_attempted: ${{ steps.production_deploy.outputs.deployment_attempted }}
+      deployment_id: ${{ steps.production_deploy.outputs.deployment_id }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -165,27 +206,54 @@ jobs:
         run: node scripts/record-deploy-health-head.mjs
       - run: npm ci
       - name: Deploy if SHA drift
+        id: production_deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
-          FORCE_DEPLOY: ${{ inputs.force_deploy || false }}
         run: |
           set -euo pipefail
-          if [ -z "${VERCEL_TOKEN:-}" ]; then
-            echo "VERCEL_TOKEN unset — skip"
-            exit 0
-          fi
           EXPECTED="$(git rev-parse HEAD)"
-          ACTUAL="$(curl -sf "$PRODUCTION_URL/api/version" | jq -r '.commit // empty')"
-          echo "Force deploy: ${FORCE_DEPLOY:-false}"
-          if [ "$ACTUAL" = "$EXPECTED" ] && [ "${FORCE_DEPLOY:-false}" != "true" ]; then
+          if ! [[ "$EXPECTED" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Cannot verify the checked-out commit"
+            exit 1
+          fi
+          VERSION="$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' "$PRODUCTION_URL/api/version")" || {
+            echo "::error::Production version unavailable or invalid"
+            exit 1
+          }
+          ACTUAL="$(printf '%s' "$VERSION" | jq -er '.commit | strings')" || { echo "::error::Production commit unavailable"; exit 1; }
+          if ! [[ "$ACTUAL" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Production version is malformed"
+            exit 1
+          fi
+          if [ "$ACTUAL" = "$EXPECTED" ]; then
+            DEPLOYMENT_ID="$(printf '%s' "$VERSION" | jq -er '.deployment_id | strings')" || { echo "::error::Production deployment identity unavailable"; exit 1; }
+            [[ "$DEPLOYMENT_ID" =~ ^dpl_[A-Za-z0-9]+$ ]] || { echo "::error::Production deployment identity malformed"; exit 1; }
+            echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
             echo "Production already at $EXPECTED"
             exit 0
           fi
-          echo "Deploying: prod=$ACTUAL expected=$EXPECTED force=${FORCE_DEPLOY:-false}"
+          if [ -z "${VERCEL_TOKEN:-}" ]; then
+            echo "::error::Deployment required but VERCEL_TOKEN is unavailable"
+            exit 1
+          fi
+          echo "Deploying the checked-out commit"
+          # A command failure can still follow a successful remote deployment.
+          # Preserve runtime watch even if the confirmation below fails.
+          echo "deployment_attempted=true" >> "$GITHUB_OUTPUT"
           bash scripts/orchestrator/deploy.sh --wait 420 || {
-            echo "::warning::Deploy step did not complete — postdeploy migrations will still run"
+            echo "::error::Deploy did not complete; postdeploy migrations are blocked"
+            exit 1
           }
+          VERSION="$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' "$PRODUCTION_URL/api/version")" || {
+            echo "::error::Cannot confirm production version after deployment"
+            exit 1
+          }
+          ACTUAL="$(printf '%s' "$VERSION" | jq -er '.commit | strings')" || { echo "::error::Production commit unavailable"; exit 1; }
+          DEPLOYMENT_ID="$(printf '%s' "$VERSION" | jq -er '.deployment_id | strings')" || { echo "::error::Production deployment identity unavailable"; exit 1; }
+          [[ "$ACTUAL" =~ ^[0-9a-f]{40}$ && "$ACTUAL" = "$EXPECTED" ]] || { echo "::error::Production version does not match; postdeploy migrations are blocked"; exit 1; }
+          [[ "$DEPLOYMENT_ID" =~ ^dpl_[A-Za-z0-9]+$ ]] || { echo "::error::Production deployment identity malformed"; exit 1; }
+          echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
 
   postdeploy_migrate:
     name: Apply postdeploy migrations
@@ -193,87 +261,81 @@ jobs:
     needs: deploy
     timeout-minutes: 15
     env:
-      # age PUBLIC key; optional. Absent = NO retained backup (dump verified, then deleted at job end).
+      # Public encryption recipient is mandatory; no plaintext artifact fallback.
       BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
     steps:
+      - name: Block postdeploy until deployment writers are fenced
+        run: |
+          echo "::error::Postdeploy is disabled until an enforceable deployment-writer fence is reviewed"
+          exit 1
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: npm
       - run: npm ci
-      - name: Install age (only when BACKUP_AGE_RECIPIENT secret exists)
-        if: ${{ env.BACKUP_AGE_RECIPIENT != '' }}
+      - name: Require backup encryption recipient
+        run: '[ -n "${BACKUP_AGE_RECIPIENT//[[:space:]]/}" ] || { echo "::error::backup encryption recipient missing: migrations will not run"; exit 1; }'
+      - name: Install age
         run: sudo apt-get install -y -qq --no-install-recommends age
-      - name: Resolve database URL for the backup
+      - name: Validate database URL for the backup
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          trap 'rm -f .env.vercel.prod' EXIT
           source scripts/resolve-db-url.sh
-          [ -n "${SUPABASE_DB_URL:-}" ] || { echo "::error::no database URL available: migrations will not run"; exit 1; }
-          echo "::add-mask::$SUPABASE_DB_URL"
-          echo "SUPABASE_DB_URL=$SUPABASE_DB_URL" >>"$GITHUB_ENV"
-
-      # Fail-closed ordering (Gap #4): backup -> upload -> verify upload -> migrate.
-      # Any failing step stops the job before the migration step starts.
       - name: Pre-migration backup (postdeploy)
         id: backup
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: bash scripts/pre-migration-backup.sh postdeploy
-
-      - name: Upload encrypted postdeploy backup
+      - name: Validate backup files before upload
+        env:
+          BACKUP_FILE: ${{ steps.backup.outputs.artifact_path }}
+          MANIFEST_FILE: ${{ steps.backup.outputs.manifest_path }}
+        run: |
+          set -euo pipefail
+          [[ "$BACKUP_FILE" == *.dump.age && -s "$BACKUP_FILE" && -s "$MANIFEST_FILE" ]] || { echo "::error::encrypted backup or manifest missing"; exit 1; }
+      - name: Upload encrypted backup
         id: upload
-        if: ${{ steps.backup.outputs.encrypted == 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: db-backup-postdeploy-${{ github.run_id }}
+          name: db-backup-postdeploy_migrate-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ steps.backup.outputs.artifact_path }}
             ${{ steps.backup.outputs.manifest_path }}
           retention-days: 3
           if-no-files-found: error
-
       - name: Verify backup upload completed
-        if: ${{ steps.backup.outputs.encrypted == 'true' }}
         env:
           ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
-        run: |
-          [ -n "$ARTIFACT_ID" ] || { echo "::error::backup artifact upload not confirmed: migrations will not run"; exit 1; }
-          echo "backup artifact id $ARTIFACT_ID uploaded"
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        run: bash scripts/verify-backup-upload.sh
 
       - name: Apply canonical postdeploy phase
         env:
-          # Confirmed upload id; founder_approved runners refuse to migrate without it.
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           BACKUP_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
+          EXPECTED_DEPLOYMENT_ID: ${{ needs.deploy.outputs.deployment_id }}
+          BACKUP_ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -z "${SUPABASE_DB_URL:-}" ] || echo "${SUPABASE_DB_URL:-}" | grep -q '\[region\]'; then
-            if [ -n "${VERCEL_TOKEN:-}" ]; then
-              bash scripts/vercel-production-env.sh .env.vercel.prod
-              for key in POSTGRES_URL POSTGRES_URL_NON_POOLING POSTGRES_PRISMA_URL SUPABASE_DB_URL DATABASE_URL DIRECT_URL; do
-                val=$(grep -E "^${key}=" .env.vercel.prod 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
-                if [ -n "$val" ] && ! echo "$val" | grep -q '\[region\]'; then
-                  export "$key=$val"
-                fi
-              done
-              if [ -z "${SUPABASE_DB_URL:-}" ] || echo "${SUPABASE_DB_URL:-}" | grep -q '\[region\]'; then
-                export SUPABASE_DB_URL="${POSTGRES_URL_NON_POOLING:-${POSTGRES_URL:-${POSTGRES_PRISMA_URL:-${DATABASE_URL:-${DIRECT_URL:-}}}}}"
-              fi
-              echo "Postgres env keys present: $(grep -E '^(POSTGRES|DATABASE|SUPABASE_DB|DIRECT)' .env.vercel.prod | cut -d= -f1 | tr '\n' ' ' || true)"
-              if grep -q '^GUEST_LOOKUP_SECRET=' .env.vercel.prod 2>/dev/null; then
-                echo "GUEST_LOOKUP_SECRET: configured in Vercel"
-              else
-                echo "GUEST_LOOKUP_SECRET: unset in Vercel (safe fallback to SESSION_SECRET active)"
-              fi
-            fi
-          fi
+          # Recheck immediately before the postdeploy runner. This is not a lock
+          # against an independent deployment after the check.
+          EXPECTED="$(git rev-parse HEAD)"
+          [[ "$EXPECTED" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Cannot verify checked-out commit"; exit 1; }
+          VERSION="$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' "$PRODUCTION_URL/api/version")" || {
+            echo "::error::Cannot confirm production version before postdeploy"
+            exit 1
+          }
+          ACTUAL="$(printf '%s' "$VERSION" | jq -er '.commit | strings')" || { echo "::error::Production commit unavailable"; exit 1; }
+          DEPLOYMENT_ID="$(printf '%s' "$VERSION" | jq -er '.deployment_id | strings')" || { echo "::error::Production deployment identity unavailable"; exit 1; }
+          [[ "$ACTUAL" =~ ^[0-9a-f]{40}$ && "$ACTUAL" = "$EXPECTED" ]] || { echo "::error::Production version changed; postdeploy migrations are blocked"; exit 1; }
+          [[ "${EXPECTED_DEPLOYMENT_ID:-}" =~ ^dpl_[A-Za-z0-9]+$ && "$DEPLOYMENT_ID" = "$EXPECTED_DEPLOYMENT_ID" ]] || { echo "::error::Production deployment identity changed; postdeploy migrations are blocked"; exit 1; }
           node scripts/run-production-migration-phase.mjs postdeploy
 
       - name: Verify ops_events
@@ -291,17 +353,8 @@ jobs:
       - name: Verify deploy-health Cron runtime
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          trap 'rm -f .env.vercel.prod' EXIT
-          if [ -z "${CRON_SECRET:-}" ] && [ -n "${VERCEL_TOKEN:-}" ]; then
-            # CRON_SECRET is intentionally a Vercel-only production secret in
-            # this repo. Reuse the existing deploy credential only inside the
-            # ephemeral runner; never print or persist the secret.
-            bash scripts/vercel-production-env.sh .env.vercel.prod >/dev/null 2>&1
-            CRON_SECRET=$(sed -n 's/^CRON_SECRET=//p' .env.vercel.prod | head -1 | sed -E 's/^"//; s/"$//')
-          fi
           if [ -z "${CRON_SECRET:-}" ]; then
             echo "::error::CRON_SECRET is unavailable for the production deploy-health probe"
             exit 1
@@ -370,48 +423,94 @@ jobs:
   postdeploy_verify:
     name: Verify postdeploy migrations
     runs-on: ubuntu-latest
-    needs: postdeploy_migrate
+    needs: [deploy, postdeploy_migrate]
     timeout-minutes: 15
+    env:
+      BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
     steps:
+      - name: Block postdeploy verification until deployment writers are fenced
+        run: |
+          echo "::error::Postdeploy verification reruns database migrations and is disabled until an enforceable deployment-writer fence is reviewed"
+          exit 1
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: npm
       - run: npm ci
-      - name: Re-run canonical postdeploy verification
+      - name: Require backup encryption recipient
+        run: '[ -n "${BACKUP_AGE_RECIPIENT//[[:space:]]/}" ] || { echo "::error::backup encryption recipient missing: migrations will not run"; exit 1; }'
+      - name: Install age
+        run: sudo apt-get install -y -qq --no-install-recommends age
+      - name: Validate database URL for the backup
         env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          trap 'rm -f .env.vercel.prod' EXIT
-          if [ -z "${SUPABASE_DB_URL:-}" ] || echo "${SUPABASE_DB_URL:-}" | grep -q '\[region\]'; then
-            if [ -n "${VERCEL_TOKEN:-}" ]; then
-              bash scripts/vercel-production-env.sh .env.vercel.prod
-              for key in POSTGRES_URL POSTGRES_URL_NON_POOLING POSTGRES_PRISMA_URL SUPABASE_DB_URL DATABASE_URL DIRECT_URL; do
-                val=$(grep -E "^${key}=" .env.vercel.prod 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
-                if [ -n "$val" ] && ! echo "$val" | grep -q '\[region\]'; then export "$key=$val"; fi
-              done
-              if [ -z "${SUPABASE_DB_URL:-}" ] || echo "${SUPABASE_DB_URL:-}" | grep -q '\[region\]'; then
-                export SUPABASE_DB_URL="${POSTGRES_URL_NON_POOLING:-${POSTGRES_URL:-${POSTGRES_PRISMA_URL:-${DATABASE_URL:-${DIRECT_URL:-}}}}}"
-              fi
-            fi
-          fi
+          source scripts/resolve-db-url.sh
+      - name: Pre-migration backup (postdeploy)
+        id: backup
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: bash scripts/pre-migration-backup.sh postdeploy
+      - name: Validate backup files before upload
+        env:
+          BACKUP_FILE: ${{ steps.backup.outputs.artifact_path }}
+          MANIFEST_FILE: ${{ steps.backup.outputs.manifest_path }}
+        run: |
+          set -euo pipefail
+          [[ "$BACKUP_FILE" == *.dump.age && -s "$BACKUP_FILE" && -s "$MANIFEST_FILE" ]] || { echo "::error::encrypted backup or manifest missing"; exit 1; }
+      - name: Upload encrypted backup
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: db-backup-postdeploy_verify-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ steps.backup.outputs.artifact_path }}
+            ${{ steps.backup.outputs.manifest_path }}
+          retention-days: 3
+          if-no-files-found: error
+      - name: Verify backup upload completed
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        run: bash scripts/verify-backup-upload.sh
+
+      - name: Re-run canonical postdeploy verification
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
+          EXPECTED_DEPLOYMENT_ID: ${{ needs.deploy.outputs.deployment_id }}
+          BACKUP_ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          # Recheck immediately before the postdeploy runner. This is not a lock
+          # against an independent deployment after the check.
+          EXPECTED="$(git rev-parse HEAD)"
+          [[ "$EXPECTED" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Cannot verify checked-out commit"; exit 1; }
+          VERSION="$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' "$PRODUCTION_URL/api/version")" || {
+            echo "::error::Cannot confirm production version before postdeploy"
+            exit 1
+          }
+          ACTUAL="$(printf '%s' "$VERSION" | jq -er '.commit | strings')" || { echo "::error::Production commit unavailable"; exit 1; }
+          DEPLOYMENT_ID="$(printf '%s' "$VERSION" | jq -er '.deployment_id | strings')" || { echo "::error::Production deployment identity unavailable"; exit 1; }
+          [[ "$ACTUAL" =~ ^[0-9a-f]{40}$ && "$ACTUAL" = "$EXPECTED" ]] || { echo "::error::Production version changed; postdeploy migrations are blocked"; exit 1; }
+          [[ "${EXPECTED_DEPLOYMENT_ID:-}" =~ ^dpl_[A-Za-z0-9]+$ && "$DEPLOYMENT_ID" = "$EXPECTED_DEPLOYMENT_ID" ]] || { echo "::error::Production deployment identity changed; postdeploy migrations are blocked"; exit 1; }
           node scripts/run-production-migration-phase.mjs postdeploy
 
-  # Gap #3 (RULEBOOK D6/D7/D8): watch RUNTIME health for 15 min after the deploy; on
-  # sustained failure roll back to the previous production deployment and open an
-  # incident issue. Scope is runtime only: it never reads migration drift (Verify
+  # Gap #3 (RULEBOOK D6/D7/D8): watch RUNTIME health for 15 min after the deploy;
+  # identity ambiguity requires an incident and the documented manual response.
+  # Scope is runtime only: it never reads migration drift (Verify
   # Production / deploy-health sha_parity), so the known drift issue cannot roll back a release.
   # The concurrency group above serializes the next deploy behind this window.
   post_deploy_watch:
-    name: Post-deploy watch and auto-rollback
+    name: Post-deploy watch and incident
     runs-on: ubuntu-latest
     needs: [deploy, postdeploy_verify]
-    if: ${{ always() && needs.deploy.result == 'success' }}
+    if: ${{ always() && needs.deploy.result != 'skipped' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -428,58 +527,30 @@ jobs:
         env:
           PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
           EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_DEPLOYMENT_ID: ${{ needs.deploy.outputs.deployment_id }}
           WATCH_MINUTES: "15"
         run: node scripts/post-deploy-watch.mjs
 
-      - name: Roll back to the previous production deployment
-        id: rollback
-        if: ${{ steps.watch.outputs.verdict == 'sustained_failure' }}
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
-          BAD_SHA: ${{ github.sha }}
-        run: |
-          set -uo pipefail
-          if [ -z "${VERCEL_TOKEN:-}" ]; then
-            echo "::error::VERCEL_TOKEN unset: cannot roll back automatically (run docs/RUNBOOK.md rollback)"
-            echo "result=no_token" >>"$GITHUB_OUTPUT"; exit 0
-          fi
-          [ -f .vercel/project.json ] || npx vercel link --yes --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
-          if ! npx vercel rollback --yes --token "$VERCEL_TOKEN"; then
-            echo "result=rollback_command_failed" >>"$GITHUB_OUTPUT"; exit 0
-          fi
-          for i in $(seq 1 20); do
-            V=$(curl -sf "$PRODUCTION_URL/api/version" | jq -r '.commit // empty' || true)
-            H=$(curl -sf "$PRODUCTION_URL/api/booking-health" | jq -r '.ok // empty' || true)
-            echo "rollback verify $i: commit=${V:0:7} health=$H"
-            if [ -n "$V" ] && [ "$V" != "$BAD_SHA" ] && [ "$H" = "true" ]; then
-              echo "result=rolled_back" >>"$GITHUB_OUTPUT"; echo "now_serving=${V:0:7}" >>"$GITHUB_OUTPUT"; exit 0
-            fi
-            sleep 15
-          done
-          echo "result=rollback_unverified" >>"$GITHUB_OUTPUT"
-
       - name: Open incident issue
-        if: ${{ steps.watch.outputs.verdict == 'sustained_failure' }}
+        if: ${{ steps.watch.outputs.verdict == 'sustained_failure' || steps.watch.outputs.verdict == 'identity_unverified' || steps.watch.outputs.verdict == 'superseded' }}
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           FAILED: ${{ steps.watch.outputs.failed }}
-          ROLLBACK: ${{ steps.rollback.outputs.result }}
-          NOW_SERVING: ${{ steps.rollback.outputs.now_serving }}
+          VERDICT: ${{ steps.watch.outputs.verdict }}
         run: |
           set -euo pipefail
-          TITLE="Incident: production runtime health failed after deploy ${SHA:0:7}"
+          TITLE="Incident: production deployment requires review after ${SHA:0:7}"
           cat >body.md <<MD
-          Post-deploy watch saw sustained runtime failures after deploying \`${SHA}\`.
+          Post-deploy watch reported \`${VERDICT}\` for expected commit \`${SHA}\`.
 
           - failing probes (name:HTTP status): \`${FAILED}\`
-          - automatic rollback result: \`${ROLLBACK:-not_attempted}\` (now serving: \`${NOW_SERVING:-unknown}\`)
+          - automatic rollback: not attempted because deployment identity cannot be fenced
           - run: ${RUN_URL}
 
-          Per RULEBOOK D8 stop further releases to production until this is fixed. If the rollback result is not
-          \`rolled_back\`, run the rollback in docs/RUNBOOK.md now. Database migrations are additive and are not reverted.
+          Per RULEBOOK D7/D8 stop further releases. Immediately follow the identity-aware manual response in
+          docs/plans/2026-11-deploy-before-postdeploy.md; do not assume a timed-out rollback failed. Database migrations are not reverted.
 
           **After a rollback Vercel stops auto-assigning the production domain.** Pushes to main will NOT go live until a
           deployment is promoted manually. Once the fix is merged and its deployment is READY, promote it:
@@ -487,7 +558,7 @@ jobs:
           then confirm \`/api/version\` shows the fixed SHA. See docs/RUNBOOK.md "Post-deploy watch".
           Migration drift (Verify Production) is a separate issue and is not part of this watch.
           MD
-          EXISTING=$(gh issue list --state open --search "Incident: production runtime health failed in:title" --json number --jq '.[0].number // empty')
+          EXISTING=$(gh issue list --state open --search "Incident: production deployment requires review in:title" --json number --jq '.[0].number // empty')
           if [ -n "$EXISTING" ]; then
             gh issue comment "$EXISTING" --body-file body.md
           else
@@ -497,7 +568,13 @@ jobs:
       - name: Fail the run after a sustained failure
         if: ${{ steps.watch.outputs.verdict == 'sustained_failure' }}
         run: |
-          echo "::error::Sustained runtime failure after deploy; rollback result: ${{ steps.rollback.outputs.result }}"
+          echo "::error::Sustained runtime failure; immediate identity-aware manual response required"
+          exit 1
+
+      - name: Fail the run if deployment identity is unknown or superseded
+        if: ${{ steps.watch.outputs.verdict == 'identity_unverified' || steps.watch.outputs.verdict == 'superseded' }}
+        run: |
+          echo "::error::Production deployment identity is unknown or superseded; operator review required"
           exit 1
 
       - name: Fail the run if the watch itself errored
@@ -505,3 +582,43 @@ jobs:
         run: |
           echo "::error::post-deploy watch crashed before reaching a verdict"
           exit 1
+
+  # One-use alternative. A matching tree does not establish DB/REST identity,
+  # writer exclusion, rollback access or compatibility; the hard stop remains.
+  code_only_release:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.release_mode == 'priority-code-only' }}
+    name: Priority code-only deployment
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Stop until release hold and rollback readiness are resolved
+        run: |
+          echo "::error::Release remains blocked pending independent resolution of the existing stop-line and rollback prerequisites"
+          exit 1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - name: Install pinned release CLI without credentials or lifecycle scripts
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sunrise-vercel-cli"
+          cp scripts/release-cli/package.json scripts/release-cli/package-lock.json "$RUNNER_TEMP/sunrise-vercel-cli/"
+          npm ci --ignore-scripts --no-audit --no-fund --prefix "$RUNNER_TEMP/sunrise-vercel-cli"
+          "$RUNNER_TEMP/sunrise-vercel-cli/node_modules/.bin/vercel" --version
+      - name: Reject forced activation
+        env:
+          FORCE_DEPLOY: ${{ inputs.force_deploy || false }}
+        run: |
+          set -euo pipefail
+          [ "${FORCE_DEPLOY:-false}" != true ] || { echo "::error::forced activation is not supported"; exit 1; }
+      - name: Verify source, stage, verify, promote or roll back
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: team_o4vau0vkVyakLaNFPmhXkL5M
+          VERCEL_PROJECT_ID: prj_5swHVn2nqzrZ50VYx1zoEXZAvKiP
+          VERCEL_CLI: ${{ runner.temp }}/sunrise-vercel-cli/node_modules/.bin/vercel
+        run: python3 -B scripts/priority-release.py

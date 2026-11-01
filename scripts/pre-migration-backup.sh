@@ -7,9 +7,7 @@
 #   SUPABASE_DB_URL the runners use. No new secret.
 # - Verifies the dump: pg_restore --list must succeed and list public.reservations data.
 # - The dump contains customer PII: never printed, never uploaded unencrypted.
-#   If BACKUP_AGE_RECIPIENT (age public key) is set, an encrypted copy is written and
-#   the plaintext dump deleted; the workflow uploads only that ciphertext.
-#   Otherwise the dump stays on the ephemeral runner and only size + sha256 are recorded.
+#   BACKUP_AGE_RECIPIENT is mandatory: the workflow uploads only ciphertext.
 # - Restore is Founder-only (RULEBOOK F2); see docs/RUNBOOK.md "Pre-migration backup".
 #
 # Test seam: PG_RUNNER is the command prefix that runs `pg_dump` / `pg_restore`
@@ -23,6 +21,7 @@ MIN_BYTES="${BACKUP_MIN_BYTES:-1000}"
 
 fail() { echo "::error::pre-migration backup FAILED ($1): migrations will not run" >&2; exit 1; }
 
+[[ "${BACKUP_AGE_RECIPIENT:-}" =~ [^[:space:]] ]] || fail "BACKUP_AGE_RECIPIENT unset"
 [[ -n "${SUPABASE_DB_URL:-}" ]] || fail "SUPABASE_DB_URL unset"
 case "$SUPABASE_DB_URL" in *"[region]"*|*"[ref]"*|*placeholder*) fail "SUPABASE_DB_URL is a placeholder";; esac
 
@@ -35,6 +34,7 @@ umask 077
 mkdir -p "$OUT_DIR"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 DUMP="$OUT_DIR/sunrise-cafe_${LABEL}_${STAMP}.dump"
+trap 'rm -f "$DUMP" "$OUT_DIR/pg_dump.err" "$OUT_DIR/toc.list"' EXIT
 
 # Connection string is read from the environment inside the runner, never on a command line we echo.
 # shellcheck disable=SC2086
@@ -56,15 +56,12 @@ TABLES="$(grep -c 'TABLE DATA public ' "$LIST" || true)"
 rm -f "$LIST"
 
 SHA="$(sha256sum "$DUMP" | cut -d' ' -f1)"
-ENCRYPTED="false"
-ARTIFACT=""
-if [[ -n "${BACKUP_AGE_RECIPIENT:-}" ]]; then
-  command -v age >/dev/null 2>&1 || { rm -f "$DUMP"; fail "BACKUP_AGE_RECIPIENT set but age missing"; }
-  age -r "$BACKUP_AGE_RECIPIENT" -o "$DUMP.age" "$DUMP" || { rm -f "$DUMP" "$DUMP.age"; fail "age encryption failed"; }
-  rm -f "$DUMP"
-  ENCRYPTED="true"
-  ARTIFACT="$DUMP.age"
-fi
+command -v age >/dev/null 2>&1 || fail "age missing"
+age -r "$BACKUP_AGE_RECIPIENT" -o "$DUMP.age" "$DUMP" || { rm -f "$DUMP.age"; fail "age encryption failed"; }
+[[ -s "$DUMP.age" ]] || { rm -f "$DUMP.age"; fail "encrypted dump missing or empty"; }
+rm -f "$DUMP"
+ENCRYPTED="true"
+ARTIFACT="$DUMP.age"
 
 MANIFEST="$OUT_DIR/manifest.json"
 printf '{"label":"%s","created_at_utc":"%s","bytes":%s,"sha256":"%s","tables_with_data":%s,"encrypted":%s,"schema":"public","format":"pg_dump custom"}\n' \
@@ -72,12 +69,11 @@ printf '{"label":"%s","created_at_utc":"%s","bytes":%s,"sha256":"%s","tables_wit
 
 MSG="pre-migration backup OK: label=$LABEL bytes=$BYTES sha256=$SHA tables_with_data=$TABLES encrypted=$ENCRYPTED"
 echo "$MSG"
-[[ "$ENCRYPTED" == "true" ]] || echo "::warning::no retained backup: dump is verified but deleted at job end (set BACKUP_AGE_RECIPIENT to keep an encrypted recovery point)"
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   {
     echo "### Pre-migration backup ($LABEL)"
     echo "- size: $BYTES bytes, sha256 \`$SHA\`, tables with data: $TABLES"
-    if [[ "$ENCRYPTED" == "true" ]]; then echo "- encrypted (age) artifact uploaded before migrations run, 3-day retention"; else echo "- **NO RETAINED BACKUP.** The dump was verified but is deleted when this job ends (no \`BACKUP_AGE_RECIPIENT\` secret), so it is NOT a recovery point. Only size and sha256 above are kept."; fi
+    echo "- encrypted (age) archive prepared; upload confirmation is required before migrations"
   } >>"$GITHUB_STEP_SUMMARY"
 fi
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then

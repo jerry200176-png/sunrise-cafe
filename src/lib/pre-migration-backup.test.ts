@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +9,7 @@ const root = process.cwd();
 const script = join(root, "scripts/pre-migration-backup.sh");
 const workflow = readFileSync(join(root, ".github/workflows/production-deploy-migrate.yml"), "utf8");
 const SECRET_URL = "postgresql://postgres.ref:S3CR3T-PW@aws-0-x.pooler.supabase.com:5432/postgres";
+const hasRealAge = spawnSync("age-keygen", ["--version"]).status === 0 && spawnSync("age", ["--version"]).status === 0;
 
 /** Fake PG_RUNNER: behaves like `docker run postgres:17 <cmd>`; behaviour chosen by FAKE_MODE. */
 function setup() {
@@ -32,28 +34,48 @@ exit 2
 `
   );
   chmodSync(runner, 0o755);
+  const age = join(dir, "age");
+  writeFileSync(age, `#!/usr/bin/env bash\nif [[ "\${FAKE_AGE_FAIL:-}" == 1 ]]; then echo partial > "$4"; exit 1; fi\nprintf 'synthetic ciphertext' > "$4"\n`);
+  chmodSync(age, 0o755);
   return { dir, runner };
 }
 
-function run(mode: string, extra: Record<string, string> = {}) {
+function run(mode: string, extra: Record<string, string> = {}, fakeAge = true) {
   const { dir, runner } = setup();
   const out = join(dir, "out");
   const summary = join(dir, "summary.md");
   const res = spawnSync("bash", [script, "predeploy"], {
-    env: { PATH: process.env.PATH ?? "", SUPABASE_DB_URL: SECRET_URL, PG_RUNNER: runner, FAKE_MODE: mode, BACKUP_OUT_DIR: out, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: join(dir, "gh-output"), ...extra } as unknown as NodeJS.ProcessEnv,
+    env: { PATH: fakeAge ? `${dir}:${process.env.PATH ?? ""}` : process.env.PATH ?? "", BACKUP_AGE_RECIPIENT: "synthetic-recipient", SUPABASE_DB_URL: SECRET_URL, PG_RUNNER: runner, FAKE_MODE: mode, BACKUP_OUT_DIR: out, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: join(dir, "gh-output"), ...extra } as unknown as NodeJS.ProcessEnv,
     encoding: "utf8",
   });
   return { res, out, dir, summary, all: res.stdout + res.stderr };
 }
 
 describe("pre-migration-backup.sh", () => {
-  it("verifies the dump and records size + sha256 without uploading when no key is set", () => {
+  it("fails before dumping when recipient is missing", () => {
+    const r = run("ok", { BACKUP_AGE_RECIPIENT: "" });
+    expect(r.res.status).toBe(1);
+    expect(r.all).toMatch(/BACKUP_AGE_RECIPIENT unset/);
+    expect(existsSync(r.out)).toBe(false);
+    expect(existsSync(join(r.dir, "gh-output"))).toBe(false);
+  });
+
+  it("encrypts the verified dump and records its integrity metadata", () => {
     const r = run("ok");
     expect(r.res.status).toBe(0);
-    expect(r.all).toMatch(/bytes=4096 sha256=[0-9a-f]{64} tables_with_data=2 encrypted=false/);
-    expect(readdirSync(r.out).some((f) => f.endsWith(".dump"))).toBe(true);
-    expect(readFileSync(join(r.dir, "gh-output"), "utf8")).toContain("encrypted=false");
-    expect(readFileSync(r.summary, "utf8")).toMatch(/NO RETAINED BACKUP/);
+    expect(r.all).toMatch(/bytes=4096 sha256=[0-9a-f]{64} tables_with_data=2 encrypted=true/);
+    expect(readdirSync(r.out).some((f) => f.endsWith(".dump"))).toBe(false);
+    expect(readdirSync(r.out).some((f) => f.endsWith(".dump.age"))).toBe(true);
+    expect(readFileSync(join(r.dir, "gh-output"), "utf8")).toContain("encrypted=true");
+    expect(readFileSync(r.summary, "utf8")).toContain("upload confirmation is required");
+  });
+
+  it("deletes plaintext and partial ciphertext when encryption fails", () => {
+    const r = run("ok", { FAKE_AGE_FAIL: "1" });
+    expect(r.res.status).toBe(1);
+    expect(r.all).toMatch(/age encryption failed/);
+    expect(readdirSync(r.out).filter((f) => f.endsWith(".dump") || f.endsWith(".age"))).toEqual([]);
+    expect(existsSync(join(r.dir, "gh-output"))).toBe(false);
   });
 
   it.each(["dump_fail", "tiny", "bad_toc", "no_reservations"])("fails closed on %s and leaves no dump", (mode) => {
@@ -76,18 +98,22 @@ describe("pre-migration-backup.sh", () => {
     expect(run("ok", { SUPABASE_DB_URL: "postgresql://x@[region].pooler/postgres" }).res.status).toBe(1);
   });
 
-  it("encrypts with age when BACKUP_AGE_RECIPIENT is set and deletes the plaintext", () => {
-    const has = spawnSync("age-keygen", ["--version"]).status === 0;
-    if (!has) return; // age is installed on the CI runner step; skipped locally when absent
+  it.skipIf(!hasRealAge)("encrypts a synthetic dump with age and verifies decrypted SHA-256", () => {
     const dir = mkdtempSync(join(tmpdir(), "age-"));
-    const key = execFileSync("age-keygen", ["-o", join(dir, "k.txt")], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-    const pub = /age1[0-9a-z]{58}/.exec(key + readFileSync(join(dir, "k.txt"), "utf8"))![0];
-    const r = run("ok", { BACKUP_AGE_RECIPIENT: pub });
+    const keyPath = join(dir, "synthetic-key.txt");
+    const keygen = spawnSync("age-keygen", ["-o", keyPath], { encoding: "utf8" });
+    expect(keygen.status).toBe(0);
+    const pub = /age1[0-9a-z]{58}/.exec(keygen.stderr)![0];
+    const r = run("ok", { BACKUP_AGE_RECIPIENT: pub }, false);
     expect(r.res.status).toBe(0);
     const files = readdirSync(r.out);
     expect(files.some((f) => f.endsWith(".dump.age"))).toBe(true);
     expect(files.some((f) => f.endsWith(".dump"))).toBe(false);
     expect(existsSync(join(r.out, "manifest.json"))).toBe(true);
+    const encrypted = join(r.out, files.find((f) => f.endsWith(".dump.age"))!);
+    const plain = execFileSync("age", ["-d", "-i", keyPath, encrypted]);
+    const manifest = JSON.parse(readFileSync(join(r.out, "manifest.json"), "utf8"));
+    expect(createHash("sha256").update(plain).digest("hex")).toBe(manifest.sha256);
   });
 });
 
@@ -98,7 +124,7 @@ describe("production-deploy-migrate.yml wiring", () => {
     return workflow.slice(i, next < 0 ? undefined : i + 5 + next);
   };
 
-  it.each([["predeploy_migrate", "predeploy"], ["postdeploy_migrate", "postdeploy"]])("%s orders backup -> upload -> verify -> migrate", (job, phase) => {
+  it.each([["predeploy_migrate", "predeploy"], ["predeploy_verify", "predeploy"], ["postdeploy_migrate", "postdeploy"], ["postdeploy_verify", "postdeploy"]])("%s orders backup -> upload -> verify -> migrate", (job, phase) => {
     const block = phaseBlock(job);
     const at = (needle: string) => block.indexOf(needle);
     const order = [
@@ -106,17 +132,24 @@ describe("production-deploy-migrate.yml wiring", () => {
       `bash scripts/pre-migration-backup.sh ${phase}`,
       "uses: actions/upload-artifact@",
       "Verify backup upload completed",
+      "scripts/verify-backup-upload.sh",
       `node scripts/run-production-migration-phase.mjs ${phase}`,
     ].map(at);
     expect(order.every((n) => n > -1)).toBe(true);
     expect([...order].sort((x, y) => x - y)).toEqual(order);
     expect(block).not.toMatch(/if: \$\{\{ always\(\)/); // no always(): a failed upload must stop the migration step
+    expect(block).not.toMatch(/continue-on-error:\s*true/);
+    expect(block).not.toMatch(/steps\.backup\.outputs\.encrypted == 'true'/);
+    expect(block).toContain("if-no-files-found: error");
+    expect(block).toContain("${{ github.run_attempt }}");
+    expect(block).toContain("BACKUP_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}");
+    expect(block).toContain("BACKUP_ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}");
     expect(block.match(/set -euo pipefail/g)?.length).toBeGreaterThan(1);
   });
 
-  it("uploads only the age-encrypted artifact, short retention, gated on the key secret", () => {
-    expect(workflow.match(/steps\.backup\.outputs\.encrypted == 'true'/g)).toHaveLength(4);
-    expect(workflow.match(/retention-days: 3/g)).toHaveLength(2);
+  it("requires and uploads only the age-encrypted artifact for every executable phase job", () => {
+    expect(workflow).not.toMatch(/steps\.backup\.outputs\.encrypted == 'true'/);
+    expect(workflow.match(/retention-days: 3/g)).toHaveLength(4);
     expect(workflow).toMatch(/BACKUP_AGE_RECIPIENT: \$\{\{ secrets\.BACKUP_AGE_RECIPIENT \}\}/);
     expect(readFileSync(script, "utf8")).not.toMatch(/echo[^\n]*SUPABASE_DB_URL/);
   });
