@@ -23,11 +23,11 @@ export const LEGACY_RUNNERS = Object.freeze([
 ]);
 export const PINS = Object.freeze({
   "scripts/verify-bank-transfer-reports.mjs": "a4ff060a2d3b5d9b8db141b52c72af0590bec020f8e88fe02fece2e65b23b2af",
-  "scripts/verify-line-pay-safety.mjs": "8c2a7a43f496511d82471aa26b0fcd8a15e6c213f00eebdf1f11924a9727467e",
-  "scripts/verify-market-parity.mjs": "de856349addc3da25a7600f1fcb4cc25e92f5dbcca9270e7ab2282ab73e0bdfd",
+  "scripts/verify-line-pay-safety.mjs": "2cda6185d49b10242b5467b7723c2a89fd76fc8343829b8fc8cfd25e43275c3d",
+  "scripts/verify-market-parity.mjs": "7bdc388ce25bc05a1537e3fd61bd7564f9f92bf7196b84f8561fb63660bb3488",
   "scripts/lib/bank-transfer-acl.mjs": "b36a1af83b49e885f8bb995a4d041e5b1f6338831e0a99a84ea267a5c920f292",
   "scripts/lib/ops-postgres.mjs": "b92d310521b0ea7a64299d9aeb33abcde1ab8ce67c146f00c1ed81353768ba9d",
-  "scripts/lib/rest-schema-probe.mjs": "f558090d3d2b94152202f13f2133f592a5cd06751082f068ecad5f791744402a",
+  "scripts/lib/rest-schema-probe.mjs": "c61b871c1260a2a8dea90df3d0c69f021978825563f628d3660c8d3ced344871",
   "supabase/migration-bank-transfer-reports.sql": "64f5adaefa6197ad2b23add5e231b9119e768d5a176d051153da4e31c683a1ed",
   "supabase/migration-line-pay-payments.sql": "9cb502c75394d35f3795e46f6fbc3f70db18b0408bdd33e8e82dc036a09e11fb",
   "supabase/migration-line-pay-safety.sql": "060bb9dbce506d947fd87aad7400a6c8a4fe3bf900c48b40bd3d657dead04fb8",

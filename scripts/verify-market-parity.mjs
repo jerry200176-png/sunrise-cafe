@@ -4,7 +4,7 @@
  * file is intentionally not executed by this runner; an incomplete probe
  * requires independent review.
  */
-import { assertRestSchemaProbe } from "./lib/rest-schema-probe.mjs";
+import { assertRestSchemaProbe, requireSecureSupabaseBase } from "./lib/rest-schema-probe.mjs";
 
 const PROBES = [
   { table: "reservations", column: "guest_confirmed_at" },
@@ -14,14 +14,14 @@ const PROBES = [
 ];
 
 async function main() {
-  const base = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? "").replace(/\/$/, "");
+  const base = requireSecureSupabaseBase(process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? "");
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
-  if (!base || key.length < 40 || key.startsWith("<")) {
+  if (key.length < 40 || key.startsWith("<")) {
     throw new Error("market-parity schema probe unknown: missing Supabase URL or service key");
   }
   const headers = { apikey: key, Authorization: `Bearer ${key}` };
   for (const { table, column } of PROBES) {
-    await assertRestSchemaProbe(`${base}/rest/v1/${table}?select=${column}&limit=1`, headers, `${table}.${column}`);
+    await assertRestSchemaProbe(`${base}/rest/v1/${table}?select=${column}&limit=0`, headers, `${table}.${column}`);
   }
   console.log("OK: market-parity column probes ready");
 }

@@ -97,7 +97,7 @@ describe("fixed read-only historical verifier contract", () => {
           NODE_ENV: "test",
           NODE_OPTIONS: `--no-warnings --experimental-loader=${join(root, "scripts/test-fixtures/deny-db-loader.mjs")} --import=${join(root, "scripts/test-fixtures/mock-rest-preload.mjs")}`,
           SYNTHETIC_SCENARIO: JSON.stringify({ default: { status, body: status === 200 ? "[]" : "{}" } }),
-          NEXT_PUBLIC_SUPABASE_URL: "http://invalid.example",
+          NEXT_PUBLIC_SUPABASE_URL: "https://synthetic.supabase.co",
           SUPABASE_SERVICE_ROLE_KEY: "synthetic-key-".repeat(5),
         },
       });
