@@ -37,7 +37,7 @@ vi.mock("@/lib/reservation-preorder", () => ({
   getReservationForPreorder: mocks.getReservationForPreorder,
   getReservationPreorder: mocks.getReservationPreorder,
   validateAndSnapshotItems: mocks.validateAndSnapshotItems,
-  canonicalDraftItems: vi.fn(),
+  canonicalDraftItems: vi.fn((items) => items),
 }));
 vi.mock("@/lib/reservation-lifecycle", () => ({
   transitionReservation: mocks.transitionReservation,
@@ -66,6 +66,8 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.calls.length = 0;
+    mocks.rpc.mockReset();
+    mocks.rpc.mockResolvedValue({ data: { committed: true, already_processed: false }, error: null });
     order = { id: "ord-1", paid_at: null, total_amount: 360, order_items: [] };
     nextGroups = [{ id: "res-2", room_id: "room-a", start_time: at("17:00"), status: "confirmed" }];
     mocks.requirePermission.mockResolvedValue(null);
@@ -87,53 +89,103 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
     };
   });
 
-  describe("add_items committed response (#441)", () => {
-    const body = { action: "add_items", items: [{ menu_item_id: "m1", quantity: 1 }] };
-    const inserts = () => mocks.calls.filter((call) => call.table === "order_items" && hasOp(call, "insert"));
+  describe("add_items idempotency (#441)", () => {
+    const body = { action: "add_items", idempotency_key: "request-000000000001", items: [{ menu_item_id: "m1", quantity: 1 }] };
+    const rpcCalls = () => mocks.rpc.mock.calls.filter((call) => call[0] === "add_reservation_order_items_once");
 
-    it.each(["status read", "status write", "reload"])("returns committed success when %s fails after insertion", async (failure) => {
+    it("returns committed success when a refresh fails after the atomic transaction", async () => {
       const base = mocks.respond;
-      mocks.respond = (call) => {
-        const select = call.ops.find(([op]) => op === "select")?.[1][0];
-        const failed = call.table === "orders" && (
-          (failure === "status read" && select === "paid_at,order_items(served_at)") ||
-          (failure === "status write" && hasOp(call, "update")) ||
-          (failure === "reload" && select === "*, order_items(*)" && inserts().length > 0)
-        );
-        return failed ? { data: null, error: new Error("temporary read/write failure") } : base(call);
-      };
+      mocks.respond = (call) => call.table === "orders" && call.ops.some(([op, args]) => op === "select" && args[0] === "*, order_items(*)") && rpcCalls().length
+        ? { data: null, error: new Error("temporary reload failure") } : base(call);
       const response = await post(body);
-      expect(inserts()).toHaveLength(1);
+      expect(rpcCalls()).toHaveLength(1);
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({ ok: true, committed: true, refresh_failed: true });
     });
 
-    it("preserves the full successful response and catalogue snapshots", async () => {
+    it("preserves the full response and sends server-derived snapshots to the transaction", async () => {
       const response = await post(body);
       expect(response.status).toBe(200);
       expect(await response.json()).toMatchObject({ ok: true, order, preorder: null, billing: { id: "res-1" } });
-      expect(inserts()).toHaveLength(1);
-      expect(inserts()[0].ops).toContainEqual(["insert", [[{ order_id: "ord-1", menu_item_id: "m1", item_name: "Coffee",
-        quantity: 1, unit_price: 100, selected_options: [], special_notes: "" }]]]);
+      expect(rpcCalls()).toHaveLength(1);
+      expect(rpcCalls()[0][1]).toEqual(expect.objectContaining({ p_reservation_id: "res-1", p_order_id: "ord-1", p_request_key: body.idempotency_key,
+        p_payload_hash: expect.stringMatching(/^[0-9a-f]{64}$/), p_items: [{ menu_item_id: "m1", item_name: "Coffee", quantity: 1, unit_price: 100, selected_options: [], special_notes: "" }] }));
       expect(mocks.validateAndSnapshotItems).toHaveBeenCalledWith(expect.objectContaining({ id: "res-1" }), body.items, false);
+      expect(mocks.calls.some((call) => call.table === "order_items" && hasOp(call, "insert"))).toBe(false);
     });
 
-    it("keeps insert failures as errors instead of claiming committed success", async () => {
-      const base = mocks.respond;
-      mocks.respond = (call) => call.table === "order_items" && hasOp(call, "insert")
-        ? { data: null, error: new Error("insert failed") } : base(call);
+    it("does not claim success when the transaction or status update fails", async () => {
+      mocks.rpc.mockResolvedValue({ data: null, error: { message: "transaction failed" } });
       const response = await post(body);
-      expect(response.status).toBe(500);
-      expect(await response.json()).toEqual({ error: "insert failed" });
-      expect(mocks.calls.some((call) => call.table === "orders" && hasOp(call, "update"))).toBe(false);
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: expect.stringContaining("無法確認加點狀態") });
     });
 
-    it("does not insert when catalogue validation fails", async () => {
+    it("does not execute the transaction when catalogue validation fails", async () => {
       mocks.validateAndSnapshotItems.mockRejectedValue(new Error("cannot order unavailable item"));
       const response = await post(body);
       expect(response.status).toBe(409);
-      expect(await response.json()).toEqual({ error: "cannot order unavailable item" });
-      expect(inserts()).toHaveLength(0);
+      expect(rpcCalls()).toHaveLength(0);
+    });
+
+    it("requires a stable request key and fails closed when the ledger is unavailable", async () => {
+      expect((await post({ action: "add_items", items: body.items })).status).toBe(400);
+      const base = mocks.respond;
+      mocks.respond = (call) => call.table === "reservation_order_add_requests" ? { data: null, error: { code: "PGRST205" } } : base(call);
+      expect((await post(body)).status).toBe(503);
+      expect(rpcCalls()).toHaveLength(0);
+    });
+
+    it("replays a previously committed request even after checkout or menu changes", async () => {
+      const { createHash } = await import("node:crypto");
+      const hash = createHash("sha256").update(JSON.stringify(body.items)).digest("hex");
+      const base = mocks.respond;
+      mocks.respond = (call) => call.table === "reservation_order_add_requests" ? { data: { payload_hash: hash }, error: null } : base(call);
+      mocks.getReservationForPreorder.mockResolvedValue({ id: "res-1", status: "completed", room: { name: "A", branch_id: "b1" } });
+      mocks.validateAndSnapshotItems.mockRejectedValue(new Error("menu no longer available"));
+      const response = await post(body);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ committed: true, already_processed: true });
+      expect(rpcCalls()).toHaveLength(0);
+      expect(mocks.validateAndSnapshotItems).not.toHaveBeenCalled();
+    });
+
+    it("rejects reusing a key for a different payload", async () => {
+      const base = mocks.respond;
+      mocks.respond = (call) => call.table === "reservation_order_add_requests" ? { data: { payload_hash: "x".repeat(64) }, error: null } : base(call);
+      expect((await post(body)).status).toBe(409);
+      expect(rpcCalls()).toHaveLength(0);
+    });
+
+    it("only reports committed or canceled with an authorized scoped ledger lookup", async () => {
+      let response = await post({ action: "add_status", idempotency_key: body.idempotency_key });
+      expect(await response.json()).toEqual({ ok: true, state: "unknown" });
+      expect(mocks.requirePermission).toHaveBeenCalledWith(expect.anything(), "orders:write", "b1");
+      const base = mocks.respond;
+      mocks.respond = (call) => call.table === "reservation_order_add_requests" ? { data: { state: "committed" }, error: null } : base(call);
+      response = await post({ action: "add_status", idempotency_key: body.idempotency_key });
+      expect(await response.json()).toEqual({ ok: true, state: "committed" });
+      mocks.requirePermission.mockResolvedValueOnce(new Response(null, { status: 403 }));
+      response = await post({ action: "cancel_add", idempotency_key: body.idempotency_key });
+      expect(response.status).toBe(403);
+      expect(mocks.rpc).not.toHaveBeenCalledWith("cancel_reservation_order_add", expect.anything());
+    });
+
+    it("cancels through the locked tombstone RPC and fails closed on unknown output", async () => {
+      mocks.rpc.mockResolvedValueOnce({ data: { state: "canceled" }, error: null });
+      let response = await post({ action: "cancel_add", idempotency_key: body.idempotency_key });
+      expect(await response.json()).toEqual({ ok: true, state: "canceled" });
+      expect(mocks.rpc).toHaveBeenCalledWith("cancel_reservation_order_add", { p_reservation_id: "res-1", p_order_id: "ord-1", p_request_key: body.idempotency_key });
+      mocks.rpc.mockResolvedValueOnce({ data: { state: "unknown" }, error: null });
+      response = await post({ action: "cancel_add", idempotency_key: body.idempotency_key });
+      expect(response.status).toBe(503);
+    });
+
+    it("refuses a canceled key before any new insert", async () => {
+      const base = mocks.respond;
+      mocks.respond = (call) => call.table === "reservation_order_add_requests" ? { data: { state: "canceled", payload_hash: "0".repeat(64) }, error: null } : base(call);
+      expect((await post(body)).status).toBe(409);
+      expect(rpcCalls()).toHaveLength(0);
     });
   });
 
@@ -273,7 +325,7 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
   it("blocks adding or changing dishes after the stay is completed, but still allows marking served", async () => {
     mocks.getReservationForPreorder.mockResolvedValue({ id: "res-1", status: "completed", room: { name: "A", branch_id: "b1" } });
     for (const body of [
-      { action: "add_items", items: [{ menu_item_id: "m1", quantity: 1 }] },
+      { action: "add_items", idempotency_key: "request-000000000001", items: [{ menu_item_id: "m1", quantity: 1 }] },
       { action: "replace_item", item_id: "i1", item: { menu_item_id: "m1", quantity: 1 } },
       { action: "update_quantity", item_id: "i1", quantity: 2 },
       { action: "remove_item", item_id: "i1" },

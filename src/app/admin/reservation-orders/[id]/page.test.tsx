@@ -14,7 +14,7 @@ const view = {
   order: { id: "ord-1", paid_at: null, total_amount: 0, order_items: [] },
 };
 const menu = { items: [{ id: "m1", name: "咖啡", price: 100, is_available: true, options: [] }] };
-const submitted = { action: "add_items", items: [{ menu_item_id: "m1", quantity: 1, option_ids: [], special_notes: "" }] };
+const submitted = { action: "add_items", idempotency_key: expect.stringMatching(/^[a-f0-9-]{36}$/), items: [{ menu_item_id: "m1", quantity: 1, option_ids: [], special_notes: "" }] };
 
 describe("standalone reservation orders — acknowledged add versus refresh (#463)", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -25,6 +25,7 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
 
   beforeEach(() => {
     mockParams.id = "res-1";
+    localStorage.clear();
     posts = [];
     getCount = 0;
     refreshFailure = null;
@@ -61,20 +62,20 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
     await waitFor(() => expect((screen.getByRole("checkbox", { name: "選擇咖啡" }) as HTMLInputElement).checked).toBe(false));
     expect((screen.getByRole("button", { name: "加入訂單" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByRole("status").textContent).toBe("已加入訂單，但畫面未能更新。請重新整理頁面確認，請勿再次加點。");
+    expect(screen.getByRole("status").textContent).toContain("已加入訂單，但畫面未能更新");
     expect(screen.getByRole("status").getAttribute("aria-atomic")).toBe("true");
     expect(getCount).toBe(2);
     expect(posts).toEqual([submitted]);
     // An additional click without a new selection cannot repeat the committed add.
     fireEvent.click(screen.getByRole("button", { name: "加入訂單" }));
     expect(posts).toEqual([submitted]);
-    // Clear the prior success notice as soon as a new explicit action starts,
-    // even if that new action fails. It must not mask a genuine POST error.
-    postStatus = 500;
-    fireEvent.click(screen.getByRole("button", { name: "記錄現場已結帳" }));
-    expect(screen.getByRole("status").textContent).toBe("");
-    expect(await screen.findByRole("alert")).toBeTruthy();
-    expect(posts).toEqual([submitted, { action: "settle" }]);
+    expect((screen.getByRole("checkbox", { name: "選擇咖啡" }) as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "記錄現場已結帳" }) as HTMLButtonElement).disabled).toBe(true);
+    refreshFailure = null;
+    fireEvent.click(screen.getByRole("button", { name: "重新載入訂單" }));
+    expect(await screen.findByText("咖啡 ×1")).toBeTruthy();
+    expect((screen.getByRole("checkbox", { name: "選擇咖啡" }) as HTMLInputElement).disabled).toBe(false);
+    expect(posts).toEqual([submitted]);
   });
 
   it("still refreshes the displayed order and clears selection after a successful GET", async () => {
@@ -86,12 +87,13 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it.each([409, 500])("retains selection and reports an actual POST %s failure without refetching", async (status) => {
+  it.each([409, 500])("retains the unknown POST %s for explicit same-key retry without refetching", async (status) => {
     postStatus = status;
     await selectAndAdd();
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect((screen.getByRole("checkbox", { name: "選擇咖啡" }) as HTMLInputElement).checked).toBe(true);
-    expect((screen.getByRole("button", { name: "加入訂單" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "加入訂單" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "查詢加點結果" })).toBeTruthy();
     expect(getCount).toBe(1);
     expect(posts).toEqual([submitted]);
   });

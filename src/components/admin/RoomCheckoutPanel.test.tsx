@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { RoomCheckoutPanel } from "./RoomCheckoutPanel";
 import { FallbackBoundary } from "./FallbackBoundary";
 
@@ -28,6 +28,46 @@ function renderPanel() {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("RoomCheckoutPanel load failures", () => {
+  it("holds further actions after a committed add until the order refresh succeeds", async () => {
+    localStorage.clear();
+    let getCount = 0;
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu")) return json(menu);
+      if (init?.method === "POST") return json({ ok: true, committed: true, refresh_failed: true });
+      getCount += 1;
+      return getCount === 2 ? html(503) : json(view);
+    });
+    vi.stubGlobal("fetch", fetcher);
+    renderPanel();
+    const item = await screen.findByRole("button", { name: /拿鐵/ });
+    fireEvent.click(item);
+    expect(await screen.findByText(/加點已完成，但訂單畫面未更新/)).toBeTruthy();
+    expect((item as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(item);
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "重新載入訂單" }));
+    await waitFor(() => expect((item as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.queryByText(/加點已完成，但訂單畫面未更新/)).toBeNull();
+  });
+  it("sends a quick double tap once without leaving an error after success", async () => {
+    localStorage.clear();
+    let resolvePost!: (response: Response) => void;
+    const post = new Promise<Response>((resolve) => { resolvePost = resolve; });
+    const fetcher = vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu")) return Promise.resolve(json(menu));
+      if (init?.method === "POST") return post;
+      return Promise.resolve(json(view));
+    });
+    vi.stubGlobal("fetch", fetcher);
+    renderPanel();
+    const item = await screen.findByRole("button", { name: /拿鐵/ });
+    act(() => { item.click(); item.click(); });
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    await act(async () => { resolvePost(json({ ok: true, ...view })); });
+    await waitFor(() => expect((item as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.queryByText(/加點仍在處理|請先處理待確認/)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
   it("shows a retry button instead of a blank panel when the reservation fails to load (non-JSON 504), and recovers", async () => {
     let calls = 0;
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {

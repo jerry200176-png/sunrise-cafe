@@ -10,6 +10,8 @@ import { selectionProblem } from "@/lib/option-sets";
 import type { MenuItem, Order, OrderItem } from "@/types";
 import type { DraftItemInput } from "@/lib/reservation-preorder";
 import { ENDED_STAY_STATUSES, foodStillOwed } from "@/lib/room-checkout";
+import { useOrderAddRecovery, type PendingOrderAdd } from "@/lib/use-order-add-recovery";
+import { OrderAddRecovery } from "@/components/admin/OrderAddRecovery";
 
 type ReservationView = { customer_name: string; booking_code: string; start_time: string; status: string; room?: { name: string; branch_id: string } | { name: string; branch_id: string }[] | null };
 type PreorderView = { status: string; guest_notes: string | null; draft_items: DraftItemInput[];
@@ -32,6 +34,9 @@ export default function ReservationOrderPage() {
   const [editItems, setEditItems] = useState<DraftItemInput[]>([]);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState(false);
+  const [needsRefresh, setNeedsRefresh] = useState(false);
+  const recovery = useOrderAddRecovery(id);
+  const actionDisabled = busy || needsRefresh || !recovery.ready || Boolean(recovery.storageError) || recovery.pending.length > 0;
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -56,6 +61,7 @@ export default function ReservationOrderPage() {
     setPreItems(next.preorder?.draft_items ?? []);
     setPreNotes(next.preorder?.guest_notes ?? "");
     setQuantities(Object.fromEntries((next.order?.order_items ?? []).map((item) => [item.id, item.quantity])));
+    setNeedsRefresh(false);
     if (room?.branch_id) {
       try {
         const menuResponse = await fetchWithTimeout(`/api/menu?branchId=${encodeURIComponent(room.branch_id)}`);
@@ -80,6 +86,8 @@ export default function ReservationOrderPage() {
     setMenu([]);
     setMenuError("");
     setError("");
+    setNotice("");
+    setNeedsRefresh(false);
     load().catch((cause) => {
       if (currentId.current === id && requestSequence.current === sequence) {
         setError(thrownMessage(cause, "載入失敗，請重新整理"));
@@ -88,18 +96,22 @@ export default function ReservationOrderPage() {
   }, [id, load]);
 
   async function act(action: string, extra: Record<string, unknown> = {}) {
-    if (mutationInFlight.current) return false;
+    if (mutationInFlight.current || actionDisabled) return false;
     mutationInFlight.current = true;
     setBusy(true); setError(""); setNotice("");
     try {
-      const response = await fetch(`/api/admin/reservation-orders/${encodeURIComponent(id)}`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...extra }),
-      });
-      if (!response.ok) throw new Error(await responseError(response));
+      if (action === "add_items") {
+        await recovery.begin(extra.items as DraftItemInput[]);
+      } else {
+        const response = await fetch(`/api/admin/reservation-orders/${encodeURIComponent(id)}`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...extra }),
+        });
+        if (!response.ok) throw new Error(await responseError(response));
+      }
       // A menu failure is isolated inside load; it cannot turn a committed
       // action into a reported failure. Keep the existing GET-failure behavior.
       if (action === "add_items") await load().catch(() => {
-        setNotice("已加入訂單，但畫面未能更新。請重新整理頁面確認，請勿再次加點。");
+        if (currentId.current === id) { setNeedsRefresh(true); setNotice("已加入訂單，但畫面未能更新。請重新載入並核對訂單，暫勿再次加點。"); }
       });
       else await load();
       return true;
@@ -111,6 +123,32 @@ export default function ReservationOrderPage() {
     if (await act("add_items", { items: newItems })) setNewItems([]);
   }
 
+  async function resolveAdd(record: PendingOrderAdd, cancel: boolean) {
+    if (mutationInFlight.current) return;
+    if (cancel && !window.confirm("若這筆加點尚未完成，系統會阻止原請求繼續寫入；若已完成，系統會顯示已完成，請先核對訂單。確定繼續？")) return;
+    mutationInFlight.current = true;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const state = await (cancel ? recovery.cancel(record) : recovery.check(record));
+      if (currentId.current !== id) return;
+      if (state === "committed") setNewItems([]);
+      setNotice(state === "committed" ? "這筆加點已完成，請確認訂單。" : "尚未完成的加點已安全取消，可重新選餐。 ");
+      await load().catch(() => {
+        if (currentId.current === id) { setNeedsRefresh(true); setNotice("結果已確認，但畫面未更新。請重新載入並核對訂單，暫勿再次加點。"); }
+      });
+    } catch (cause) { if (currentId.current === id) setError(thrownMessage(cause, "加點結果仍未確認，請稍後再試。")); }
+    finally { mutationInFlight.current = false; setBusy(false); }
+  }
+
+  async function refreshAfterMutation() {
+    if (mutationInFlight.current) return;
+    mutationInFlight.current = true;
+    setBusy(true);
+    try { if (await load()) setNotice(""); }
+    catch { if (currentId.current === id) setNotice("訂單仍無法更新，請稍後重新載入，暫勿再次加點。"); }
+    finally { mutationInFlight.current = false; setBusy(false); }
+  }
+
   const room = Array.isArray(view?.reservation.room) ? view?.reservation.room[0] : view?.reservation.room;
   return <main className="min-h-screen bg-stone-50 px-4 py-6 text-stone-900">
     <div className="mx-auto max-w-3xl space-y-5">
@@ -119,8 +157,11 @@ export default function ReservationOrderPage() {
         <h1 className="text-2xl font-semibold">訂位餐點管理</h1>
         {view && <p className="mt-2 text-sm text-stone-600">{view.reservation.customer_name} · {room?.name ?? "包廂"} · 代碼 {view.reservation.booking_code} · {new Date(view.reservation.start_time).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}</p>}
       </header>
-      <p role="status" aria-atomic="true" className={notice ? "rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900" : "sr-only"}>{notice}</p>
+      <div role="status" aria-atomic="true" className={notice ? "rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900" : "sr-only"}>{notice}
+        {needsRefresh && <button type="button" disabled={busy} onClick={() => void refreshAfterMutation()} className="ml-2 rounded-lg border border-amber-700 px-3 py-2 disabled:opacity-50">重新載入訂單</button>}
+      </div>
       {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-rose-800">{error}</p>}
+      {view && <OrderAddRecovery pending={recovery.pending} storageError={recovery.storageError} busy={busy} onCheck={(record) => void resolveAdd(record, false)} onCancel={(record) => void resolveAdd(record, true)} />}
       {menuError && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">{menuError}</p>}
       {!view && !error && <p>載入中…</p>}
       {view && !view.order && <>
@@ -131,15 +172,15 @@ export default function ReservationOrderPage() {
             {view.preorder.reservation_preorder_items.map((item) => <li key={item.id}>{item.item_name_snapshot} ×{item.quantity}{item.selected_options_snapshot?.length ? `（${item.selected_options_snapshot.map((option) => option.name).join("、")}）` : ""}</li>)}
           </ul> : <p className="mt-2 text-sm text-stone-500">尚未選餐。</p>}
           <div className="mt-5 border-t border-stone-100 pt-4"><h3 className="mb-3 font-semibold">店員調整預點內容</h3>
-            <MenuPicker items={menu.filter((item) => item.preorder_eligible)} value={preItems} onChange={setPreItems} disabled={busy} />
+            <MenuPicker items={menu.filter((item) => item.preorder_eligible)} value={preItems} onChange={setPreItems} disabled={actionDisabled} />
             <textarea aria-label="預點餐備註" value={preNotes} onChange={(event) => setPreNotes(event.target.value)} maxLength={1000}
               className="mt-3 min-h-20 w-full rounded-lg border border-stone-300 p-2" placeholder="餐點備註" />
             {selectionProblem(menu, preItems) && <p role="alert" className="mt-2 text-sm text-rose-700">{selectionProblem(menu, preItems)}</p>}
-            <button disabled={busy || Boolean(selectionProblem(menu, preItems))} onClick={() => act("save_preorder", { items: preItems, notes: preNotes })}
+            <button disabled={actionDisabled || Boolean(selectionProblem(menu, preItems))} onClick={() => act("save_preorder", { items: preItems, notes: preNotes })}
               className="mt-3 rounded-lg border border-amber-700 px-4 py-2 font-medium text-amber-900 disabled:opacity-50">儲存餐點調整</button>
           </div>
         </section>
-        <button disabled={busy || ["cancelled", "completed"].includes(view.reservation.status) || Boolean(view.preorder?.requires_reconfirmation)}
+        <button disabled={actionDisabled || ["cancelled", "completed"].includes(view.reservation.status) || Boolean(view.preorder?.requires_reconfirmation)}
           onClick={() => act("check_in")} className="w-full rounded-lg bg-amber-700 px-4 py-3 font-semibold text-white disabled:opacity-50">
           確認客人到店，送入備餐清單
         </button>
@@ -159,21 +200,21 @@ export default function ReservationOrderPage() {
                 <input aria-label={`${item.item_name}數量`} type="number" min={1} max={99} value={quantities[item.id] ?? item.quantity}
                   onChange={(event) => setQuantities((current) => ({ ...current, [item.id]: Number(event.target.value) }))}
                   className="w-20 rounded border border-stone-300 px-2 py-1.5" />
-                <button disabled={busy || Boolean(view.order?.paid_at)} onClick={() => act("update_quantity", { item_id: item.id, quantity: quantities[item.id] })}
+                <button disabled={actionDisabled || Boolean(view.order?.paid_at)} onClick={() => act("update_quantity", { item_id: item.id, quantity: quantities[item.id] })}
                   className="rounded border border-stone-300 px-3 py-1.5 text-sm disabled:opacity-50">改數量</button>
-                <button disabled={busy || Boolean(view.order?.paid_at)} onClick={() => act("remove_item", { item_id: item.id })}
+                <button disabled={actionDisabled || Boolean(view.order?.paid_at)} onClick={() => act("remove_item", { item_id: item.id })}
                   className="rounded border border-rose-300 px-3 py-1.5 text-sm text-rose-700 disabled:opacity-50">刪除</button>
-                {item.menu_item_id && menu.some((choice) => choice.id === item.menu_item_id) && <button disabled={busy || Boolean(view.order?.paid_at)}
+                {item.menu_item_id && menu.some((choice) => choice.id === item.menu_item_id) && <button disabled={actionDisabled || Boolean(view.order?.paid_at)}
                   onClick={() => { setEditingItem(item.id); setEditItems([{ menu_item_id: item.menu_item_id!, quantity: item.quantity,
                     option_ids: ((item.selected_options ?? []) as Array<{ id?: string }>).map((option) => option.id).filter((option): option is string => Boolean(option)),
                     special_notes: item.special_notes ?? "" }]); }}
                   className="rounded border border-stone-300 px-3 py-1.5 text-sm disabled:opacity-50">修改選項</button>}
-                <button disabled={busy} onClick={() => act("serve_item", { item_id: item.id })}
+                <button disabled={actionDisabled} onClick={() => act("serve_item", { item_id: item.id })}
                   className="rounded bg-emerald-700 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">標記已出餐</button>
               </div>}
               {editingItem === item.id && item.menu_item_id && <div className="mt-3 rounded-lg bg-stone-50 p-3">
-                <MenuPicker items={menu.filter((choice) => choice.id === item.menu_item_id)} value={editItems} onChange={setEditItems} disabled={busy} />
-                <div className="mt-3 flex gap-2"><button disabled={busy || editItems.length !== 1 || Boolean(selectionProblem(menu, editItems))} onClick={async () => {
+                <MenuPicker items={menu.filter((choice) => choice.id === item.menu_item_id)} value={editItems} onChange={setEditItems} disabled={actionDisabled} />
+                <div className="mt-3 flex gap-2"><button disabled={actionDisabled || editItems.length !== 1 || Boolean(selectionProblem(menu, editItems))} onClick={async () => {
                   if (await act("replace_item", { item_id: item.id, item: editItems[0] })) setEditingItem(null);
                 }} className="rounded bg-amber-700 px-3 py-1.5 text-sm text-white disabled:opacity-50">儲存修改</button>
                   <button onClick={() => setEditingItem(null)} className="rounded border border-stone-300 px-3 py-1.5 text-sm">取消</button></div>
@@ -186,15 +227,15 @@ export default function ReservationOrderPage() {
             {/* 已離開且餐費 0 元：沒有東西可收，不給補記按鈕（#447 P2-2） */}
             {(view.order.paid_at || !(ENDED_STAY_STATUSES as readonly string[]).includes(view.reservation.status)
               || foodStillOwed(view.reservation.status, view.order.paid_at, view.order.total_amount))
-              ? <button disabled={busy || Boolean(view.order.paid_at)} onClick={() => act("settle")}
+              ? <button disabled={actionDisabled || Boolean(view.order.paid_at)} onClick={() => act("settle")}
                 className="rounded-lg bg-stone-900 px-4 py-2 font-semibold text-white disabled:opacity-50">{view.order.paid_at ? "已結帳" : "記錄現場已結帳"}</button>
               : <span className="text-sm text-stone-500">沒有餐費要收</span>}
           </div>
         </section>
         {!view.order.paid_at && <section className="rounded-xl border border-stone-200 bg-white p-4"><h2 className="mb-3 text-lg font-semibold">現場追加餐點</h2>
-          <MenuPicker items={menu} value={newItems} onChange={setNewItems} disabled={busy} />
+          <MenuPicker items={menu} value={newItems} onChange={setNewItems} disabled={actionDisabled} />
           {selectionProblem(menu, newItems) && <p role="alert" className="mt-2 text-sm text-rose-700">{selectionProblem(menu, newItems)}</p>}
-          <button disabled={busy || newItems.length === 0 || Boolean(selectionProblem(menu, newItems))} onClick={addSelected}
+          <button disabled={actionDisabled || newItems.length === 0 || Boolean(selectionProblem(menu, newItems))} onClick={addSelected}
             className="mt-4 rounded-lg bg-amber-700 px-4 py-2 font-semibold text-white disabled:opacity-50">加入訂單</button>
         </section>}
       </>}
