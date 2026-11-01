@@ -15,3 +15,5 @@
 - [Cloudflare Kumo](https://github.com/cloudflare/kumo/blob/main/packages/kumo/src/components/sidebar/sidebar.tsx)（[MIT](https://github.com/cloudflare/kumo/blob/main/LICENSE)）：程式化捲動先讀取減少動態偏好；不複製外部程式。現有 StorePreview 及照片入口保持不變。
 
 根因是 JS 行為未讀取無障礙偏好，症狀是偏好減少動態效果的客人仍看到程式捲動。以 Chromium 真瀏覽器驗證預設及減少動態、現場變更偏好、選取包廂後焦點與照片，以及步驟切換；不操作正式資料。回滾此 PR 可恢復原捲動行為。此為 #493 的可及性子項，不代表整個議題完成。
+
+獨立複核發現送出首次遇到 409／其他非 2xx 時，錯誤區塊尚未掛載便讀取 ref，導致定位失效；因此僅對送出失敗使用提交後的 effect 定位，欄位驗證維持原本的第一個欄位焦點。錯誤區塊不強制取得焦點，避免打斷客人切換到其他控制項；同一錯誤重試仍可再次定位。以模擬 API 檢查首次 409、503 以及兩種動態偏好。

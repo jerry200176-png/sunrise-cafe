@@ -125,6 +125,8 @@ export default function BookPage() {
   const currentSubmitKey = `${roomId}|${selectedStart}|${duration}`;
   const submitUncertain = uncertainSubmitKey === currentSubmitKey;
   const errorBannerRef = useRef<HTMLDivElement>(null);
+  const [submissionErrorScroll, setSubmissionErrorScroll] = useState(0);
+  const handledSubmissionErrorScroll = useRef(0);
   const stepPanelRef = useRef<HTMLDivElement>(null);
 
   // ── Stripe 支付 Modal 狀態（僅當 server 報告 stripe_enabled 才開啟）──
@@ -134,6 +136,15 @@ export default function BookPage() {
   const [stripeLiveEnabled, setStripeLiveEnabled] = useState(false);
   const paymentModalTriggered = useRef(false);
   const funnelEntered = useRef(false);
+
+  // A submission error banner is conditional; scroll only after React mounts it.
+  // Do not focus it: the guest may already have moved focus to another control.
+  useEffect(() => {
+    if (!error || submissionErrorScroll === 0 || handledSubmissionErrorScroll.current === submissionErrorScroll) return;
+    handledSubmissionErrorScroll.current = submissionErrorScroll;
+    const frame = requestAnimationFrame(() => scrollIntoViewForInteraction(errorBannerRef.current, { block: "start" }));
+    return () => cancelAnimationFrame(frame);
+  }, [error, submissionErrorScroll]);
 
   const focusStepPanel = useCallback(() => {
     requestAnimationFrame(() => {
@@ -594,12 +605,12 @@ export default function BookPage() {
         // Without meals the server has no idempotent replay: a retry after an
         // unanswered submit can collide with the guest's own booking.
         setError(submitUncertain ? t("book.error.slotTakenAfterUncertain") : (data as { error?: string })?.error ?? t("book.error.slotTaken"));
-        scrollIntoViewForInteraction(errorBannerRef.current, { block: "start" });
+        setSubmissionErrorScroll((value) => value + 1);
         return;
       }
       if (!res.ok) {
         setError((data as { error?: string })?.error ?? t("book.error.bookingFailed"));
-        scrollIntoViewForInteraction(errorBannerRef.current, { block: "start" });
+        setSubmissionErrorScroll((value) => value + 1);
         return;
       }
       const code = (data as { booking_code?: string; id?: string; lookup_token?: string })?.booking_code;
@@ -663,7 +674,7 @@ export default function BookPage() {
       setSubmitting(false);
       setUncertainSubmitKey(currentSubmitKey);
       setError(t("book.error.submitUncertain"));
-      requestAnimationFrame(() => scrollIntoViewForInteraction(errorBannerRef.current, { block: "start" }));
+      setSubmissionErrorScroll((value) => value + 1);
     }
   };
 
