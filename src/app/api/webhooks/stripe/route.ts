@@ -61,10 +61,11 @@ export async function POST(request: NextRequest) {
         const paymentIntent = event.data.object;
         const { reservationId } = paymentIntent.metadata;
 
-        await supabaseAdmin()
+        const { error: ledgerError } = await supabaseAdmin()
           .from("payment_intents")
           .update({ status: "succeeded", updated_at: new Date().toISOString() })
           .eq("stripe_pi_id", paymentIntent.id);
+        if (ledgerError) throw new Error("Stripe payment ledger update failed");
 
         if (reservationId) {
           try {
@@ -74,8 +75,10 @@ export async function POST(request: NextRequest) {
               break;
             }
             await markDepositPaid(reservationId, "stripe_webhook", {}, "stripe");
-          } catch (err) {
-            console.error("[stripe-webhook] markDepositPaid failed:", err);
+          } catch {
+            // A signed success event must remain eligible for provider retry if
+            // recording it failed; do not acknowledge a swallowed exception.
+            throw new Error("Stripe payment recording failed");
           }
         }
 
@@ -142,10 +145,9 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ received: true });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "處理 webhook 失敗";
-    console.error("[stripe-webhook] processing error:", message);
-    logOps("webhook", "stripe.webhook_error", { error: message });
-    return NextResponse.json({ error: message }, { status: 500 });
+  } catch {
+    console.error("[stripe-webhook] processing error");
+    logOps("webhook", "stripe.webhook_error", { error: "processing_failed" });
+    return NextResponse.json({ error: "Webhook processing failed" }, { status: 500 });
   }
 }

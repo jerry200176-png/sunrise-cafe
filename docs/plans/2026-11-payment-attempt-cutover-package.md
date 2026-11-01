@@ -1,0 +1,59 @@
+# #437／#506：付款與自動取消的分階段實施包（draft）
+
+本文件記錄設計與阻擋，**不是已完成的付款政策、正式 migration 或上線授權**。#536 的隔離 PostgreSQL 測試只驗證合成契約，尚未執行實際 application RPC、Stripe／LINE Pay 或正式 schema。現有 ADR-012 自動取消預設關閉；不要因本文件變更該開關。
+
+## 結論與可獨立審查的縮險項目
+
+不能安全地只新增 attempt 表後切換 cron：舊版已可能先呼叫 provider、後寫 ledger；在途請求可能不存在於任何本地表，且舊／新部署可同時寫入。把「本地查無 attempt」當成安全取消或重新收款，可能遺失已收款證據。以下候選僅降低局部未知，**不解決完整競態，也不保證事件永久保留**：
+
+- `payment_intent.succeeded` 的已驗簽 Stripe webhook 若既有 ledger 更新回傳 DB error，或已驗證 binding 後記帳拋例外，回 500 供 Stripe 重送，而不是吞掉例外後回 200。回應與新錯誤訊息不包含 DB error 原文；不新增儲存欄位、不自行退款、不修改取消政策。
+- 這僅適用**被新版 handler 收到且可觀察到的錯誤**。既有更新零列不一定回 error；binding 拒絕、無 reservation metadata、處理其他 event type、舊部署、已被吞掉的歷史事件均未由此候選修好。Stripe 重送有期限；DB 若已部分成功而回應遺失，重送也可能再次進入通知／audit，現有流程不能宣稱完整冪等。上線前須獨立複核現有通知 lease、並行重送與錯誤告警；無法接受或驗證重複副作用時不要部署。此候選不等於 durable inbox。
+- 若需要完整證據保全，先實作並測試具唯一 event identity 的 durable inbox／對帳能力，只有可信證據已持久化、可重複安全處理後才 ack；當 DB 無法保存時回非 2xx 並發出不含付款資料的監測。Stripe 的 2xx 並不保證內部後續處理完成，重送也不是永久保存方案。
+
+## 寫入者與順序盤點（以 main 11f6d03 程式為基準，並非現場資料）
+
+| 路徑 | 現有行為／需接入的共同契約 | 缺口 |
+| --- | --- | --- |
+| `src/app/api/payment/create-intent/route.ts` | 檢查 reservation → Stripe `paymentIntents.create`（固定 reservation idempotency key）→ 插入 `payment_intents` → 更新 reservation | provider 呼叫在本地 ledger 前；insert error 目前只記 log，仍可能回傳 client secret；資料庫 timeout／process crash 時本地無法證明沒送出請求。 |
+| `src/app/api/webhooks/stripe/route.ts` | 驗簽 → 更新 intent status → binding → `markDepositPaid` | 此 PR 僅傳播上述兩種 success-event 明顯寫入錯誤；零列更新、binding 失敗與其他事件的證據保全仍未完成。event 亂序、重複、退款及舊 deployment 必須納入。 |
+| `src/app/api/payment/confirm-deposit/route.ts`、`src/lib/deposit-paid.ts` | provider retrieve/binding 後，`markDepositPaid` 先 load 再無條件 update，之後 audit／通知 | 可能與 cancel 互相穿插；update 與 audit／通知不在同一 transaction。DB read error 在部分 binding 查詢中被當缺資料，不能據此推定付款不存在。 |
+| `src/app/api/payment/refund/route.ts`、Stripe `charge.refunded` webhook | provider refund 與本地 `payment_intents`／`deposit_status` 分開更新 | 退款結果 unknown、重送／重試與部分退款需保留 provider id、金額、貨幣及原狀態；不得以此 PR 自動退款或改付款規則。 |
+| `src/app/api/linepay/request/route.ts`、`src/lib/line-pay.ts` | 驗客戶／訂位 → 產生 orderId → LINE Pay v4 request → 收到 response 後才 insert `line_pay_payments` | timeout/crash/insert failure 可能沒有本地 row 或 transactionId；隨機重新產生 orderId 不等於安全重試。 |
+| `src/app/api/linepay/confirm/route.ts`、`cancel`、`status`、`src/lib/linepay-lifecycle.ts` | 狀態查詢／confirm claim／provider confirm／`finalize_line_pay_payment`；部分 unknown 標記的 DB update 未檢查錯誤 | 需保留原始 order／transaction identity、事件結果及無法確認的狀態；未持久化 unknown 時不能宣稱已安全對帳。 |
+| `supabase/migration-line-pay-safety.sql` 的 `finalize_line_pay_payment` | 先鎖 `line_pay_payments`，後更新 reservation，並寫 LINE outbox | 若其他新路徑先鎖 reservation 再鎖 payment，會形成反向鎖序；必須以新版 RPC 和雙 session 實測遷移，不能原地改已發布 SQL。 |
+| `src/lib/payment-events-admin.ts`、`supabase/migration-bank-transfer-reports.sql` | `record_bank_transfer_report` 先鎖 reservation 再 event；`confirm_bank_transfer_payment` 先鎖 event 再 reservation；其他付款審核先更新 event 再獨立 `markDepositPaid` | 現有鎖序不一致，且銀行匯款／人工證據可能在取消後才到；不得把 pending review、已收款或未知一律視為沒有付款。 |
+| `src/app/api/reservations/[id]/route.ts`、`src/lib/reservation-lifecycle.ts`、#506 draft | 手動付／未付、狀態變更、恢復與到店；#506 增 reservation snapshot CAS | 一般 `markDepositPaid`、直接寫入、其他 RPC 仍可繞過 CAS；到店不等於付款，NULL/false 仍須區分。 |
+| `src/app/api/admin/reminders/deposit-deadline/route.ts` | 當開關啟用時，先 claim LINE delivery，再 transition cancel，後續通知／候補另做 | 需使 cancellation 與付款 attempt／audit／release outbox 原子協調；loser 不得留下誤送的 claim，DB 失敗不得發送已取消通知。 |
+| `supabase/migration-booking-meals.sql`、`migration-reservation-preorder.sql`、`migration-reservation-settlements.sql`；`src/lib/supabase-admin.ts` | 預點單、結帳、延長與 generic reservation update/delete 可改相關狀態或紀錄 | 逐一核對鎖序與所有呼叫者；現有 payment 表可能有 `ON DELETE CASCADE`，刪訂位可能連帶刪付款資料；不能用 cascade 當事件留存方案。 |
+
+## 設計候選：先確保事件可追溯，再改狀態
+
+以下是待實作 API／資料契約，並非可直接執行的 SQL。由新版本化 additive migration 引入私有 service-only tables/RPC，明確 RLS／GRANT、索引及 retention；不得修改已發布 SQL 或假定現有兩份 `migration-payment-intents.sql` 與 `migration-stripe-payment-intents.sql` 的實際 constraint 相同。上線前對目標 schema 只讀核對；新型態、外部服務與保留／身分／付款政策依既有 F1/F4 與平台 gate 審核。
+
+1. `payment_attempt`: stable 隨機 attempt id、reservation id、provider/account/environment、reservation version、金額／貨幣、穩定非個資 idempotency key／LINE orderId、provider id（可為 null）、狀態、建立／最後查詢時間與明確來源。必須同 transaction 先鎖 reservation，確認現狀再建立 claim；對同一 provider／attempt 的 duplicate 只能回傳既有 attempt，不能在 unknown 時產生新 provider call。可見狀態至少 `creating,pending,confirming,unknown,succeeded,failed,cancelled,reconciliation_required`；terminal、retry、timeout 與 TTL 必須依 provider 官方契約及核定政策定義，未知永不僅憑本地時間轉為失敗。LINE `transactionId` 保存精確文字，不以 JS unsafe integer 轉換。
+2. `provider_event_inbox`: `(provider, account, environment, provider_event_id)` 唯一；保存可供對帳之最小欄位（provider object/order/transaction identity、事件類型、金額／貨幣、驗簽結果、provider 時間、接收時間、處理狀態與失敗原因），不可因 reservation 不存在或取消而丟棄。不能盲存含機密或個資的完整 payload；若必須保存原始簽章資料，另先核定加密、存取及保留政策。碰到同 event id 但內容／account／reservation 不一致，保留衝突供對帳，絕不視為已處理成功。
+3. 版本化 `claim_attempt`、`apply_provider_result`、`cancel_overdue`、`check_in` 等 RPC 在**同一 transaction**先鎖 reservation 再依固定順序鎖 attempt／payment event；事件表與 audit／outbox 與狀態變更原子提交。舊的 event-first／payment-first RPC、直接寫入與 generic update 必須逐一導向新契約或受 DB 層保護，不能只改一個 API。成功已收款但 reservation 先取消或綁定異常時，durably 保存 provider 證據、標示 `reconciliation_required`；不能靜默標記 paid、視作失敗、重扣或自動退款。
+4. `transactional_outbox`: 以穩定 event id／類型約束一筆待投遞，狀態與 audit 在同一交易；外部發送在 commit 後並遵守既有去重、租約及失敗恢復。網路重試不等於對外 exactly-once；對 provider 呼叫不得持有跨網路的 DB row lock。
+5. 銀行轉帳與人工審核不是 provider callback：保留原有審核權限、金額核對及取消後異常證據；若付款先發生但報告較晚，系統不能憑無報告推定銀行未入帳。退款／安排座位由既有經授權政策決定，不由本研究創造政策。
+
+## 版本相容與切換次序
+
+1. 設計階段先用 #536 合成兩 session 研究與 production-like PG17/PostgREST schema 建立 RED 測試；另以 fake Stripe/LINE sandbox 驗證 API 失敗、逾時、資料庫回應遺失、整個 process 中斷和 caller retry，不能觸真付款。
+2. 獨立部署 additive、預設停用的新 schema/RPC 與受控事件接收能力，確保舊 app 不會把新狀態誤認失敗；杜絕不受控 `ON DELETE CASCADE` 清除必要 provider evidence。任何 migration、權限或保留策略仍依 F1/F4/gate 決定，不從此文件推定獲准。
+3. 先切全部 webhook／confirm／人工審核等證據**接收**路徑到可持久化的新契約，允許既有 provider callback 持續到達；對無法綁定 legacy payment 的事件建立受權待核對記錄，而非丟棄或造假 backfill。避免因部署版本重疊讓舊 writer 繞過同一鎖序；需以受審的 DB 約束／切換協調及 exact runtime SHA 證明，而不是只看新程式已部署。
+4. 僅以有可核驗來源的現有 ledger／provider event 建立對應；對無 transactionId、缺 row、timeout 或外部轉帳未確認者維持 unknown。明確處理 Stripe 既有 key、LINE orderId 和已發出去的 client secret／payment URL；清點無法證明已結束的 legacy in-flight，必要時暫停**新建立付款與自動取消**、保持 callback/inbox 接收，等待或由授權人員對帳。若無法證明舊 writer 已退出或 in-flight 已處理，不能開啟新 auto-cancel。
+5. 所有 entrypoints 遵守契約、兼容測試通過且遲到付款處理政策與回復點已確認後，才評估最終 cutover；預設維持既有「不自動取消」行為。rollback 先停新 claim／自動取消但保留 provider callback、inbox/outbox 和所有證據，回復前確認新舊 writer 不會破壞狀態；不能刪新表、吞掉 unknown 或自動退款。
+
+## 完整驗收
+
+- 兩 session 實際 RPC：取消／到店雙向、provider claim／取消雙向、已付／取消雙向；鎖觀察須證明真實阻塞方，不只 Promise mock。覆蓋 NULL 與 false、予約已過期、恢復與衝突 exclusion constraint、settlement／預點單與 bank review 交叉鎖序和 deadlock timeout。
+- Stripe/LINE fake provider：每個 crash point（claim commit 前後、provider 呼叫前後、DB 回覆前後）、相同／不同事件並發、webhook 亂序、同 ID 不同內容、response unknown、signed 成功晚到、binding／金額／貨幣不一致、已退款／部分退款；核對 provider call 次數、DB evidence、適當 outbox、不可丟款或誤發成功。
+- 測試 DB 寫失敗、空結果／零列、read error、provider timeout、獨立應用版本混跑、rollback、過期 provider idempotency；必須以 DB 最終狀態和實際 API 的回應驗證。真實通知測試使用 sandbox／替身，不發客人訊息；不把假 provider 的計數稱為真實 provider 保證。
+- 以授權身份完成真實影響範圍與既有 in-flight 盤點，作出可審查的切換／回復與對帳處置後，才可進一步考慮整體 P1 結案。
+
+## 官方參考與邊界
+
+- [Stripe idempotent requests](https://docs.stripe.com/api/idempotent_requests)：API v1 的 key 可能在至少 24 小時後被清除，且同 key 的既有 500 也會重播；不能把固定 key 當永久證據。
+- [Stripe webhook delivery](https://docs.stripe.com/webhooks)：live mode 重送有限、事件可能亂序；需穩定 event ID 與 durable 接收，不能把 2xx 當資料已安全記錄。
+- [LINE Pay Online API v4 request](https://developers-pay.line.me/online-api-v4/request-payment)、[request status](https://developers-pay.line.me/online-api-v4/check-payment-request-status)、[payment details](https://developers-pay.line.me/online-api-v4/retrieve-payment-details)：status 查詢需要 transactionId；依 orderId 的 details 文件涵蓋 confirmed/captured，查無資料不能證明先前 request 未建立。超時與缺 id 需維持 unknown 並採受審對帳。
+- [PostgreSQL explicit locking](https://www.postgresql.org/docs/current/explicit-locking.html)（PostgreSQL License）、現有 repo LINE Pay outbox／settlement row lock：共同鎖序和 transaction 給出可測的 local commit point，外部 provider 副作用仍在 transaction 外。
