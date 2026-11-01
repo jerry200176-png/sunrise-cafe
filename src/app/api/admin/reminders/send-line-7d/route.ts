@@ -65,7 +65,8 @@ async function handleSend() {
             recipientType: "guest",
             recipientId: lineUserId,
           });
-          if (!claim.available || claim.id) claims.push({ row, id: claim.id });
+          if (!claim.available) throw new Error("LINE reminder delivery ledger unavailable");
+          if (claim.id) claims.push({ row, id: claim.id });
         }
         if (claims.length === 0) continue;
 

@@ -23,7 +23,7 @@ vi.mock("@/lib/line", () => ({
 }));
 
 vi.mock("@/lib/line-delivery", () => ({
-  claimLineReminderDelivery: vi.fn(async () => ({ available: false, id: null })),
+  claimLineReminderDelivery: vi.fn(async () => ({ available: true, id: "synthetic-delivery" })),
   markLineReminderDelivery: vi.fn(async () => {}),
   safeLineDeliveryError: vi.fn((error: unknown) => String(error)),
 }));
@@ -62,6 +62,7 @@ import {
   sendLineFlexToGroup,
 } from "@/lib/line-notify";
 import { sendLineFlexMessage } from "@/lib/line";
+import { claimLineReminderDelivery } from "@/lib/line-delivery";
 import { findRecentSendLineHeartbeat, findSuccessfulSendLineRunToday } from "@/lib/job-runs";
 
 describe("alreadyNotifiedCronMessage / emptyCatMessage", () => {
@@ -246,6 +247,20 @@ describe("runSendLineReminder — retry regression", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("does not send or mark a reminder when the ledger reports unavailable", async () => {
+    vi.mocked(fetchReservationsForReminder).mockResolvedValue([{
+      id: "synthetic", booking_code: "SYNTHETIC", start_time: "2026-07-17T10:00:00+08:00",
+      end_time: "2026-07-17T12:00:00+08:00", customer_name: "synthetic", phone: "0000",
+      line_user_id: "synthetic", room: { name: "A", branch_id: "b1", branch: { id: "b1", name: "A" } },
+    }] as never);
+    vi.mocked(claimLineReminderDelivery).mockResolvedValueOnce({ available: false, id: null });
+    const response = await runSendLineReminder({ sendHeartbeatOnEmpty: false, enforceDayIdempotency: false, trigger_source: "cron" });
+    expect(response.status).toBe(500);
+    expect(sendLineFlexToGroup).not.toHaveBeenCalled();
+    expect(sendLineFlexMessage).not.toHaveBeenCalled();
+    expect(updateReservationAdmin).not.toHaveBeenCalled();
   });
 
   it("skips a delayed scheduled run after midnight without querying or sending", async () => {
