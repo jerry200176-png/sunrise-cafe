@@ -15,10 +15,14 @@ jobs:
   guard:
     runs-on: ubuntu-24.04
     permissions: {}
+    env:
+      BASH_ENV: /dev/null
+      SHELLOPTS: ""
     steps:
       - name: Require main branch
         shell: bash
         run: |
+          set +x
           if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
             echo "recipient canary is restricted to main"
             exit 1
@@ -31,11 +35,15 @@ jobs:
     environment:
       name: backup-recipient-canary
     permissions: {}
+    env:
+      BASH_ENV: /dev/null
+      SHELLOPTS: ""
     steps:
 
       - name: Install age
         shell: bash
         run: |
+          set +x
           if ! sudo apt-get update -qq >/dev/null 2>&1 || \
              ! sudo apt-get install -y -qq --no-install-recommends age >/dev/null 2>&1; then
             echo "recipient canary failed at age installation"
@@ -50,8 +58,6 @@ jobs:
         shell: bash
         env:
           AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
-          BASH_ENV: /dev/null
-          SHELLOPTS: ""
         run: |
           set +x
           set -euo pipefail
@@ -103,6 +109,7 @@ jobs:
       - name: Require all artifact files before upload
         shell: bash
         run: |
+          set +x
           set -euo pipefail
           output_dir="$RUNNER_TEMP/backup-recipient-canary-output"
           for name in canary.txt.age canary.txt.age.sha256 manifest.json; do
@@ -131,6 +138,7 @@ jobs:
           ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
           ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
         run: |
+          set +x
           set -euo pipefail
           if [[ -z "$ARTIFACT_ID" || -z "$ARTIFACT_DIGEST" ]]; then
             echo "recipient canary failed: artifact identity is missing"
@@ -142,4 +150,6 @@ jobs:
       - name: Remove local canary files
         if: always()
         shell: bash
-        run: rm -rf -- "$RUNNER_TEMP/backup-recipient-canary-output"
+        run: |
+          set +x
+          rm -rf -- "$RUNNER_TEMP/backup-recipient-canary-output"
