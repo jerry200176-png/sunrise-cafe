@@ -17,7 +17,7 @@ describe("configured shared limiter", () => {
     mocks.limit.mockReset();
     mocks.fromEnv.mockReset().mockReturnValue({});
   });
-  afterEach(() => vi.unstubAllEnvs());
+  afterEach(() => { vi.unstubAllEnvs(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
   it.each([
     [true, 4], [false, 0],
@@ -45,6 +45,21 @@ describe("configured shared limiter", () => {
     const result = await rateLimit("synthetic", "login");
     expect(result).toMatchObject({ success: false, unavailable: true });
     expect(JSON.stringify(result)).not.toContain("private");
+  });
+
+  it("logs a redacted per-category outage signal at most once per minute", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.limit.mockRejectedValue(new Error("sensitive provider detail"));
+    const { rateLimit } = await import("./rate-limit");
+    await rateLimit("private customer identifier", "login");
+    await rateLimit("another identifier", "login");
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(warn.mock.calls[0][0]))).toEqual({ event: "rate_limiter_unavailable", limiter: "login" });
+    vi.setSystemTime(70_000);
+    await rateLimit("private customer identifier", "login");
+    expect(warn).toHaveBeenCalledTimes(2);
   });
 
   it("does not fall back to memory if configuration appears after module init", async () => {

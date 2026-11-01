@@ -44,16 +44,26 @@ export type RateLimitResult = {
   unavailable?: true;
 };
 
-function unavailable(): RateLimitResult {
+const unavailableLogTimes = new Map<LimiterKey, number>();
+
+function unavailable(key: LimiterKey): RateLimitResult {
+  const now = Date.now();
+  const last = unavailableLogTimes.get(key);
+  if (last === undefined || now - last >= 60_000) {
+    unavailableLogTimes.set(key, now);
+    // Bounded per-isolate signal: no request identifier, path or provider error.
+    try { console.warn(JSON.stringify({ event: "rate_limiter_unavailable", limiter: key })); } catch { /* keep the 503 response */ }
+  }
   return { success: false, limit: 0, remaining: 0, reset: Date.now() + 5000, mode: "upstash", unavailable: true };
 }
 
-function makeUpstash(requests: number, window: `${number} ${"s" | "m" | "h"}`) {
+function makeUpstash(key: LimiterKey, requests: number, window: `${number} ${"s" | "m" | "h"}`) {
   if (!isUpstashConfigured()) return null;
   try {
     return new Ratelimit({
       redis: Redis.fromEnv(),
       limiter: Ratelimit.slidingWindow(requests, window),
+      prefix: `sunrise:ratelimit:${key}`,
       analytics: true,
     });
   } catch {
@@ -63,11 +73,11 @@ function makeUpstash(requests: number, window: `${number} ${"s" | "m" | "h"}`) {
 }
 
 const upstashLimiters = {
-  login: makeUpstash(5, "1 m"),
-  booking: makeUpstash(5, "1 m"),
-  availability: makeUpstash(30, "1 m"),
-  guestLookup: makeUpstash(10, "1 m"),
-  api: makeUpstash(60, "1 m"),
+  login: makeUpstash("login", 5, "1 m"),
+  booking: makeUpstash("booking", 5, "1 m"),
+  availability: makeUpstash("availability", 30, "1 m"),
+  guestLookup: makeUpstash("guestLookup", 10, "1 m"),
+  api: makeUpstash("api", 60, "1 m"),
 } as const;
 
 /** Per-isolate memory store: key → timestamps */
@@ -148,18 +158,18 @@ export async function rateLimit(
     return { success: true, limit: 0, remaining: 0, reset: 0, mode };
   }
   if (mode === "upstash") {
-    if (!isUpstashConfigured()) return unavailable();
+    if (!isUpstashConfigured()) return unavailable(key);
     const limiter = upstashLimiters[key as keyof typeof upstashLimiters];
     if (!limiter) {
       // A configured shared limiter cannot be replaced with a per-isolate one.
-      return unavailable();
+      return unavailable(key);
     }
     try {
       const result = await limiter.limit(identifier);
       // Upstash reports success=true on its default timeout. That is not a decision.
-      if (result.reason === "timeout") return unavailable();
+      if (result.reason === "timeout") return unavailable(key);
       if (typeof result.success !== "boolean" || !Number.isFinite(result.limit) ||
-          !Number.isFinite(result.remaining) || !Number.isFinite(result.reset)) return unavailable();
+          !Number.isFinite(result.remaining) || !Number.isFinite(result.reset)) return unavailable(key);
       return {
         success: result.success,
         limit: result.limit,
@@ -169,7 +179,7 @@ export async function rateLimit(
       };
     } catch {
       // Do not expose provider errors, which may contain sensitive information.
-      return unavailable();
+      return unavailable(key);
     }
   }
   const mem = memoryLimit(identifier, key);

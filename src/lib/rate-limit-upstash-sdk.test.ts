@@ -15,3 +15,23 @@ it("fails closed when the real Upstash SDK takes its default timeout path", asyn
   expect(await pending).toMatchObject({ success: false, unavailable: true, mode: "upstash" });
   expect(calls.evalsha).toHaveBeenCalled();
 });
+
+it("uses distinct Redis buckets for each category with the same identifier", async () => {
+  vi.resetModules();
+  vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://synthetic.invalid");
+  vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "synthetic-token");
+  const keys: string[][] = [];
+  calls.evalsha.mockImplementation(async (_script: string, redisKeys: string[], args: number[]) => {
+    keys.push(redisKeys);
+    return [4, args[0]];
+  });
+  const { rateLimit } = await import("./rate-limit");
+  const login = await rateLimit("synthetic-ip", "login");
+  const availability = await rateLimit("synthetic-ip", "availability");
+  expect(login.success).toBe(true);
+  expect(availability.success).toBe(true);
+  expect(keys).toHaveLength(2);
+  expect(keys[0]).not.toEqual(keys[1]);
+  expect(keys[0][0]).toContain("sunrise:ratelimit:login:");
+  expect(keys[1][0]).toContain("sunrise:ratelimit:availability:");
+});
