@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import re
+import resource
 import shutil
 import signal
 import stat
@@ -79,6 +80,19 @@ def tmpfs_shm():
         call.restype = ctypes.c_int
         return call(b'/dev/shm', buf) == 0 and ctypes.c_long.from_buffer(buf).value == 0x01021994
     except (OSError, AttributeError, ValueError):
+        return False
+
+
+def disable_process_dumps():
+    try:
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        if resource.getrlimit(resource.RLIMIT_CORE) != (0, 0):
+            return False
+        call = ctypes.CDLL(None, use_errno=True).prctl
+        call.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]
+        call.restype = ctypes.c_int
+        return call(4, 0, 0, 0, 0) == 0 and call(3, 0, 0, 0, 0) == 0
+    except (OSError, ValueError, AttributeError):
         return False
 
 
@@ -211,6 +225,8 @@ def main(argv):
         if not isinstance(digests, list) or expected_image_manifest not in digests or not re.fullmatch(r'sha256:[a-f0-9]{64}', image_id):
             fail('本機 PostgreSQL 映像與提供的 manifest digest 不符。')
         command(age, '--version', env=env)
+        if not disable_process_dumps():
+            fail('無法限制程序的核心傾印，未要求私鑰。')
         try:
             tty_fd = os.open('/dev/tty', os.O_RDWR | os.O_NOCTTY)
             tty = os.fdopen(tty_fd, 'w', buffering=1, encoding='utf-8')
@@ -268,6 +284,7 @@ def main(argv):
 
 if __name__ == '__main__':
     signal.signal(signal.SIGTERM, on_signal)
+    signal.signal(signal.SIGHUP, on_signal)
     try:
         main(sys.argv[1:])
     except Abort as exc:

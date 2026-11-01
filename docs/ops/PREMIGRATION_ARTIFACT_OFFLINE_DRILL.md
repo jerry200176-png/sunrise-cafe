@@ -26,7 +26,7 @@ python3 /path/to/verified-wsl-restore.py \
 
 兩個摘要均為不含 `sha256:` 的 64 位小寫十六進位。備份 ZIP 摘要必須由 GitHub artifact metadata 獨立取得；映像 manifest 摘要須事先由可信來源確認，程式只比較輸入值與本機 RepoDigest，不能單靠此比較證明官方身分。封裝固定核對 #521 commit `9dd2a46` 的四個 helper SHA，因此既有該版本 source ZIP 可繼續使用；封裝本身可取自較新的審查版本。
 
-封裝在要求私鑰前，檢查四個 helper、密文 ZIP 摘要、kernel 回報的 `/dev/shm` 檔案系統類型、本機 Unix socket 與 image digest。成功後才透過控制終端隱藏輸入**單行 age X25519 私鑰**；非互動終端或無法關閉回顯會停止。私鑰短暫寫入 `/dev/shm` 內私有 0700 目錄與 0600 檔案；正常、失敗及中斷會嘗試清理，但 SIGKILL、斷電、swap 和同使用者程序存取不在保證範圍。helper 仍會在 `/tmp` 暫存並刪除**加密 ZIP 副本與 manifest**，不刻意把明文寫到 host 檔案。
+封裝在要求私鑰前，檢查四個 helper、密文 ZIP 摘要、kernel 回報的 `/dev/shm` 檔案系統類型、本機 Unix socket 與 image digest，也會設定程序 core size 為 0 並關閉程序 dumpable；任一檢查失敗均不要求私鑰。成功後才透過控制終端隱藏輸入**單行 age X25519 私鑰**；非互動終端或無法關閉回顯會停止。私鑰短暫寫入 `/dev/shm` 內私有 0700 目錄與 0600 檔案；正常、失敗、Ctrl-C、TERM 及終端關閉的 SIGHUP 會嘗試清理，但 SIGKILL、斷電、swap 和同使用者程序存取不在保證範圍。`exec` 後 dumpable 可能重置，且系統 core dump pipe handler 可能繞過程序 core size 限制：你仍須在可信工作站先確認系統不會收集／轉送程序記憶體及 core dump，Python 不保證清除所有記憶體副本。helper 仍會在 `/tmp` 暫存並刪除**加密 ZIP 副本與 manifest**，不刻意把明文寫到 host 檔案。
 
 已審 helper 的 `docker run` 使用 `postgres:17-alpine` **可變 tag**；封裝前後比較 image ID，不能排除同一可信主機上的程序在兩次檢查間短暫替換 tag 後再換回。只應在你確認的單使用者本機 Docker Desktop、執行期間沒有其他程序變更 tag 時使用；需要消除該競態時，必須先修訂並重新審查 helper，不能聲稱目前已用 immutable image ID 啟動。
 
