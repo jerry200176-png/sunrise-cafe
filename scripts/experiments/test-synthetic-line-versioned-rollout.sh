@@ -102,11 +102,15 @@ pg -c "SET ROLE synthetic_new; SELECT * FROM fixture.v2_prepare(4)" >"$work/v2" 
 pg -c "SET ROLE synthetic_new; SELECT * FROM fixture.v2_prepare(4)" >"$work/compat" & b=$!
 wait "$a"; wait "$b"
 [[ $(($(wc -l <"$work/v2") + $(wc -l <"$work/compat"))) == 2 ]]
+[[ $(pg -c "SELECT string_agg(recipient,',' ORDER BY recipient) FROM fixture.v2_delivery WHERE booking=4") == 'guest-d,staff-a' ]]
+[[ $(pg -c "SELECT count(DISTINCT owner_token) FROM fixture.v2_delivery WHERE booking=4") == 1 ]]
+[[ $(pg -c "SELECT state FROM fixture.booking WHERE id=4") == cancelled ]]
 record=$(pg -c "SELECT id || '|' || owner_token || '|' || generation || '|' || account || '|' || retry_key || '|' || payload_digest FROM fixture.v2_delivery WHERE booking=4 ORDER BY recipient LIMIT 1")
 IFS='|' read -r delivery token generation account retry_key payload <<<"$record"
 [[ $(pg -c "SET ROLE synthetic_new; SELECT fixture.v2_start('$delivery','$token',$generation,'wrong-account','$payload')") == f ]]
 [[ $(pg -c "SET ROLE synthetic_new; SELECT fixture.v2_start('$delivery','$token',$generation,'$account','wrong-payload')") == f ]]
 [[ $(pg -c "SET ROLE synthetic_new; SELECT fixture.v2_start('$delivery',gen_random_uuid(),$generation,'$account','$payload')") == f ]]
+[[ $(pg -c "SET ROLE synthetic_new; SELECT fixture.v2_start('$delivery','$token',$((generation + 1)),'$account','$payload')") == f ]]
 [[ $(pg -c "SET ROLE synthetic_new; SELECT fixture.v2_start('$delivery','$token',$generation,'$account','$payload')") == t ]]
 # Fake provider accepts exactly once; drop its response. Client makes no
 # repeated request, including after a simulated code rollback to a compatible
