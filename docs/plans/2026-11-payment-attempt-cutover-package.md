@@ -78,7 +78,7 @@ draft 的建單候選改從 reservation→room 取得 authoritative branch，要
 
 ### 事件先接收的第二輪隔離研究
 
-`scripts/research/stripe-receipt-races/` 是純 PG17 合成研究，先獨立提交 receipt，再於另一 transaction 處理成功／退款；兩 session 實測兩種鎖順序，保留未知綁定及 apply 回滾前已提交的 receipt。退款可取消尚未 claim 的合成 paid outbox；若已 claim，只標記需核對，不能宣稱訊息未送出。事件 ID 衝突在已處理後也無法撤回既有結果。這些都是合成局部性質，不能推論真 provider、未知簽章、舊 writer、跨訂位鎖序或部分退款已安全；receipt transaction 失敗本身仍無 durable 記錄。不得將 fixture 當 migration 或已解決四項 app RED。
+`scripts/research/stripe-receipt-races/` 是純 PG17 合成研究，先獨立提交 receipt，再於另一 transaction 處理成功／退款；兩 session 實測兩種鎖順序，保留未知綁定及 apply 回滾前已提交的 receipt。退款可取消尚未 claim 的合成 paid outbox；若已 claim，只標記需核對，不能宣稱訊息未送出。事件 ID 衝突在已處理後也無法撤回既有結果。此 fixture 前版重現衝突已知後 pending outbox 仍可被 claim；本版以共同 reservation 鎖阻擋先發生的 conflict，合成雙 session 也顯示若 claim 先發生，該項目仍可能已觸發外部效果而需核對。此鎖未套用至實際 app 或其他 writer。這些都是合成局部性質，不能推論真 provider、未知簽章、舊 writer、跨訂位鎖序或部分退款已安全；receipt transaction 失敗本身仍無 durable 記錄。不得將 fixture 當 migration 或已解決四項 app RED。
 
 ## 版本相容與切換次序
 

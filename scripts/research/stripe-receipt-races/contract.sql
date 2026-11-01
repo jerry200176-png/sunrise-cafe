@@ -32,6 +32,9 @@ BEGIN
  SELECT * INTO STRICT old_event FROM study_receipt.inbox WHERE event_id=p_event FOR UPDATE;
  IF old_event.reservation_id IS DISTINCT FROM p_reservation OR old_event.intent_ref <> p_ref OR
     old_event.kind <> p_kind OR old_event.amount <> p_amount OR old_event.currency <> p_currency THEN
+   -- Serialize conflict publication with claims on the original reservation.
+   -- Already claimed external effects cannot be recalled by this fixture.
+   PERFORM 1 FROM study_receipt.reservations WHERE id=old_event.reservation_id FOR UPDATE;
    INSERT INTO study_receipt.conflicts VALUES (p_event,p_reservation,p_ref,p_kind,p_amount,p_currency)
      ON CONFLICT DO NOTHING;
    UPDATE study_receipt.inbox SET state='conflict' WHERE event_id=p_event;
@@ -87,6 +90,9 @@ CREATE FUNCTION study_receipt.claim_paid(p_id integer) RETURNS text LANGUAGE plp
 DECLARE s text;
 BEGIN
  PERFORM 1 FROM study_receipt.reservations WHERE id=p_id FOR UPDATE;
+ IF EXISTS (SELECT 1 FROM study_receipt.inbox WHERE reservation_id=p_id AND state='conflict') THEN
+   RETURN 'not_claimed';
+ END IF;
  SELECT state INTO s FROM study_receipt.outbox WHERE stable_key='paid:'||p_id FOR UPDATE;
  IF NOT FOUND OR s <> 'pending' THEN RETURN 'not_claimed'; END IF;
  UPDATE study_receipt.outbox SET state='claimed' WHERE stable_key='paid:'||p_id;

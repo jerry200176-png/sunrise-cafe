@@ -178,8 +178,27 @@ def main():
     check("SELECT state FROM study_receipt.inbox WHERE event_id='s5a'",'conflict')
     check("SELECT count(*) FROM study_receipt.conflicts WHERE event_id='s5a'",'1')
     assert snapshot(5)=='paid|succeeded|2|1|pending'
+    conflict_claim=sql('SELECT study_receipt.claim_paid(5);')
+    assert conflict_claim in ('claimed','not_claimed')
+    if conflict_claim=='claimed':
+        assert snapshot(5)=='paid|succeeded|2|1|claimed'
+        print('limitation_conflict_does_not_block_pending_outbox_claim=observed')
+    else:
+        assert snapshot(5) in ('paid|succeeded|2|1|pending','paid|succeeded|2|1|cancelled')
+        print('synthetic_conflict_blocks_pending_outbox_claim=observed')
     print('synthetic_duplicate_and_conflicting_identity=pass')
     print('limitation_conflict_after_apply_does_not_undo_prior_effects=observed')
+    seed(8)
+    check(receive('s8',8,'success'),'received');check(apply('s8'),'paid')
+    race(receive('s8',8,'success',10000),'SELECT study_receipt.claim_paid(8);','conflict','not_claimed')
+    assert snapshot(8)=='paid|succeeded|1|1|pending'
+    seed(9)
+    check(receive('s9',9,'success'),'received');check(apply('s9'),'paid')
+    race('SELECT study_receipt.claim_paid(9);',receive('s9',9,'success',10000),'claimed','conflict')
+    assert snapshot(9)=='paid|succeeded|1|1|claimed'
+    check("SELECT state FROM study_receipt.inbox WHERE event_id='s9'",'conflict')
+    print('synthetic_conflict_claim_both_lock_orders=pass')
+    print('limitation_claim_before_conflict_may_have_external_effect=observed')
 
     check(receive('unknown',None,'success'),'received')
     check(apply('unknown'),'reconciliation_required')
@@ -212,7 +231,8 @@ def main():
     check('SELECT count(*) FROM study_receipt.inbox',before)
     print('synthetic_committed_receipt_survives_apply_rollback=pass')
     print('limitation_receive_failure_has_no_durable_receipt=observed')
-    print('LIMITATIONS: no real signature, app RPC, live migration, external effects, production data, providers, policies or existing writers tested')
+    print('LIMITATIONS: no real signature, app RPC, live migration, external effects, production data, providers, policies or existing writers tested',flush=True)
+    assert conflict_claim=='not_claimed', 'RED: known conflict does not prevent a pending paid outbox claim'
 
 if __name__=='__main__':
     try:
