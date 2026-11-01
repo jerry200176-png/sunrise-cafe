@@ -4,19 +4,21 @@ set -euo pipefail
 fixture_root="$(cd "$(dirname "$0")/.." && pwd)/docs/ops/fixtures"
 fixture_sql="$fixture_root/branches-column-acl.synthetic.sql"
 name="sunrise-privacy-fixture-${RANDOM}-${RANDOM}"
-pg="${name}-pg"
-api="${name}-api"
+network_id=""
+pg=""
+api=""
 cleanup() {
-  docker rm -f "$api" "$pg" >/dev/null 2>&1 || true
-  docker network rm "$name" >/dev/null 2>&1 || true
+  if [[ -n "$api" ]]; then docker rm -f "$api" >/dev/null 2>&1 || true; fi
+  if [[ -n "$pg" ]]; then docker rm -f "$pg" >/dev/null 2>&1 || true; fi
+  if [[ -n "$network_id" ]]; then docker network rm "$network_id" >/dev/null 2>&1 || true; fi
 }
 trap cleanup EXIT INT TERM
 for image in postgres:17-alpine postgrest/postgrest:v12.2.12 node:22-alpine; do
   docker image inspect "$image" >/dev/null
 done
-docker network create --internal "$name" >/dev/null
-docker run -d --name "$pg" --network "$name" --network-alias db --tmpfs /var/lib/postgresql/data:rw,size=256m \
-  -e POSTGRES_PASSWORD=synthetic-database-password postgres:17-alpine >/dev/null
+network_id=$(docker network create --internal "$name")
+pg=$(docker run -d --network "$network_id" --network-alias db --tmpfs /var/lib/postgresql/data:rw,size=256m \
+  -e POSTGRES_PASSWORD=synthetic-database-password postgres:17-alpine)
 for i in $(seq 1 120); do
   if docker logs "$pg" 2>&1 | grep -q 'PostgreSQL init process complete' && \
     docker exec "$pg" pg_isready -U postgres >/dev/null 2>&1; then break; fi
@@ -44,11 +46,11 @@ ALTER TABLE branches ENABLE ROW LEVEL SECURITY;
 CREATE POLICY anon_select ON branches FOR SELECT TO anon USING (true);
 GRANT ALL ON branches TO anon,authenticated,service_role;
 SQL
-docker run -d --name "$api" --network "$name" --network-alias api \
+api=$(docker run -d --network "$network_id" --network-alias api \
   -e PGRST_DB_URI='postgres://authenticator:synthetic-authenticator-password@db:5432/sunrise_privacy_fixture' \
   -e PGRST_DB_SCHEMAS=public -e PGRST_DB_ANON_ROLE=anon \
-  -e PGRST_JWT_SECRET='synthetic-test-key-not-a-real-credential-123456789' postgrest/postgrest:v12.2.12 >/dev/null
-docker run --rm -i --network "$name" node:22-alpine node - <<'JS'
+  -e PGRST_JWT_SECRET='synthetic-test-key-not-a-real-credential-123456789' postgrest/postgrest:v12.2.12)
+docker run --rm -i --network "$network_id" node:22-alpine node - <<'JS'
 (async () => {
   for (let i=0; i<100; i++) {
     try {
@@ -88,7 +90,7 @@ DO $$ BEGIN IF has_column_privilege('anon','public.branches','future_internal','
   RAISE EXCEPTION 'future column exposed'; END IF; END $$;
 SQL
 echo 'synthetic_future_column_denied=pass'
-docker run --rm -i --network "$name" node:22-alpine node - <<'JS'
+docker run --rm -i --network "$network_id" node:22-alpine node - <<'JS'
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const secret = 'synthetic-test-key-not-a-real-credential-123456789';
