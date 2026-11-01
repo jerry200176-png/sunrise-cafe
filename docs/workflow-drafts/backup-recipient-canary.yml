@@ -12,12 +12,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  canary:
-    if: github.ref == 'refs/heads/main'
+  guard:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    environment:
-      name: backup-recipient-canary
     permissions: {}
     steps:
       - name: Require main branch
@@ -27,6 +23,15 @@ jobs:
             echo "recipient canary is restricted to main"
             exit 1
           fi
+
+  canary:
+    needs: guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment:
+      name: backup-recipient-canary
+    permissions: {}
+    steps:
 
       - name: Install age
         shell: bash
@@ -45,7 +50,10 @@ jobs:
         shell: bash
         env:
           AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
+          BASH_ENV: /dev/null
+          SHELLOPTS: ""
         run: |
+          set +x
           set -euo pipefail
           umask 077
 
@@ -56,6 +64,14 @@ jobs:
 
           if [[ -z "${AGE_RECIPIENT//[[:space:]]/}" ]]; then
             echo "recipient canary failed: repository secret unavailable to this job"
+            exit 1
+          fi
+          if [[ "$AGE_RECIPIENT" == *$'\n'* || "$AGE_RECIPIENT" == *$'\r'* ]]; then
+            echo "recipient canary failed: exactly one recipient line is required"
+            exit 1
+          fi
+          if [[ ! "$AGE_RECIPIENT" =~ ^age1[023456789acdefghjklmnpqrstuvwxyz]{58}$ ]]; then
+            echo "recipient canary failed: only one native age X25519 recipient is supported"
             exit 1
           fi
 
@@ -76,12 +92,28 @@ jobs:
             exit 1
           fi
 
-          sha256sum "$output_dir/canary.txt.age" > "$output_dir/canary.txt.age.sha256"
-          ciphertext_digest="$(sha256sum "$output_dir/canary.txt.age" | cut -d ' ' -f 1)"
+          (
+            cd "$output_dir"
+            sha256sum canary.txt.age > canary.txt.age.sha256
+          )
+          ciphertext_digest="$(cd "$output_dir" && sha256sum canary.txt.age | cut -d ' ' -f 1)"
           printf '{"format":"sunrise-recipient-canary-v1","scope":"synthetic-only","ciphertext_sha256":"%s"}\n' \
             "$ciphertext_digest" > "$output_dir/manifest.json"
 
+      - name: Require all artifact files before upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          output_dir="$RUNNER_TEMP/backup-recipient-canary-output"
+          for name in canary.txt.age canary.txt.age.sha256 manifest.json; do
+            if [[ ! -s "$output_dir/$name" ]]; then
+              echo "recipient canary failed: required artifact file missing or empty"
+              exit 1
+            fi
+          done
+
       - name: Upload ciphertext-only canary
+        # if-no-files-found is an extra guard; the preceding step checks every required file.
         id: upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
