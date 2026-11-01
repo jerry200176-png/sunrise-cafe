@@ -14,6 +14,22 @@
 
 ## 由使用者操作
 
+也可使用 `scripts/backup/wsl-restore.py` 這個單檔互動封裝。先由可信來源取得並獨立核對該封裝的 SHA-256，再以四個**非秘密**參數呼叫：
+
+```bash
+python3 /path/to/verified-wsl-restore.py \
+  /absolute/path/to/reviewed-source.zip \
+  /absolute/path/to/encrypted-artifact.zip \
+  INDEPENDENT_ARTIFACT_ZIP_SHA256 \
+  EXPECTED_POSTGRES_MANIFEST_SHA256
+```
+
+兩個摘要均為不含 `sha256:` 的 64 位小寫十六進位。備份 ZIP 摘要必須由 GitHub artifact metadata 獨立取得；映像 manifest 摘要須事先由可信來源確認，程式只比較輸入值與本機 RepoDigest，不能單靠此比較證明官方身分。封裝固定核對 #521 commit `9dd2a46` 的四個 helper SHA，因此既有該版本 source ZIP 可繼續使用；封裝本身可取自較新的審查版本。
+
+封裝在要求私鑰前，檢查四個 helper、密文 ZIP 摘要、kernel 回報的 `/dev/shm` 檔案系統類型、本機 Unix socket 與 image digest。成功後才透過控制終端隱藏輸入**單行 age X25519 私鑰**；非互動終端或無法關閉回顯會停止。私鑰短暫寫入 `/dev/shm` 內私有 0700 目錄與 0600 檔案；正常、失敗及中斷會嘗試清理，但 SIGKILL、斷電、swap 和同使用者程序存取不在保證範圍。helper 仍會在 `/tmp` 暫存並刪除**加密 ZIP 副本與 manifest**，不刻意把明文寫到 host 檔案。
+
+已審 helper 的 `docker run` 使用 `postgres:17-alpine` **可變 tag**；封裝前後比較 image ID，不能排除同一可信主機上的程序在兩次檢查間短暫替換 tag 後再換回。只應在你確認的單使用者本機 Docker Desktop、執行期間沒有其他程序變更 tag 時使用；需要消除該競態時，必須先修訂並重新審查 helper，不能聲稱目前已用 immutable image ID 啟動。
+
 1. 在 GitHub Actions 找到可信且仍保留的正式部署 run，確認 artifact 名稱、run 與階段；不要上傳其內容。若使用已登入且具對應權限的 GitHub CLI，可在自己的 shell 查閱該 run 的 artifact metadata（替換你自行確認的 RUN_ID）：
 
    ```bash
