@@ -71,11 +71,17 @@ alias and health verification. See [Vercel rollback](https://vercel.com/docs/dep
 
 ## Configuration and access to verify without displaying values
 
-- GitHub Actions secret `VERCEL_TOKEN`: existence for the appropriate repository
-  or environment and actual authorization to read the project, deployments and
-  alias, create a production Git deployment, and roll back. Exact available
-  scope and access have not been established. Do not print its value or create
-  a replacement as part of this check.
+- A prior read-only TinyFish repository-settings snapshot listed the names
+  `VERCEL_TOKEN`, `SUPABASE_DB_URL`, `BACKUP_AGE_RECIPIENT` and
+  `NEXT_PUBLIC_SUPABASE_URL`. The snapshot did not expose values, establish that
+  they are nonempty, or prove which environment a job receives. In particular,
+  the existing `VERCEL_TOKEN` still needs actual authorization to read the
+  project, deployments and alias, create a production Git deployment, and roll
+  back. Do not print its value or create a replacement as part of this check.
+- That repository-secret snapshot did not list `CRON_SECRET`; organization or
+  environment secrets were not ruled out. A separate Vercel Production snapshot
+  did list the `CRON_SECRET` name. Neither snapshot proves the value is nonempty
+  or that GitHub and Vercel values match, and no values were examined.
 - The Actions-provided `GITHUB_TOKEN`: `contents: read` for checkout/rules,
   `checks: read`, `statuses: read` and `pull-requests: read` for exact-head
   checks/PR association, and `actions: read` for same-run artifacts. Whether job
