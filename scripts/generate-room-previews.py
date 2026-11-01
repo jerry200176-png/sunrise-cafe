@@ -8,6 +8,7 @@ The models intentionally remain labelled as illustrations in the customer UI.
 from pathlib import Path
 import bpy
 import math
+import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = ROOT / 'public' / 'models' / 'rooms'
@@ -79,9 +80,14 @@ def build(name, width, depth, meeting):
                 for dx in [-0.15, 0.15]:
                     for dy in [-0.14, 0.14]:
                         box('Chair leg', (x+dx, y+dy, 0.21), (0.035, 0.035, 0.42), dark)
-        # Screen on the end wall, as shown in the supplied second photograph.
-        box('Screen frame', (-width/2 + 0.055, 0, 1.14), (0.04, 1.13, 0.68), frame, 0.01)
-        box('Screen', (-width/2 + 0.08, 0, 1.14), (0.015, 1.02, 0.57), dark)
+        # The cutaway right wall keeps the TV visible from the booking overview.
+        box('Right wall', (width/2, 0, 0.3), (0.07, depth, 0.6), wall)
+        screen_x, screen_y = width/2 - 0.46, 0
+        box('Screen support', (width/2 - 0.05, 0, 0.87), (0.06, 0.06, 0.54), dark)
+        box('Screen bracket', ((screen_x + width/2 - 0.05)/2, 0, 1.14), (0.41, 0.05, 0.05), dark)
+        screen_frame = box('Screen frame', (screen_x, screen_y, 1.14), (0.04, 1.13, 0.68), frame, 0.01)
+        screen = box('Screen', (screen_x - 0.025, screen_y - 0.025, 1.14), (0.015, 1.02, 0.57), dark)
+        screen_frame.rotation_euler.z = screen.rotation_euler.z = math.pi / 4
     else:
         seat_depth = min(0.4, width*0.2)
         seat_length = depth * 0.71
@@ -103,5 +109,5 @@ def build(name, width, depth, meeting):
 
 
 OUTPUT.mkdir(parents=True, exist_ok=True)
-for spec in ROOMS:
+for spec in (ROOMS[-1:] if '--meeting-only' in sys.argv else ROOMS):
     build(*spec)

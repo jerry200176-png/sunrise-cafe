@@ -28,6 +28,9 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # Hold the SDK at the existing API contract until a payment API migration.
+      - dependency-name: "stripe"
+        versions: [">=22.4.0"]
   # Keeps the commit-SHA pins in .github/workflows current (version comment is updated too).
   - package-ecosystem: github-actions
     directory: "/"
