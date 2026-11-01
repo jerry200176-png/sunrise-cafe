@@ -159,7 +159,19 @@ jobs:
             2>&1 | head -c 262144 > "$RUNNER_TEMP/vercel-install-output.txt"
           code=${PIPESTATUS[0]}
           set -e
-          [ "$code" = 0 ] || { echo '::error::sandboxed CLI install failed or timed out'; exit 1; }
+          if [ "$code" != 0 ]; then
+            # This log comes only from the credential-free sandbox. Escape all
+            # controls and prefix lines so untrusted package output cannot emit
+            # GitHub workflow commands or terminal escape sequences.
+            python3 - "$RUNNER_TEMP/vercel-install-output.txt" <<'PY'
+          import pathlib, sys
+          lines = pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines()
+          for line in lines[-30:]:
+              print(" | " + line[:1000].encode("unicode_escape").decode("ascii"))
+          PY
+            echo '::error::sandboxed CLI install failed or timed out'
+            exit 1
+          fi
       - name: Check version and command flags without network or credentials
         run: |
           set -euo pipefail
