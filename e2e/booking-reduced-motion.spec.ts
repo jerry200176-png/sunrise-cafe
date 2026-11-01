@@ -95,14 +95,22 @@ test("訂位互動即時尊重減少動態偏好，保留照片與表單焦點",
 });
 
 for (const scenario of [
-  { status: 409, reducedMotion: "reduce" as const, message: "模擬錯誤 409" },
-  { status: 503, reducedMotion: "no-preference" as const, message: "模擬錯誤 503" },
-  { status: 0, reducedMotion: "reduce" as const, message: "無法確認訂位是否已送出" },
+  { status: 409, reducedMotion: "reduce" as const, message: "伺服器回覆 409" },
+  { status: 503, reducedMotion: "no-preference" as const, message: "結果尚未確認" },
+  { status: 0, reducedMotion: "reduce" as const, message: "結果尚未確認" },
 ]) {
   test(`首次送出${scenario.status || "連線中斷"}時定位錯誤並保留客人焦點`, async ({ page }) => {
     const date = bookingDateOffset(2);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ reducedMotion: scenario.reducedMotion });
+    await page.addInitScript(() => {
+      window.motionEvents = [];
+      const original = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = function (arg?: boolean | ScrollIntoViewOptions) {
+        if (this.getAttribute("role") === "alert") window.motionEvents.push({ id: "alert", behavior: typeof arg === "object" ? arg.behavior : undefined });
+        return original.call(this, arg);
+      };
+    });
     await setupBookingApiMocks(page, date);
     await page.route("**/api/rooms?**", (route) => route.fulfill({ json: [] }));
     let release!: () => void;
@@ -114,7 +122,7 @@ for (const scenario of [
       started();
       await responseGate;
       if (scenario.status === 0) return route.abort("failed");
-      await route.fulfill({ status: scenario.status, json: { error: scenario.message } });
+      await route.fulfill({ status: scenario.status, json: { error: `伺服器回覆 ${scenario.status}` } });
     });
     await page.goto("/book");
     await page.locator("#booking-date").fill(date);
@@ -134,7 +142,13 @@ for (const scenario of [
     await expect(alert).toBeVisible();
     await expect(alert).toBeInViewport();
     await expect(phone).toBeFocused();
-    if (scenario.status === 0) await expect(alert.getByRole("link", { name: /查詢/ })).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.motionEvents.filter((event) => event.id === "alert").at(-1)?.behavior))
+      .toBe(scenario.reducedMotion === "reduce" ? "instant" : "smooth");
+    if (scenario.status !== 409) {
+      await expect(alert.getByRole("link", { name: /查詢/ })).toBeVisible();
+      await expect(page.getByRole("region", { name: "確認預約" }).getByRole("button")).toBeDisabled();
+    }
+
   });
 }
 
@@ -152,7 +166,7 @@ test("離開表單前清除錯誤會取消尚未執行的錯誤捲動", async ({
       return original.call(this, arg);
     };
     window.requestAnimationFrame = (callback) => {
-      const banner = Array.from(document.querySelectorAll('[role="alert"]')).some((el) => el.textContent?.includes("模擬錯誤"));
+      const banner = Array.from(document.querySelectorAll('[role="alert"]')).some((el) => el.textContent?.includes("結果尚未確認"));
       if (state.enabled && banner) {
         state.enabled = false;
         state.captured = true;
@@ -181,7 +195,7 @@ test("離開表單前清除錯誤會取消尚未執行的錯誤捲動", async ({
   await page.locator("#booking-phone").fill("0912345678");
   await page.evaluate(() => { window.heldErrorFrame.enabled = true; });
   await page.getByRole("region", { name: "確認預約" }).getByRole("button", { name: "確認預約" }).click();
-  await expect(page.getByRole("alert").filter({ hasText: "模擬錯誤" })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "結果尚未確認" })).toBeVisible();
   await expect.poll(() => page.evaluate(() => window.heldErrorFrame.captured)).toBe(true);
   await page.getByRole("button", { name: "← 重選時段" }).click();
   await expect.poll(() => page.evaluate(() => window.heldErrorFrame.cancelled)).toBe(true);
