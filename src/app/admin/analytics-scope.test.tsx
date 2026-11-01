@@ -166,3 +166,28 @@ describe("analytics branch scope shrinks", () => {
     expect(screen.getByText("目前沒有可管理的分店。")).toBeTruthy();
   });
 });
+
+describe("report response errors", () => {
+  it.each([null, {}, { ...report(1), by_hour: [{ hour: 8 }] }, { ...report(1), summary: { ...report(1).summary, received_deposits: null } }])(
+    "rejects malformed report data and retries without exporting invalid data",
+    async (invalid) => {
+      mocked.fetch.mockResolvedValueOnce(json(invalid)).mockResolvedValueOnce(json(report(1234)));
+      render(<ReportsPage />);
+      expect((await screen.findByRole("alert")).textContent).toContain("報表資料格式錯誤");
+      expect(screen.queryByRole("button", { name: /匯出/ })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "重試載入報表" }));
+      expect(await screen.findByText("$1,234")).toBeTruthy();
+      expect(screen.getByRole("button", { name: /匯出/ })).toBeTruthy();
+      expect(screen.queryByRole("alert")).toBeNull();
+    },
+  );
+
+  it("allows a valid report with empty collections and no deposit rate", async () => {
+    const empty = report(0);
+    mocked.fetch.mockResolvedValue(json({ ...empty, summary: { ...empty.summary, deposit_rate: null } }));
+    render(<ReportsPage />);
+    expect(await screen.findByText("無資料")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /匯出/ })).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
