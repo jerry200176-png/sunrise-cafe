@@ -57,13 +57,14 @@ function unavailable(key: LimiterKey): RateLimitResult {
   return { success: false, limit: 0, remaining: 0, reset: Date.now() + 5000, mode: "upstash", unavailable: true };
 }
 
-function makeUpstash(key: LimiterKey, requests: number, window: `${number} ${"s" | "m" | "h"}`) {
+function makeUpstash(requests: number, window: `${number} ${"s" | "m" | "h"}`) {
   if (!isUpstashConfigured()) return null;
   try {
     return new Ratelimit({
       redis: Redis.fromEnv(),
       limiter: Ratelimit.slidingWindow(requests, window),
-      prefix: `sunrise:ratelimit:${key}`,
+      // Preserve the SDK default prefix and legacy shared bucket during rollout.
+      // Separating categories requires a separately designed transition.
       analytics: true,
     });
   } catch {
@@ -73,11 +74,11 @@ function makeUpstash(key: LimiterKey, requests: number, window: `${number} ${"s"
 }
 
 const upstashLimiters = {
-  login: makeUpstash("login", 5, "1 m"),
-  booking: makeUpstash("booking", 5, "1 m"),
-  availability: makeUpstash("availability", 30, "1 m"),
-  guestLookup: makeUpstash("guestLookup", 10, "1 m"),
-  api: makeUpstash("api", 60, "1 m"),
+  login: makeUpstash(5, "1 m"),
+  booking: makeUpstash(5, "1 m"),
+  availability: makeUpstash(30, "1 m"),
+  guestLookup: makeUpstash(10, "1 m"),
+  api: makeUpstash(60, "1 m"),
 } as const;
 
 /** Per-isolate memory store: key → timestamps */

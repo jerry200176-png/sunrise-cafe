@@ -16,7 +16,7 @@ it("fails closed when the real Upstash SDK takes its default timeout path", asyn
   expect(calls.evalsha).toHaveBeenCalled();
 });
 
-it("uses distinct Redis buckets for each category with the same identifier", async () => {
+it("preserves the legacy shared Redis bucket across categories during rollout", async () => {
   vi.resetModules();
   vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://synthetic.invalid");
   vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "synthetic-token");
@@ -31,7 +31,6 @@ it("uses distinct Redis buckets for each category with the same identifier", asy
   expect(login.success).toBe(true);
   expect(availability.success).toBe(true);
   expect(keys).toHaveLength(2);
-  expect(keys[0]).not.toEqual(keys[1]);
-  expect(keys[0][0]).toContain("sunrise:ratelimit:login:");
-  expect(keys[1][0]).toContain("sunrise:ratelimit:availability:");
+  expect(keys[0]).toEqual(keys[1]);
+  expect(keys[0][0]).toContain("@upstash/ratelimit:");
 });
