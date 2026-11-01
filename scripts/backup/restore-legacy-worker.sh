@@ -29,6 +29,8 @@ cleanup() {
   if [[ "$work" == /tmp/sunrise-legacy-drill.* ]]; then rm -r -- "$work"; fi
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 [[ -S /var/run/docker.sock && ! -L /var/run/docker.sock && "$(stat -Lc '%u' /var/run/docker.sock)" == 0 ]] || {
   echo 'A root-owned local Docker socket is unavailable.' >&2; exit 1;
 }
@@ -64,10 +66,10 @@ expected="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d
 [[ "$actual" == "$expected" ]] || { echo 'Decrypted dump does not match manifest.' >&2; exit 1; }
 # Refuse an existing name and pull nothing. tmpfs /tmp holds any sanitized restore log.
 if local_docker inspect "$container" >/dev/null 2>&1; then echo 'Fixture container name already exists.' >&2; exit 1; fi
+created=true
 local_docker run -d --rm --pull=never --network none --log-driver=none --read-only --tmpfs /var/lib/postgresql/data:rw,exec,size=4g \
   --tmpfs /tmp:rw,noexec,nosuid,size=64m --tmpfs /var/run/postgresql:rw,nosuid,size=16m --name "$container" \
   -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=fixture postgres:17-alpine >/dev/null
-created=true
 # Refuse restore if the effective Docker runtime configuration is less isolated.
 isolation="$(local_docker inspect "$container" --format '{{.HostConfig.NetworkMode}}|{{.HostConfig.LogConfig.Type}}|{{.HostConfig.ReadonlyRootfs}}|{{.HostConfig.Privileged}}|{{len .Mounts}}|{{len .HostConfig.Mounts}}|{{len .HostConfig.VolumesFrom}}|{{len .HostConfig.Devices}}|{{len .HostConfig.Binds}}|{{len .HostConfig.PortBindings}}|{{index .HostConfig.Tmpfs "/var/lib/postgresql/data"}}|{{index .HostConfig.Tmpfs "/tmp"}}|{{index .HostConfig.Tmpfs "/var/run/postgresql"}}')"
 [[ "$isolation" == 'none|none|true|false|0|0|0|0|0|0|rw,exec,size=4g|rw,noexec,nosuid,size=64m|rw,nosuid,size=16m' ]] || {
