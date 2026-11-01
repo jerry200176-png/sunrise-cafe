@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 // This atomic in-memory model is not a Redis server or a cross-process test.
-const store = vi.hoisted(() => ({ buckets: new Map<string, number>(), keys: [] as string[], hang: false }));
+const store = vi.hoisted(() => ({ buckets: new Map<string, number>(), keys: [] as string[], hang: false,
+  defer: false, release: null as null | (() => void) }));
 vi.mock("@upstash/redis", () => ({ Redis: { fromEnv: () => ({
   zincrby: async () => 1,
   evalsha: async (_hash: string, keys: string[], args: number[]) => {
     if (store.hang) return new Promise(() => {});
+    if (store.defer) {
+      store.defer = false;
+      await new Promise<void>((resolve) => { store.release = resolve; });
+    }
     const [current, previous] = keys;
     const [limit, now, window, increment] = args;
     store.keys.push(current);
@@ -22,7 +27,7 @@ beforeEach(() => {
   vi.resetModules(); vi.useFakeTimers(); vi.setSystemTime(1_800_000_001_000);
   vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://synthetic.invalid");
   vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "synthetic-token");
-  store.buckets.clear(); store.keys.length = 0; store.hang = false;
+  store.buckets.clear(); store.keys.length = 0; store.hang = false; store.defer = false; store.release = null;
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.useRealTimers(); });
 
@@ -60,4 +65,19 @@ it("old workers can still fail open on timeout until drained", async () => {
   await vi.advanceTimersByTimeAsync(5000);
   expect(await oldPending).toMatchObject({ success: true, reason: "timeout" });
   expect(await newPending).toMatchObject({ success: false, unavailable: true, mode: "upstash" });
+});
+
+it("a timed-out SDK operation can later consume quota even after the caller receives 503", async () => {
+  const current = await import("./rate-limit");
+  store.defer = true;
+  const timedOut = current.rateLimit("synthetic-ip", "booking");
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(await timedOut).toMatchObject({ success: false, unavailable: true });
+  expect(store.release).toBeTypeOf("function");
+  store.release!();
+  await vi.waitFor(() => expect([...store.buckets.values()]).toEqual([1]));
+  for (let i = 0; i < 4; i++) expect((await current.rateLimit("synthetic-ip", "booking")).success).toBe(true);
+  const blocked = await current.rateLimit("synthetic-ip", "booking");
+  expect(blocked.success).toBe(false);
+  expect(blocked.unavailable).toBeUndefined();
 });

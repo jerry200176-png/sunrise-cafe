@@ -19,3 +19,5 @@ Upstash timeout、連線例外或配置狀態不一致時，拒絕該請求並�
 以合成 SDK 回傳驗證成功、超額、timeout、例外與中途缺 limiter；直接路由與 middleware 測 503/429，確定不誤寫限流日誌；測試 memory 應維持現狀。使用真實 SDK 和合成共享 store 測試舊版預設 constructor 與新版交錯時共同計數；這不是獨立程序或真實 Redis 測試。舊版在 SDK timeout 時仍放行，因此須證明舊 worker 已排空才能宣稱新版 timeout 保護全面生效；回退同樣會恢復放行。正式設定或 SDK 不一致仍會影響切換，須先核對；兩項設定均無時仍為 per-isolate memory。一般 API 的既有 cron 判斷可被偽造的 `x-vercel-cron-schedule` 繞過，#456 尚未部署，本改動不修正或聲稱消除該限制。此變更不新增／讀取／設定正式憑證，不探測或聲稱 Upstash 可用，也不發送正式客人通知。設定後仍需以經授權的安全測試及監測確認跨實例限制；單一 health JSON 不足以證明。若 Upstash 不穩，回退此程式會恢復 SDK timeout 放行，應先修復依賴而非視為安全回復。
 
 既有 SDK `analytics: true` 在應用程式讀到 timeout 前可能先以 SDK 的 `success: true` 記錄分析，故供應商面板的成功數不能證明應用程式放行；SDK 自身處理 analytics 失敗時也可能記錄其錯誤物件。此 PR 不更動既有 analytics 行為，實際啟用前須另行評估日誌隱私及觀測指標。
+
+SDK 的 5 秒 timeout 不會取消已送出的 Redis 命令：即使客人已收到 503，延遲命令仍可能寫入計數，後續合理請求可能因此得到 429。真實 SDK 加延遲合成 store 的測試重現此情境；這不是對真實 Redis 網路與復原的保證。營運應監看 `rate_limiter_unavailable` 的分類告警、503 與其後 429 的變化，先修復 provider 連線並以隔離請求核對；請客人稍後再試，不宣稱先前請求未消耗額度。舊 bucket 依 SDK 滑動視窗到期，持續流量或跨類別共用可延長影響；不可為了消除告警而無審核重設正式 Redis 計數或改成放行。警示為每 isolate／類別每分鐘最多一次，不能作為故障數量的精確統計。
