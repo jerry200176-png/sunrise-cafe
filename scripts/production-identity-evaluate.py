@@ -33,7 +33,6 @@ def evaluate(args, now=None):
     prod_commit = version.get("commit")
     main_valid = isinstance(remote_main, str) and SHA.fullmatch(remote_main) is not None
     prod_valid = isinstance(prod_commit, str) and SHA.fullmatch(prod_commit) is not None
-    health_ok = health_code == "200" and health.get("ok") is True
     stripe = health.get("stripe_enabled")
     red = []
     unknown = [
@@ -49,8 +48,10 @@ def evaluate(args, now=None):
         unknown.append("api_version_sha_unknown_or_invalid")
     if main_valid and prod_valid and remote_main != prod_commit:
         red.append("remote_main_ne_api_version_sha")
-    if not health_ok:
+    if health_code in ("200", "503") and health.get("ok") is False:
         red.append("booking_health_not_ok")
+    elif health_code != "200" or health.get("ok") is not True:
+        unknown.append("booking_health_unknown")
     if not verify or verify.get("status") != "completed":
         unknown.append("production_verification_missing_or_incomplete")
     elif verify.get("headSha") != remote_main or not main_valid:

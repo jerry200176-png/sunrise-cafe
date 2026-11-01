@@ -8,10 +8,15 @@ PROD_URL="${SUNRISE_PROD_URL:-https://sunrise-cafe-six.vercel.app}"
 need() { command -v "$1" >/dev/null || { echo "missing $1" >&2; exit 2; }; }
 need curl; need python3; need gh; need git
 
-REMOTE_MAIN="$(git ls-remote "https://github.com/${REPO}.git" refs/heads/main | awk '{print $1}')"
+REMOTE_MAIN="$(git ls-remote "https://github.com/${REPO}.git" refs/heads/main | awk '{print $1}')" || REMOTE_MAIN=""
 VERSION_RAW="$(curl -sS --max-time 20 "${PROD_URL}/api/version" || true)"
-HEALTH_RAW="$(curl -sS --max-time 20 "${PROD_URL}/api/booking-health" || true)"
-HEALTH_CODE="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "${PROD_URL}/api/booking-health" || echo 000)"
+if HEALTH_RESPONSE="$(curl -sS --max-time 20 --write-out $'\n%{http_code}' "${PROD_URL}/api/booking-health")"; then
+  HEALTH_CODE="${HEALTH_RESPONSE##*$'\n'}"
+  HEALTH_RAW="${HEALTH_RESPONSE%$'\n'*}"
+else
+  HEALTH_CODE=000
+  HEALTH_RAW=""
+fi
 
 # Latest successful production deployment via GitHub environments API if present
 DEPLOY_JSON="$(gh api "repos/${REPO}/deployments?environment=Production&per_page=1" 2>/dev/null || echo '[]')"

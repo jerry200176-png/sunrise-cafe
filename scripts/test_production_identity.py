@@ -72,6 +72,21 @@ class EvaluateTests(unittest.TestCase):
         self.assertIn("booking_health_not_ok", result["drift_red"])
         self.assertIn("outcome_pipeline_stale", result["drift_red"])
 
+    def test_missing_bad_or_inconsistent_health_is_unknown(self):
+        for code, body in (("000", ""), ("200", "not-json"), ("200", "{}"),
+                           ("503", json.dumps({"ok": True})), ("404", "{}")):
+            with self.subTest(code=code, body=body):
+                args = observations()
+                args[2], args[3] = body, code
+                result = self.classify(args)
+                self.assertIn("booking_health_unknown", result["evidence_unknown"])
+                self.assertNotIn("booking_health_not_ok", result["drift_red"])
+
+    def test_explicit_503_unhealthy_is_red(self):
+        args = observations()
+        args[2], args[3] = json.dumps({"ok": False}), "503"
+        self.assertIn("booking_health_not_ok", self.classify(args)["drift_red"])
+
     def test_malformed_payloads_and_dates_do_not_crash_or_infer_payment(self):
         args = observations()
         args[1:4] = ["[]", "null", "200"]
@@ -90,10 +105,10 @@ class ShellIntegrationTests(unittest.TestCase):
                 target = subprocess.run(["/usr/bin/which", command], capture_output=True, text=True, check=True).stdout.strip()
                 (bindir / command).symlink_to(target)
             scripts = {
-                "git": f"#!/bin/sh\nprintf '%s\\trefs/heads/main\\n' {'a' * 40}\n",
+                "git": f"#!/bin/sh\nif [ \"${{SYNTHETIC_GIT_FAILURE:-0}}\" = 1 ]; then exit 1; fi\nprintf '%s\\trefs/heads/main\\n' {'a' * 40}\n",
                 "curl": f'''#!/bin/sh
 case " $* " in
-  *" -w "*) printf 200 ;;
+  *" --write-out "*) printf '{{"ok":true,"stripe_enabled":false}}\\n200' ;;
   *"/api/version"*) printf '{{"commit":"{'a' * 40}"}}' ;;
   *) printf '{{"ok":true,"stripe_enabled":false}}' ;;
 esac
@@ -109,6 +124,11 @@ esac
                                        env=env, cwd=ROOT, capture_output=True, text=True, timeout=10)
             self.assertEqual(completed.returncode, 2, completed.stderr)
             self.assertEqual(json.loads(completed.stdout)["overall"], "UNKNOWN")
+            env["SYNTHETIC_GIT_FAILURE"] = "1"
+            failed_git = subprocess.run([str(bindir / "bash"), str(ROOT / "scripts/production-identity.sh")],
+                                        env=env, cwd=ROOT, capture_output=True, text=True, timeout=10)
+            self.assertEqual(failed_git.returncode, 2, failed_git.stderr)
+            self.assertIn("remote_main_sha_unknown_or_invalid", json.loads(failed_git.stdout)["evidence_unknown"])
 
 
 if __name__ == "__main__":
