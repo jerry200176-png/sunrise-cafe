@@ -139,6 +139,28 @@ if printf '%s\n%s\n%s\n' "$work/legacy.zip" "sha256:$(printf '0%.0s' {1..64})" "
   PATH="$(dirname "$AGE_BIN"):$PATH" bash scripts/backup/restore-legacy-local.sh >/dev/null 2>&1; then
   echo 'Legacy restore unexpectedly accepted an incorrect ZIP digest.' >&2; exit 1
 fi
+# Simulate another process claiming the name between inspect and run: never stop its container.
+mkdir "$work/mock-docker"
+cat > "$work/mock-docker/docker" <<'SH'
+#!/bin/sh
+base=${0%/*}
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --config|--host) shift 2 ;;
+    inspect) if [ -f "$base/claimed" ]; then echo other-owner; exit 0; else exit 1; fi ;;
+    run) : > "$base/claimed"; exit 125 ;;
+    stop) : > "$base/stopped"; exit 0 ;;
+    *) exit 1 ;;
+  esac
+done
+exit 1
+SH
+chmod +x "$work/mock-docker/docker"
+if printf '%s\n%s\n%s\n' "$work/legacy.zip" "sha256:$zip_sha" "$AGE_PUBLIC_TEST_IDENTITY" | \
+  PATH="$work/mock-docker:$(dirname "$AGE_BIN"):$PATH" bash scripts/backup/restore-legacy-local.sh >/dev/null 2>&1; then
+  echo 'Unexpected success after a synthetic container name collision.' >&2; exit 1
+fi
+[[ -f "$work/mock-docker/claimed" && ! -e "$work/mock-docker/stopped" ]]
 printf '%s\n%s\n%s\n' "$work/legacy.zip" "sha256:$zip_sha" "$AGE_PUBLIC_TEST_IDENTITY" | \
   PATH="$(dirname "$AGE_BIN"):$PATH" DOCKER_HOST='tcp://203.0.113.1:2375' \
   DOCKER_CONTEXT='synthetic-untrusted-remote' DOCKER_TLS_VERIFY=1 DOCKER_CONFIG="$work/nonexistent-docker-config" \

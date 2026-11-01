@@ -10,7 +10,8 @@ identity_path="/proc/self/fd/${BACKUP_IDENTITY_FD:?}"
 [[ "$expected_digest" =~ ^sha256:([a-f0-9]{64})$ ]] || { echo 'Trusted ZIP digest missing or malformed.' >&2; exit 1; }
 expected_sha="${BASH_REMATCH[1]}"
 work="$(mktemp -d /tmp/sunrise-legacy-drill.XXXXXX)"
-container="sunrise-legacy-drill-${work##*.}"
+owner="${work##*.}"
+container="sunrise-legacy-drill-$owner"
 created=false
 docker_bin="$(command -v docker)"
 [[ "$docker_bin" == /* && -x "$docker_bin" ]] || { echo 'Local Docker CLI unavailable.' >&2; exit 1; }
@@ -25,7 +26,10 @@ local_docker() (
   env -i "$docker_bin" --config "$docker_config" --host unix:///var/run/docker.sock "$@"
 )
 cleanup() {
-  if [[ "$created" == true ]]; then local_docker stop -t 0 "$container" >/dev/null 2>&1 || true; fi
+  if [[ "$created" == true ]]; then
+    actual_owner="$(local_docker inspect "$container" --format '{{index .Config.Labels "sunrise.local-drill-owner"}}' 2>/dev/null || true)"
+    if [[ "$actual_owner" == "$owner" ]]; then local_docker stop -t 0 "$container" >/dev/null 2>&1 || true; fi
+  fi
   if [[ "$work" == /tmp/sunrise-legacy-drill.* ]]; then rm -r -- "$work"; fi
 }
 trap cleanup EXIT
@@ -68,7 +72,8 @@ expected="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d
 if local_docker inspect "$container" >/dev/null 2>&1; then echo 'Fixture container name already exists.' >&2; exit 1; fi
 created=true
 local_docker run -d --rm --pull=never --network none --log-driver=none --read-only --tmpfs /var/lib/postgresql/data:rw,exec,size=4g \
-  --tmpfs /tmp:rw,noexec,nosuid,size=64m --tmpfs /var/run/postgresql:rw,nosuid,size=16m --name "$container" \
+  --tmpfs /tmp:rw,noexec,nosuid,size=64m --tmpfs /var/run/postgresql:rw,nosuid,size=16m \
+  --label "sunrise.local-drill-owner=$owner" --name "$container" \
   -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=fixture postgres:17-alpine >/dev/null
 # Refuse restore if the effective Docker runtime configuration is less isolated.
 isolation="$(local_docker inspect "$container" --format '{{.HostConfig.NetworkMode}}|{{.HostConfig.LogConfig.Type}}|{{.HostConfig.ReadonlyRootfs}}|{{.HostConfig.Privileged}}|{{len .Mounts}}|{{len .HostConfig.Mounts}}|{{len .HostConfig.VolumesFrom}}|{{len .HostConfig.Devices}}|{{len .HostConfig.Binds}}|{{len .HostConfig.PortBindings}}|{{index .HostConfig.Tmpfs "/var/lib/postgresql/data"}}|{{index .HostConfig.Tmpfs "/tmp"}}|{{index .HostConfig.Tmpfs "/var/run/postgresql"}}')"
