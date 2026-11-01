@@ -27,7 +27,6 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
@@ -42,18 +41,6 @@ jobs:
             export SUPABASE_DB_URL="${SUPABASE_DB_URL:-${POSTGRES_URL_NON_POOLING:-${POSTGRES_URL:-}}}"
           fi
           node scripts/apply-migration-ops-events.mjs || {
-            echo "Direct apply failed — trying production API..."
-            if [ -z "${CRON_SECRET:-}" ]; then
-              echo "::error::Direct apply failed and CRON_SECRET is unavailable"
-              exit 1
-            fi
-            CODE=$(curl -sS -o "${RUNNER_TEMP}/ops-events-apply.json" -w "%{http_code}" -X POST \
-              -H "Authorization: Bearer ${CRON_SECRET}" \
-              "https://sunrise-cafe-six.vercel.app/api/admin/migrations/apply-ops-events") || {
-                echo "::error::Fallback migration request failed"; exit 1;
-              }
-            [ "$CODE" = "200" ] || { echo "::error::Fallback migration returned HTTP ${CODE}"; exit 1; }
-            jq -e 'type == "object" and .ok == true' "${RUNNER_TEMP}/ops-events-apply.json" >/dev/null || {
-              echo "::error::Fallback migration did not confirm success"; exit 1;
-            }
+            echo "::error::Direct migration runner failed; automatic HTTP fallback is disabled"
+            exit 1
           }

@@ -16,6 +16,6 @@
 
 本地以合成資料執行兩項目的定向測試，另測合法 cron 在 limiter unavailable 時免限流及偽造 header 仍受 503 限制；不呼叫正式 LINE、Redis 或其他正式服務。真 Redis／多程序、timeout 遲到扣額的隔離證據及限制見 #519；cron 原始證據見 #456。
 
-備援 workflow 的 verify 呼叫仍受一般 API 限流；HTTP 503／500、連線失敗或非 `ok: true` 不能被當作成功。HTTP 200 且 `ok: true` 只表示診斷函式已回覆，其內容仍可能報 `job_runs_ready: false` 或其他問題，不能當作排程、ledger 或 LINE 已就緒。ops-events workflow 的直連成功路徑不變；直連失敗後，缺憑證、fallback 連線失敗、非 200 或回覆未確認成功均使 workflow 失敗，而非假裝 migration 完成；fallback 原有寫入行為未擴大，也不能把其成功當成完整 schema／正式資料驗證。
+備援 workflow 的 verify 呼叫仍受一般 API 限流；HTTP 503／500、連線失敗或非 `ok: true` 不能被當作成功。HTTP 200 且 `ok: true` 只表示診斷函式已回覆，其內容仍可能報 `job_runs_ready: false` 或其他問題，不能當作排程、ledger 或 LINE 已就緒。ops-events workflow 的直連 runner 成功路徑不變；直連失敗即停止，不再呼叫會在 REST 401／查詢錯誤時執行 SQL 的 HTTP fallback。**直連 runner 自身在 URL/key 缺失或特定 REST 回覆下仍可能直接執行 SQL，migration endpoint 與 bootstrap 也仍是其他寫入入口**；本次沒有修復它們，不能解除發布 hold 或宣稱已安全完成 schema 遷移，需另行設計並獨立驗證唯讀／受控路徑。
 
 當前 production `CRON_SECRET` 與 GitHub 備援是否仍存在且一致、所有外部 machine caller、真正 Upstash 配置、排空和復原演練均未確認。正確設定缺失會按設計阻止排程；不得因合成測試成功便宣稱已解除正式發布 hold。此整合不含 migration SQL，也不自動更改正式資料或憑證；回退會恢復 timeout fail-open 與舊 header 判斷，不能視為安全復原。

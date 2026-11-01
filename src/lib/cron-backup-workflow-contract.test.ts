@@ -67,18 +67,16 @@ describe("reminder backup verification workflow", () => {
   it("rejects a transport failure", () => expect(runWorkflow(script, { transport: true }).status).not.toBe(0));
 });
 
-describe("ops-events migration fallback workflow", () => {
+describe("ops-events migration workflow", () => {
   const script = workflowScript("apply-migration-ops-events.yml", "apply", "Apply migration");
   it("keeps the successful direct runner path without calling the fallback", () => {
     const result = runWorkflow(script, { direct: "0" });
     expect(result.status).toBe(0); expect(result.curlCalled).toBe(false);
   });
-  it.each(['{"ok":true,"already_applied":true}', '{"ok":true,"applied":true}'])
-    ("accepts the route's real success response %s", (body) => expect(runWorkflow(script, { body }).status).toBe(0));
-  it.each([["503", '{"error":"unavailable"}'], ["500", '{"error":"failed"}'], ["200", '{"ok":false}'], ["200", '{}'], ["200", 'not-json']])
-    ("fails on fallback HTTP %s or unconfirmed response", (status, body) => expect(runWorkflow(script, { status, body }).status).not.toBe(0));
-  it("fails when fallback authentication is unavailable or the connection fails", () => {
-    expect(runWorkflow(script, { secret: "" }).status).not.toBe(0);
-    expect(runWorkflow(script, { transport: true }).status).not.toBe(0);
+  it.each(["", "synthetic-secret"])("does not call a writing fallback after direct runner failure (secret=%s)", (secret) => {
+    const result = runWorkflow(script, { direct: "1", secret });
+    expect(result.status).not.toBe(0);
+    expect(result.curlCalled).toBe(false);
+    expect(result.output).toContain("automatic HTTP fallback is disabled");
   });
 });
