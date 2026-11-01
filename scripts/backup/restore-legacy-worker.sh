@@ -27,8 +27,10 @@ local_docker() (
 )
 cleanup() {
   if [[ "$created" == true ]]; then
-    actual_owner="$(local_docker inspect "$container" --format '{{index .Config.Labels "sunrise.local-drill-owner"}}' 2>/dev/null || true)"
-    if [[ "$actual_owner" == "$owner" ]]; then local_docker stop -t 0 "$container" >/dev/null 2>&1 || true; fi
+    inspected="$(local_docker inspect "$container" --format '{{.Id}}|{{index .Config.Labels "sunrise.local-drill-owner"}}' 2>/dev/null || true)"
+    if [[ "$inspected" =~ ^([a-f0-9]{64})\|([[:alnum:]]+)$ && "${BASH_REMATCH[2]}" == "$owner" ]]; then
+      local_docker stop -t 0 "${BASH_REMATCH[1]}" >/dev/null 2>&1 || true
+    fi
   fi
   if [[ "$work" == /tmp/sunrise-legacy-drill.* ]]; then rm -r -- "$work"; fi
 }

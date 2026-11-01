@@ -147,9 +147,18 @@ base=${0%/*}
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --config|--host) shift 2 ;;
-    inspect) if [ -f "$base/claimed" ]; then echo other-owner; exit 0; else exit 1; fi ;;
-    run) : > "$base/claimed"; exit 125 ;;
-    stop) : > "$base/stopped"; exit 0 ;;
+    inspect)
+      if [ ! -f "$base/claimed" ]; then exit 1; fi
+      if [ -f "$base/matching-owner" ]; then read -r label < "$base/owner"; else label=other-owner; fi
+      printf '%064d|%s\n' 7 "$label"; exit 0 ;;
+    run)
+      shift
+      while [ "$#" -gt 1 ]; do
+        if [ "$1" = '--label' ]; then printf '%s\n' "${2#sunrise.local-drill-owner=}" > "$base/owner"; break; fi
+        shift
+      done
+      : > "$base/claimed"; exit 125 ;;
+    stop) printf '%s\n' "$4" > "$base/stopped"; exit 0 ;;
     *) exit 1 ;;
   esac
 done
@@ -161,6 +170,14 @@ if printf '%s\n%s\n%s\n' "$work/legacy.zip" "sha256:$zip_sha" "$AGE_PUBLIC_TEST_
   echo 'Unexpected success after a synthetic container name collision.' >&2; exit 1
 fi
 [[ -f "$work/mock-docker/claimed" && ! -e "$work/mock-docker/stopped" ]]
+# Even if the name is reused after inspection, stop is issued to the immutable ID only.
+rm -- "$work/mock-docker/claimed"
+touch "$work/mock-docker/matching-owner"
+if printf '%s\n%s\n%s\n' "$work/legacy.zip" "sha256:$zip_sha" "$AGE_PUBLIC_TEST_IDENTITY" | \
+  PATH="$work/mock-docker:$(dirname "$AGE_BIN"):$PATH" bash scripts/backup/restore-legacy-local.sh >/dev/null 2>&1; then
+  echo 'Unexpected success after synthetic docker run failure.' >&2; exit 1
+fi
+[[ "$(cat "$work/mock-docker/stopped")" == "$(printf '%064d' 7)" ]]
 printf '%s\n%s\n%s\n' "$work/legacy.zip" "sha256:$zip_sha" "$AGE_PUBLIC_TEST_IDENTITY" | \
   PATH="$(dirname "$AGE_BIN"):$PATH" DOCKER_HOST='tcp://203.0.113.1:2375' \
   DOCKER_CONTEXT='synthetic-untrusted-remote' DOCKER_TLS_VERIFY=1 DOCKER_CONFIG="$work/nonexistent-docker-config" \
