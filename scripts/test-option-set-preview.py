@@ -66,7 +66,7 @@ CREATE TEMP TABLE menu_option_set_options (id uuid DEFAULT gen_random_uuid(), se
 CREATE TEMP TABLE menu_option_set_items (set_id uuid, item_id text);
 {MERGE_SQL}
 SELECT 'MIG', b.name, s.name,
-       (SELECT string_agg(o.name, '、' ORDER BY o.display_order) FROM menu_option_set_options o WHERE o.set_id = s.id),
+       (SELECT string_agg(o.name || CASE WHEN o.price_delta <> 0 THEN '(' || CASE WHEN o.price_delta > 0 THEN '+' ELSE '' END || o.price_delta::text || ')' ELSE '' END, '、' ORDER BY o.display_order) FROM menu_option_set_options o WHERE o.set_id = s.id),
        (SELECT count(*) FROM menu_option_set_items si WHERE si.set_id = s.id),
        (SELECT string_agg(mi.name, '、' ORDER BY mi.name) FROM menu_option_set_items si JOIN menu_items mi ON mi.id = si.item_id WHERE si.set_id = s.id)
   FROM menu_option_sets s JOIN branches b ON b.id = s.branch_id;
@@ -77,13 +77,14 @@ CREATE TEMP TABLE branches (id text PRIMARY KEY, name text);
 CREATE TEMP TABLE menu_items (id text PRIMARY KEY, name text, branch_id text);
 CREATE TEMP TABLE menu_item_options (id integer, item_id text, option_group text, option_name text, price_delta numeric, display_order integer{column});
 INSERT INTO branches VALUES ('b','大安'),('b2','西店');
-INSERT INTO menu_items VALUES ('1','甲','b'),('2','乙','b'),('3','丙','b'),('4','丁','b'),('5','戊','b'),('6','己','b2'),('7','庚','b'),('8','辛','b');
+INSERT INTO menu_items VALUES ('1','甲','b'),('2','乙','b'),('3','丙','b'),('4','丁','b'),('5','戊','b'),('6','己','b2'),('7','庚','b'),('8','辛','b'),('9','壬','b'),('10','癸','b');
 INSERT INTO menu_item_options VALUES
  (1,'1','溫度','冰',0,1{empty_set}), (2,'1','溫度','熱',0,0{empty_set}),
  (3,'2','溫度','冰',0,0{empty_set}), (4,'2','溫度','熱',0,1{empty_set}),
  (5,'3','糖','甜',0,0{empty_set}), (6,'3','糖','甜',0,1{empty_set}),
  (9,'5','溫度','常溫',0,0{empty_set}), (10,'6','溫度','冷',0,0{empty_set}),
- (12,'7','杯型','大杯',0,0{empty_set}), (13,'8','杯型','小杯',0,0{empty_set});
+ (12,'7','杯型','大杯',15.50,0{empty_set}), (13,'8','杯型','小杯',-2.5,0{empty_set}),
+ (14,'9','甜點','加大',1.0,0{empty_set}), (15,'10','甜點','加大',1.00,0{empty_set});
 {already_merged}
 {PREVIEW}
 {migration_output}
@@ -96,7 +97,7 @@ ROLLBACK;
         return [line for line in result.stdout.splitlines() if line]
 
     def assert_expected_preview(self, lines):
-        self.assertEqual(len(lines), 6)
+        self.assertEqual(len(lines), 8)
         fields = next(line for line in lines if line.startswith("大安|溫度|1|")).split("|")
         self.assertEqual(fields[:5], ["大安", "溫度", "1", "熱、冰", "2"])
         # Branch-name ordering follows the actual database collation.
@@ -107,7 +108,11 @@ ROLLBACK;
         cups = [line.split("|") for line in lines if line.startswith("大安|杯型|")]
         self.assertEqual(len(cups), 2)
         self.assertEqual({entry[2] for entry in cups}, {"1", "2"})
-        self.assertEqual({(entry[3], entry[5]) for entry in cups}, {("大杯", "庚"), ("小杯", "辛")})
+        self.assertEqual({(entry[3], entry[5]) for entry in cups}, {("大杯(+15.50)", "庚"), ("小杯(-2.5)", "辛")})
+        precision = [line.split("|") for line in lines if line.startswith("大安|甜點|")]
+        self.assertEqual(len(precision), 2)
+        self.assertEqual({entry[2] for entry in precision}, {"1", "2"})
+        self.assertEqual({(entry[3], entry[5]) for entry in precision}, {("加大(+1.0)", "壬"), ("加大(+1.00)", "癸")})
 
     def test_before_migration_without_set_id_column(self):
         self.assert_expected_preview(self.run_preview(False))
@@ -120,7 +125,7 @@ ROLLBACK;
         preview = [line for line in lines if not line.startswith("MIG|")]
         actual = [line for line in lines if line.startswith("MIG|")]
         self.assert_expected_preview(preview)
-        self.assertEqual(len(actual), 5)
+        self.assertEqual(len(actual), 7)
         for preview_line in preview:
             parts = preview_line.split("|")
             if len(parts) != 6:  # duplicate-name rows are deliberately unmerged
