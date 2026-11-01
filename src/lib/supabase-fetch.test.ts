@@ -13,6 +13,37 @@ afterEach(() => {
 });
 
 describe("supabase-fetch admin mutations", () => {
+  it("requires a server credential to read the full branch configuration", async () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-key";
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { fetchBranches } = await import("./supabase-fetch");
+    await expect(fetchBranches()).rejects.toThrow(/SUPABASE_SERVICE_ROLE_KEY/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses the server credential for full branch reads and the anon key for public fields", async () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-key";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key";
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => [] });
+    vi.stubGlobal("fetch", fetchMock);
+    const { fetchBranches, fetchPublicBranches } = await import("./supabase-fetch");
+    await fetchBranches(true);
+    await fetchPublicBranches();
+    const [adminUrl, adminInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [publicUrl, publicInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect((adminInit.headers as Record<string, string>).apikey).toBe("service-role-key");
+    expect(adminUrl).toContain("select=*");
+    expect((publicInit.headers as Record<string, string>).apikey).toBe("anon-key");
+    expect(publicUrl).toContain("archived_at=is.null");
+    expect(publicUrl).not.toContain("line_group_id");
+    expect(publicUrl).not.toContain("payment_info");
+    expect(publicUrl).not.toContain("line_pay_url");
+  });
+
   it("refuses catalog writes without service role key", async () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-key";
