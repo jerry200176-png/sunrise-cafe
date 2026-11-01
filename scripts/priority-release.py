@@ -30,6 +30,7 @@ INFRA = {
     ".github/workflows/ci.yml",
     "scripts/priority-release.py", "scripts/test-priority-release.py",
     "scripts/priority-release-manifest.json", "scripts/release-cli/package.json",
+    "scripts/verified-release-cli-blobs.sh",
     "scripts/release-cli/package-lock.json", "docs/plans/2026-11-priority-code-only-release.md",
     "docs/RUNBOOK.md", "docs/plans/2026-11-deploy-before-postdeploy.md",
     "docs/plans/2026-11-migration-backup-fail-closed.md",

@@ -13,6 +13,7 @@ from unittest.mock import patch
 SPEC = importlib.util.spec_from_file_location("priority_release", Path(__file__).with_name("priority-release.py"))
 release = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(release)
+CLI_BLOB_HELPER = str(Path(__file__).with_name("verified-release-cli-blobs.sh").resolve())
 BASE = "a" * 40
 NEW = "b" * 40
 
@@ -375,6 +376,57 @@ class TreeGuardTests(unittest.TestCase):
         with self.assertRaises(release.ReleaseError):
             release.verify_tree(self.manifest, self.head, self.tree)
 
+
+class CliManifestBlobTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix="sunrise-cli-blob-")
+        self.root = Path(self.directory.name)
+        self.git("init", "-q")
+        self.git("config", "user.email", "synthetic@example.invalid")
+        self.git("config", "user.name", "Synthetic")
+        (self.root / "scripts/release-cli").mkdir(parents=True)
+        self.output = self.root / "output"
+        self.output.mkdir()
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def git(self, *args):
+        return subprocess.check_output(["git", *args], cwd=self.root, stderr=subprocess.DEVNULL).decode().strip()
+
+    def invoke(self):
+        return subprocess.run(["bash", CLI_BLOB_HELPER, str(self.output)], cwd=self.root,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+
+    def commit(self):
+        self.git("add", "scripts")
+        self.git("commit", "-qm", "synthetic")
+
+    def test_copies_only_regular_bounded_committed_blobs(self):
+        (self.root / "scripts/release-cli/package.json").write_text("{}", encoding="utf-8")
+        (self.root / "scripts/release-cli/package-lock.json").write_text("{}", encoding="utf-8")
+        self.commit()
+        self.assertEqual(self.invoke().returncode, 0)
+        self.assertEqual((self.output / "package.json").read_text(encoding="utf-8"), "{}")
+
+    def test_rejects_file_symlink_without_following_it(self):
+        (self.root / "scripts/release-cli/package.json").write_text("{}", encoding="utf-8")
+        (self.root / "scripts/release-cli/package-lock.json").symlink_to("/nonexistent-synthetic-secret")
+        self.commit()
+        self.assertNotEqual(self.invoke().returncode, 0)
+        self.assertFalse((self.output / "package-lock.json").exists())
+
+    def test_rejects_parent_directory_symlink(self):
+        (self.root / "scripts/release-cli").rmdir()
+        (self.root / "scripts/release-cli").symlink_to("/nonexistent-synthetic-secret")
+        self.commit()
+        self.assertNotEqual(self.invoke().returncode, 0)
+
+    def test_rejects_oversized_blob(self):
+        (self.root / "scripts/release-cli/package.json").write_text("x" * 2000001, encoding="utf-8")
+        (self.root / "scripts/release-cli/package-lock.json").write_text("{}", encoding="utf-8")
+        self.commit()
+        self.assertNotEqual(self.invoke().returncode, 0)
 
 if __name__ == "__main__":
     unittest.main()

@@ -115,25 +115,51 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
+      - name: Check isolated npm configuration without network
+        run: |
+          set -euo pipefail
+          command -v bwrap >/dev/null || { echo '::error::rootless sandbox unavailable'; exit 1; }
+          NODE_ROOT="$(dirname "$(dirname "$(readlink -f "$(command -v node)")")")"
+          umask 077
+          printf 'sandbox:x:%s:%s:Sandbox:/tmp/sandbox-home:/bin/sh\n' "$(id -u)" "$(id -g)" > "$RUNNER_TEMP/sunrise-sandbox-passwd"
+          bwrap --unshare-user --unshare-pid --unshare-net --unshare-ipc --unshare-uts --die-with-parent --clearenv \
+            --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+            --dir /sandbox --ro-bind "$NODE_ROOT" /sandbox/node --dir /etc --ro-bind "$RUNNER_TEMP/sunrise-sandbox-passwd" /etc/passwd \
+            --proc /proc --dev /dev --tmpfs /tmp --chdir /tmp \
+            --setenv PATH /sandbox/node/bin:/usr/bin:/bin --setenv NPM_CONFIG_CACHE /tmp/npm-cache \
+            /bin/sh -c '
+              set -e
+              mkdir -p /tmp/sandbox-home
+              : > /tmp/shared.npmrc; : > /tmp/user.npmrc; : > /tmp/global.npmrc
+              if NPM_CONFIG_USERCONFIG=/tmp/shared.npmrc NPM_CONFIG_GLOBALCONFIG=/tmp/shared.npmrc npm config get registry >/dev/null 2>&1; then exit 1; fi
+              NPM_CONFIG_USERCONFIG=/tmp/user.npmrc NPM_CONFIG_GLOBALCONFIG=/tmp/global.npmrc npm config get registry >/dev/null
+            '
       - name: Install locked CLI without lifecycle scripts or secrets
         run: |
           set -euo pipefail
           command -v bwrap >/dev/null || { echo '::error::rootless sandbox unavailable'; exit 1; }
           NODE_ROOT="$(dirname "$(dirname "$(readlink -f "$(command -v node)")")")"
           mkdir -p "$RUNNER_TEMP/sunrise-vercel-cli"
-          cp scripts/release-cli/package.json scripts/release-cli/package-lock.json "$RUNNER_TEMP/sunrise-vercel-cli/"
+          # Read exact regular blobs from HEAD rather than following any PR
+          # working-tree symlink. Reject unexpected modes and oversized inputs.
+          bash scripts/verified-release-cli-blobs.sh "$RUNNER_TEMP/sunrise-vercel-cli"
           # Only public lockfiles and this job-owned install directory are
           # mounted. No checkout, home, runner process tree, or host sockets.
-          bwrap --unshare-user --unshare-pid --unshare-ipc --unshare-uts --die-with-parent --clearenv \
+          set +e
+          timeout 180s bwrap --unshare-user --unshare-pid --unshare-ipc --unshare-uts --die-with-parent --clearenv \
             --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
             --dir /sandbox --ro-bind "$NODE_ROOT" /sandbox/node --bind "$RUNNER_TEMP/sunrise-vercel-cli" /sandbox/cli \
-            --dir /etc --dir /etc/ssl --ro-bind /etc/ssl/certs /etc/ssl/certs \
+            --dir /etc --ro-bind "$RUNNER_TEMP/sunrise-sandbox-passwd" /etc/passwd --dir /etc/ssl --ro-bind /etc/ssl/certs /etc/ssl/certs \
             --ro-bind /etc/resolv.conf /etc/resolv.conf --ro-bind /etc/hosts /etc/hosts \
             --proc /proc --dev /dev --tmpfs /tmp --chdir /tmp \
             --setenv PATH /sandbox/node/bin:/usr/bin:/bin --setenv NPM_CONFIG_CACHE /tmp/npm-cache \
-            --setenv NPM_CONFIG_USERCONFIG /dev/null --setenv NPM_CONFIG_GLOBALCONFIG /dev/null \
+            --setenv NPM_CONFIG_USERCONFIG /tmp/user.npmrc --setenv NPM_CONFIG_GLOBALCONFIG /tmp/global.npmrc \
             --setenv DO_NOT_TRACK 1 --setenv VERCEL_TELEMETRY_DISABLED 1 \
-            /sandbox/node/bin/npm ci --ignore-scripts --no-audit --no-fund --prefix /sandbox/cli
+            /bin/sh -c 'set -e; ulimit -f 65536; mkdir -p /tmp/sandbox-home; : > /tmp/user.npmrc; : > /tmp/global.npmrc; /sandbox/node/bin/npm config get registry >/dev/null; exec /sandbox/node/bin/npm ci --ignore-scripts --no-audit --no-fund --prefix /sandbox/cli' \
+            2>&1 | head -c 262144 > "$RUNNER_TEMP/vercel-install-output.txt"
+          code=${PIPESTATUS[0]}
+          set -e
+          [ "$code" = 0 ] || { echo '::error::sandboxed CLI install failed or timed out'; exit 1; }
       - name: Check version and command flags without network or credentials
         run: |
           set -euo pipefail
@@ -141,12 +167,17 @@ jobs:
           offline_help() {
             local output="$1"; shift
             local code=0
-            bwrap --unshare-user --unshare-pid --unshare-net --unshare-ipc --unshare-uts --die-with-parent --clearenv \
+            set +e
+            timeout 20s bwrap --unshare-user --unshare-pid --unshare-net --unshare-ipc --unshare-uts --die-with-parent --clearenv \
               --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
               --dir /sandbox --ro-bind "$NODE_ROOT" /sandbox/node --ro-bind "$RUNNER_TEMP/sunrise-vercel-cli" /sandbox/cli \
+              --dir /etc --ro-bind "$RUNNER_TEMP/sunrise-sandbox-passwd" /etc/passwd \
               --proc /proc --dev /dev --tmpfs /tmp --chdir /tmp \
               --setenv PATH /sandbox/node/bin:/usr/bin:/bin --setenv DO_NOT_TRACK 1 --setenv VERCEL_TELEMETRY_DISABLED 1 \
-              /sandbox/cli/node_modules/.bin/vercel "$@" >"$output" 2>&1 || code=$?
+              /bin/sh -c 'mkdir -p /tmp/sandbox-home; exec /sandbox/cli/node_modules/.bin/vercel "$@"' sh "$@" \
+              2>&1 | head -c 262144 > "$output"
+            code=${PIPESTATUS[0]}
+            set -e
             [ "$code" = 0 ] || [ "$code" = 2 ] || { echo '::error::offline CLI help failed'; return 1; }
           }
           offline_help "$RUNNER_TEMP/vercel-version.txt" --version
@@ -161,7 +192,23 @@ jobs:
           offline_help "$RUNNER_TEMP/vercel-rollback-help.txt" --scope synthetic-team rollback --help
           grep -q -- '--yes' "$RUNNER_TEMP/vercel-rollback-help.txt"
       - name: Audit release CLI dependencies before any credentialed use
-        run: npm audit --omit=dev --audit-level=high --prefix "$RUNNER_TEMP/sunrise-vercel-cli"
+        run: |
+          set -o pipefail
+          NODE_ROOT="$(dirname "$(dirname "$(readlink -f "$(command -v node)")")")"
+          set +e
+          timeout 90s bwrap --unshare-user --unshare-pid --unshare-ipc --unshare-uts --die-with-parent --clearenv \
+            --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+            --dir /sandbox --ro-bind "$NODE_ROOT" /sandbox/node --ro-bind "$RUNNER_TEMP/sunrise-vercel-cli" /sandbox/cli \
+            --dir /etc --ro-bind "$RUNNER_TEMP/sunrise-sandbox-passwd" /etc/passwd --dir /etc/ssl --ro-bind /etc/ssl/certs /etc/ssl/certs \
+            --ro-bind /etc/resolv.conf /etc/resolv.conf --ro-bind /etc/hosts /etc/hosts \
+            --proc /proc --dev /dev --tmpfs /tmp --chdir /tmp \
+            --setenv PATH /sandbox/node/bin:/usr/bin:/bin --setenv NPM_CONFIG_CACHE /tmp/npm-cache \
+            --setenv NPM_CONFIG_USERCONFIG /tmp/user.npmrc --setenv NPM_CONFIG_GLOBALCONFIG /tmp/global.npmrc \
+            /bin/sh -c 'set -e; mkdir -p /tmp/sandbox-home; : > /tmp/user.npmrc; : > /tmp/global.npmrc; exec /sandbox/node/bin/npm audit --omit=dev --audit-level=high --prefix /sandbox/cli' \
+            2>&1 | head -c 262144
+          code=${PIPESTATUS[0]}
+          set -e
+          [ "$code" = 0 ] || { echo '::error::CLI dependency audit failed or timed out'; exit 1; }
 
   e2e-smoke:
     name: Playwright smoke

@@ -97,6 +97,12 @@ sandboxes with cleared environments and isolated process/filesystem views; only
 the version/help invocation additionally has its network namespace disabled.
 It does not use `sudo`, mount the checkout or runner home, or receive credentials.
 If the hosted runner lacks bubblewrap or user namespaces, the check fails closed.
+The npm configuration test uses two distinct empty sandbox files and a synthetic
+passwd entry pointing to a tmpfs home; it does not mount or change the host home.
+The public CLI manifests are copied from bounded regular Git blobs, never through
+checkout symlinks. Install/help output and execution time are bounded, but this
+does not impose a total size quota on the job-owned install directory and is not
+an absolute guarantee against hostile kernel or resource-exhaustion behavior.
 Vercel's [Cron deployment documentation](https://vercel.com/docs/cron-jobs/manage-cron-jobs#cron-jobs-and-deployments) states that existing running jobs continue during a new deployment, but does not establish that a `--prod --skip-domain` deployment cannot register or receive cron invocations before promotion. Cron behavior for this exact staging mode is therefore unverified, and old in-flight workers are not drained. The hard stop must remain while these prerequisites are unknown. No real LINE,
 production database, deployment, promotion or rollback was called in this work.
 
