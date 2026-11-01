@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { createServer, type Server } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
+import { execFile, execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 import type { AddressInfo } from "node:net";
 import { probeOpsEvents } from "./ops-events-readiness.mjs";
 
@@ -46,6 +53,48 @@ describe("ops_events read-only REST readiness", () => {
     }
     expect(fetchImpl).not.toHaveBeenCalled();
   });
+
+  it("blocks credentials when TLS verification is disabled and accepts a trusted TLS connection", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ops-readiness-tls-"));
+    const keyPath = join(dir, "server.key");
+    const certPath = join(dir, "server.crt");
+    let received = 0;
+    let server: ReturnType<typeof createHttpsServer> | undefined;
+    try {
+      execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+        "-subj", "/CN=127.0.0.1", "-addext", "subjectAltName=IP:127.0.0.1",
+        "-keyout", keyPath, "-out", certPath], { stdio: "ignore" });
+      server = createHttpsServer({ key: readFileSync(keyPath), cert: readFileSync(certPath) }, (request, response) => {
+        if (request.headers.apikey === config.key) received++;
+        response.writeHead(200, { "content-type": "application/json" }); response.end("[]");
+      });
+      await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
+      const origin = `https://127.0.0.1:${(server.address() as AddressInfo).port}`;
+      const moduleUrl = pathToFileURL(join(process.cwd(), "src/lib/ops-events-readiness.mjs")).href;
+      const script = `import { probeOpsEvents } from ${JSON.stringify(moduleUrl)};\n` +
+        `console.log(JSON.stringify(await probeOpsEvents(${JSON.stringify({ url: origin, allowedOrigin: origin, key: config.key })})));`;
+      const env = { ...process.env };
+      delete env.NODE_TLS_REJECT_UNAUTHORIZED;
+      delete env.NODE_EXTRA_CA_CERTS;
+      const run = promisify(execFile);
+      const disabled = await run(process.execPath, ["--input-type=module", "-e", script], {
+        env: { ...env, NODE_TLS_REJECT_UNAUTHORIZED: "0" },
+      });
+      expect(disabled.stdout.trim()).toBe("false");
+      expect(received).toBe(0);
+      const untrusted = await run(process.execPath, ["--input-type=module", "-e", script], { env });
+      expect(untrusted.stdout.trim()).toBe("false");
+      expect(received).toBe(0);
+      const trusted = await run(process.execPath, ["--input-type=module", "-e", script], {
+        env: { ...env, NODE_EXTRA_CA_CERTS: certPath },
+      });
+      expect(trusted.stdout.trim()).toBe("true");
+      expect(received).toBe(1);
+    } finally {
+      if (server?.listening) await new Promise<void>((resolve, reject) => server!.close((error) => error ? reject(error) : resolve()));
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 15_000);
 
   it.each(["cross-origin", "same-origin"])("does not follow a %s redirect or forward the synthetic key", async (kind) => {
     let otherCalls = 0;

@@ -1,5 +1,8 @@
 /** Read-only REST visibility probe. A missing or uncertain result never authorizes DDL. */
 export async function probeOpsEvents({ url, allowedOrigin, key, fetchImpl = fetch }) {
+  // Node can globally disable certificate verification even for https URLs.
+  // Never attach service credentials while that explicit override is active.
+  if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === "0") return false;
   if (typeof url !== "string" || url.trim() !== url || typeof allowedOrigin !== "string" ||
       allowedOrigin.trim() !== allowedOrigin || typeof key !== "string" || key.startsWith("<") || key.length < 40) return false;
   try {
