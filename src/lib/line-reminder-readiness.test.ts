@@ -8,8 +8,8 @@ const checks = ["table_present", "columns_present", "reservation_columns_present
   "claim_unique", "function_shape", "service_execute", "service_table_access", "no_guest_execute"];
 const passingRow = Object.fromEntries(checks.map((key) => [key, true]));
 
-function fakeDatabase(row: Record<string, unknown> = passingRow, migrations: unknown[] = [{}]) {
-  const tx = Object.assign(vi.fn(async () => migrations), {
+function fakeDatabase(row: Record<string, unknown> = passingRow) {
+  const tx = Object.assign(vi.fn(), {
     unsafe: vi.fn(async (query: string) => query.startsWith("SET LOCAL") ? [] : [row]),
   });
   const sql = { begin: vi.fn(async (_mode: string, fn: (transaction: typeof tx) => unknown) => fn(tx)) };
@@ -27,24 +27,19 @@ describe("LINE reminder non-mutating readiness", () => {
     expect(projectReferences("https://abc-123.supabase.co", "not-a-connection")).toBeNull();
   });
 
-  it("reads the catalog and ledger in a read-only transaction", async () => {
+  it("reads only the catalog in a read-only transaction", async () => {
     const { sql, tx } = fakeDatabase();
     await expect(verifyCatalog(sql)).resolves.toBeUndefined();
     expect(sql.begin).toHaveBeenCalledWith("isolation level repeatable read read only", expect.any(Function));
     expect(tx.unsafe).toHaveBeenCalledTimes(2);
     expect(tx.unsafe.mock.calls[0][0]).toBe("SET LOCAL search_path = pg_catalog");
-    expect(tx).toHaveBeenCalledTimes(1);
+    expect(tx).not.toHaveBeenCalled();
   });
 
   it.each(checks)("fails closed for missing or unproven %s", async (key) => {
     const { sql, tx } = fakeDatabase({ ...passingRow, [key]: false });
     await expect(verifyCatalog(sql)).rejects.toThrow("contract is incomplete");
     expect(tx).not.toHaveBeenCalled();
-  });
-
-  it("fails closed when the version is not recorded", async () => {
-    const { sql } = fakeDatabase(passingRow, []);
-    await expect(verifyCatalog(sql)).rejects.toThrow("ledger is missing");
   });
 
   it("never equates catalog checks with unproven REST or RPC cache readiness", async () => {
@@ -56,7 +51,7 @@ describe("LINE reminder non-mutating readiness", () => {
   it("does not expose a synthetic credential on configuration failure", () => {
     const secret = "synthetic-private-" + "x".repeat(64);
     const result = spawnSync(process.execPath, [join(process.cwd(), "scripts/apply-migration-line-reminder-deliveries.mjs")], {
-      env: { PATH: process.env.PATH, NEXT_PUBLIC_SUPABASE_URL: "https://first.supabase.co",
+      env: { PATH: process.env.PATH, NODE_ENV: "test", NEXT_PUBLIC_SUPABASE_URL: "https://first.supabase.co",
         SUPABASE_DB_URL: `postgres://postgres:${secret}@db.other.supabase.co/postgres`,
         SUPABASE_SERVICE_ROLE_KEY: secret }, encoding: "utf8",
     });

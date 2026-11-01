@@ -4,7 +4,6 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const VERSION = "20260902-line-reminder-deliveries";
 const dir = dirname(fileURLToPath(import.meta.url));
 export const CATALOG_SQL = readFileSync(join(dir, "sql/verify-line-reminder-readiness.sql"), "utf8");
 const CHECKS = ["table_present", "columns_present", "reservation_columns_present", "id_primary", "reservation_foreign_key",
@@ -39,10 +38,7 @@ export async function verifyCatalog(sql) {
     if (rows.length !== 1 || CHECKS.some((key) => rows[0][key] !== true)) {
       throw new Error("LINE reminder catalog or role contract is incomplete; manual review required");
     }
-    const migrations = await tx`SELECT 1 FROM public.schema_migrations WHERE version = ${VERSION} LIMIT 1`;
-    if (migrations.length !== 1) {
-      throw new Error("LINE reminder migration ledger is missing; manual review required");
-    }
+
   });
 }
 
@@ -50,6 +46,8 @@ export class UnverifiedRpcCache extends Error {}
 
 export async function verifyReadiness(sql) {
   await verifyCatalog(sql);
+  // The migration ledger is also unknown: reading a user relation may execute
+  // views, rules, or row-level security policies even inside a read-only transaction.
   // PostgREST 12 cannot introspect a required-argument RPC via OPTIONS.
   // Even sound catalog evidence does not prove the exposed cache is current.
   throw new UnverifiedRpcCache("LINE reminder RPC schema cache is unverified; release remains blocked");

@@ -185,11 +185,37 @@ try {
   try { await verifyCatalog(pg); } catch { rejected = true; }
   if (!rejected) throw new Error('Unexpected anon EXECUTE was accepted');
   await pg`REVOKE EXECUTE ON FUNCTION public.claim_line_reminder_delivery(text,date,uuid,text,text) FROM anon`;
-  await pg`DELETE FROM public.schema_migrations WHERE version = '20260902-line-reminder-deliveries'`;
-  rejected = false;
-  try { await verifyCatalog(pg); } catch { rejected = true; }
-  if (!rejected) throw new Error('Missing migration ledger entry was accepted');
-  await pg`INSERT INTO public.schema_migrations (version, name) VALUES ('20260902-line-reminder-deliveries', 'synthetic')`;
+  // An untrusted ledger view can execute functions even under READ ONLY.
+  // The verifier must not read the ledger or fire this synthetic notification.
+  let ledgerSeen = false;
+  await listener.listen('sunrise_synthetic_ledger', () => { ledgerSeen = true; });
+  await pg`ALTER TABLE public.schema_migrations RENAME TO synthetic_ledger_table`;
+  await pg.unsafe(`CREATE FUNCTION public.synthetic_ledger_side_effect() RETURNS boolean
+    LANGUAGE plpgsql VOLATILE AS $$ BEGIN PERFORM pg_notify('sunrise_synthetic_ledger', 'synthetic'); RETURN true; END $$`);
+  await pg.unsafe(`CREATE VIEW public.schema_migrations AS SELECT version, name FROM public.synthetic_ledger_table
+    WHERE public.synthetic_ledger_side_effect()`);
+  await verifyCatalog(pg);
+  await new Promise((r) => setTimeout(r, 300));
+  if (ledgerSeen) throw new Error('Verifier executed a synthetic ledger view');
+  await pg.begin('read only', (tx) => tx`SELECT count(*) FROM public.schema_migrations`);
+  await new Promise((r) => setTimeout(r, 300));
+  if (!ledgerSeen) throw new Error('Synthetic ledger view was not a valid side-effect trap');
+  ledgerSeen = false;
+  await pg`DROP VIEW public.schema_migrations`;
+  await pg`ALTER TABLE public.synthetic_ledger_table RENAME TO schema_migrations`;
+  await pg`ALTER TABLE public.schema_migrations ENABLE ROW LEVEL SECURITY`;
+  await pg`ALTER TABLE public.schema_migrations FORCE ROW LEVEL SECURITY`;
+  await pg`CREATE POLICY synthetic_ledger_policy ON public.schema_migrations FOR SELECT USING (public.synthetic_ledger_side_effect())`;
+  await pg`GRANT SELECT ON public.schema_migrations TO service_role`;
+  await pg`SET ROLE service_role`;
+  try {
+    await verifyCatalog(pg);
+    await new Promise((r) => setTimeout(r, 300));
+    if (ledgerSeen) throw new Error('Verifier executed a synthetic ledger RLS policy');
+    await pg.begin('read only', (tx) => tx`SELECT count(*) FROM public.schema_migrations`);
+    await new Promise((r) => setTimeout(r, 300));
+    if (!ledgerSeen) throw new Error('Synthetic ledger RLS policy was not a valid side-effect trap');
+  } finally { await pg`RESET ROLE`; }
   await pg`ALTER TABLE public.reservations RENAME COLUMN deposit_urgent_reminder_sent_at TO synthetic_renamed_column`;
   rejected = false;
   try { await verifyCatalog(pg); } catch { rejected = true; }
