@@ -64,6 +64,24 @@ describe("Stripe succeeded webhook retry boundary", () => {
     expect(mocks.markPaid).toHaveBeenCalledOnce();
   });
 
+  it.each([403, 409, 503] as const)("does not acknowledge or mutate when binding returns %i", async (status) => {
+    mocks.binding.mockResolvedValue({ ok: false, status, error: "synthetic binding issue" });
+    const response = await POST(request());
+    expect(response.status).toBe(500);
+    expect(mocks.ledgerUpdate).not.toHaveBeenCalled();
+    expect(mocks.markPaid).not.toHaveBeenCalled();
+  });
+
+  it("does not acknowledge or mutate a success event without reservation metadata", async () => {
+    mocks.constructEvent.mockReturnValue({
+      type: "payment_intent.succeeded", data: { object: { id: "pi_synthetic", metadata: {} } },
+    });
+    const response = await POST(request());
+    expect(response.status).toBe(500);
+    expect(mocks.ledgerUpdate).not.toHaveBeenCalled();
+    expect(mocks.markPaid).not.toHaveBeenCalled();
+  });
+
   it("acknowledges a signed event after successful handling", async () => {
     const response = await POST(request());
     expect(response.status).toBe(200);

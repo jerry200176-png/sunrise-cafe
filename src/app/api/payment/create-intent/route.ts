@@ -3,6 +3,7 @@ import { stripe, isStripeEnabled } from "@/lib/stripe";
 import { createClient } from "@supabase/supabase-js";
 import { logOps } from "@/lib/ops-log";
 import { getBranchDepositConfig } from "@/lib/constants";
+import { getDepositAmount } from "@/lib/booking-utils";
 
 function supabaseAdmin() {
   return createClient(
@@ -44,31 +45,59 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (typeof amount !== "number" || amount <= 0 || !Number.isInteger(amount)) {
+    if (typeof amount !== "number" || amount <= 0 || !Number.isSafeInteger(amount)) {
       return NextResponse.json(
-        { error: "金額必須為正整數（單位：分）" },
+        { error: "金額必須為正整數（單位：元）" },
         { status: 400 }
       );
     }
 
-    // 驗證付款金額符合分店設定，防止客戶端竄改 amount
-    const depositConfig = getBranchDepositConfig(branchId);
-    if (amount !== depositConfig.defaultDepositAmount) {
+    if (currency !== undefined && (typeof currency !== "string" || currency.toLowerCase() !== "twd")) {
       return NextResponse.json(
-        { error: "付款金額不符合分店設定" },
+        { error: "僅支援新台幣付款" },
         { status: 400 }
       );
     }
 
-    // 驗證預約存在且可付款
+    // The caller cannot choose a different branch's payment settings. Resolve
+    // the branch from the reservation's room before checking the feature flag.
     const { data: reservation, error: resError } = await supabaseAdmin()
       .from("reservations")
-      .select("id, status, is_deposit_paid, deposit_status, start_time")
+      .select("id, status, is_deposit_paid, deposit_status, start_time, total_price, room:rooms!inner(branch_id)")
       .eq("id", reservationId)
-      .single();
+      .maybeSingle();
 
-    if (resError || !reservation) {
+    if (resError) {
+      return NextResponse.json({ error: "預約資料暫時無法確認，請稍後再試" }, { status: 503 });
+    }
+    if (!reservation) {
       return NextResponse.json({ error: "預約不存在" }, { status: 404 });
+    }
+
+    const room = Array.isArray(reservation.room) ? reservation.room[0] : reservation.room;
+    const actualBranchId = room?.branch_id;
+    if (typeof actualBranchId !== "string" || !actualBranchId) {
+      return NextResponse.json({ error: "分店資料暫時無法確認，請聯繫店家" }, { status: 503 });
+    }
+    if (branchId !== actualBranchId) {
+      return NextResponse.json({ error: "預約與分店資料不符" }, { status: 403 });
+    }
+    const depositConfig = getBranchDepositConfig(actualBranchId);
+    if (!depositConfig.stripeEnabled || !depositConfig.isDepositRequired) {
+      return NextResponse.json({ error: "此分店尚未啟用線上付款" }, { status: 503 });
+    }
+    const totalPrice = reservation.total_price == null ? Number.NaN : Number(reservation.total_price);
+    if (!Number.isFinite(totalPrice) || totalPrice <= 0) {
+      return NextResponse.json({ error: "訂位金額無法確認，請聯繫店家" }, { status: 409 });
+    }
+    const expectedAmount = getDepositAmount(totalPrice);
+    const stripeAmount = expectedAmount * 100; // Stripe TWD charges use minor units.
+    if (!Number.isSafeInteger(expectedAmount) || expectedAmount <= 0 || !Number.isSafeInteger(stripeAmount) ||
+        expectedAmount !== depositConfig.defaultDepositAmount) {
+      return NextResponse.json({ error: "訂金設定與訂位金額不一致，請聯繫店家" }, { status: 409 });
+    }
+    if (amount !== expectedAmount) {
+      return NextResponse.json({ error: "付款金額不符合訂位資料" }, { status: 400 });
     }
 
     if (reservation.is_deposit_paid || reservation.deposit_status === "paid") {
@@ -90,11 +119,11 @@ export async function POST(request: NextRequest) {
     // 建立 Stripe PaymentIntent（使用 idempotencyKey 防止重複建立）
     const paymentIntent = await stripe!.paymentIntents.create(
       {
-        amount,
-        currency: currency || "twd",
+        amount: stripeAmount,
+        currency: "twd",
         metadata: {
           reservationId,
-          branchId,
+          branchId: actualBranchId,
         },
       },
       {
@@ -108,14 +137,14 @@ export async function POST(request: NextRequest) {
       .insert({
         stripe_pi_id: paymentIntent.id,
         reservation_id: reservationId,
-        branch_id: branchId,
-        amount,
-        currency: currency || "twd",
+        branch_id: actualBranchId,
+        amount: stripeAmount,
+        currency: "twd",
         status: "pending",
       });
 
     if (insertError) {
-      console.error("[create-intent] insert payment_intents failed:", insertError);
+      console.error("[create-intent] insert payment_intents failed");
     }
 
     // 更新 reservation 關聯 payment_intent_id
@@ -136,9 +165,8 @@ export async function POST(request: NextRequest) {
       paymentIntentId: paymentIntent.id,
       amount,
     });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "建立付款失敗";
-    console.error("[create-intent] error:", err);
-    return NextResponse.json({ error: message }, { status: 500 });
+  } catch {
+    console.error("[create-intent] payment request failed");
+    return NextResponse.json({ error: "建立付款失敗，請稍後再試或聯繫店家" }, { status: 500 });
   }
 }

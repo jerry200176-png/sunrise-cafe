@@ -58,9 +58,12 @@ export async function POST(request: NextRequest) {
       .from("reservations")
       .select("id, deposit_status, is_deposit_paid")
       .eq("id", reservationId)
-      .single();
+      .maybeSingle();
 
-    if (resError || !reservation) {
+    if (resError) {
+      return NextResponse.json({ error: "付款資料暫時無法確認，請稍後再試或聯繫店家" }, { status: 503 });
+    }
+    if (!reservation) {
       return NextResponse.json({ error: "預約不存在" }, { status: 404 });
     }
 
@@ -89,9 +92,8 @@ export async function POST(request: NextRequest) {
       status: "succeeded",
       depositStatus: "paid",
     });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "確認付款失敗";
-    console.error("[confirm-deposit] error:", err);
-    return NextResponse.json({ error: message }, { status: 500 });
+  } catch {
+    console.error("[confirm-deposit] payment confirmation failed");
+    return NextResponse.json({ error: "確認付款失敗，請稍後再試或聯繫店家" }, { status: 500 });
   }
 }

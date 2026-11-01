@@ -44,10 +44,10 @@ export async function POST(request: NextRequest) {
       signature,
       process.env.STRIPE_WEBHOOK_SECRET!
     );
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "無效的簽章";
-    console.error("[stripe-webhook] signature verification failed:", message);
-    logOps("webhook", "stripe.signature_failed", { error: message });
+  } catch {
+    // Parser errors can include fragments of a validly signed malformed body.
+    console.error("[stripe-webhook] signature or payload verification failed");
+    logOps("webhook", "stripe.signature_failed", { error: "invalid_signature_or_payload" });
     return NextResponse.json(
       { error: "Webhook signature verification failed" },
       { status: 400 }
@@ -59,7 +59,17 @@ export async function POST(request: NextRequest) {
     switch (event.type) {
       case "payment_intent.succeeded": {
         const paymentIntent = event.data.object;
-        const { reservationId } = paymentIntent.metadata;
+        const reservationId = paymentIntent.metadata?.reservationId;
+        if (!reservationId) throw new Error("Stripe payment binding unavailable");
+
+        const binding = await verifyStripeIntentForReservation(paymentIntent, reservationId);
+        if (!binding.ok) {
+          // Keep provider redelivery possible until durable reconciliation exists.
+          // A confirmed mismatch is different from an unavailable DB lookup;
+          // neither should be acknowledged here without preserving evidence.
+          console.error("[stripe-webhook] payment binding not verified", binding.status);
+          throw new Error("Stripe payment binding not verified");
+        }
 
         const { error: ledgerError } = await supabaseAdmin()
           .from("payment_intents")
@@ -67,19 +77,12 @@ export async function POST(request: NextRequest) {
           .eq("stripe_pi_id", paymentIntent.id);
         if (ledgerError) throw new Error("Stripe payment ledger update failed");
 
-        if (reservationId) {
-          try {
-            const binding = await verifyStripeIntentForReservation(paymentIntent, reservationId);
-            if (!binding.ok) {
-              console.error("[stripe-webhook] PaymentIntent rejected for reservation:", binding.error, paymentIntent.id);
-              break;
-            }
-            await markDepositPaid(reservationId, "stripe_webhook", {}, "stripe");
-          } catch {
-            // A signed success event must remain eligible for provider retry if
-            // recording it failed; do not acknowledge a swallowed exception.
-            throw new Error("Stripe payment recording failed");
-          }
+        try {
+          await markDepositPaid(reservationId, "stripe_webhook", {}, "stripe");
+        } catch {
+          // A signed success event must remain eligible for provider retry if
+          // recording it failed; do not acknowledge a swallowed exception.
+          throw new Error("Stripe payment recording failed");
         }
 
         logOps("webhook", "stripe.payment_intent_succeeded", {
