@@ -83,7 +83,8 @@ describe("post_deploy_watch job wiring", () => {
 
   it("runs after deploy even if postdeploy checks failed, and scopes to runtime health only", () => {
     expect(job).toMatch(/needs: \[deploy, postdeploy_verify\]/);
-    expect(job).toMatch(/always\(\) && needs\.deploy\.result == 'success'/);
+    expect(job).toMatch(/always\(\) && needs\.deploy\.result != 'skipped'/);
+    expect(job).toMatch(/verdict == 'sustained_failure' && needs\.deploy\.result == 'success' && needs\.deploy\.outputs\.deployment_attempted == 'true'/);
     expect(job).not.toMatch(/deploy-health|check-migration-drift|true_pending|verify-production|migration-plan/i);
   });
 

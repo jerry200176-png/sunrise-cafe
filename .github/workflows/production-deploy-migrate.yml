@@ -28,9 +28,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  deployment_preflight:
+    name: Validate deployment intent
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject unverified forced activation
+        env:
+          FORCE_DEPLOY: ${{ inputs.force_deploy || false }}
+        run: |
+          if [ "${FORCE_DEPLOY:-false}" = "true" ]; then
+            echo "::error::Forced deployment requires independent deployment-identity verification"
+            exit 1
+          fi
+
   predeploy_migrate:
     name: Apply predeploy migrations
     runs-on: ubuntu-latest
+    needs: deployment_preflight
     timeout-minutes: 15
     env:
       # age PUBLIC key; optional. Absent = NO retained backup (dump verified, then deleted at job end).
@@ -146,6 +160,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: predeploy_verify
     timeout-minutes: 25
+    outputs:
+      deployment_attempted: ${{ steps.production_deploy.outputs.deployment_attempted }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -165,27 +181,46 @@ jobs:
         run: node scripts/record-deploy-health-head.mjs
       - run: npm ci
       - name: Deploy if SHA drift
+        id: production_deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
-          FORCE_DEPLOY: ${{ inputs.force_deploy || false }}
         run: |
           set -euo pipefail
-          if [ -z "${VERCEL_TOKEN:-}" ]; then
-            echo "VERCEL_TOKEN unset — skip"
-            exit 0
-          fi
           EXPECTED="$(git rev-parse HEAD)"
-          ACTUAL="$(curl -sf "$PRODUCTION_URL/api/version" | jq -r '.commit // empty')"
-          echo "Force deploy: ${FORCE_DEPLOY:-false}"
-          if [ "$ACTUAL" = "$EXPECTED" ] && [ "${FORCE_DEPLOY:-false}" != "true" ]; then
+          if ! [[ "$EXPECTED" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Cannot verify the checked-out commit"
+            exit 1
+          fi
+          ACTUAL="$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' "$PRODUCTION_URL/api/version" | jq -er '.commit | strings' )" || {
+            echo "::error::Production version unavailable or invalid"
+            exit 1
+          }
+          if ! [[ "$ACTUAL" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Production version is malformed"
+            exit 1
+          fi
+          if [ "$ACTUAL" = "$EXPECTED" ]; then
             echo "Production already at $EXPECTED"
             exit 0
           fi
-          echo "Deploying: prod=$ACTUAL expected=$EXPECTED force=${FORCE_DEPLOY:-false}"
+          if [ -z "${VERCEL_TOKEN:-}" ]; then
+            echo "::error::Deployment required but VERCEL_TOKEN is unavailable"
+            exit 1
+          fi
+          echo "Deploying the checked-out commit"
+          # A command failure can still follow a successful remote deployment.
+          # Preserve runtime watch even if the confirmation below fails.
+          echo "deployment_attempted=true" >> "$GITHUB_OUTPUT"
           bash scripts/orchestrator/deploy.sh --wait 420 || {
-            echo "::warning::Deploy step did not complete — postdeploy migrations will still run"
+            echo "::error::Deploy did not complete; postdeploy migrations are blocked"
+            exit 1
           }
+          ACTUAL="$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' "$PRODUCTION_URL/api/version" | jq -er '.commit | strings' )" || {
+            echo "::error::Cannot confirm production version after deployment"
+            exit 1
+          }
+          [[ "$ACTUAL" =~ ^[0-9a-f]{40}$ && "$ACTUAL" = "$EXPECTED" ]] || { echo "::error::Production version does not match; postdeploy migrations are blocked"; exit 1; }
 
   postdeploy_migrate:
     name: Apply postdeploy migrations
@@ -247,6 +282,7 @@ jobs:
         env:
           # Confirmed upload id; founder_approved runners refuse to migrate without it.
           BACKUP_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
@@ -274,6 +310,15 @@ jobs:
               fi
             fi
           fi
+          # Recheck immediately before the postdeploy runner. This is not a lock
+          # against an independent deployment after the check.
+          EXPECTED="$(git rev-parse HEAD)"
+          [[ "$EXPECTED" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Cannot verify checked-out commit"; exit 1; }
+          ACTUAL="$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' "$PRODUCTION_URL/api/version" | jq -er '.commit | strings')" || {
+            echo "::error::Cannot confirm production version before postdeploy"
+            exit 1
+          }
+          [[ "$ACTUAL" =~ ^[0-9a-f]{40}$ && "$ACTUAL" = "$EXPECTED" ]] || { echo "::error::Production version changed; postdeploy migrations are blocked"; exit 1; }
           node scripts/run-production-migration-phase.mjs postdeploy
 
       - name: Verify ops_events
@@ -411,7 +456,7 @@ jobs:
     name: Post-deploy watch and auto-rollback
     runs-on: ubuntu-latest
     needs: [deploy, postdeploy_verify]
-    if: ${{ always() && needs.deploy.result == 'success' }}
+    if: ${{ always() && needs.deploy.result != 'skipped' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -433,7 +478,7 @@ jobs:
 
       - name: Roll back to the previous production deployment
         id: rollback
-        if: ${{ steps.watch.outputs.verdict == 'sustained_failure' }}
+        if: ${{ steps.watch.outputs.verdict == 'sustained_failure' && needs.deploy.result == 'success' && needs.deploy.outputs.deployment_attempted == 'true' }}
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
