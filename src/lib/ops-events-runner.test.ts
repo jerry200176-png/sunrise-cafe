@@ -10,6 +10,7 @@ function run(status: number, body: string, token = "synthetic-key-".repeat(5)) {
     const preload = join(temp, "fetch.mjs");
     const loader = join(temp, "deny-db.mjs");
     writeFileSync(preload, `globalThis.fetch = async (_url, opts) => {
+      process.stderr.write('UNEXPECTED_FETCH');
       if (opts?.method && opts.method !== 'GET') throw new Error('unexpected method');
       return new Response(process.env.SYNTHETIC_BODY, { status: Number(process.env.SYNTHETIC_STATUS) });
     };`);
@@ -29,9 +30,10 @@ function run(status: number, body: string, token = "synthetic-key-".repeat(5)) {
 }
 
 describe("ops_events deployed runner", () => {
-  it("accepts valid read-only visibility without importing postgres", () => {
+  it("rejects even nominal REST readiness without issuing a probe or importing postgres", () => {
     const result = run(200, "[]");
-    expect(result.status).toBe(0);
+    expect(result.status).not.toBe(0);
+    expect(result.output).not.toContain("UNEXPECTED_FETCH");
     expect(result.output).not.toContain("UNEXPECTED_DB_IMPORT");
   });
   it.each([[401, '{"code":"PGRST205"}'], [403, "{}"], [404, '{"code":"PGRST205"}'],
@@ -39,6 +41,7 @@ describe("ops_events deployed runner", () => {
     const result = run(status, body);
     expect(result.status).not.toBe(0);
     expect(result.output).not.toContain("UNEXPECTED_DB_IMPORT");
+    expect(result.output).not.toContain("UNEXPECTED_FETCH");
     expect(result.output).not.toContain("synthetic-key");
   });
   it("does not execute SQL with missing REST credentials even if a database URL exists", () => {

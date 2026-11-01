@@ -11,6 +11,7 @@ const request = (token = "synthetic-secret") => new NextRequest("https://synthet
 
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://synthetic.invalid");
+  vi.stubEnv("OPS_EVENTS_DIAGNOSTIC_ALLOWED_ORIGIN", "https://synthetic.invalid");
   vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "synthetic-key-".repeat(5));
   vi.stubEnv("CRON_SECRET", "synthetic-secret");
   vi.stubEnv("SUPABASE_DB_URL", "");
@@ -25,17 +26,31 @@ describe("ops_events compatibility endpoint", () => {
     expect((await POST(request("wrong"))).status).toBe(403);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
-  it("only confirms a readable response", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("[]", { status: 200 })));
-    const response = await POST(request());
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ ok: true, already_applied: true });
-  });
-  it.each([401, 403, 404, 500])("rejects HTTP %s without applying a migration", async (status) => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response('{"code":"PGRST205"}', { status })));
+  it("does not claim readiness or probe even when the REST response would be 200", async () => {
+    const fetchImpl = vi.fn(async () => new Response("[]", { status: 200 }));
+    vi.stubGlobal("fetch", fetchImpl);
     const response = await POST(request());
     expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: "ops_events readiness unavailable; no migration was run" });
+    expect(await response.json()).toEqual({ error: "ops_events migration readiness unverified; no migration was run" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+  it.each([401, 403, 404, 500])("rejects HTTP %s without applying a migration", async (status) => {
+    const fetchImpl = vi.fn(async () => new Response('{"code":"PGRST205"}', { status }));
+    vi.stubGlobal("fetch", fetchImpl);
+    const response = await POST(request());
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "ops_events migration readiness unverified; no migration was run" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+  it("exposes the projection only as an unverified diagnostic", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("[]", { status: 200 })));
+    expect(await (await GET()).json()).toMatchObject({ table_ready: false, rest_projection_visible: true });
+  });
+  it("does not send credentials from GET when the allowed origin is absent", async () => {
+    vi.stubEnv("OPS_EVENTS_DIAGNOSTIC_ALLOWED_ORIGIN", "");
+    const fetchImpl = vi.fn(); vi.stubGlobal("fetch", fetchImpl);
+    expect(await (await GET()).json()).toMatchObject({ table_ready: false, rest_projection_visible: false });
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
   it("does not claim readiness for malformed responses or missing credentials", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("invalid", { status: 200 })));
