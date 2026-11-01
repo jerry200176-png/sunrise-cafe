@@ -101,8 +101,10 @@ test.describe("CX-008 mobile form UX", () => {
 
 test.describe("公開 API smoke", () => {
   test("version 回傳 deployed 標記", async ({ request }) => {
-    const res = await request.get("/api/version");
-    expect(res.ok()).toBeTruthy();
+    // This real smoke request has its own synthetic client so earlier tests
+    // cannot exhaust the shared per-IP API limit before WebKit reaches it.
+    const res = await request.get("/api/version", { headers: { "x-forwarded-for": "198.51.100.42" } });
+    expect(res.status()).toBe(200);
     const json = await res.json();
     expect(json.deployed).toBe("v2");
   });
