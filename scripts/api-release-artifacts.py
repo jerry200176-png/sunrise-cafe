@@ -300,12 +300,15 @@ def bind_candidate(intent, create_response, deployment):
         raise InvalidEvidence('invalid deployment evidence')
     candidate = create_response.get('id')
     source = deployment.get('gitSource')
+    meta = deployment.get('meta')
     if (not isinstance(candidate, str) or not w.DEPLOYMENT.fullmatch(candidate)
             or deployment.get('id') != candidate or deployment.get('projectId') != w.PROJECT
             or deployment.get('target') != 'production' or not isinstance(source, dict)
             or source.get('type') != 'github' or source.get('org') != 'jerry200176-png'
             or source.get('repo') != 'sunrise-cafe' or source.get('ref') != 'main'
-            or source.get('sha') != intent['commit']):
+            or source.get('sha') != intent['commit'] or not isinstance(meta, dict)
+            or meta.get('sunrise_run_id') != intent['run_id'] or meta.get('sunrise_run_attempt') != intent['attempt']
+            or meta.get('sunrise_commit') != intent['commit']):
         raise InvalidEvidence('candidate identity mismatch')
     return {'version': 1, 'run_id': intent['run_id'], 'attempt': intent['attempt'],
             'commit': intent['commit'], 'baseline': intent['baseline'], 'candidate': candidate,

@@ -46,15 +46,20 @@ class FakeGitHub:
 
 
 class FakePlatform:
-    def __init__(self): self.alias = 'dpl_base'; self.created = 0; self.rolled_back = 0; self.fail_create = False; self.ready = 'READY'
+    def __init__(self): self.alias = 'dpl_base'; self.created = 0; self.rolled_back = 0; self.fail_create = False; self.ready = 'READY'; self.recoverable = False; self.searches = 0
     def production_alias(self, *, deadline=None): return self.alias
-    def create_production(self, sha):
+    def create_production(self, sha, run_id, attempt):
         self.created += 1; self.alias = 'dpl_new'
         if self.fail_create: raise TimeoutError()
         return 'dpl_new'
     def deployment(self, deployment, *, deadline=None):
         return {'id': deployment, 'projectId': flow.w.PROJECT, 'target': 'production', 'readyState': self.ready,
+                'meta': {'sunrise_run_id': '123', 'sunrise_run_attempt': '1', 'sunrise_commit': SHA},
                 'gitSource': {'type': 'github', 'org': 'jerry200176-png', 'repo': 'sunrise-cafe', 'ref': 'main', 'sha': SHA}}
+    def find_candidate(self, sha, run_id, attempt, *, deadline=None):
+        self.searches += 1
+        if not self.recoverable: raise RuntimeError('not uniquely observed')
+        return 'dpl_new', self.deployment('dpl_new')
     def rollback_request(self, baseline, *, deadline=None): self.rolled_back += 1; self.alias = baseline; return {}
 
 
@@ -115,6 +120,17 @@ class Tests(unittest.TestCase):
             self.assertEqual(ctx.create(ip, cp, intent_id=iid, intent_digest=dig), 'unknown')
             self.assertEqual(p.created, 1)
             self.assertEqual(incidents[-1][0], 'create-claim-unavailable')
+
+    def test_lost_create_response_preserves_only_uniquely_recovered_candidate(self):
+        with tempfile.TemporaryDirectory(prefix='sunrise-workflow-') as tmp:
+            ctx, p, g, incidents, intent, ip, cp = self.setup_flow(tmp)
+            iid, digest = g.upload(456, 'api-release-intent', intent); p.fail_create = True; p.recoverable = True
+            self.assertEqual(ctx.create(ip, cp, intent_id=iid, intent_digest=digest), 'unknown')
+            self.assertEqual((p.created, p.searches), (1, 1)); self.assertTrue(cp.exists())
+            self.assertEqual(json.loads(cp.read_text())['candidate'], 'dpl_new')
+            cid, cdigest = g.upload(457, 'api-release-candidate', json.loads(cp.read_text()))
+            self.assertEqual(ctx.monitor(iid, digest, cid, cdigest), 'rolled-back')
+            self.assertEqual(p.rolled_back, 1)
 
     def test_candidate_metadata_retries_do_not_repeat_production_create(self):
         with tempfile.TemporaryDirectory(prefix='sunrise-workflow-') as tmp:

@@ -45,9 +45,17 @@ before credential access. Nothing here deploys or changes production.
    job can repeat recovery from verified same-run artifacts. The checks and
    rollback are not atomic; a third-party writer can race between them.
 
-A timeout on create can leave a request in flight. If the runner dies before
-candidate upload, the later monitor cannot attribute an alias to this request;
-it reports unknown and cannot safely assume a rollback. A still-building
+A timeout on create can leave a request in flight. The request carries its run,
+attempt and commit as Vercel metadata. On an unknown create outcome the workflow
+does not repeat POST: it reads all bounded pages filtered by project, target,
+branch and SHA, requires exactly one matching run/attempt/commit marker, and
+rechecks the deployment's project, target, repository, ref, SHA and metadata.
+If found, it saves and attempts to upload the candidate for the separate
+monitor, but still reports unknown. Zero or multiple matches, inaccessible or
+incomplete pages, and identity mismatches remain unknown. Provider list results
+may be eventually consistent; the marker is not signed or an atomic lock.
+If the runner dies before candidate upload, the later monitor cannot attribute
+an alias to this request; it reports unknown. A still-building
 candidate remains unknown even after a rollback. `always()` and a seven-day
 artifact do not guarantee a recovery job will survive cancellation, runner or
 platform failure. The hard stop must remain until a real D7 recovery path and

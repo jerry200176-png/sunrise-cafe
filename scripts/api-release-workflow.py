@@ -160,7 +160,7 @@ class Context:
             return 'unknown' if self.record('create-claim-unavailable', intent['baseline']) else 'incident-unwritten'
         try:
             # Do not retry: a failed response can still have changed traffic.
-            candidate = self.api.create_production(self.sha)
+            candidate = self.api.create_production(self.sha, self.run_id, self.attempt)
             deadline = self.clock() + self.wait_seconds
             while True:
                 try:
@@ -176,7 +176,15 @@ class Context:
             artifacts.persist_candidate(candidate_path, intent, {'id': candidate}, deployment)
             return 'candidate-recorded'
         except Exception:
-            return 'unknown' if self.record('production-outcome-unknown', intent['baseline']) else 'incident-unwritten'
+            incident_ok = self.record('production-outcome-unknown', intent['baseline'])
+            try:
+                # Reconcile only through reads. Never repeat the create POST.
+                candidate, deployment = self.api.find_candidate(
+                    self.sha, self.run_id, self.attempt, deadline=self.clock() + self.wait_seconds)
+                artifacts.persist_candidate(candidate_path, intent, {'id': candidate}, deployment)
+            except Exception:
+                pass
+            return 'unknown' if incident_ok else 'incident-unwritten'
 
     def verify(self, intent_id, intent_digest, candidate_id, candidate_digest):
         try:

@@ -83,6 +83,7 @@ class Tests(unittest.TestCase):
                 a.parse_archive(value, 'intent.json')
     def test_candidate_binding_requires_create_id_and_real_git_identity(self):
         dep = {'id': 'dpl_new', 'projectId': a.w.PROJECT, 'target': 'production',
+               'meta': {'sunrise_run_id': '123', 'sunrise_run_attempt': '1', 'sunrise_commit': INTENT['commit']},
                'gitSource': {'type': 'github', 'org': 'jerry200176-png', 'repo': 'sunrise-cafe', 'ref': 'main', 'sha': INTENT['commit']}}
         record = a.bind_candidate(INTENT, {'id': 'dpl_new'}, dep)
         self.assertEqual(a.authenticate_candidate(INTENT, record, dep), 'dpl_new')
@@ -95,6 +96,7 @@ class Tests(unittest.TestCase):
         with self.assertRaises(a.InvalidEvidence): a.validate_candidate(INTENT, record)
     def test_verified_candidate_archive_is_rebound_to_deployment(self):
         dep = {'id': 'dpl_new', 'projectId': a.w.PROJECT, 'target': 'production',
+               'meta': {'sunrise_run_id': '123', 'sunrise_run_attempt': '1', 'sunrise_commit': INTENT['commit']},
                'gitSource': {'type': 'github', 'org': 'jerry200176-png', 'repo': 'sunrise-cafe', 'ref': 'main', 'sha': INTENT['commit']}}
         record = a.bind_candidate(INTENT, {'id': 'dpl_new'}, dep)
         fake = FakeGitHub(archive_of(record, 'candidate.json'), prefix='api-release-candidate')
@@ -105,6 +107,7 @@ class Tests(unittest.TestCase):
             a.authenticate_candidate(INTENT, downloaded, {**dep, 'id': 'dpl_other'})
     def test_candidate_record_is_exclusive_and_bound_before_persisting(self):
         dep = {'id': 'dpl_new', 'projectId': a.w.PROJECT, 'target': 'production',
+               'meta': {'sunrise_run_id': '123', 'sunrise_run_attempt': '1', 'sunrise_commit': INTENT['commit']},
                'gitSource': {'type': 'github', 'org': 'jerry200176-png', 'repo': 'sunrise-cafe', 'ref': 'main', 'sha': INTENT['commit']}}
         with tempfile.TemporaryDirectory(prefix='sunrise-candidate-') as tmp:
             path = pathlib.Path(tmp) / 'candidate.json'
@@ -119,6 +122,7 @@ class Tests(unittest.TestCase):
                 a.persist_candidate(pathlib.Path(tmp) / 'link' / 'candidate.json', INTENT, {'id': 'dpl_new'}, dep)
     def test_two_remote_artifacts_recover_bound_candidate(self):
         dep = {'id': 'dpl_new', 'projectId': a.w.PROJECT, 'target': 'production',
+               'meta': {'sunrise_run_id': '123', 'sunrise_run_attempt': '1', 'sunrise_commit': INTENT['commit']},
                'gitSource': {'type': 'github', 'org': 'jerry200176-png', 'repo': 'sunrise-cafe', 'ref': 'main', 'sha': INTENT['commit']}}
         record = a.bind_candidate(INTENT, {'id': 'dpl_new'}, dep)
         intent_gh = FakeGitHub(archive_of(INTENT))

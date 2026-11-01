@@ -61,6 +61,7 @@ def worker():
         raise OutcomeUnknown('invalid platform destination')
     method = payload['method']
     allowed = ((method == 'POST' and url.path == '/v13/deployments')
+               or (method == 'GET' and url.path == '/v7/deployments')
                or (method == 'GET' and url.path == '/v4/aliases/' + HOST)
                or (method == 'GET' and re.fullmatch(r'/v13/deployments/dpl_[A-Za-z0-9]+', url.path))
                or (method == 'POST' and re.fullmatch(r'/v1/projects/' + re.escape(model.PROJECT) + r'/rollback/dpl_[A-Za-z0-9]+', url.path)))
@@ -69,6 +70,15 @@ def worker():
     expected_query = {'teamId': [TEAM]}
     if method == 'GET' and url.path.startswith('/v13/deployments/'):
         expected_query['withGitRepoInfo'] = ['true']
+    if method == 'GET' and url.path == '/v7/deployments':
+        expected_query.update({'projectId': [model.PROJECT], 'target': ['production'], 'branch': ['main'], 'limit': ['100']})
+        sha = query.get('sha', [])
+        if len(sha) != 1 or not model.SHA.fullmatch(sha[0]): raise OutcomeUnknown('invalid list SHA')
+        expected_query['sha'] = sha
+        if 'until' in query:
+            cursor = query['until']
+            if len(cursor) != 1 or not re.fullmatch(r'[1-9][0-9]{0,19}', cursor[0]): raise OutcomeUnknown('invalid list cursor')
+            expected_query['until'] = cursor
     if query != expected_query: raise OutcomeUnknown('platform scope mismatch')
     headers = payload['headers']
     if not isinstance(headers, dict) or not any(k.lower() == 'authorization' and v.startswith('Bearer ') for k, v in headers.items()):
@@ -90,12 +100,14 @@ class VercelAPI:
         self._token = token
         self._transport = transport
 
-    def _request(self, method, path, body=None, *, with_git=False, allow_empty=False, deadline=None):
+    def _request(self, method, path, body=None, *, with_git=False, allow_empty=False, deadline=None, query_extra=None):
         if method not in ("GET", "POST") or not path.startswith("/") or "?" in path or ".." in path:
             raise ValueError("unsupported platform request")
         query = {"teamId": TEAM}
         if with_git:
             query["withGitRepoInfo"] = "true"
+        if query_extra:
+            query.update(query_extra)
         url = "https://api.vercel.com" + path + "?" + urllib.parse.urlencode(query)
         data = None if body is None else json.dumps(body, separators=(",", ":")).encode()
         request = urllib.request.Request(url, method=method, data=data,
@@ -119,9 +131,62 @@ class VercelAPI:
         result = self._request("POST", "/v13/deployments", model.create_body(sha, ref))
         return self._deployment_id(result)
 
-    def create_production(self, sha):
-        result = self._request("POST", "/v13/deployments", model.create_body(sha, "main", True))
+    def create_production(self, sha, run_id, attempt):
+        if not isinstance(run_id, str) or not artifacts.w.RUN.fullmatch(run_id) or not isinstance(attempt, str) or not artifacts.w.RUN.fullmatch(attempt):
+            raise ValueError('invalid release run identity')
+        body = model.create_body(sha, "main", True)
+        body['meta'] = {'sunrise_run_id': run_id, 'sunrise_run_attempt': attempt, 'sunrise_commit': sha}
+        result = self._request("POST", "/v13/deployments", body)
         return self._deployment_id(result)
+
+    def find_candidate(self, sha, run_id, attempt, *, deadline=None):
+        """Find exactly one observed run-tagged candidate across all pages.
+
+        This is not an atomic uniqueness or source-attestation guarantee. A zero,
+        incomplete, denied, ambiguous or malformed result remains unknown.
+        """
+        if (not isinstance(sha, str) or not model.SHA.fullmatch(sha)
+                or not isinstance(run_id, str) or not artifacts.w.RUN.fullmatch(run_id)
+                or not isinstance(attempt, str) or not artifacts.w.RUN.fullmatch(attempt)):
+            raise ValueError('invalid recovery identity')
+        expected = {'sunrise_run_id': run_id, 'sunrise_run_attempt': attempt, 'sunrise_commit': sha}
+        query = {'projectId': model.PROJECT, 'target': 'production', 'branch': 'main', 'sha': sha, 'limit': '100'}
+        seen, matches, cursor = set(), [], None
+        for _ in range(20):
+            extra = dict(query)
+            if cursor is not None: extra['until'] = cursor
+            page = self._request('GET', '/v7/deployments', deadline=deadline, query_extra=extra)
+            entries, pagination = page.get('deployments'), page.get('pagination')
+            if not isinstance(entries, list) or len(entries) > 100 or not isinstance(pagination, dict) or 'next' not in pagination:
+                raise OutcomeUnknown('deployment listing incomplete')
+            for entry in entries:
+                if (not isinstance(entry, dict) or entry.get('projectId') != model.PROJECT
+                        or entry.get('target') != 'production' or not isinstance(entry.get('meta'), dict)):
+                    raise OutcomeUnknown('deployment listing identity unavailable')
+                if all(entry['meta'].get(k) == v for k, v in expected.items()):
+                    candidate = entry.get('uid') or entry.get('id')
+                    if not isinstance(candidate, str) or not model.ID.fullmatch(candidate) or candidate in matches:
+                        raise OutcomeUnknown('deployment candidate ambiguous')
+                    matches.append(candidate)
+            next_cursor = pagination['next']
+            if next_cursor is None:
+                if len(matches) != 1: raise OutcomeUnknown('deployment candidate not uniquely observed')
+                detail = self.deployment(matches[0], deadline=deadline)
+                source, meta = detail.get('gitSource'), detail.get('meta')
+                if (detail.get('id') != matches[0] or detail.get('projectId') != model.PROJECT
+                        or detail.get('target') != 'production' or not isinstance(source, dict)
+                        or source.get('type') != 'github' or source.get('org') != 'jerry200176-png'
+                        or source.get('repo') != 'sunrise-cafe' or source.get('ref') != 'main'
+                        or source.get('sha') != sha or not isinstance(meta, dict)
+                        or any(meta.get(k) != v for k, v in expected.items())):
+                    raise OutcomeUnknown('recovered deployment identity mismatch')
+                return matches[0], detail
+            if isinstance(next_cursor, int) and not isinstance(next_cursor, bool): next_cursor = str(next_cursor)
+            if (not isinstance(next_cursor, str) or not re.fullmatch(r'[1-9][0-9]{0,19}', next_cursor)
+                    or next_cursor in seen or (cursor is not None and int(next_cursor) >= int(cursor))):
+                raise OutcomeUnknown('deployment pagination invalid')
+            seen.add(next_cursor); cursor = next_cursor
+        raise OutcomeUnknown('deployment pagination limit reached')
 
     def production_alias(self, *, deadline=None):
         result = self._request("GET", "/v4/aliases/" + HOST, deadline=deadline)
