@@ -27,7 +27,6 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
@@ -42,12 +41,6 @@ jobs:
             export SUPABASE_DB_URL="${SUPABASE_DB_URL:-${POSTGRES_URL_NON_POOLING:-${POSTGRES_URL:-}}}"
           fi
           node scripts/apply-migration-ops-events.mjs || {
-            echo "Direct apply failed — trying production API..."
-            if [ -z "${CRON_SECRET:-}" ]; then
-              echo "::warning::Will apply on Vercel cold start (bootstrap-migrations) after deploy"
-              exit 0
-            fi
-            curl -sf -X POST \
-              -H "Authorization: Bearer ${CRON_SECRET}" \
-              "https://sunrise-cafe-six.vercel.app/api/admin/migrations/apply-ops-events" || exit 0
+            echo "::error::Direct migration runner failed; automatic HTTP fallback is disabled"
+            exit 1
           }

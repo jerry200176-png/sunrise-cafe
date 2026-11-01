@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
+import { rateLimit } from "@/lib/rate-limit";
 import { GET, POST } from "./route";
 import { signAttendanceToken } from "@/lib/attendance-token";
 import { verifyLookupToken } from "@/lib/lookup-token";
@@ -203,5 +204,16 @@ describe("/api/guest/confirm-attendance lookup_token", () => {
     expect(res.status).toBe(503);
     const json = await res.json();
     expect(json.error).not.toContain("private update detail");
+  });
+});
+
+
+describe("limiter unavailable", () => {
+  it.each(["GET", "POST"] as const)("returns 503 for %s before lookup or mutation", async (method) => {
+    vi.mocked(rateLimit).mockResolvedValueOnce({ success: false, limit: 0, remaining: 0, reset: Date.now() + 5000, mode: "upstash", unavailable: true });
+    const request = new NextRequest("https://test.local/api/guest/confirm-attendance", { method });
+    const response = await (method === "GET" ? GET(request) : POST(request));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "Service Temporarily Unavailable" });
   });
 });

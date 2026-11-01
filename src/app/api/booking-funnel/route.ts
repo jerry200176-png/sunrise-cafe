@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getClientIp, rateLimit, guestRateLimitId } from "@/lib/rate-limit";
+import { rateLimitResponse } from "@/lib/rate-limit-response";
 import { logOps, type OpsLogAction } from "@/lib/ops-log";
 
 const ALLOWED_EVENTS = new Set([
@@ -36,13 +37,8 @@ export async function POST(request: NextRequest) {
     }
 
     const ip = getClientIp(request);
-    const { success, reset } = await rateLimit(guestRateLimitId(ip, "funnel"), "guestLookup");
-    if (!success) {
-      return NextResponse.json(
-        { error: "Too Many Requests" },
-        { status: 429, headers: { "Retry-After": String(Math.ceil((reset - Date.now()) / 1000)) } }
-      );
-    }
+    const limited = rateLimitResponse(await rateLimit(guestRateLimitId(ip, "funnel"), "guestLookup"));
+    if (limited) return limited;
 
     const mapped = toOps(event);
     logOps("guest", mapped.action, {
