@@ -70,6 +70,12 @@ draft 的建單候選改從 reservation→room 取得 authoritative branch，要
 4. `transactional_outbox`: 以穩定 event id／類型約束一筆待投遞，狀態與 audit 在同一交易；外部發送在 commit 後並遵守既有去重、租約及失敗恢復。網路重試不等於對外 exactly-once；對 provider 呼叫不得持有跨網路的 DB row lock。
 5. 銀行轉帳與人工審核不是 provider callback：保留原有審核權限、金額核對及取消後異常證據；若付款先發生但報告較晚，系統不能憑無報告推定銀行未入帳。退款／安排座位由既有經授權政策決定，不由本研究創造政策。
 
+## 退款順序的隔離研究（非 app 修復）
+
+`scripts/research/stripe-refund-races/` 只在 PG17 合成 fixture 中研究共同鎖序，使用兩 session 並透過 `pg_blocking_pids` 確認等待：同一已知訂位的成功／完整退款兩種先後、重複／不同成功 event、衝突 ID、金額／幣別／種類無法確認，以及交易回滾再重送。fixture 的完整退款是假設，非真實 Stripe 退款政策；未接 app、migration、真 provider 或正式資料。
+
+研究同時證實兩個未解缺口：先 paid 再 refund 會留下原 paid outbox（不能宣稱已安全通知或撤回）；未知綁定與 DB transaction 失敗無法 durable 接收事件。跨訂位 event identity 鎖序、部分退款、既有 writer、舊版混跑及授權／保留策略仍需設計。四項 app RED 必須保留，不能因 fixture 通過而解除部署阻擋。
+
 ## 版本相容與切換次序
 
 1. 設計階段先用 #536 合成兩 session 研究與 production-like PG17/PostgREST schema 建立 RED 測試；另以 fake Stripe/LINE sandbox 驗證 API 失敗、逾時、資料庫回應遺失、整個 process 中斷和 caller retry，不能觸真付款。
