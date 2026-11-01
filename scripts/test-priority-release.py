@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Synthetic provider tests: no Vercel, DB, credentials, or network access."""
 import hashlib
+import base64
 import importlib.util
 import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 SPEC = importlib.util.spec_from_file_location("priority_release", Path(__file__).with_name("priority-release.py"))
 release = importlib.util.module_from_spec(SPEC)
@@ -25,8 +27,16 @@ class Fake:
         self.stage_version_wrong = False
         self.baseline_candidate = True
         self.other_writer = False
+        self.stage_source_wrong = False
+        self.late_promote = False
+        self.late_checks = 0
+        self.rollback_timeout = False
 
     def alias(self):
+        if self.late_promote and "promote:stage.vercel.app" in self.calls:
+            self.late_checks += 1
+            if self.late_checks == 2:
+                self.current = "dpl_new"
         return self.current
 
     def deployment(self, identity):
@@ -40,6 +50,11 @@ class Fake:
     def stage(self, sha):
         self.calls.append("stage")
         return {"id": "dpl_new", "host": "stage.vercel.app", "meta": {}}
+
+    def verify_selected_source(self, identity, files):
+        self.calls.append("verify-source:" + identity)
+        if self.stage_source_wrong:
+            raise release.ReleaseError("synthetic source mismatch")
 
     def version(self, host):
         if host == "stage.vercel.app":
@@ -55,7 +70,8 @@ class Fake:
 
     def promote(self, host):
         self.calls.append("promote:" + host)
-        self.current = "dpl_new"
+        if not self.late_promote:
+            self.current = "dpl_new"
         if self.other_writer:
             self.current = "dpl_external"
         if self.promotion_timeout:
@@ -66,11 +82,15 @@ class Fake:
         if self.fail_rollback:
             raise release.ReleaseError("synthetic rollback failure")
         self.current = "dpl_base"
+        if self.rollback_timeout:
+            raise release.ReleaseError("synthetic rollback outcome unknown")
 
 
 class ReleaseFlowTests(unittest.TestCase):
     def run_flow(self, fake):
-        return release.release(fake, BASE, NEW, watch_rounds=2, wait=lambda _: None)
+        def record(base, candidate): fake.calls.append("incident:" + base + ":" + candidate)
+        return release.release(fake, BASE, NEW, {"src/example.ts": "0" * 64}, record_incident=record,
+                               watch_rounds=2, recovery_rounds=3, wait=lambda _: None)
 
     def test_success_stages_before_promoting_and_watches(self):
         fake = Fake()
@@ -92,10 +112,17 @@ class ReleaseFlowTests(unittest.TestCase):
             self.run_flow(fake)
         self.assertFalse(any(call.startswith("promote:") for call in fake.calls))
 
+    def test_wrong_stage_source_never_promotes(self):
+        fake = Fake()
+        fake.stage_source_wrong = True
+        with self.assertRaises(release.ReleaseError):
+            self.run_flow(fake)
+        self.assertFalse(any(call.startswith("promote:") for call in fake.calls))
+
     def test_failed_live_smoke_rolls_back_exact_baseline(self):
         fake = Fake()
         fake.fail_live = True
-        with self.assertRaisesRegex(release.ReleaseError, "baseline observed healthy"):
+        with self.assertRaisesRegex(release.ReleaseError, "baseline rollback observed healthy"):
             self.run_flow(fake)
         self.assertIn("rollback:base.vercel.app", fake.calls)
         self.assertEqual(fake.current, "dpl_base")
@@ -103,15 +130,33 @@ class ReleaseFlowTests(unittest.TestCase):
     def test_unknown_promotion_outcome_is_observed_and_rolled_back_if_candidate_live(self):
         fake = Fake()
         fake.promotion_timeout = True
-        with self.assertRaisesRegex(release.ReleaseError, "baseline observed healthy"):
+        with self.assertRaisesRegex(release.ReleaseError, "outcome remains unknown"):
             self.run_flow(fake)
         self.assertEqual(fake.calls.count("promote:stage.vercel.app"), 1)
+        self.assertEqual(fake.calls.count("rollback:base.vercel.app"), 1)
+        self.assertLess(fake.calls.index("incident:dpl_base:dpl_new"), fake.calls.index("rollback:base.vercel.app"))
+
+    def test_late_promotion_is_observed_and_not_blindly_retried(self):
+        fake = Fake()
+        fake.late_promote = True
+        fake.promotion_timeout = True
+        with self.assertRaisesRegex(release.ReleaseError, "outcome remains unknown"):
+            self.run_flow(fake)
+        self.assertEqual(fake.calls.count("promote:stage.vercel.app"), 1)
+        self.assertEqual(fake.calls.count("rollback:base.vercel.app"), 1)
+
+    def test_rollback_timeout_is_observed_without_blind_retry(self):
+        fake = Fake()
+        fake.fail_live = True
+        fake.rollback_timeout = True
+        with self.assertRaisesRegex(release.ReleaseError, "outcome remains unknown"):
+            self.run_flow(fake)
         self.assertEqual(fake.calls.count("rollback:base.vercel.app"), 1)
 
     def test_changed_external_alias_is_not_blindly_rolled_back(self):
         fake = Fake()
         fake.other_writer = True
-        with self.assertRaisesRegex(release.ReleaseError, "rollback unverified"):
+        with self.assertRaisesRegex(release.ReleaseError, "outcome remains unknown"):
             self.run_flow(fake)
         self.assertFalse(any(call.startswith("rollback:") for call in fake.calls))
 
@@ -119,7 +164,7 @@ class ReleaseFlowTests(unittest.TestCase):
         fake = Fake()
         fake.fail_live = True
         fake.fail_rollback = True
-        with self.assertRaisesRegex(release.ReleaseError, "rollback unverified"):
+        with self.assertRaisesRegex(release.ReleaseError, "outcome remains unknown"):
             self.run_flow(fake)
 
     def test_no_real_environment_token_needed_for_fake(self):
@@ -145,11 +190,24 @@ class AdapterTests(unittest.TestCase):
 
     def test_health_requires_exact_200_and_never_accepts_redirect(self):
         provider = release.Vercel("synthetic-token", "/synthetic/vercel")
-        provider.cli_run = lambda *args, **kwargs: "synthetic page\n302"
-        with self.assertRaises(release.ReleaseError):
-            provider.request("stage.vercel.app", "/book")
-        provider.cli_run = lambda *args, **kwargs: "synthetic page\n200"
-        self.assertEqual(provider.request("stage.vercel.app", "/book"), "synthetic page")
+        class Response:
+            def __init__(self, status): self.status = status
+            def __enter__(self): return self
+            def __exit__(self, *_args): pass
+            def read(self, _limit): return b"synthetic page"
+        class Opener:
+            def __init__(self, status): self.status = status
+            def open(self, request, timeout):
+                self.request = request
+                self.timeout = timeout
+                return Response(self.status)
+        with patch.object(release.urllib.request, "build_opener", return_value=Opener(302)):
+            with self.assertRaises(release.ReleaseError):
+                provider.request("stage.vercel.app", "/book")
+        opener = Opener(200)
+        with patch.object(release.urllib.request, "build_opener", return_value=opener):
+            self.assertEqual(provider.request("stage.vercel.app", "/book"), "synthetic page")
+        self.assertIsNone(opener.request.get_header("Authorization"))
 
     def test_rollback_candidacy_fails_closed_on_invalid_response(self):
         provider = release.Vercel("synthetic-token", "/synthetic/vercel")
@@ -175,6 +233,31 @@ class AdapterTests(unittest.TestCase):
                 with self.assertRaises(release.ReleaseError):
                     provider.deployment("dpl_new")
 
+    def test_selected_source_bytes_are_verified_without_environment_files(self):
+        provider = release.Vercel("synthetic-token", "/synthetic/vercel")
+        uid = "a" * 40
+        source = b"synthetic source"
+        tree = [{"name": "src", "type": "directory", "children": [
+            {"name": "example.ts", "type": "file", "uid": uid},
+            {"name": ".env.local", "type": "file", "uid": "b" * 40},
+        ]}]
+        called = []
+        def api(path, query=None):
+            called.append(path)
+            return tree if path.endswith("/files") else {"data": base64.b64encode(source).decode()}
+        provider.api = api
+        provider.verify_selected_source("dpl_new", {"src/example.ts": hashlib.sha256(source).hexdigest()})
+        self.assertEqual(len(called), 2)
+        self.assertTrue(called[-1].endswith(uid))
+        self.assertFalse(any("b" * 40 in path for path in called))
+
+    def test_different_staged_source_is_rejected(self):
+        provider = release.Vercel("synthetic-token", "/synthetic/vercel")
+        tree = [{"name": "src", "type": "directory", "children": [{"name": "example.ts", "type": "file", "uid": "a" * 40}]}]
+        provider.api = lambda path, query=None: tree if path.endswith("/files") else {"data": base64.b64encode(b"wrong").decode()}
+        with self.assertRaises(release.ReleaseError):
+            provider.verify_selected_source("dpl_new", {"src/example.ts": hashlib.sha256(b"reviewed").hexdigest()})
+
 
 class WorkflowSafetyTests(unittest.TestCase):
     def test_one_use_job_is_disabled_before_checkout_and_has_no_migration_runner(self):
@@ -185,6 +268,19 @@ class WorkflowSafetyTests(unittest.TestCase):
         self.assertNotIn("run-production-migration-phase", job)
         self.assertNotIn("resolve-db-url", job)
         self.assertIn("group: production-deploy-main", workflow)
+        self.assertIn("Upload release incident evidence", job)
+        self.assertIn("Record release incident", job)
+
+    def test_incident_record_is_private_and_rejects_overwrite(self):
+        with tempfile.TemporaryDirectory(prefix="sunrise-incident-") as directory:
+            path = Path(directory) / "incident.json"
+            with patch.dict(os.environ, {"RUNNER_TEMP": directory, "RELEASE_INCIDENT_PATH": str(path)}):
+                release.write_incident("dpl_base", "dpl_new")
+                data = path.read_text(encoding="utf-8")
+                self.assertIn("release_incident", data)
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+                with self.assertRaises(FileExistsError):
+                    release.write_incident("dpl_base", "dpl_new")
 
 
 class TreeGuardTests(unittest.TestCase):
@@ -203,7 +299,10 @@ class TreeGuardTests(unittest.TestCase):
         self.git("add", "file.txt")
         self.git("commit", "-qm", "reviewed")
         self.head = self.git("rev-parse", "HEAD")
-        self.manifest = {"baseline_commit": self.base, "files": {"file.txt": hashlib.sha256(b"reviewed").hexdigest()}}
+        self.tree = self.git("rev-parse", "HEAD^{tree}")
+        self.manifest = {"baseline_commit": self.base, "reviewed_tree": release.REVIEWED_FEATURE_TREE,
+                         "reviewed_merge_commit": release.REVIEWED_FEATURE_MERGE,
+                         "files": {"file.txt": hashlib.sha256(b"reviewed").hexdigest()}}
 
     def tearDown(self):
         os.chdir(self.old_cwd)
@@ -214,24 +313,37 @@ class TreeGuardTests(unittest.TestCase):
         return subprocess.check_output(["git", *args], stderr=subprocess.DEVNULL).decode().strip()
 
     def test_exact_reviewed_tree_is_accepted(self):
-        self.assertEqual(release.verify_tree(self.manifest, self.head), self.base)
+        self.assertEqual(release.verify_tree(self.manifest, self.head, self.tree), self.base)
 
     def test_modified_file_is_not_accepted(self):
         Path("file.txt").write_text("not reviewed", encoding="utf-8")
         with self.assertRaises(release.ReleaseError):
-            release.verify_tree(self.manifest, self.head)
+            release.verify_tree(self.manifest, self.head, self.tree)
 
     def test_extra_changed_path_is_rejected(self):
         Path("extra.txt").write_text("extra", encoding="utf-8")
         self.git("add", "extra.txt")
         self.git("commit", "-qm", "extra")
         with self.assertRaises(release.ReleaseError):
-            release.verify_tree(self.manifest, self.git("rev-parse", "HEAD"))
+            release.verify_tree(self.manifest, self.git("rev-parse", "HEAD"), self.tree)
 
     def test_wrong_reviewed_digest_is_rejected(self):
         self.manifest["files"]["file.txt"] = "0" * 64
         with self.assertRaises(release.ReleaseError):
-            release.verify_tree(self.manifest, self.head)
+            release.verify_tree(self.manifest, self.head, self.tree)
+
+    def test_changed_infrastructure_does_not_match_reviewed_tree(self):
+        Path("scripts").mkdir()
+        Path("scripts/priority-release.py").write_text("altered implementation", encoding="utf-8")
+        self.git("add", "scripts/priority-release.py")
+        self.git("commit", "-qm", "altered infra")
+        with self.assertRaises(release.ReleaseError):
+            release.verify_tree(self.manifest, self.git("rev-parse", "HEAD"), self.tree)
+
+    def test_reviewed_feature_metadata_is_required(self):
+        self.manifest["reviewed_tree"] = "0" * 40
+        with self.assertRaises(release.ReleaseError):
+            release.verify_tree(self.manifest, self.head, self.tree)
 
 
 if __name__ == "__main__":

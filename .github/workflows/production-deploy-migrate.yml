@@ -25,6 +25,10 @@ on:
         options:
           - blocked-migrations
           - priority-code-only
+      reviewed_tree:
+        description: "Full tree SHA from the exact CI-passing independently reviewed PR head"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -590,6 +594,9 @@ jobs:
     name: Priority code-only deployment
     runs-on: ubuntu-latest
     timeout-minutes: 50
+    permissions:
+      contents: read
+      issues: write
     steps:
       - name: Stop until release hold and rollback readiness are resolved
         run: |
@@ -616,9 +623,37 @@ jobs:
           set -euo pipefail
           [ "${FORCE_DEPLOY:-false}" != true ] || { echo "::error::forced activation is not supported"; exit 1; }
       - name: Verify source, stage, verify, promote or roll back
+        id: priority_release
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: team_o4vau0vkVyakLaNFPmhXkL5M
           VERCEL_PROJECT_ID: prj_5swHVn2nqzrZ50VYx1zoEXZAvKiP
           VERCEL_CLI: ${{ runner.temp }}/sunrise-vercel-cli/node_modules/.bin/vercel
+          REVIEWED_TREE_SHA: ${{ inputs.reviewed_tree }}
+          RELEASE_INCIDENT_PATH: ${{ runner.temp }}/sunrise-priority-release-incident.json
         run: python3 -B scripts/priority-release.py
+      - name: Upload release incident evidence
+        if: ${{ always() && steps.priority_release.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: priority-release-incident-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sunrise-priority-release-incident.json
+          retention-days: 3
+          if-no-files-found: ignore
+      - name: Record release incident
+        if: ${{ always() && steps.priority_release.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INCIDENT_PATH: ${{ runner.temp }}/sunrise-priority-release-incident.json
+        run: |
+          set -euo pipefail
+          [ -s "$INCIDENT_PATH" ] || exit 0
+          [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]] || exit 1
+          TITLE="Incident: priority release requires immediate investigation ${GITHUB_SHA:0:7}"
+          printf '%s\n' 'Promotion or rollback did not complete cleanly. Investigate the production deployment and the recorded incident artifact immediately; do not blindly retry.' > "$RUNNER_TEMP/sunrise-priority-incident.md"
+          EXISTING="$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number // empty')"
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body-file "$RUNNER_TEMP/sunrise-priority-incident.md"
+          else
+            gh issue create --title "$TITLE" --body-file "$RUNNER_TEMP/sunrise-priority-incident.md"
+          fi

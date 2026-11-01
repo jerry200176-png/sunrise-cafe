@@ -5,6 +5,7 @@ The committed workflow has an unconditional stop ahead of this program until
 release prerequisites are reviewed. No production command has been run here.
 """
 import hashlib
+import base64
 import json
 import os
 from pathlib import Path
@@ -22,6 +23,8 @@ HOST = "sunrise-cafe-six.vercel.app"
 ID = re.compile(r"dpl_[A-Za-z0-9]+\Z")
 SHA = re.compile(r"[a-f0-9]{40}\Z")
 HOSTNAME = re.compile(r"[a-z0-9-]+\.vercel\.app\Z")
+REVIEWED_FEATURE_TREE = "aeae32f5fd467e7004de03ebcaf443b494d0a5a8"
+REVIEWED_FEATURE_MERGE = "b03bbee6161d1fc82cb989951f3169fb3e30f806"
 INFRA = {
     ".github/workflows/production-deploy-migrate.yml",
     ".github/workflows/ci.yml",
@@ -49,14 +52,19 @@ def git_bytes(*args):
     return result.stdout
 
 
-def verify_tree(manifest, expected_sha):
+def verify_tree(manifest, expected_sha, reviewed_tree):
     if not SHA.fullmatch(expected_sha) or git_bytes("rev-parse", "HEAD").decode().strip() != expected_sha:
         raise ReleaseError("checkout does not match requested commit")
+    if not SHA.fullmatch(reviewed_tree) or git_bytes("rev-parse", expected_sha + "^{tree}").decode().strip() != reviewed_tree:
+        raise ReleaseError("checkout tree differs from the independently reviewed tree")
     if git_bytes("status", "--porcelain", "--untracked-files=all").strip():
         raise ReleaseError("checkout contains uncommitted content")
     base = manifest.get("baseline_commit", "")
     if not SHA.fullmatch(base):
         raise ReleaseError("invalid baseline")
+    if (manifest.get("reviewed_tree") != REVIEWED_FEATURE_TREE
+            or manifest.get("reviewed_merge_commit") != REVIEWED_FEATURE_MERGE):
+        raise ReleaseError("invalid reviewed feature identity")
     ancestry = subprocess.run(["git", "merge-base", "--is-ancestor", base, expected_sha],
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
     if ancestry.returncode:
@@ -170,17 +178,75 @@ class Vercel:
             raise ReleaseError("unexpected staging URL")
         return self.deployment(parsed.hostname)
 
+    def verify_selected_source(self, deployment_id, files):
+        """Verify selected runtime source bytes, not the entire build provenance."""
+        if not ID.fullmatch(deployment_id):
+            raise ReleaseError("invalid stage identity")
+        tree = self.api("/v6/deployments/" + deployment_id + "/files")
+        if not isinstance(tree, list):
+            raise ReleaseError("staged source tree unavailable")
+        found = {}
+        count = 0
+        def walk(entries, prefix="", depth=0):
+            nonlocal count
+            if depth > 40 or not isinstance(entries, list):
+                raise ReleaseError("invalid staged source tree")
+            for entry in entries:
+                count += 1
+                if count > 30000 or not isinstance(entry, dict):
+                    raise ReleaseError("invalid staged source tree")
+                name, kind = entry.get("name"), entry.get("type")
+                if not isinstance(name, str) or not name or "/" in name or name in (".", ".."):
+                    raise ReleaseError("invalid staged source tree")
+                path = prefix + name
+                if kind == "directory":
+                    walk(entry.get("children"), path + "/", depth + 1)
+                elif kind == "file":
+                    if path in found:
+                        raise ReleaseError("duplicate staged source path")
+                    found[path] = entry.get("uid")
+                elif kind not in ("symlink", "lambda", "middleware"):
+                    raise ReleaseError("invalid staged source tree")
+        walk(tree)
+        selected = {name: digest for name, digest in files.items()
+                    if name.startswith("src/") and not re.search(r"\.test\.[^.]+$", name)}
+        if not selected:
+            raise ReleaseError("no reviewed runtime source selected")
+        for name, digest in selected.items():
+            # The CLI source listing can wrap the project in a root `src`.
+            paths = [path for path in (name, "src/" + name) if path in found]
+            if len(paths) != 1:
+                raise ReleaseError("reviewed runtime source missing or ambiguous")
+            file_id = found[paths[0]]
+            if not isinstance(file_id, str) or not re.fullmatch(r"[a-fA-F0-9]{40,64}", file_id):
+                raise ReleaseError("invalid staged source identity")
+            data = self.api("/v8/deployments/" + deployment_id + "/files/" + file_id)
+            if not isinstance(data, dict) or not isinstance(data.get("data"), str):
+                raise ReleaseError("staged source bytes unavailable")
+            try:
+                source = base64.b64decode(data["data"], validate=True)
+            except ValueError as exc:
+                raise ReleaseError("invalid staged source bytes") from exc
+            if hashlib.sha256(source).hexdigest() != digest:
+                raise ReleaseError("staged runtime source differs from reviewed content")
+
     def request(self, host, path):
         if not HOSTNAME.fullmatch(host) or path not in ("/api/version", "/", "/book", "/menu"):
             raise ReleaseError("invalid health target")
-        # CLI handles deployment protection; no bypass token or environment file.
-        output = self.cli_run("curl", path, "--deployment", "https://" + host,
-                              "--fail", "--silent", "--show-error", "--max-time", "15",
-                              "--write-out", "\n%{http_code}", timeout=25)
-        body, separator, status = output.rpartition("\n")
-        if not separator or status != "200":
-            raise ReleaseError("health endpoint did not return HTTP 200")
-        return body
+        # A raw read-only GET intentionally fails closed on deployment protection.
+        # `vercel curl` may create a new protection-bypass credential, so it is
+        # not used. No API token is sent to the deployment host.
+        request = urllib.request.Request("https://" + host + path, headers={"Cache-Control": "no-store"})
+        try:
+            with urllib.request.build_opener(NoRedirect).open(request, timeout=15) as response:
+                if response.status != 200:
+                    raise ReleaseError("health endpoint did not return HTTP 200")
+                raw = response.read(2 * 1024 * 1024 + 1)
+            if len(raw) > 2 * 1024 * 1024:
+                raise ReleaseError("health response too large")
+            return raw.decode("utf-8", "strict")
+        except (OSError, UnicodeError, urllib.error.URLError) as exc:
+            raise ReleaseError("health endpoint unavailable or protected") from exc
 
     def version(self, host):
         try:
@@ -210,7 +276,10 @@ def same_version(provider, host, sha, deployment_id=None):
         raise ReleaseError("runtime deployment ID mismatch")
 
 
-def release(provider, base, candidate_sha, *, watch_rounds=30, wait=time.sleep):
+def release(provider, base, candidate_sha, source_files, *, record_incident=None,
+            watch_rounds=30, recovery_rounds=20, wait=time.sleep):
+    if record_incident is None:
+        raise ReleaseError("durable incident recorder is unavailable")
     baseline_id = provider.alias()
     baseline = provider.deployment(baseline_id)
     if baseline["id"] != baseline_id or baseline["meta"].get("githubCommitSha") != base:
@@ -222,14 +291,17 @@ def release(provider, base, candidate_sha, *, watch_rounds=30, wait=time.sleep):
     stage = provider.stage(candidate_sha)
     if stage["id"] == baseline_id:
         raise ReleaseError("stage reused the baseline deployment")
+    provider.verify_selected_source(stage["id"], source_files)
     same_version(provider, stage["host"], candidate_sha, stage["id"])
     provider.smoke(stage["host"])
     if provider.alias() != baseline_id:
         raise ReleaseError("production alias changed before promotion")
     # Repository concurrency serializes cooperating workflows; an external
     # writer can still race between this observation and the promote call.
+    promotion_returned = False
     try:
         provider.promote(stage["host"])
+        promotion_returned = True
         for attempt in range(21):
             observed = provider.alias()
             if observed == stage["id"]:
@@ -254,29 +326,73 @@ def release(provider, base, candidate_sha, *, watch_rounds=30, wait=time.sleep):
             provider.smoke(HOST)
         return "promoted_and_observed_healthy"
     except Exception as failure:
-        # Do not blindly retry an unknown promote/rollback. Resolve alias first;
-        # act only while it still points to this candidate. Any other target is
-        # an incident needing an immediate documented manual response.
+        # Record the incident *before* observing or attempting rollback. The
+        # workflow separately persists it after this step; a killed runner can
+        # still lose it and needs an independently staffed response.
+        incident_written = True
         try:
-            current = provider.alias()
-            if current == stage["id"]:
-                provider.rollback(baseline["host"])
-            elif current != baseline_id:
-                raise ReleaseError("rollback target is no longer current")
-            if provider.alias() != baseline_id:
-                raise ReleaseError("rollback alias is not confirmed")
-            same_version(provider, HOST, base)
-            provider.smoke(HOST)
-        except Exception as rollback_error:
-            raise ReleaseError("release failed; rollback unverified, immediate incident response required") from rollback_error
-        raise ReleaseError("release failed; baseline observed healthy; investigate any in-flight promotion") from failure
+            record_incident(baseline_id, stage["id"])
+        except Exception:
+            incident_written = False
+        rollback_attempted = False
+        rollback_unknown = False
+        baseline_last = False
+        # The provider may finish an already timed-out promotion later. Observe
+        # boundedly, roll back at most once after positively seeing our ID, and
+        # do not treat a currently healthy baseline as proof of final outcome.
+        for attempt in range(recovery_rounds + 1):
+            baseline_verified = False
+            try:
+                current = provider.alias()
+                if current == stage["id"] and not rollback_attempted:
+                    rollback_attempted = True
+                    try:
+                        provider.rollback(baseline["host"])
+                    except Exception:
+                        rollback_unknown = True
+                    current = provider.alias()
+                if current not in (baseline_id, stage["id"]):
+                    raise ReleaseError("another deployment became current")
+                baseline_last = current == baseline_id
+                if baseline_last and promotion_returned and not rollback_unknown:
+                    same_version(provider, HOST, base)
+                    provider.smoke(HOST)
+                    baseline_verified = True
+            except ReleaseError:
+                baseline_last = False
+            except Exception:
+                baseline_last = False
+            if baseline_verified:
+                if incident_written:
+                    raise ReleaseError("release failed; baseline rollback observed healthy; incident recorded") from failure
+                raise ReleaseError("release failed; baseline observed healthy but incident recording failed") from failure
+            if attempt < recovery_rounds:
+                wait(3)
+        # Finite observation cannot prove a late operation will never complete.
+        state = "baseline last observed" if baseline_last else "alias unverified"
+        incident = "incident recorded" if incident_written else "incident recording failed"
+        raise ReleaseError("release outcome remains unknown; " + state + "; " + incident + "; immediate response required") from failure
+
+
+def write_incident(baseline_id, candidate_id):
+    location, runner_temp = os.environ.get("RELEASE_INCIDENT_PATH", ""), os.environ.get("RUNNER_TEMP", "")
+    if (not location or not runner_temp or not ID.fullmatch(baseline_id) or not ID.fullmatch(candidate_id)
+            or Path(location).parent.resolve() != Path(runner_temp).resolve()):
+        raise ReleaseError("incident path is invalid")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(location, flags, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        json.dump({"status": "release_incident", "baseline_id": baseline_id,
+                   "candidate_id": candidate_id, "action": "immediate operator investigation required"}, stream)
+        stream.flush()
+        os.fsync(stream.fileno())
 
 
 def main():
     try:
         manifest = json.loads(Path("scripts/priority-release-manifest.json").read_text(encoding="utf-8"))
         sha = os.environ.get("GITHUB_SHA", "")
-        base = verify_tree(manifest, sha)
+        base = verify_tree(manifest, sha, os.environ.get("REVIEWED_TREE_SHA", ""))
         if os.environ.get("GITHUB_REF") != "refs/heads/main":
             raise ReleaseError("release target is not main")
         if os.environ.get("VERCEL_ORG_ID") != TEAM or os.environ.get("VERCEL_PROJECT_ID") != PROJECT:
@@ -286,7 +402,7 @@ def main():
         if Path(".vercel/project.json").exists() or Path(".vercel/repo.json").exists():
             raise ReleaseError("unexpected local Vercel project link")
         provider = Vercel(os.environ.get("VERCEL_TOKEN", ""), os.environ.get("VERCEL_CLI", ""))
-        print(release(provider, base, sha))
+        print(release(provider, base, sha, manifest["files"], record_incident=write_incident))
         return 0
     except ReleaseError as exc:
         print("::error::" + str(exc), file=sys.stderr)
