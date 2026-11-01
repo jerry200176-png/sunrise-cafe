@@ -36,6 +36,7 @@ import { transitionReservation } from "@/lib/reservation-lifecycle";
 import { sendLineFlexMessage } from "@/lib/line";
 import { sendLineFlexBatch } from "@/lib/line-notify";
 import type { NextRequest } from "next/server";
+import { buildHalfHourSlots } from "@/lib/slot-grid";
 
 const H = 3_600_000;
 const NOW = new Date("2026-10-21T04:00:00Z");
@@ -92,7 +93,7 @@ describe("deposit-deadline cron retains unpaid bookings", () => {
   );
 
   it("still sends the 24h reminder while the switch is off", async () => {
-    // created now, starts in 20h → deadline = start - 6h = 14h away → inside the 24h window
+    // created now, starts in 20h → deadline is capped at start, inside the 24h window
     vi.mocked(fetchUnpaidDepositDueReservations).mockResolvedValue([
       row({ id: "r-soon", created_at: NOW.toISOString(), start_time: new Date(NOW.getTime() + 20 * H).toISOString() }),
     ] as never);
@@ -100,6 +101,33 @@ describe("deposit-deadline cron retains unpaid bookings", () => {
     expect(body).toMatchObject({ reminded: 1, released: 0, deadline_passed: 0 });
     expect(sendLineFlexMessage).toHaveBeenCalledTimes(1);
     expect(transitionReservation).not.toHaveBeenCalled();
+  });
+
+  it("still sends the urgent reminder when the first reminder was already sent", async () => {
+    vi.mocked(fetchUnpaidDepositDueReservations).mockResolvedValue([
+      row({ created_at: NOW.toISOString(), deposit_reminder_sent_at: new Date(NOW.getTime() - H).toISOString() }),
+    ] as never);
+    const body = await json(await POST());
+    expect(body).toMatchObject({ urgentReminded: 1, released: 0 });
+    expect(sendLineFlexMessage).toHaveBeenCalledTimes(1);
+    expect(transitionReservation).not.toHaveBeenCalled();
+  });
+
+  it("retains overdue active bookings as blocked slots in the synthetic availability flow", async () => {
+    const reservation = row({ status: "confirmed" });
+    vi.mocked(fetchUnpaidDepositDueReservations).mockResolvedValue([reservation] as never);
+    await POST();
+    expect(transitionReservation).not.toHaveBeenCalled();
+    expect(reservation.status).toBe("confirmed");
+    // This tests the UI grid with a synthetic blocked row, not a live database constraint.
+    const slots = buildHalfHourSlots({
+      dayStartIso: reservation.start_time,
+      dayEndIso: reservation.end_time,
+      blocked: [reservation],
+      isToday: false,
+    });
+    expect(slots.length).toBeGreaterThan(0);
+    expect(slots.every((slot) => !slot.available)).toBe(true);
   });
 
   it("does not retry old release notices, which may refer to restored bookings", async () => {
