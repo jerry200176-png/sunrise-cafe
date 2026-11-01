@@ -84,6 +84,14 @@ This candidate has only fake-provider/local Git tests. Local installation of the
 pinned Vercel CLI failed for lack of workspace disk; actual CLI options,
 protected staging access, current Vercel permissions, rollback availability and
 the complete GitHub workflow have **not** been verified against the platform.
+The npm registry's latest stable CLI was 65.9.0 when this lock was prepared;
+`npm audit --package-lock-only` reported 23 high and one critical transitive
+findings. A no-force, package-lock-only `npm audit fix --ignore-scripts` in an
+isolated copy left those counts unchanged. The suggested 53.2.0 alternative
+reported 31 high and one critical in a separately generated lock. These are audit
+findings, not proof of exploitability of this particular command path. The
+dedicated CI job audits the locked release CLI before any credentialed use; no
+blind major-version overrides or downgrade are accepted as a fix.
 Vercel's [Cron deployment documentation](https://vercel.com/docs/cron-jobs/manage-cron-jobs#cron-jobs-and-deployments) states that existing running jobs continue during a new deployment, but does not establish that a `--prod --skip-domain` deployment cannot register or receive cron invocations before promotion. Cron behavior for this exact staging mode is therefore unverified, and old in-flight workers are not drained. The hard stop must remain while these prerequisites are unknown. No real LINE,
 production database, deployment, promotion or rollback was called in this work.
 

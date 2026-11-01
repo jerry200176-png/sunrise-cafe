@@ -103,6 +103,47 @@ jobs:
           ADMIN_PASSWORD: placeholder_password
           # Sentry/Upstash 未設定時自動停用，不影響 build
 
+  release-cli-contract:
+    name: Release CLI offline contract
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - name: Install locked CLI without lifecycle scripts or secrets
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sunrise-vercel-cli"
+          cp scripts/release-cli/package.json scripts/release-cli/package-lock.json "$RUNNER_TEMP/sunrise-vercel-cli/"
+          npm ci --ignore-scripts --no-audit --no-fund --prefix "$RUNNER_TEMP/sunrise-vercel-cli"
+      - name: Check version and command flags without network or credentials
+        run: |
+          set -euo pipefail
+          CLI="$RUNNER_TEMP/sunrise-vercel-cli/node_modules/.bin/vercel"
+          offline_help() {
+            local output="$1"; shift
+            local code=0
+            sudo -n unshare --net -- env -i PATH=/usr/bin:/bin DO_NOT_TRACK=1 VERCEL_TELEMETRY_DISABLED=1 \
+              "$CLI" "$@" >"$output" 2>&1 || code=$?
+            [ "$code" = 0 ] || [ "$code" = 2 ] || { echo '::error::offline CLI help failed'; return 1; }
+          }
+          offline_help "$RUNNER_TEMP/vercel-version.txt" --version
+          grep -q '65\.9\.0' "$RUNNER_TEMP/vercel-version.txt"
+          offline_help "$RUNNER_TEMP/vercel-deploy-help.txt" --scope synthetic-team deploy --help
+          grep -q -- '--skip-domain' "$RUNNER_TEMP/vercel-deploy-help.txt"
+          grep -q -- '--prod' "$RUNNER_TEMP/vercel-deploy-help.txt"
+          grep -q -- '--build-env' "$RUNNER_TEMP/vercel-deploy-help.txt"
+          grep -q -- '--env' "$RUNNER_TEMP/vercel-deploy-help.txt"
+          offline_help "$RUNNER_TEMP/vercel-promote-help.txt" --scope synthetic-team promote --help
+          grep -q -- '--yes' "$RUNNER_TEMP/vercel-promote-help.txt"
+          offline_help "$RUNNER_TEMP/vercel-rollback-help.txt" --scope synthetic-team rollback --help
+          grep -q -- '--yes' "$RUNNER_TEMP/vercel-rollback-help.txt"
+      - name: Audit release CLI dependencies before any credentialed use
+        run: npm audit --omit=dev --audit-level=high --prefix "$RUNNER_TEMP/sunrise-vercel-cli"
+
   e2e-smoke:
     name: Playwright smoke
     runs-on: ubuntu-latest
