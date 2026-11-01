@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { runBankTransferMigration } from "../../scripts/apply-migration-bank-transfer-reports.mjs";
@@ -61,11 +62,15 @@ describe("bank-transfer migration and ACL separation", () => {
     expect(unsafe).not.toHaveBeenCalled();
   });
 
-  it("runs the original historical SQL only for a new migration", async () => {
+  it("fails without writes when the historical migration is missing", async () => {
     const { sql, unsafe } = fakeDatabase(false);
-    await expect(runBankTransferMigration(sql)).resolves.toBeUndefined();
-    expect(unsafe).toHaveBeenCalledOnce();
-    const digest = createHash("sha256").update(unsafe.mock.calls[0][0] as string).digest("hex");
+    await expect(runBankTransferMigration(sql)).rejects.toThrow(/automatic bootstrap is disabled/);
+    expect(sql.begin).toHaveBeenCalledWith("isolation level repeatable read read only", expect.any(Function));
+    expect(unsafe).not.toHaveBeenCalled();
+  });
+
+  it("preserves the historical migration SQL", () => {
+    const digest = createHash("sha256").update(readFileSync(resolve(__dirname, "../../supabase/migration-bank-transfer-reports.sql"))).digest("hex");
     expect(digest).toBe("64f5adaefa6197ad2b23add5e231b9119e768d5a176d051153da4e31c683a1ed");
   });
 

@@ -81,6 +81,14 @@ checks the effective PUBLIC, anon, authenticated and service-role permissions wi
 them. Drift or an incomplete result stops the deployment. The historical SQL file and its SHA
 remain unchanged.
 
+The runner also stops without writing if the ledger table or this entry is missing. It does not
+bootstrap a new database or reapply the historical SQL. For a new environment or an inconsistent
+ledger, first identify the exact target and inspect its schema, migration history, and existing
+permissions. Prepare the required migration or ledger-reconciliation package with recovery,
+verification and rollback, then use the existing reviewed migration and governance process. Never
+insert a ledger entry merely to make this check pass. Once correctly established, rerun the
+read-only verification.
+
 For investigation, an authorized operator can run `node scripts/audit-bank-transfer-acl.mjs`
 using the approved database connection. It has no apply mode and runs inside a read-only
 transaction. Save its output with the target identity and checked commit; do not copy credentials

@@ -1,20 +1,14 @@
 #!/usr/bin/env node
 /**
- * Apply the bank-transfer reporting migration through the explicit production
- * migration path. This script never infers payment state from customer data.
+ * Verify the previously applied migration-bank-transfer-reports.sql without executing it
+ * or changing data or ACLs. A missing ledger entry requires a separate reviewed procedure.
  */
-import { readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BANK_TRANSFER_FUNCTIONS, verifyBankTransferAcl } from "./lib/bank-transfer-acl.mjs";
 import { connectOpsPostgres } from "./lib/ops-postgres.mjs";
 
-const scriptDir = dirname(fileURLToPath(import.meta.url));
 const VERSION = "20260914-bank-transfer-reports";
-const SQL = readFileSync(
-  join(scriptDir, "../supabase/migration-bank-transfer-reports.sql"),
-  "utf8"
-);
 const EXPECTED_COLUMNS = [
   "reported_account_last_five",
   "reported_amount",
@@ -92,17 +86,13 @@ async function verify(sql) {
 }
 
 export async function runBankTransferMigration(sql) {
-  const applied = await migrationApplied(sql);
-  if (applied) {
+  const verification = await sql.begin("isolation level repeatable read read only", async (transaction) => {
+    if (!(await migrationApplied(transaction))) {
+      throw new Error(`${VERSION} missing from schema_migrations; automatic bootstrap is disabled`);
+    }
     console.log(JSON.stringify({ migration: VERSION, status: "already_applied" }));
-  } else {
-    console.log(JSON.stringify({ migration: VERSION, status: "applying", plan: "explicit" }));
-    await sql.begin(async (transaction) => {
-      await transaction.unsafe(SQL);
-    });
-    console.log(JSON.stringify({ migration: VERSION, status: "applied" }));
-  }
-  const verification = await sql.begin("isolation level repeatable read read only", (transaction) => verify(transaction));
+    return verify(transaction);
+  });
   console.log(JSON.stringify({ migration: VERSION, verification }));
 }
 
