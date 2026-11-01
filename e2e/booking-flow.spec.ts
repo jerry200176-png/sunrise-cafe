@@ -54,7 +54,7 @@ test.describe("訂位流程（API mock）", () => {
 
     // 成功頁
     await expect(page).toHaveURL(/\/book\/success/);
-    await expect(page.getByText("預約申請已送出")).toBeVisible();
+    await expect(page.locator("p").filter({ hasText: /^預約申請已送出$/ })).toBeVisible();
     await expect(page.getByText("E2E001")).toBeVisible();
     await expect(page.getByText(/已付訂金無法線上自行取消：訂位開始前至少 48 小時/)).toBeVisible();
   });
