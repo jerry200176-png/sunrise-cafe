@@ -42,4 +42,27 @@ describe("middleware limiter failures", () => {
     expect(response.status).toBe(200);
     expect(mocks.rateLimit).not.toHaveBeenCalled();
   });
+  it("exempts only a valid scheduled bearer even when the shared limiter is unavailable", async () => {
+    vi.stubEnv("CRON_SECRET", "synthetic-cron-secret");
+    try {
+      mocks.rateLimit.mockResolvedValue({ ...base, success: false, unavailable: true });
+      const response = await middleware(new NextRequest("https://example.invalid/api/admin/reminders/send-line", {
+        headers: { authorization: "Bearer synthetic-cron-secret" },
+      }), event);
+      expect(response.headers.get("x-middleware-next")).toBe("1");
+      expect(mocks.rateLimit).not.toHaveBeenCalled();
+    } finally { vi.unstubAllEnvs(); }
+  });
+  it("does not let a forged cron header bypass an unavailable shared limiter", async () => {
+    vi.stubEnv("CRON_SECRET", "synthetic-cron-secret");
+    try {
+      mocks.rateLimit.mockResolvedValue({ ...base, success: false, unavailable: true });
+      const response = await middleware(new NextRequest("https://example.invalid/api/admin/reminders/send-line", {
+        headers: { "x-vercel-cron-schedule": "0 12 * * *" },
+      }), event);
+      expect(response.status).toBe(503);
+      expect(mocks.rateLimit).toHaveBeenCalledWith("synthetic", "api");
+      expect(mocks.logOps).not.toHaveBeenCalled();
+    } finally { vi.unstubAllEnvs(); }
+  });
 });

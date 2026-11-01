@@ -12,6 +12,7 @@ import {
 } from "@/lib/admin-api-auth";
 import {
   authorizeCronGet,
+  isAdminCronBearerRoute,
   isAdminCronGetPath,
   isVercelCronRequest,
 } from "@/lib/cron-request-auth";
@@ -74,9 +75,15 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
   } else if (
     pathname.startsWith("/api/") &&
     !pathname.startsWith("/api/webhooks/") &&
-    !isVercelCronRequest(request)
+    !(
+      request.method === "GET" &&
+      isAdminCronGetPath(pathname) &&
+      process.env.CRON_SECRET?.trim() &&
+      authorizeCronGet(request).ok
+    )
   ) {
     // webhooks / Vercel Cron 不套用一般 API 限流，避免排程被 429 擋下
+    // 排程僅在 Bearer 驗證成功時豁免；來源 header 可以被偽造。
     const limited = await checkLimit(ip, "api", pathname, event);
     if (limited) return limited;
   }
@@ -96,7 +103,7 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
   // ── Admin API 驗證（/api/admin/*，排除登入端點）──────────────────────
   // 注意：API 路徑開頭是 /api，不會進入下方 /admin 頁面驗證，需在此單獨防護。
   if (pathname.startsWith("/api/admin") && pathname !== "/api/admin/login") {
-    // Vercel Cron GET：Bearer CRON_SECRET，或（未設 secret 時）x-vercel-cron-schedule
+    // Cron GET：只接受 Bearer CRON_SECRET；正式環境未設 secret 一律拒絕（fail closed）
     if (request.method === "GET" && isAdminCronGetPath(pathname)) {
       const cronAuth = authorizeCronGet(request);
       if (cronAuth.ok) return withRateLimitMode(NextResponse.next());
@@ -104,10 +111,9 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
       if (isVercelCronRequest(request) || request.headers.get("authorization")) {
         return withRateLimitMode(cronAuth.response);
       }
-    } else {
-      const cronSecret = process.env.CRON_SECRET;
-      const authHeader = request.headers.get("authorization");
-      if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
+    } else if (isAdminCronBearerRoute(request.method, pathname) && process.env.CRON_SECRET?.trim()) {
+      const cronAuth = authorizeCronGet(request);
+      if (cronAuth.ok && cronAuth.via === "cron_secret") {
         return withRateLimitMode(NextResponse.next());
       }
     }

@@ -99,11 +99,11 @@
 
 > DSN 未設定時 Sentry 靜默不啟動，不影響系統正常運作。
 
-## Cron（選填）
+## Cron
 
 | 變數 | 說明 |
 |------|------|
-| `CRON_SECRET` | Vercel Cron 呼叫 send-line 時的驗證 token，未設定則跳過驗證 |
+| `CRON_SECRET` | Cron GET（Vercel Cron、GitHub 備援）的 Bearer 驗證 token。**正式環境必填**：未設定時 cron GET 一律回 500（fail closed），不再信任 `x-vercel-cron-schedule` header |
 | `DEPOSIT_DEADLINE_AUTO_CANCEL` | 訂金逾期是否自動取消訂位（ADR-012）。**未設定＝不取消**；設 `true`（或 1/on/yes）並 Redeploy 才恢復自動取消 |
 
 ## Deploy-health source of truth
