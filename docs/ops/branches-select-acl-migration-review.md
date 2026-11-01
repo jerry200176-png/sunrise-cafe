@@ -8,7 +8,7 @@
 2. 盤點所有外部、行動端、後台、RPC／view、維運與其他資料庫 consumer：匿名 `SELECT *`、內部欄位及新增欄位將被拒；未知使用者或依賴即停止。程式搜尋不能排除外部 consumer。
 3. 在可信程序中核對同一條資料庫連線的實際 target 為 Sunrise 正式專案 `mzvsothlxamyltaswinj`，核對環境及執行角色、F1/F4 所需 Founder 指示與平台 gate。`current_database()`、角色名稱或 SQL 中自訂 session 參數都無法自行證明 Supabase project 身分；不能只靠它們認定 target。密鑰不寫在文件、命令列、log 或聊天室。
 4. 取得適用範圍及新鮮度足夠、可取回且已驗證的還原點；既有 public-only 還原不證明 Storage、Auth 或所有權限可完整恢復。先以 `docs/ops/branches-select-acl-metadata.sql` 唯讀擷取當時表與欄位 ACL、owner、角色繼承、RLS；比對已審查快照並妥善保存，禁止查詢正式分店欄位值。任何漂移都先重新設計與審查。
-5. 記錄 exact commit 與 SHA-256，於變更視窗、影響與監測確認後以具有效限的既有部署／作業程序執行。進入 SQL 前的 session acknowledgment 只防止誤觸，不是 target 驗證、Founder 指示或 gate 的替代品。SQL 以單一 transaction 加鎖，對既有 schema、RLS、角色繼承、PUBLIC／欄位 ACL 和執行角色 fail closed；未逐一列出的外部相依仍須另行核對。
+5. 記錄 exact commit 與 SHA-256，於變更視窗、影響與監測確認後以具有效限的既有部署／作業程序執行。變更視窗須另行確保不並行修改資料庫角色屬性或角色繼承：表鎖無法鎖住整個角色圖。進入 SQL 前的 session acknowledgment 只防止誤觸，不是 target 驗證、Founder 指示或 gate 的替代品。SQL 以單一 transaction 鎖表，對已審的完整表級 ACL（包含 grantor、grantee、權限和 grant option）、schema、RLS、角色繼承、欄位 ACL 和執行角色 fail closed；角色圖檢查只是當下快照，未逐一列出的外部相依仍須另行核對。
 
 ## 影響與驗證
 
@@ -20,11 +20,11 @@
 
 ## 回復
 
-`docs/ops/rollback-20261101-branches-public-column-select.sql` 是針對已審假設的候選 rollback；先比對預存完整 ACL 快照、RLS 和執行目標，任何 drift 停止並重新設計。其 session acknowledgement 只是操作人聲明。它會撤銷新增欄位 grants 並恢復原 anon 表級 SELECT，**會重新暴露內部欄位**；僅在明確評估替代緩解、發布回退、洩露風險及既有 F1/F4 後使用，不能視為安全預設。完成後對照原快照及服務健康，記錄重新開放的風險。此 rollback 不保證還原變更前後其他人的 ACL 變更。
+`docs/ops/rollback-20261101-branches-public-column-select.sql` 是針對已審假設的候選 rollback；先比對預存完整 ACL 快照、RLS 和執行目標，任何 drift 停止並重新設計。SQL 在表鎖內以無順序差異的完整表級 ACL 集合比對已審 PostgreSQL 17 快照，包括其他角色、未知 grantee、grantor 和 grant option；也核對相關角色屬性／繼承，但無法以表鎖防止角色圖並行變更，因此仍須確保角色維護視窗。其 session acknowledgement 只是操作人聲明。它會撤銷新增欄位 grants 並恢復原 anon 表級 SELECT，**會重新暴露內部欄位**；僅在明確評估替代緩解、發布回退、洩露風險及既有 F1/F4 後使用，不能視為安全預設。完成後對照原快照及服務健康，記錄重新開放的風險。此 rollback 不保證還原變更前後其他人的 ACL 變更。
 
 ## 隔離驗證
 
-`scripts/review-branches-acl-migration-postgrest.sh` 僅使用本機既有 PostgreSQL 17、PostgREST 12、Node 映像、internal Docker network、合成角色／JWT／資料，實際執行此包的 forward 和 rollback；不連線正式服務。驗證未確認及 PUBLIC 異常時 forward fail closed、公開欄位與服務端讀取、敏感欄位／`select=*` 拒絕、未來欄位不自動公開、schema/ACL 漂移與未確認 rollback 被拒，以及 rollback 後合成 ACL 快照精確一致。HTTP 測試只針對合成 PostgREST，未測正式 Data API 或外部使用者。
+`scripts/review-branches-acl-migration-postgrest.sh` 僅使用本機既有 PostgreSQL 17、PostgREST 12、Node 映像、internal Docker network、合成角色／JWT／資料，實際執行此包的 forward 和 rollback；不連線正式服務。驗證未確認及 PUBLIC 異常時 forward fail closed、公開欄位與服務端讀取、敏感欄位／`select=*` 拒絕、未來欄位不自動公開；rollback 對 authenticated/service_role SELECT、authenticated/PUBLIC 的其他權限、grant option、未知角色和角色繼承漂移均拒絕，且無漂移時合成 ACL 快照精確一致。HTTP 測試只針對合成 PostgREST，未測正式 Data API、外部使用者或並行角色圖變更。
 
 ## 參考做法
 

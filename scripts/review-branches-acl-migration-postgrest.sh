@@ -112,6 +112,9 @@ docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1
 docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'CREATE ROLE synthetic_inherited NOLOGIN; GRANT synthetic_inherited TO anon'
 expect_forward_refusal
 docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'REVOKE synthetic_inherited FROM anon; DROP ROLE synthetic_inherited'
+docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'REVOKE TRUNCATE ON branches FROM authenticated'
+expect_forward_refusal
+docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'GRANT TRUNCATE ON branches TO authenticated'
 echo 'synthetic_schema_policy_column_acl_and_role_drift_denied=pass'
 acl_query="SELECT c.relacl::text || '|' || string_agg(a.attname || ':' || coalesce(a.attacl::text, 'NULL'), '|' ORDER BY a.attname) FROM pg_class c JOIN pg_attribute a ON a.attrelid=c.oid WHERE c.oid='public.branches'::regclass AND a.attnum>0 AND NOT a.attisdropped GROUP BY c.relacl::text"
 original_acl=$(docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -Atq -c "$acl_query")
@@ -170,6 +173,39 @@ if docker exec -i -e PGOPTIONS="-c sunrise.branches_acl_rollback_ack=reviewed-ex
   echo 'rollback accepted policy drift' >&2; exit 1
 fi
 docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'DROP POLICY unexpected_policy ON branches'
+expect_rollback_refusal() {
+  if docker exec -i -e PGOPTIONS="-c sunrise.branches_acl_rollback_ack=reviewed-exposure-and-target" "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q < "$rollback_sql" >/dev/null 2>&1; then
+    echo 'rollback accepted table ACL drift' >&2; exit 1
+  fi
+  docker exec -i "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q <<'SQL'
+DO $$ BEGIN
+  IF has_table_privilege('anon','public.branches','SELECT') OR (SELECT count(*) FROM public.branches) <> 1 THEN
+    RAISE EXCEPTION 'failed rollback changed the fixture';
+  END IF;
+END $$;
+SQL
+}
+for role in authenticated service_role; do
+  docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c "REVOKE SELECT ON branches FROM $role"
+  expect_rollback_refusal
+  docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c "GRANT SELECT ON branches TO $role"
+done
+docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'REVOKE TRUNCATE ON branches FROM authenticated'
+expect_rollback_refusal
+docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'GRANT TRUNCATE ON branches TO authenticated'
+docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'GRANT SELECT ON branches TO authenticated WITH GRANT OPTION'
+expect_rollback_refusal
+docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'REVOKE GRANT OPTION FOR SELECT ON branches FROM authenticated'
+docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'GRANT TRUNCATE ON branches TO PUBLIC'
+expect_rollback_refusal
+docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'REVOKE TRUNCATE ON branches FROM PUBLIC'
+docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'CREATE ROLE synthetic_extra NOLOGIN; GRANT SELECT ON branches TO synthetic_extra'
+expect_rollback_refusal
+docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'REVOKE SELECT ON branches FROM synthetic_extra; DROP ROLE synthetic_extra'
+docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'CREATE ROLE synthetic_inherited NOLOGIN; GRANT synthetic_inherited TO authenticated'
+expect_rollback_refusal
+docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'REVOKE synthetic_inherited FROM authenticated; DROP ROLE synthetic_inherited'
+echo 'synthetic_rollback_complete_table_acl_drift_denied=pass'
 docker exec -i "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'GRANT SELECT (line_group_id) ON public.branches TO anon'
 if docker exec -i -e PGOPTIONS="-c sunrise.branches_acl_rollback_ack=reviewed-exposure-and-target" "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q < "$rollback_sql" >/dev/null 2>&1; then
   echo 'rollback accepted ACL drift' >&2; exit 1
