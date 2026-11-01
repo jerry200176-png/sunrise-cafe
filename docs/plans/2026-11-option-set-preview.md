@@ -6,4 +6,4 @@ SQL 預覽以 PostgreSQL 的 `to_jsonb(row)` 讀取可選欄位，支援 migrati
 
 參考：[PostgreSQL JSON functions](https://www.postgresql.org/docs/current/functions-json.html) 的 row-to-JSON 與缺鍵回傳 null 行為；[aggregate ordering](https://www.postgresql.org/docs/current/functions-aggregate.html) 的有序 array 聚合。兩者使用 PostgreSQL License；本次自行撰寫 SQL，未複製程式碼。驗證採無網路、合成的本地 PostgreSQL 測前後 schema、混合資料、重複選項與代表餐點。
 
-保留限制：無法憑當前資料重建遷移前正式預覽；TypeScript 工具仍有分頁、JSON 及與 PostgreSQL 排序／數值簽章不一致的問題，不能視為精確預覽。此變更不關閉 #434，未讀取正式資料。
+保留限制：`to_jsonb` 篩選加彙總可能掃描整張選項表，未驗證正式資料量與耗時；無法憑當前資料重建遷移前正式預覽；TypeScript 工具仍有分頁、JSON 及與 PostgreSQL 排序／數值簽章不一致的問題，不能視為精確預覽。此變更不關閉 #434，未讀取正式資料。
