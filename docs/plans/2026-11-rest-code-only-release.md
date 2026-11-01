@@ -15,7 +15,11 @@ before credential access. Nothing here deploys or changes production.
 1. Check out `main`, match the runtime SHA and caller-supplied reviewed tree,
    then use GitHub's rules and PR association APIs to require strict rules,
    green required checks on the exact merged PR head, and an identical merged
-   tree. Read the live production alias and persist a run/attempt-bound intent.
+   tree. Verify that the current production alias identifies a READY deployment
+   in this project, that Vercel lists it as a rollback candidate and that its
+   version/homepage/booking health responds; then persist a run/attempt-bound
+   intent. Recheck the baseline immediately before the create request. Candidate
+   listing does not prove the token is authorized to perform rollback.
    The independent D3 review is recorded separately; tree input alone proves
    neither CI nor review.
 2. Upload the intent, check artifact receipt, then retrieve and verify its
@@ -93,10 +97,12 @@ alias and health verification. See [Vercel rollback](https://vercel.com/docs/dep
   production deployment and reported `source: cli` with commit metadata, but
   did not expose `gitSource` despite requesting Git details. The `source` label
   is a best-effort provider field, and CLI-supplied metadata is self-reported;
-  neither establishes the baseline's exact source. The rollback health probe
-  therefore accepts only a provider-returned Git source matching project,
-  repository, main ref and SHA, and fails closed on metadata alone. A provider
-  Git source is still not a signed build attestation. The connector normalizes
+  neither establishes the baseline's exact source. For D7, the known current
+  deployment ID can still be treated as the operational rollback target after
+  project/READY/alias, rollback-candidate and health checks. When Git source is
+  unavailable, the baseline probe checks that version output is well formed
+  without treating the self-reported commit as independently verified source.
+  A provider Git source is still not a signed build attestation. The connector normalizes
   responses, so absence there is not proof that the raw API can never return it.
 - Production DB and REST target identity, cron configuration, previous worker
   drain and rollback compatibility require independent evidence. The earlier

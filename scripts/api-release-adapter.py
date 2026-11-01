@@ -71,10 +71,14 @@ def worker():
     if method == 'GET' and url.path.startswith('/v13/deployments/'):
         expected_query['withGitRepoInfo'] = ['true']
     if method == 'GET' and url.path == '/v7/deployments':
-        expected_query.update({'projectId': [model.PROJECT], 'target': ['production'], 'branch': ['main'], 'limit': ['100']})
-        sha = query.get('sha', [])
-        if len(sha) != 1 or not model.SHA.fullmatch(sha[0]): raise OutcomeUnknown('invalid list SHA')
-        expected_query['sha'] = sha
+        expected_query.update({'projectId': [model.PROJECT], 'target': ['production'], 'limit': ['100']})
+        if query.get('rollbackCandidate') == ['true']:
+            expected_query['rollbackCandidate'] = ['true']
+        else:
+            expected_query['branch'] = ['main']
+            sha = query.get('sha', [])
+            if len(sha) != 1 or not model.SHA.fullmatch(sha[0]): raise OutcomeUnknown('invalid list SHA')
+            expected_query['sha'] = sha
         if 'until' in query:
             cursor = query['until']
             if len(cursor) != 1 or not re.fullmatch(r'[1-9][0-9]{0,19}', cursor[0]): raise OutcomeUnknown('invalid list cursor')
@@ -187,6 +191,39 @@ class VercelAPI:
                 raise OutcomeUnknown('deployment pagination invalid')
             seen.add(next_cursor); cursor = next_cursor
         raise OutcomeUnknown('deployment pagination limit reached')
+
+    def rollback_candidate(self, deployment_id, *, deadline=None):
+        """Read provider candidate status; this does not prove rollback permission."""
+        if not isinstance(deployment_id, str) or not model.ID.fullmatch(deployment_id):
+            raise ValueError('invalid baseline deployment')
+        query = {'projectId': model.PROJECT, 'target': 'production', 'rollbackCandidate': 'true', 'limit': '100'}
+        seen, cursor = set(), None
+        for _ in range(20):
+            extra = dict(query)
+            if cursor is not None: extra['until'] = cursor
+            page = self._request('GET', '/v7/deployments', deadline=deadline, query_extra=extra)
+            entries, pagination = page.get('deployments'), page.get('pagination')
+            if not isinstance(entries, list) or len(entries) > 100 or not isinstance(pagination, dict) or 'next' not in pagination:
+                raise OutcomeUnknown('rollback candidate listing incomplete')
+            for entry in entries:
+                if not isinstance(entry, dict): raise OutcomeUnknown('rollback candidate entry invalid')
+                candidate = entry.get('uid') or entry.get('id')
+                if candidate == deployment_id:
+                    # The list is project-filtered; some provider representations
+                    # omit projectId. Context separately verifies the alias and
+                    # deployment project before any create request.
+                    if (entry.get('projectId') not in (None, model.PROJECT) or entry.get('target') != 'production'
+                            or entry.get('isRollbackCandidate') is not True):
+                        raise OutcomeUnknown('baseline rollback candidate not established')
+                    return True
+            next_cursor = pagination['next']
+            if next_cursor is None: return False
+            if isinstance(next_cursor, int) and not isinstance(next_cursor, bool): next_cursor = str(next_cursor)
+            if (not isinstance(next_cursor, str) or not re.fullmatch(r'[1-9][0-9]{0,19}', next_cursor)
+                    or next_cursor in seen or (cursor is not None and int(next_cursor) >= int(cursor))):
+                raise OutcomeUnknown('rollback candidate pagination invalid')
+            seen.add(next_cursor); cursor = next_cursor
+        raise OutcomeUnknown('rollback candidate pagination limit reached')
 
     def production_alias(self, *, deadline=None):
         result = self._request("GET", "/v4/aliases/" + HOST, deadline=deadline)

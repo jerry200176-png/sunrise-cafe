@@ -143,11 +143,28 @@ class Tests(unittest.TestCase):
         with patch.object(a, 'NETWORK_ENABLED', True), patch.object(a.urllib.request, 'build_opener', return_value=Opener()), \
              patch('sys.stdin', io.StringIO(json.dumps(payload))), contextlib.redirect_stdout(io.StringIO()):
             a.worker()
+        rollback_query = {'teamId': a.TEAM, 'projectId': a.model.PROJECT, 'target': 'production',
+                          'rollbackCandidate': 'true', 'limit': '100'}
+        with patch.object(a, 'NETWORK_ENABLED', True), patch.object(a.urllib.request, 'build_opener', return_value=Opener()), \
+             patch('sys.stdin', io.StringIO(json.dumps({**payload, 'url': 'https://api.vercel.com/v7/deployments?' + urllib.parse.urlencode(rollback_query)}))), \
+             contextlib.redirect_stdout(io.StringIO()):
+            a.worker()
         for key, value in [('projectId', 'wrong'), ('sha', 'bad'), ('branch', 'other'), ('until', '0')]:
             bad = {**query, key: value}
             with self.subTest(key=key), patch.object(a, 'NETWORK_ENABLED', True), \
                  patch('sys.stdin', io.StringIO(json.dumps({**payload, 'url': 'https://api.vercel.com/v7/deployments?' + urllib.parse.urlencode(bad)}))):
                 with self.assertRaises(a.OutcomeUnknown): a.worker()
+    def test_rollback_candidate_requires_matching_project_target_and_flag(self):
+        entry = {'uid': 'dpl_base', 'projectId': a.model.PROJECT, 'target': 'production', 'isRollbackCandidate': True}
+        def client(item):
+            page = {'deployments': [item], 'pagination': {'next': None}}
+            return a.VercelAPI('synthetic', lambda *_: (200, json.dumps(page).encode()))
+        self.assertTrue(client(entry).rollback_candidate('dpl_base'))
+        without_project = {key: value for key, value in entry.items() if key != 'projectId'}
+        self.assertTrue(client(without_project).rollback_candidate('dpl_base'))
+        self.assertFalse(client({**entry, 'uid': 'dpl_other'}).rollback_candidate('dpl_base'))
+        for bad in ({**entry, 'projectId': 'wrong'}, {**entry, 'target': 'preview'}, {**entry, 'isRollbackCandidate': False}):
+            with self.subTest(bad=bad), self.assertRaises(a.OutcomeUnknown): client(bad).rollback_candidate('dpl_base')
 
 
 if __name__ == "__main__": unittest.main()

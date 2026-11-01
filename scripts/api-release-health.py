@@ -50,7 +50,7 @@ def baseline_source(deployment, expected_id):
     sha, ref = meta.get('githubCommitSha'), meta.get('githubCommitRef')
     if isinstance(sha, str) and artifacts.w.SHA.fullmatch(sha) and ref == 'main':
         return 'unverified-metadata-only', sha
-    return 'unknown', None
+    return 'identity-only', None
 
 
 def worker():
@@ -81,18 +81,27 @@ def worker():
 def probe(api, deployment_id, expected_sha, *, deadline=None):
     """Check production alias version. Runtime does not expose deployment ID."""
     if not NETWORK_ENABLED: raise RuntimeError('health probe disabled')
+    baseline_kind = None
     if expected_sha is None:
-        kind, expected_sha = baseline_source(api.deployment(deployment_id, deadline=deadline), deployment_id)
-        if kind != 'provider-git-source':
-            raise RuntimeError('baseline source cannot be independently established')
-    if not isinstance(expected_sha, str) or not artifacts.w.SHA.fullmatch(expected_sha):
+        baseline_kind, source_sha = baseline_source(api.deployment(deployment_id, deadline=deadline), deployment_id)
+        if baseline_kind == 'unknown': raise RuntimeError('baseline deployment identity unavailable')
+        # Metadata-only is not source proof; alias ID and health are checked
+        # independently, without turning the self-reported SHA into an assertion.
+        expected_sha = source_sha if baseline_kind == 'provider-git-source' else None
+    if expected_sha is not None and (not isinstance(expected_sha, str) or not artifacts.w.SHA.fullmatch(expected_sha)):
+        raise RuntimeError('health source SHA unavailable')
+    if expected_sha is None and baseline_kind is None:
         raise RuntimeError('health source SHA unavailable')
     timeout = 20 if deadline is None else min(20, deadline - time.monotonic())
     if timeout <= 0: raise RuntimeError('health deadline expired')
     raw = artifacts.run_worker_with_deadline([sys.executable, '-B', '-I', str(Path(__file__).resolve()), '--health-worker'], b'', timeout)
     try: result = json.loads(raw, object_pairs_hook=artifacts.strict_object)
     except Exception: raise RuntimeError('health response invalid') from None
-    return result == {'deployed': 'v2', 'commit': expected_sha}
+    if not isinstance(result, dict): return False
+    commit = result.get('commit')
+    if result.get('deployed') != 'v2' or not isinstance(commit, str) or not artifacts.w.SHA.fullmatch(commit):
+        return False
+    return expected_sha is None or commit == expected_sha
 
 
 if __name__ == '__main__':

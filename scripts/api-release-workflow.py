@@ -112,11 +112,26 @@ class Context:
         return True
 
     def prepare(self, path):
-        baseline = self.api.production_alias()
+        baseline = 'unknown'
+        try:
+            baseline = self.api.production_alias()
+            if not self.baseline_usable(baseline): raise ValueError('baseline is not recoverable')
+        except Exception:
+            self.record('baseline-preflight-failed', baseline)
+            raise ValueError('baseline preflight failed') from None
         intent = {'version': 1, 'intent': 'code-only-release', 'run_id': self.run_id,
                   'attempt': self.attempt, 'commit': self.sha, 'baseline': baseline, 'project': w.PROJECT}
         w.write_intent(path, intent)
         return intent
+
+    def baseline_usable(self, baseline):
+        """Verify current alias, candidate status and health; not source provenance."""
+        deadline = self.clock() + 60
+        if self.api.production_alias(deadline=deadline) != baseline or self.clock() >= deadline: return False
+        if self.api.rollback_candidate(baseline, deadline=deadline) is not True or self.clock() >= deadline: return False
+        if self.health(baseline, None, deadline=deadline) is not True or self.clock() >= deadline: return False
+        if self.api.production_alias(deadline=deadline) != baseline or self.clock() >= deadline: return False
+        return True
 
     def load_intent(self, path):
         intent = w.validate(read_record(path))
@@ -138,6 +153,11 @@ class Context:
             return 'unknown' if self.record('baseline-unavailable', intent['baseline']) else 'incident-unwritten'
         if live != intent['baseline']:
             return 'unknown' if self.record('baseline-changed', intent['baseline']) else 'incident-unwritten'
+        try:
+            if not self.baseline_usable(intent['baseline']):
+                return 'unknown' if self.record('baseline-preflight-failed', intent['baseline']) else 'incident-unwritten'
+        except Exception:
+            return 'unknown' if self.record('baseline-preflight-failed', intent['baseline']) else 'incident-unwritten'
         try:
             # Fixed to the trusted runner temp and run/attempt, independent of
             # candidate_path. This is not a cross-runner writer fence.

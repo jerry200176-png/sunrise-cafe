@@ -25,8 +25,12 @@ class Tests(unittest.TestCase):
         self.assertEqual(h.baseline_source(baseline, 'dpl_base'), ('unverified-metadata-only', 'a' * 40))
         class FakeAPI:
             def deployment(self, *_args, **_kwargs): return baseline
-        with patch.object(h, 'NETWORK_ENABLED', True):
-            with self.assertRaises(RuntimeError): h.probe(FakeAPI(), 'dpl_base', None)
+        # Operational health can be checked without promoting self-reported
+        # metadata into verified source provenance.
+        payload = b'{"deployed":"v2","commit":"' + b'b' * 40 + b'"}'
+        with patch.object(h, 'NETWORK_ENABLED', True), patch.object(h.artifacts, 'run_worker_with_deadline', return_value=payload):
+            self.assertTrue(h.probe(FakeAPI(), 'dpl_base', None))
+        self.assertEqual(h.baseline_source(baseline, 'dpl_base')[0], 'unverified-metadata-only')
 
     def test_provider_git_source_requires_exact_project_repository_and_ref(self):
         source = {'type': 'github', 'org': 'jerry200176-png', 'repo': 'sunrise-cafe', 'ref': 'main', 'sha': 'a' * 40}

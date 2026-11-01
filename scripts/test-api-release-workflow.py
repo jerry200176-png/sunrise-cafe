@@ -46,7 +46,7 @@ class FakeGitHub:
 
 
 class FakePlatform:
-    def __init__(self): self.alias = 'dpl_base'; self.created = 0; self.rolled_back = 0; self.fail_create = False; self.ready = 'READY'; self.recoverable = False; self.searches = 0
+    def __init__(self): self.alias = 'dpl_base'; self.created = 0; self.rolled_back = 0; self.fail_create = False; self.ready = 'READY'; self.recoverable = False; self.searches = 0; self.rollback_eligible = True
     def production_alias(self, *, deadline=None): return self.alias
     def create_production(self, sha, run_id, attempt):
         self.created += 1; self.alias = 'dpl_new'
@@ -61,6 +61,7 @@ class FakePlatform:
         if not self.recoverable: raise RuntimeError('not uniquely observed')
         return 'dpl_new', self.deployment('dpl_new')
     def rollback_request(self, baseline, *, deadline=None): self.rolled_back += 1; self.alias = baseline; return {}
+    def rollback_candidate(self, baseline, *, deadline=None): return self.rollback_eligible
 
 
 class Tests(unittest.TestCase):
@@ -108,6 +109,27 @@ class Tests(unittest.TestCase):
             ctx, p, g, incidents, intent, ip, cp = self.setup_flow(tmp)
             self.assertEqual(ctx.create(ip, cp, intent_id='456', intent_digest='0' * 64), 'unknown')
             self.assertEqual(p.created, 0); self.assertFalse(cp.exists())
+
+    def test_baseline_must_be_healthy_and_rollback_candidate_before_post(self):
+        for reason in ('not-candidate', 'unhealthy'):
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory(prefix='sunrise-workflow-') as tmp:
+                ctx, p, g, incidents, intent, ip, cp = self.setup_flow(tmp)
+                iid, digest = g.upload(456, 'api-release-intent', intent)
+                if reason == 'not-candidate': p.rollback_eligible = False
+                else: ctx.health = lambda *_, **__: False
+                self.assertEqual(ctx.create(ip, cp, intent_id=iid, intent_digest=digest), 'unknown')
+                self.assertEqual(p.created, 0); self.assertFalse(cp.exists())
+                self.assertEqual(incidents[-1][0], 'baseline-preflight-failed')
+
+    def test_prepare_fails_closed_when_baseline_not_recoverable(self):
+        with tempfile.TemporaryDirectory(prefix='sunrise-workflow-') as tmp:
+            p, g, incidents = FakePlatform(), FakeGitHub(), []; p.rollback_eligible = False
+            ctx = flow.Context(p, g.client(), lambda *_, **__: True, lambda r, b: incidents.append((r, b)),
+                               '123', '1', SHA, runner_temp=tmp)
+            path = pathlib.Path(tmp) / 'intent.json'
+            with self.assertRaises(ValueError): ctx.prepare(path)
+            self.assertFalse(path.exists()); self.assertEqual(p.created, 0)
+            self.assertEqual(incidents[-1][0], 'baseline-preflight-failed')
 
     def test_lost_create_response_is_unknown_without_retry(self):
         with tempfile.TemporaryDirectory(prefix='sunrise-workflow-') as tmp:
