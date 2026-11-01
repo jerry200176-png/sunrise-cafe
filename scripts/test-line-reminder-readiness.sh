@@ -162,6 +162,35 @@ try {
   if (options.status !== 404 || (await options.json()).code !== 'PGRST202') {
     throw new Error('Unexpected synthetic PostgREST 12 OPTIONS behavior');
   }
+  const missing = await fetch(`${base}/rest/v1/rpc/synthetic_missing_function`, { method: 'OPTIONS', headers: { Authorization: `Bearer ${key}` } });
+  if (missing.status !== 404 || (await missing.json()).code !== 'PGRST202') throw new Error('Unexpected missing-function OPTIONS behavior');
+  // A zero-argument overload demonstrates whether OPTIONS can match the wrong signature.
+  await pg`CREATE FUNCTION public.claim_line_reminder_delivery() RETURNS text LANGUAGE SQL AS 'SELECT ''synthetic'''`;
+  await pg`NOTIFY pgrst, 'reload schema'`;
+  let overloaded;
+  for (let attempt = 0; attempt < 12; attempt++) {
+    overloaded = await fetch(rpc, { method: 'OPTIONS', headers: { Authorization: `Bearer ${key}` } });
+    if (overloaded.status === 200) break;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  if (overloaded.status !== 200) throw new Error(`Unexpected synthetic overload OPTIONS status ${overloaded.status}`);
+  await pg`REVOKE EXECUTE ON FUNCTION public.claim_line_reminder_delivery() FROM PUBLIC, service_role`;
+  await pg`NOTIFY pgrst, 'reload schema'`;
+  await new Promise((r) => setTimeout(r, 500));
+  const deniedOverload = await fetch(rpc, { method: 'OPTIONS', headers: { Authorization: `Bearer ${key}` } });
+  let optionPreRequest = false;
+  await listener.listen('sunrise_synthetic_pre_request', () => { optionPreRequest = true; });
+  const rootOptions = await fetch(`http://rootrest:3000/rpc/claim_line_reminder_delivery?${rpc.searchParams}`, {
+    method: 'OPTIONS', headers: { Authorization: `Bearer ${key}` },
+  });
+  await new Promise((r) => setTimeout(r, 300));
+  if (deniedOverload.status !== 200 || rootOptions.status !== 200 || optionPreRequest) {
+    throw new Error('Synthetic OPTIONS permissions/pre-request behavior changed; reassess the safety analysis');
+  }
+  console.log(JSON.stringify({ synthetic_matching_five_args_options: 404, synthetic_missing_options: missing.status,
+    synthetic_zero_arg_overload_options: overloaded.status, synthetic_denied_overload_options: deniedOverload.status,
+    synthetic_pre_request_options: rootOptions.status, synthetic_pre_request_options_notified: optionPreRequest }));
+  await pg`DROP FUNCTION public.claim_line_reminder_delivery()`;
   // GET of an OpenAPI root can execute a configured db-root-spec function;
   // PostgreSQL permits its pg_notify side effect even in a read-only transaction.
   let notifyRoot;
