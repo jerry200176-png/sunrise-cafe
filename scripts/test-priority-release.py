@@ -305,6 +305,22 @@ class WorkflowSafetyTests(unittest.TestCase):
                 result = subprocess.run(["grep", "-Fxq", "--", "65.9.0", str(path)], check=False)
                 self.assertEqual(result.returncode, expected)
 
+    def test_cli_flag_matching_rejects_similar_longer_flags(self):
+        with tempfile.TemporaryDirectory(prefix="sunrise-cli-flags-") as directory:
+            path = Path(directory) / "help.txt"
+            for flag, text, expected in (
+                ("--prod", "  --production  Other mode\n", 1),
+                ("--env", "  --environment  Other option\n", 1),
+                ("--env", "  --build-env  Build option\n", 1),
+                ("--skip-domain", "  --skip-domain-extra  Other option\n", 1),
+                ("--prod", "  --prod, -p  Production\n", 0),
+                ("--env", "  --env=KEY=value  Runtime\n", 0),
+            ):
+                path.write_text(text, encoding="utf-8")
+                pattern = "(^|[^[:alnum:]_-])" + flag + "([^[:alnum:]_-]|$)"
+                result = subprocess.run(["grep", "-Eq", "--", pattern, str(path)], check=False)
+                self.assertEqual(result.returncode, expected)
+
     def test_incident_record_is_private_and_rejects_overwrite(self):
         with tempfile.TemporaryDirectory(prefix="sunrise-incident-") as directory:
             path = Path(directory) / "incident.json"
