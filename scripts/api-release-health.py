@@ -19,6 +19,40 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise RuntimeError('unexpected health redirect')
 
 
+def baseline_source(deployment, expected_id):
+    """Classify provider Git source separately from untrusted CLI metadata.
+
+    `source` itself is a best-effort provider label, not source attestation.
+    """
+    if not isinstance(deployment, dict) or not isinstance(expected_id, str) or not artifacts.w.DEPLOYMENT.fullmatch(expected_id):
+        return 'unknown', None
+    project = deployment.get('project')
+    nested_project = project.get('id') if isinstance(project, dict) else None
+    direct_project = deployment.get('projectId')
+    if (deployment.get('id') != expected_id or deployment.get('target') != 'production'
+            or deployment.get('readyState') != 'READY'
+            or (direct_project is not None and direct_project != artifacts.w.PROJECT)
+            or (nested_project is not None and nested_project != artifacts.w.PROJECT)
+            or (direct_project != artifacts.w.PROJECT and nested_project != artifacts.w.PROJECT)):
+        return 'unknown', None
+    source = deployment.get('gitSource')
+    meta = deployment.get('meta') if isinstance(deployment.get('meta'), dict) else {}
+    if source is not None:
+        if (not isinstance(source, dict) or source.get('type') != 'github'
+                or source.get('org') != 'jerry200176-png' or source.get('repo') != 'sunrise-cafe'
+                or source.get('ref') != 'main' or not isinstance(source.get('sha'), str)
+                or not artifacts.w.SHA.fullmatch(source['sha'])):
+            return 'unknown', None
+        if ((meta.get('githubCommitSha') is not None and meta['githubCommitSha'] != source['sha'])
+                or (meta.get('githubCommitRef') is not None and meta['githubCommitRef'] != source['ref'])):
+            return 'unknown', None
+        return 'provider-git-source', source['sha']
+    sha, ref = meta.get('githubCommitSha'), meta.get('githubCommitRef')
+    if isinstance(sha, str) and artifacts.w.SHA.fullmatch(sha) and ref == 'main':
+        return 'unverified-metadata-only', sha
+    return 'unknown', None
+
+
 def worker():
     if not NETWORK_ENABLED: raise RuntimeError('health probe disabled')
     opener = urllib.request.build_opener(NoRedirect)
@@ -48,8 +82,9 @@ def probe(api, deployment_id, expected_sha, *, deadline=None):
     """Check production alias version. Runtime does not expose deployment ID."""
     if not NETWORK_ENABLED: raise RuntimeError('health probe disabled')
     if expected_sha is None:
-        source = api.deployment(deployment_id, deadline=deadline).get('gitSource') or {}
-        expected_sha = source.get('sha')
+        kind, expected_sha = baseline_source(api.deployment(deployment_id, deadline=deadline), deployment_id)
+        if kind != 'provider-git-source':
+            raise RuntimeError('baseline source cannot be independently established')
     if not isinstance(expected_sha, str) or not artifacts.w.SHA.fullmatch(expected_sha):
         raise RuntimeError('health source SHA unavailable')
     timeout = 20 if deadline is None else min(20, deadline - time.monotonic())

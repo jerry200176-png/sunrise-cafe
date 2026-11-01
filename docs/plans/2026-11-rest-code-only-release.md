@@ -89,6 +89,15 @@ alias and health verification. See [Vercel rollback](https://vercel.com/docs/dep
   response shape and source/build provenance remain unverified. The API can
   build immediately and assign domains; a Git preview is not treated as the
   same build or environment as production.
+- A read-only connector response for the current baseline identified the
+  production deployment and reported `source: cli` with commit metadata, but
+  did not expose `gitSource` despite requesting Git details. The `source` label
+  is a best-effort provider field, and CLI-supplied metadata is self-reported;
+  neither establishes the baseline's exact source. The rollback health probe
+  therefore accepts only a provider-returned Git source matching project,
+  repository, main ref and SHA, and fails closed on metadata alone. A provider
+  Git source is still not a signed build attestation. The connector normalizes
+  responses, so absence there is not proof that the raw API can never return it.
 - Production DB and REST target identity, cron configuration, previous worker
   drain and rollback compatibility require independent evidence. The earlier
   isolated PostgreSQL restore alone does not prove complete Supabase recovery.

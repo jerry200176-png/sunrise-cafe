@@ -17,6 +17,36 @@ class Response(io.BytesIO):
 
 
 class Tests(unittest.TestCase):
+    def test_cli_metadata_alone_never_establishes_baseline_source(self):
+        # Shape mirrors the non-secret fields returned by the current provider
+        # connector: nested project, production READY, source label, meta only.
+        baseline = {'id': 'dpl_base', 'project': {'id': h.artifacts.w.PROJECT}, 'target': 'production',
+                    'readyState': 'READY', 'source': 'cli', 'meta': {'githubCommitSha': 'a' * 40, 'githubCommitRef': 'main'}}
+        self.assertEqual(h.baseline_source(baseline, 'dpl_base'), ('unverified-metadata-only', 'a' * 40))
+        class FakeAPI:
+            def deployment(self, *_args, **_kwargs): return baseline
+        with patch.object(h, 'NETWORK_ENABLED', True):
+            with self.assertRaises(RuntimeError): h.probe(FakeAPI(), 'dpl_base', None)
+
+    def test_provider_git_source_requires_exact_project_repository_and_ref(self):
+        source = {'type': 'github', 'org': 'jerry200176-png', 'repo': 'sunrise-cafe', 'ref': 'main', 'sha': 'a' * 40}
+        baseline = {'id': 'dpl_base', 'projectId': h.artifacts.w.PROJECT, 'target': 'production',
+                    'readyState': 'READY', 'gitSource': source}
+        self.assertEqual(h.baseline_source(baseline, 'dpl_base'), ('provider-git-source', 'a' * 40))
+        for bad in ({**baseline, 'projectId': 'wrong'}, {**baseline, 'target': 'preview'},
+                    {**baseline, 'gitSource': {**source, 'repo': 'other'}},
+                    {**baseline, 'gitSource': {**source, 'ref': 'other'}},
+                    {**baseline, 'meta': {'githubCommitSha': 'b' * 40}}):
+            with self.subTest(bad=bad): self.assertEqual(h.baseline_source(bad, 'dpl_base'), ('unknown', None))
+
+    def test_conflicting_nested_project_or_wrong_deployment_fails_closed(self):
+        baseline = {'id': 'dpl_base', 'projectId': h.artifacts.w.PROJECT, 'project': {'id': 'wrong'},
+                    'target': 'production', 'readyState': 'READY',
+                    'meta': {'githubCommitSha': 'a' * 40, 'githubCommitRef': 'main'}}
+        self.assertEqual(h.baseline_source(baseline, 'dpl_base'), ('unknown', None))
+        baseline['project'] = {'id': h.artifacts.w.PROJECT}
+        self.assertEqual(h.baseline_source(baseline, 'dpl_other'), ('unknown', None))
+
     def test_probe_is_disabled_by_default(self):
         with self.assertRaises(RuntimeError): h.probe(None, 'dpl_fake', 'a' * 40)
     def test_worker_checks_json_and_size_using_fake_opener(self):
