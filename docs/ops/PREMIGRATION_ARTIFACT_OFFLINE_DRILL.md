@@ -24,7 +24,7 @@ python3 /path/to/verified-wsl-restore.py \
   EXPECTED_POSTGRES_MANIFEST_SHA256
 ```
 
-兩個摘要均為不含 `sha256:` 的 64 位小寫十六進位。備份 ZIP 摘要必須由 GitHub artifact metadata 獨立取得；映像 manifest 摘要須事先由可信來源確認，程式只比較輸入值與本機 RepoDigest，不能單靠此比較證明官方身分。封裝固定核對 #521 commit `9dd2a46` 的四個 helper SHA，因此既有該版本 source ZIP 可繼續使用；封裝本身可取自較新的審查版本。
+兩個摘要均為不含 `sha256:` 的 64 位小寫十六進位。備份 ZIP 摘要必須由 GitHub artifact metadata 獨立取得；映像 manifest 摘要須事先由可信來源確認，程式只比較輸入值與本機 RepoDigest，不能單靠此比較證明官方身分。封裝會固定核對四個已審 helper SHA；加入 `btree_gist` 相容修正後，舊 `9dd2a46` source ZIP 的 worker 不再吻合，須下載包含新版 worker 的已審 source ZIP，否則在要求私鑰前停止。
 
 封裝在要求私鑰前，檢查四個 helper、密文 ZIP 摘要、kernel 回報的 `/dev/shm` 檔案系統類型、本機 Unix socket 與 image digest，也會設定程序 core size 為 0 並關閉程序 dumpable；任一檢查失敗均不要求私鑰。成功後才透過控制終端隱藏輸入**單行 age X25519 私鑰**；非互動終端或無法關閉回顯會停止。私鑰短暫寫入 `/dev/shm` 內私有 0700 目錄與 0600 檔案；正常、失敗、Ctrl-C、TERM 及終端關閉的 SIGHUP 會嘗試清理，但 SIGKILL、斷電、swap 和同使用者程序存取不在保證範圍。`exec` 後 dumpable 可能重置，且系統 core dump pipe handler 可能繞過程序 core size 限制：你仍須在可信工作站先確認系統不會收集／轉送程序記憶體及 core dump，Python 不保證清除所有記憶體副本。helper 仍會在 `/tmp` 暫存並刪除**加密 ZIP 副本與 manifest**，不刻意把明文寫到 host 檔案。
 
@@ -49,7 +49,7 @@ python3 /path/to/verified-wsl-restore.py \
    bash scripts/backup/restore-legacy-local.sh
    ```
 
-   依提示輸入：本機 ZIP 絕對路徑、步驟 1 獨立取得的 `sha256:...` digest、你本機 age 私鑰**檔案絕對路徑**。不輸入私鑰內容。腳本先將密文 ZIP 複製到 mode 0700 暫存目錄並驗 ZIP digest，只允許上述兩個普通檔案、固定檔名、有效 manifest 與有足夠空間的安全解壓。完成後先串流解密並檢查明文長度與 manifest SHA-256，再次串流解密到 `--network none`、`--log-driver=none`、唯讀根檔案系統、無 host port／bind mount、資料目錄與還原日誌皆為 tmpfs 的拋棄式 PostgreSQL 容器，並核對 Docker 實際配置後才使用 `pg_restore --exit-on-error --single-transaction`。Docker 日誌不得另行開啟、留存或轉送。
+   依提示輸入：本機 ZIP 絕對路徑、步驟 1 獨立取得的 `sha256:...` digest、你本機 age 私鑰**檔案絕對路徑**。不輸入私鑰內容。腳本先將密文 ZIP 複製到 mode 0700 暫存目錄並驗 ZIP digest，只允許上述兩個普通檔案、固定檔名、有效 manifest 與有足夠空間的安全解壓。完成後先串流解密並檢查明文長度與 manifest SHA-256，再串流至 `--network none`、`--log-driver=none`、唯讀根檔案系統、無 host port／bind mount、資料目錄與還原日誌皆為 tmpfs 的拋棄式 PostgreSQL 容器。工具先由原 archive 的單一 public schema 目錄項建立 schema，再於其中建立映像內 `btree_gist`，最後按原順序還原其餘項目；每個還原階段各自使用 `--exit-on-error --single-transaction`，不是跨階段的一個交易，失敗會銷毀容器。整個封裝只需輸入一次私鑰。Docker 日誌不得另行開啟、留存或轉送。
 
 4. 工具在自己的空容器建立固定 no-login role stub 並移除容器的空 `public` schema；對正式資料庫沒有連線路徑。任意角色、extension、權限或還原錯誤一律停止，還原細節只留在容器 tmpfs 且結束時刪除，不會直接顯示可能包含敏感內容的錯誤。要進一步排查請先由使用者在受控環境安排安全的資料與權限審閱，不要貼出未遮蔽 log。
 
@@ -57,6 +57,6 @@ python3 /path/to/verified-wsl-restore.py \
 
 ## 驗收與後續
 
-成功訊息只表示 ZIP digest 與 manifest dump 雜湊吻合、使用者本機私鑰可解密、隔離 PostgreSQL 中 restore 未報錯且 `public.reservations` 存在。**沒有**與來源逐表／逐列對照，沒有驗證 RLS／ACL 對實際應用等價，也沒有包含 Auth users、Storage objects、roles、Realtime、extensions 或 Supabase 專案設定；仍需依據已批准的復原策略與實際 source/target 身分進一步驗證。若步驟失敗，只回報失敗階段和已遮蔽的環境資訊，不傳檔案、金鑰或原始 log。
+成功訊息只表示 ZIP digest 與 manifest dump 雜湊吻合、使用者本機私鑰可解密、隔離 PostgreSQL 中 restore 未報錯且 `public.reservations` 存在。`public.btree_gist` 是依目前唯讀 schema 證據為隔離目標額外準備，**不是從這份 archive 證實原備份當時包含該 extension**；準備失敗或其他依賴缺失都停止。這個相容性缺口是目前的測試假說，不能推論先前實際失敗原因。**沒有**與來源逐表／逐列對照，沒有驗證 RLS／ACL 對實際應用等價，也沒有完整還原 Auth users、Storage objects、roles、Realtime、extensions 或 Supabase 專案設定；仍需依據已批准的復原策略與實際 source/target 身分進一步驗證。若步驟失敗，只回報失敗階段和已遮蔽的環境資訊，不傳檔案、金鑰或原始 log。
 
 該離線工具只用虛構 dump 與上游公開 age 測試身分測試過。它尚未對任何真實 artifact 執行；安全、權限、digest 可用性、image 版本及實際 source 自訂 roles/extension 仍需由你確認。

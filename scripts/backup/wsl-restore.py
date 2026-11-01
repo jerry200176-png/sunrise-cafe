@@ -24,11 +24,11 @@ import tempfile
 import warnings
 import zipfile
 
-# Four reviewed helper files at #521 commit 9dd2a46. No other ZIP member is run.
+# Reviewed helper file hashes. No other ZIP member is run.
 HELPERS = {
     'restore-legacy-local.sh': 'f105444b62a8aa03df3d11df71d98a48925898db886c3401a46e7a132d47a402',
     'secure-open-inputs.py': 'e505bc2945cf4051c12aeee2fe61e516aee23f816e4fd568dca645e277280227',
-    'restore-legacy-worker.sh': '59f4a2f82e66cd3ddc752f026dd3ea28ed5ebb048170ac3e8626662a94eb12b5',
+    'restore-legacy-worker.sh': '8df704be26bd519015bdec6cd24cb09d9c2e498d3ab38a6f19055e12914e3e4c',
     'extract-legacy-artifact.py': 'dae25d4b0d92a4e2f9d35102449e209933f79e017b41974ae3ae2b3ccccd4b80',
 }
 
@@ -48,6 +48,10 @@ SAFE_FAILURE_STAGES = {
     b'Local Docker CLI unavailable.': '本機 Docker 工具檢查未通過。',
     b'Container isolation or logging configuration is unexpected.': '隔離容器的設定檢查未通過。',
     b'Isolated restore database unavailable.': '隔離資料庫啟動或連線階段未通過。',
+    b'Isolated archive listing failed.': '隔離備份目錄讀取階段未通過。',
+    b'Isolated archive schema selection failed.': '隔離備份的 public schema 辨識階段未通過。',
+    b'Isolated public schema restore failed.': '隔離 public schema 還原階段未通過。',
+    b'Isolated btree_gist preparation failed.': '隔離資料庫的 btree_gist 準備階段未通過。',
     b'Isolated restore failed; inspect prerequisites without sharing unredacted data.': '備份資料流或 PostgreSQL 還原階段未通過。',
     b'Required reservations table missing after restore.': '還原後的必要資料表檢查未通過。',
 }

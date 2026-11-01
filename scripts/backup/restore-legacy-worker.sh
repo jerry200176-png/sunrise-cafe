@@ -101,9 +101,51 @@ CREATE ROLE supabase_admin NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICA
 CREATE ROLE backup_ro NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 DROP SCHEMA public CASCADE;
 SQL
-# Restore is a second streaming decryption; neither plaintext nor detailed logs leave tmpfs.
+# A public-only pg_dump may reference btree_gist without containing its EXTENSION
+# entry. Restore the archive's own public schema first (including its owner),
+# install the image's extension in that schema, then restore every remaining TOC
+# entry in its original order. All intermediate lists and logs stay in tmpfs.
 if ! age -d -i "$identity_path" "$ciphertext" 2>/dev/null | local_docker exec -i "$container" sh -c \
-  'pg_restore -U postgres -d fixture --exit-on-error --single-transaction > /tmp/restore.log 2>&1'; then
+  'pg_restore --list > /tmp/restore-full.toc 2>/tmp/restore.log'; then
+  echo 'Isolated archive listing failed.' >&2; exit 1
+fi
+if ! local_docker exec "$container" sh -c '
+  set -eu
+  pattern="^[0-9]+; [0-9]+ [0-9]+ SCHEMA - public "
+  matches="$(awk -v p="$pattern" "\$0 ~ p {n++} END {print n+0}" /tmp/restore-full.toc)"
+  [ "$matches" = 1 ]
+  awk -v p="$pattern" "\$0 ~ p {print}" /tmp/restore-full.toc > /tmp/restore-schema.toc
+  awk -v p="$pattern" "\$0 !~ p {print}" /tmp/restore-full.toc > /tmp/restore-remainder.toc
+' >/dev/null 2>&1; then
+  echo 'Isolated archive schema selection failed.' >&2; exit 1
+fi
+if ! age -d -i "$identity_path" "$ciphertext" 2>/dev/null | local_docker exec -i "$container" sh -c \
+  'pg_restore -U postgres -d fixture --use-list=/tmp/restore-schema.toc --exit-on-error --single-transaction > /tmp/restore.log 2>&1'; then
+  echo 'Isolated public schema restore failed.' >&2; exit 1
+fi
+if ! local_docker exec -i "$container" psql -X -q -v ON_ERROR_STOP=1 -U postgres -d fixture >/dev/null 2>&1 <<'SQL'
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'btree_gist') THEN
+    RAISE EXCEPTION 'required extension unavailable';
+  END IF;
+END $$;
+CREATE EXTENSION btree_gist WITH SCHEMA public;
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_extension e
+    JOIN pg_namespace n ON n.oid = e.extnamespace
+    JOIN pg_opclass c ON c.opcnamespace = n.oid
+    JOIN pg_am am ON am.oid = c.opcmethod
+    WHERE e.extname = 'btree_gist' AND n.nspname = 'public'
+      AND c.opcname = 'gist_uuid_ops' AND c.opcintype = 'uuid'::regtype AND am.amname = 'gist'
+  ) THEN RAISE EXCEPTION 'required extension placement or operator class unavailable'; END IF;
+END $$;
+SQL
+then
+  echo 'Isolated btree_gist preparation failed.' >&2; exit 1
+fi
+if ! age -d -i "$identity_path" "$ciphertext" 2>/dev/null | local_docker exec -i "$container" sh -c \
+  'pg_restore -U postgres -d fixture --use-list=/tmp/restore-remainder.toc --exit-on-error --single-transaction > /tmp/restore.log 2>&1'; then
   echo 'Isolated restore failed; inspect prerequisites without sharing unredacted data.' >&2; exit 1
 fi
 # Minimal shape check, not a comparison against the source or complete Supabase recovery.

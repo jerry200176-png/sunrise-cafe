@@ -12,7 +12,7 @@ spec.loader.exec_module(module)
 
 class SafeDiagnosticTests(unittest.TestCase):
     def test_all_fixed_helper_failures_map_to_fixed_stage_hints(self):
-        self.assertEqual(len(module.SAFE_FAILURE_STAGES), 14)
+        self.assertEqual(len(module.SAFE_FAILURE_STAGES), 18)
         for raw, hint in module.SAFE_FAILURE_STAGES.items():
             with self.subTest(stage=hint):
                 result = module.safe_failure_stage(b'\n\n', raw + b'\n')

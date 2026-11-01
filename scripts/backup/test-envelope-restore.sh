@@ -69,6 +69,83 @@ printf X >> "$work/damaged.age"
 if "$AGE_BIN" -d -i "$AGE_PUBLIC_TEST_IDENTITY" -o "$work/invalid.tar" "$work/damaged.age" 2>/dev/null; then
   echo 'Unexpected success decrypting altered ciphertext.' >&2; exit 1
 fi
+# Reproduce a public-only archive with public.btree_gist and a UUID/range
+# exclusion constraint; schema-only dumps do not include the extension entry.
+docker exec "$src" psql -X -v ON_ERROR_STOP=1 -U postgres -d fixture -c 'CREATE ROLE anon NOLOGIN' >/dev/null
+docker exec "$src" psql -X -v ON_ERROR_STOP=1 -U postgres -d fixture -c 'CREATE DATABASE synthetic_gist' >/dev/null
+docker exec -i "$src" psql -X -q -v ON_ERROR_STOP=1 -U postgres -d synthetic_gist <<'SQL'
+CREATE EXTENSION btree_gist WITH SCHEMA public;
+CREATE TABLE public.reservations (id integer PRIMARY KEY, room_id uuid NOT NULL, start_time timestamptz NOT NULL, end_time timestamptz NOT NULL, status text NOT NULL);
+ALTER TABLE public.reservations ADD CONSTRAINT reservations_no_overlap_active_excl EXCLUDE USING gist
+  (room_id WITH =, tstzrange(start_time, end_time, '[)') WITH &&) WHERE (status <> 'cancelled');
+GRANT USAGE ON SCHEMA public TO anon;
+GRANT SELECT ON public.reservations TO anon;
+COMMENT ON SCHEMA public IS 'synthetic-schema-marker';
+INSERT INTO public.reservations VALUES (1, '00000000-0000-4000-8000-000000000001', '2026-01-01', '2026-01-02', 'active');
+SQL
+docker exec "$src" pg_dump -U postgres -d synthetic_gist --schema=public -Fc > "$work/gist.dump"
+if docker exec -i "$src" pg_restore -l < "$work/gist.dump" | grep -q 'EXTENSION.*btree_gist'; then
+  echo 'Synthetic archive unexpectedly contains the extension.' >&2; exit 1
+fi
+"$AGE_BIN" -R "$work/recipient.txt" -o "$work/gist.dump.age" "$work/gist.dump"
+LEGACY_WORK="$work" python3 - <<'PY'
+import hashlib, json, os, pathlib, zipfile
+work = pathlib.Path(os.environ['LEGACY_WORK']); dump = work / 'gist.dump'
+manifest = {'label': 'predeploy', 'created_at_utc': '20260101T000000Z',
+            'bytes': dump.stat().st_size, 'sha256': hashlib.sha256(dump.read_bytes()).hexdigest(),
+            'tables_with_data': 1, 'encrypted': True, 'schema': 'public', 'format': 'pg_dump custom'}
+with zipfile.ZipFile(work / 'gist.zip', 'w') as archive:
+    archive.writestr('manifest.json', json.dumps(manifest))
+    archive.write(work / 'gist.dump.age', 'sunrise-cafe_predeploy_20260101T000000Z.dump.age')
+PY
+gist_sha="$(sha256sum "$work/gist.zip" | cut -d ' ' -f 1)"
+# Source and baseline targets are no longer needed; release their synthetic
+# containers before starting the separately isolated legacy restore target.
+docker stop -t 0 "$src" "$dst" >/dev/null
+src_created=false
+dst_created=false
+# During cleanup, inspect the synthetic target *before* stopping it. This checks
+# actual restore results without adding debug access to the production helper.
+mkdir "$work/gist-docker"
+ln -s "$(command -v docker)" "$work/gist-docker/real-docker"
+cat > "$work/gist-docker/docker" <<'SH'
+#!/bin/sh
+base=${0%/*}
+if [ "${5:-}" = stop ]; then
+  "$base/real-docker" --config "$2" --host "$4" exec "${8}" psql -X -At -U postgres -d fixture -c \
+    "SELECT (SELECT count(*)=1 FROM public.reservations) AND (SELECT pg_get_userbyid(nspowner)='pg_database_owner' FROM pg_namespace WHERE nspname='public') AND has_schema_privilege('anon','public','USAGE') AND has_table_privilege('anon','public.reservations','SELECT') AND (SELECT obj_description(oid,'pg_namespace')='synthetic-schema-marker' FROM pg_namespace WHERE nspname='public') AND EXISTS (SELECT 1 FROM pg_constraint c JOIN pg_index i ON i.indexrelid=c.conindid JOIN pg_opclass o ON o.oid=i.indclass[0] JOIN pg_namespace n ON n.oid=o.opcnamespace WHERE c.conname='reservations_no_overlap_active_excl' AND c.contype='x' AND c.conrelid='public.reservations'::regclass AND n.nspname='public' AND o.opcname='gist_uuid_ops');" > "$base/verified" 2>/dev/null || true
+  if "$base/real-docker" --config "$2" --host "$4" exec "${8}" psql -X -q -v ON_ERROR_STOP=1 -U postgres -d fixture -c \
+    "DO \$\$ BEGIN BEGIN INSERT INTO public.reservations VALUES (2, '00000000-0000-4000-8000-000000000001', '2026-01-01', '2026-01-02', 'active'); RAISE EXCEPTION 'exclusion was not enforced'; EXCEPTION WHEN exclusion_violation THEN NULL; END; END \$\$;" >/dev/null 2>&1; then
+    : > "$base/enforced"
+  fi
+fi
+exec "$base/real-docker" "$@"
+SH
+chmod +x "$work/gist-docker/docker"
+printf '%s\n%s\n%s\n' "$work/gist.zip" "sha256:$gist_sha" "$AGE_PUBLIC_TEST_IDENTITY" | \
+  PATH="$work/gist-docker:$(dirname "$AGE_BIN"):$PATH" bash scripts/backup/restore-legacy-local.sh >/dev/null
+[[ "$(cat "$work/gist-docker/verified")" == t && -f "$work/gist-docker/enforced" ]] || { echo 'Synthetic exclusion/ownership/ACL validation failed.' >&2; exit 1; }
+# Make only the second stdin-driven psql step fail (btree_gist preparation),
+# and prove the remainder restore never runs. No production services are used.
+mkdir "$work/missing-gist-docker"
+ln -s "$(command -v docker)" "$work/missing-gist-docker/real-docker"
+cat > "$work/missing-gist-docker/docker" <<'SH'
+#!/bin/sh
+base=${0%/*}
+case "$*" in *'pg_restore -U postgres -d fixture --use-list=/tmp/restore-remainder.toc'*) : > "$base/remainder-ran" ;; esac
+if [ "${5:-}" = exec ] && [ "${6:-}" = -i ] && [ "${8:-}" = psql ]; then
+  if [ -f "$base/role-prepared" ]; then : > "$base/extension-rejected"; exit 1; fi
+  : > "$base/role-prepared"
+fi
+exec "$base/real-docker" "$@"
+SH
+chmod +x "$work/missing-gist-docker/docker"
+if printf '%s\n%s\n%s\n' "$work/gist.zip" "sha256:$gist_sha" "$AGE_PUBLIC_TEST_IDENTITY" | \
+  PATH="$work/missing-gist-docker:$(dirname "$AGE_BIN"):$PATH" bash scripts/backup/restore-legacy-local.sh >"$work/missing-gist.out" 2>&1; then
+  echo 'Synthetic restore unexpectedly continued without extension preparation.' >&2; exit 1
+fi
+[[ -f "$work/missing-gist-docker/extension-rejected" && ! -e "$work/missing-gist-docker/remainder-ran" ]]
+grep -q '^Isolated btree_gist preparation failed\.$' "$work/missing-gist.out"
 # Exercise the *existing legacy format* locally, not a v1 tar envelope or production artifact.
 legacy_name='sunrise-cafe_predeploy_20260101T000000Z.dump.age'
 "$AGE_BIN" -R "$work/recipient.txt" -o "$work/$legacy_name" "$work/fixture.dump"
