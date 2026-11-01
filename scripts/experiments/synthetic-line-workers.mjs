@@ -117,8 +117,8 @@ try {
   check(oldDenied, "Old role was not fenced");
   check(await start("old-bypass", 4) === 0, "Synthetic old provider call failed");
   check(received.filter((id) => id === ids[4]).length === 1, "Old sender did not outlive DB revoke in fake model");
-  // Two separate processes race one token. Fake provider accepts then drops the
-  // response; one process sees unknown, the other never makes an HTTP send.
+  // Two separate processes start without an enforced DB-lock barrier. The fake
+  // provider accepts then drops the response; only one sends in this run.
   const results = await Promise.all([start("drop", 0), start("drop", 0)]);
   check(results.includes(75) && results.includes(10), `Unexpected concurrent worker result ${results}`);
   check(received.filter((id) => id === ids[0]).length === 1 && await state(ids[0]) === "attempted", "Unknown outcome not quarantined");
@@ -140,7 +140,7 @@ try {
     check(received.filter((id) => id === ids[index]).length === 1 && await state(ids[index]) === "attempted", `Synthetic ${mode} not quarantined`);
   }
   await delay(50);
-  console.log(JSON.stringify({ separate_worker_race: results, fake_accepts_after_lost_response: 1,
+  console.log(JSON.stringify({ separately_started_workers: results, fake_accepts_after_lost_response: 1,
     retry_after_unknown_blocked: true, fake_timeout_500_409_malformed_wrong_account_blocked: true,
     old_sender_after_db_revoke: true, wrong_fake_identity_blocked: true }));
 } finally {

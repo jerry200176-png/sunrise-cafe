@@ -44,6 +44,6 @@
 
 `scripts/experiments/test-synthetic-line-worker-provider.sh` 以 `--network none` 建立臨時 PostgreSQL 17，再由清空環境變數的主程序，在本機 `127.0.0.1` 隨機埠建立假 HTTP provider，啟動多個獨立 OS worker；主程序和 worker 只使用隨機合成憑證。假 provider 刻意**不做去重**，以便任何第二次 POST 都能被計數；所有資料、帳號、payload 及 DB 角色均為合成，沒有實際 LINE SDK／帳號或客人資料。
 
-兩個獨立 worker 對同一 owner/generation 競爭，只有一個能提交 attempted；假 provider 接受後主動斷線時，另一 worker 及模擬回退再試均未再發送。另涵蓋假 provider 接受後超過本機 deadline、回傳 500、409、損壞 JSON 或不符的回應帳號，皆維持 attempted 且禁止自動第二次發送；一個成功回應則允許重複寫入已確認狀態而不重呼 provider。worker 在 attempted 後崩潰、或刻意丟棄 DB 回覆以模擬結果不明時，也不自動重試。假 provider identity 不符時在 attempted 前停止。這些是保守協定的合成斷言，不代表任何真實 LINE 409、timeout、認證或帳號身分語意；`lost-begin-response` 是刻意丟棄成功結果的程式模擬，不是真實資料庫傳輸故障注入。
+兩個獨立 worker 並行啟動並使用同一 owner/generation，此次結果只有一個提交 attempted；測試未設 barrier，未證明它們曾同時等待資料庫鎖。假 provider 接受後主動斷線時，另一 worker 及模擬回退再試均未再發送。另涵蓋假 provider 接受後超過本機 deadline、回傳 500、409、損壞 JSON 或不符的回應帳號，皆維持 attempted 且禁止自動第二次發送；一個成功回應則允許重複寫入已確認狀態而不重呼 provider。worker 在 attempted 後崩潰、或刻意丟棄 DB 回覆以模擬結果不明時，也不自動重試。假 provider identity 不符時在 attempted 前停止。這些是保守協定的合成斷言，不代表任何真實 LINE 409、timeout、認證或帳號身分語意；`lost-begin-response` 是刻意丟棄成功結果的程式模擬，不是真實資料庫傳輸故障注入。
 
 撤銷合成舊 DB role 後，測試**另行啟動**仍持有假 provider token 的舊程式，證明僅靠撤銷 DB grant 並不能阻止這類程式直接呼叫其 provider；它不證明正式舊 worker、網路或憑證狀態。正式 freeze/drain、憑證隔離、provider 身分與回應證據仍須獨立核實，未知時必須保持 release hold。原型沒有解除 #527 的部分 claim 與正式 sender P1，也沒有提供可部署 migration。
