@@ -10,7 +10,12 @@ cleanup() { [[ -z $id ]] || docker_local stop -t 0 "$id" >/dev/null 2>&1 || true
 trap cleanup EXIT
 id=$(docker_local run -d --rm --pull=never --network none --tmpfs /var/lib/postgresql/data:rw,exec,size=128m -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=fixture postgres:17-alpine)
 ready=false
-for _ in {1..30}; do if docker_local exec "$id" pg_isready -U postgres -d fixture >/dev/null 2>&1; then ready=true; break; fi; sleep 1; done
+for _ in {1..30}; do
+  # The image briefly starts a socket-only server during initdb and then stops
+  # it; wait for the final server, not just an early pg_isready response.
+  if [[ $(docker_local exec "$id" psql -X -qAt -U postgres -d fixture -c "SELECT current_setting('listen_addresses') <> ''" 2>/dev/null || true) == t ]]; then ready=true; break; fi
+  sleep 1
+done
 [[ $ready == true ]] || { echo 'Synthetic PostgreSQL unavailable' >&2; exit 1; }
 psql_local() { docker_local exec -i "$id" psql -X -qAt -v ON_ERROR_STOP=1 -U postgres -d fixture "$@"; }
 psql_local <<'SQL'
@@ -110,6 +115,7 @@ wait "$inflight"
 psql_local -c "REVOKE EXECUTE ON FUNCTION synthetic.legacy_claim(integer,text) FROM synthetic_inflight" >/dev/null
 [[ $(psql_local -c "SELECT count(*) FROM synthetic.deliveries WHERE booking=4 AND recipient='inflight'") == 1 ]]
 if psql_local -c "SET ROLE synthetic_inflight; SELECT synthetic.legacy_claim(4,'after-revoke')" >"$work/expected-denial" 2>&1; then echo 'Revoked in-flight role retained access' >&2; exit 1; fi
+[[ $revoked_while_active == true ]] || { echo 'REVOKE was not observed completing during the synthetic old transaction' >&2; exit 1; }
 printf 'Synthetic revoke completed while an old transaction was active: %s\n' "$revoked_while_active"
 # A revoked old role cannot invoke the legacy RPC, directly mutate rows, or
 # read ownership tokens; the new role has only the narrow functions.

@@ -41,4 +41,4 @@
 
 正式執行包在準備與獨立審核之前，仍需：完整列舉並隔離所有 LINE sender 和舊 writer；盤點 Supabase 身分／role grant、transaction 與部署時序；定義正式 reservation lifecycle 的鎖順序與補償；以測試帳號和可控制的模擬 provider 核對逾時、回應遺失、取消、並發與 rollback；確認歷史 failed、未知結果只能經人工對帳。所有 migration 須另做 additive gate、備份還原、跨版本相容及可回退審核。以上尚未完成，本 PR 與 #525 均維持不可部署。
 
-合成協調器另測試成功接受與重複完成標記，以及 `begin_send` 對整批條件釋放的 10 次競爭。釋放前必須先鎖住全部 claim 再檢查，否則在檢查及 UPDATE 間可能有單筆進入 attempted、造成部分釋放。此處的假 provider 只有可控的記錄與遺失回應，並未使用網路、真實 LINE 身分或真實應用程序。一次執行曾因臨時資料庫提前停止而中斷，後續完整重跑通過；不能據此推斷正式環境穩定性。
+合成協調器另測試成功接受與重複完成標記，以及 `begin_send` 對整批條件釋放的 10 次競爭。釋放前必須先鎖住全部 claim 再檢查，否則在檢查及 UPDATE 間可能有單筆進入 attempted、造成部分釋放。此處的假 provider 只有可控的記錄與遺失回應，並未使用網路、真實 LINE 身分或真實應用程序。曾有執行因 PostgreSQL image 在初始化時短暫啟動再關閉暫存 server 而中斷；腳本已改為確認最終 server 的設定後才開始測試。不能據此推斷正式環境穩定性。

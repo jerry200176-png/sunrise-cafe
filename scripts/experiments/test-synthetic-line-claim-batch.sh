@@ -7,7 +7,12 @@ id=''
 cleanup() { if [[ -n $id ]]; then docker_local stop -t 0 "$id" >/dev/null 2>&1 || true; fi; rm -r -- "$work"; }
 trap cleanup EXIT
 id=$(docker_local run -d --rm --pull=never --network none --tmpfs /var/lib/postgresql/data:rw,exec,size=128m -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=fixture postgres:17-alpine)
-for n in {1..30}; do docker_local exec "$id" pg_isready -U postgres -d fixture >/dev/null 2>&1 && break; sleep 1; done
+ready=false
+for _ in {1..30}; do
+  if [[ $(docker_local exec "$id" psql -X -qAt -U postgres -d fixture -c "SELECT current_setting('listen_addresses') <> ''" 2>/dev/null || true) == t ]]; then ready=true; break; fi
+  sleep 1
+done
+[[ $ready == true ]] || { echo 'Synthetic PostgreSQL unavailable' >&2; exit 1; }
 psql_local() { docker_local exec -i "$id" psql -X -qAt -v ON_ERROR_STOP=1 -U postgres -d fixture "$@"; }
 psql_local <<'SQL'
 CREATE TABLE synthetic_claims (key text PRIMARY KEY, token uuid NOT NULL, generation integer NOT NULL, state text NOT NULL CHECK (state IN ('sending','released','failed','sent')));
