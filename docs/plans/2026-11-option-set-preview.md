@@ -4,6 +4,6 @@
 
 SQL 預覽以 PostgreSQL 的 `to_jsonb(row)` 讀取可選欄位，支援 migration 執行前沒有 `set_id` 與執行後有該欄位的 schema；在 DB 自身使用 migration 同樣的簽章與代表 item 排序。只修改獨立預覽，不變更已發布的 migration。原資料可能在查詢間變動、同 display_order 的顯示順序仍可能不同；如需一致快照，應由具適當權限的操作者在唯讀交易內執行，且不代表歷史狀態。
 
-參考：[PostgreSQL JSON functions](https://www.postgresql.org/docs/current/functions-json.html) 的 row-to-JSON 與缺鍵回傳 null 行為；[aggregate ordering](https://www.postgresql.org/docs/current/functions-aggregate.html) 的有序 array 聚合。兩者使用 PostgreSQL License；本次自行撰寫 SQL，未複製程式碼。驗證採無網路、合成的本地 PostgreSQL 測前後 schema、混合資料、重複選項與代表餐點。
+參考：[PostgreSQL JSON functions](https://www.postgresql.org/docs/current/functions-json.html) 的 row-to-JSON 與缺鍵回傳 null 行為；[aggregate ordering](https://www.postgresql.org/docs/current/functions-aggregate.html) 的有序 array 聚合。兩者使用 PostgreSQL License；本次自行撰寫 SQL，未複製程式碼。驗證採無網路、合成的本地 PostgreSQL 測前後 schema、混合資料、重複選項、等量不同簽章與代表餐點，並將結果與原 migration 的合併區塊在臨時資料表執行後比對。
 
-保留限制：`to_jsonb` 篩選加彙總可能掃描整張選項表，未驗證正式資料量與耗時；無法憑當前資料重建遷移前正式預覽；TypeScript 工具仍有分頁、JSON 及與 PostgreSQL 排序／數值簽章不一致的問題，不能視為精確預覽。此變更不關閉 #434，未讀取正式資料。
+保留限制：目前預覽沒有分店篩選，`to_jsonb` 篩選加彙總可能掃描整張選項表，未驗證正式資料量與耗時；無法憑當前資料重建遷移前正式預覽；TypeScript 工具仍有分頁、JSON 及與 PostgreSQL 排序／數值簽章不一致的問題，不能視為精確預覽。測試工具固定使用 root 擁有的本地 Docker socket、清空 Docker 相關環境、禁網且只使用已存在的映像；仍依賴本機 Docker host 可信。此變更不關閉 #434，未讀取正式資料。
