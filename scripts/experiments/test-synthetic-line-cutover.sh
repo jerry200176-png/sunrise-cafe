@@ -109,7 +109,9 @@ done
 [[ $seen == true ]] || { echo 'Synthetic in-flight worker did not enter sleep' >&2; exit 1; }
 revoked_while_active=false
 if psql_local -c "SET statement_timeout='1s'; REVOKE EXECUTE ON FUNCTION synthetic.legacy_claim(integer,text) FROM synthetic_inflight" >"$work/revoke" 2>&1; then
-  if kill -0 "$inflight" 2>/dev/null; then revoked_while_active=true; fi
+  # Observe the transaction in PostgreSQL itself after REVOKE, rather than
+  # relying on the client process potentially lingering after COMMIT.
+  if [[ $(psql_local -c "SELECT count(*) FROM pg_stat_activity WHERE application_name='synthetic-inflight' AND wait_event='PgSleep' AND xact_start IS NOT NULL") == 1 ]]; then revoked_while_active=true; fi
 fi
 wait "$inflight"
 psql_local -c "REVOKE EXECUTE ON FUNCTION synthetic.legacy_claim(integer,text) FROM synthetic_inflight" >/dev/null
