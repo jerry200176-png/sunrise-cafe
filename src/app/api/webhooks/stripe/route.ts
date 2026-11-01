@@ -95,10 +95,11 @@ export async function POST(request: NextRequest) {
       case "payment_intent.payment_failed": {
         const paymentIntent = event.data.object;
 
-        await supabaseAdmin()
+        const { error: failedWriteError } = await supabaseAdmin()
           .from("payment_intents")
           .update({ status: "failed", updated_at: new Date().toISOString() })
           .eq("stripe_pi_id", paymentIntent.id);
+        if (failedWriteError) throw new Error("Stripe failed payment recording failed");
 
         logOps("webhook", "stripe.payment_intent_failed", {
           stripe_pi_id: paymentIntent.id,
@@ -113,23 +114,29 @@ export async function POST(request: NextRequest) {
             ? charge.payment_intent
             : null;
 
+        // No durable inbox exists yet: never acknowledge an unhandled expanded or
+        // missing identity as though the refund had been recorded.
+        if (!paymentIntentId) throw new Error("Stripe refund identity unavailable");
         if (paymentIntentId) {
-          await supabaseAdmin()
+          const { error: refundWriteError } = await supabaseAdmin()
             .from("payment_intents")
             .update({ status: "refunded", updated_at: new Date().toISOString() })
             .eq("stripe_pi_id", paymentIntentId);
+          if (refundWriteError) throw new Error("Stripe refund recording failed");
 
-          const { data: pi } = await supabaseAdmin()
+          const { data: pi, error: refundLookupError } = await supabaseAdmin()
             .from("payment_intents")
             .select("reservation_id")
             .eq("stripe_pi_id", paymentIntentId)
             .single();
 
+          if (refundLookupError || !pi?.reservation_id) throw new Error("Stripe refund reservation lookup failed");
           if (pi?.reservation_id) {
-            await supabaseAdmin()
+            const { error: reservationRefundError } = await supabaseAdmin()
               .from("reservations")
               .update({ deposit_status: "refunded" })
               .eq("id", pi.reservation_id);
+            if (reservationRefundError) throw new Error("Stripe reservation refund recording failed");
           }
         }
 

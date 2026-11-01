@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { stripe, isStripeEnabled } from "@/lib/stripe";
 import { createClient } from "@supabase/supabase-js";
 import { logOps } from "@/lib/ops-log";
+import { verifyGuestBookingByTokenOrCredentials } from "@/lib/guest-auth";
+import { enforceGuestLookupLimit } from "@/lib/guest-rate-limit";
+import { getLookupSigningSecret } from "@/lib/lookup-token";
 import { getBranchDepositConfig } from "@/lib/constants";
 import { getDepositAmount } from "@/lib/booking-utils";
 
@@ -38,7 +41,7 @@ export async function POST(request: NextRequest) {
       currency?: string;
     };
 
-    if (!reservationId || !branchId || amount == null) {
+    if (typeof reservationId !== "string" || !reservationId || typeof branchId !== "string" || !branchId || amount == null) {
       return NextResponse.json(
         { error: "缺少必填欄位（reservationId, branchId, amount）" },
         { status: 400 }
@@ -58,6 +61,24 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Authenticate the guest before accessing the payment provider or changing state.
+    if ([body.token, body.phone, body.bookingCode].some((value) => value != null && typeof value !== "string")) {
+      return NextResponse.json({ error: "付款驗證資料格式不正確" }, { status: 400 });
+    }
+    const limit = await enforceGuestLookupLimit(request, "");
+    if (limit) return limit;
+    if (typeof body.token === "string" && body.token.trim() && process.env.NODE_ENV === "production" &&
+        getLookupSigningSecret() === "sunrise-guest-lookup-dev-secret") {
+      return NextResponse.json({ error: "付款驗證暫時無法使用，請聯繫店家" }, { status: 503 });
+    }
+    const guest = await verifyGuestBookingByTokenOrCredentials({
+      id: reservationId,
+      token: typeof body.token === "string" ? body.token : null,
+      phone: typeof body.phone === "string" ? body.phone : null,
+      bookingCode: typeof body.bookingCode === "string" ? body.bookingCode : null,
+    });
+    if (!guest.ok) return NextResponse.json({ error: guest.error }, { status: guest.status });
 
     // The caller cannot choose a different branch's payment settings. Resolve
     // the branch from the reservation's room before checking the feature flag.

@@ -12,19 +12,19 @@
 
 ## 已重現的阻擋（synthetic RED；禁止部署此候選）
 
-以下 9 項是要維持啟用的安全斷言，皆以合成資料／mock 重現；目前均失敗，不能 `skip`、刪除或降低斷言：
+以下 9 項是要維持啟用的安全斷言，皆以合成資料／mock 重現；其中 3、4、5 的狹窄合成場景現已通過，其餘 6 項仍失敗；全部斷言不能 `skip`、刪除或降低：
 
 1. **成功事件 ledger 零列仍 ack／入帳**：可能讓缺綁定事件被當正常；需先保存事件，確認 row identity 與 affected row，再安全處理。
 2. **遲到 succeeded 覆寫 refunded ledger**：可能使退款狀態倒轉；需事件去重、交易內鎖定並以退款歷史推導不可倒退狀態。
-3. **payment_failed 寫入 DB error 仍 ack**：失敗證據可能只剩 provider 的有限期重送；需 durable inbox 與失敗可恢復處置。
-4. **expanded refund object 未處理仍 ack**：可能漏掉退款關聯；需支援 provider 的 string／expanded ID，綁定驗證並保全事件。
-5. **refund 的兩次 DB 寫入皆失敗仍 ack**：可能漏記退款；需交易化寫入與持久、可重試證據。
+3. **payment_failed 寫入 DB error 仍 ack**：此特定 DB error 改回非 2xx；失敗證據仍可能只剩 provider 的有限期重送，需 durable inbox 與失敗可恢復處置。
+4. **expanded refund object 未處理仍 ack**：此特定場景現在回非 2xx；仍未處理 expanded ID、綁定驗證或持久化事件。
+5. **refund 的兩次 DB 寫入皆失敗仍 ack**：目前可觀察的 DB error 回非 2xx；兩次寫入仍非原子，需交易化與持久、可重試證據。
 6. **並行 paid 寫入重複 audit**：兩筆都看到 unpaid；需同 reservation transaction 與穩定 audit/outbox key。兩次 notify 函式呼叫不證明真 LINE 重複。
 7. **refund 後 late success 影響 checkout**：合成應收由 NT$400 錯變 NT$200；需保持退款不變式並核對真 settlement RPC。此項未接觸真實結帳。
 8. **confirm-deposit 可將 refunded 改回 paid**：需要和 webhook 共用資料庫層原子狀態與事件契約，不能各自先讀再寫。
 9. **provider 建單後 ledger insert 失敗仍回 client secret**：已送出的 provider 請求可能無本地紀錄；需先 durable claim、崩潰／timeout reconciliation 與不丟證據的 response 合約，不能只改 503 就宣稱安全。
 
-- `route.unresolved.test.ts` 重現 ledger 更新匹配零列但 `error=null` 時仍回 200 並呼叫 paid；`payment_failed` 的 DB error 仍回 200；`charge.refunded` 的 expanded `payment_intent` 物件未更新時仍回 200。這些都是合成 mock，不代表正式資料已發生。
+- `route.unresolved.test.ts` 重現 ledger 更新匹配零列但 `error=null` 時仍回 200 並呼叫 paid；原本 `payment_failed` 的 DB error 和 expanded refund 未處理皆回 200；此 draft 對這兩個情境改非 2xx，但沒有 durable inbox。這些都是合成 mock，不代表正式資料已發生。
 - 先前 synthetic 重現 intent binding 與金額讀取都回 DB error／null，卻因缺失金額以 0 計算而接受小額付款。此 draft 的 `deposit-binding.database.test.ts` 與 webhook 合成測試已檢查 DB error 回 503／webhook 非 2xx；仍需在拒絕／重試前安全保存付款事件證據。
 - `stripe-refund-checkout.unresolved.test.ts` 使用真 `deposit-paid` 與真 `computeCheckoutBill`、合成 DB state 和 checkout route 相同的 refunded→是否抵扣映射：refund 後遲到 succeeded 使應收由 NT$400 變 NT$200。正式結帳 RPC 的 SQL 同樣以 `is_deposit_paid` 和 `deposit_status != refunded` 判斷是否扣訂金；這是可能錯誤抵扣的程式證據，不是已發生的實際收款或該 RPC 的實測。
 - `deposit-concurrent.unresolved.test.ts` 的合成 barrier 使兩個呼叫讀到同一 unpaid snapshot，兩者各執行 audit；reviewer 另觀察兩次 notify 函式呼叫。通知下游 lease 未在此測試執行，因此不能把兩次呼叫宣稱為真實 LINE 重複發送。
@@ -32,13 +32,15 @@
 - `route.evidence.unresolved.test.ts` 模擬 Stripe 建單回傳後本地 intent insert 失敗，現有 create handler 仍回 200 與 client secret；在 durable pre-claim／對帳機制完成之前，不能把這當安全收款或僅靠改 HTTP 回應宣稱保全證據。
 - 真 Stripe SDK 的**合法合成簽章**搭配 malformed synthetic body，可使 JSON parser exception 含 body 片段。此 draft 將 signature catch 改為固定訊息，並以合成測試確認該 catch 不再輸出片段；不能聲稱未簽名請求即可觸發，也不能聲稱整條 webhook 都已去敏。`create-intent` 與 `confirm-deposit` 外層 catch 也改為固定訊息，合成 provider exception 不再回顯；獨立 reviewer 的 synthetic 測試另發現既有下游 payment note／通知 raw error 可能進 console，本 draft 未修復全鏈日誌。
 
-這些安全期待目前以測試形式保留，因未達成而保持 RED；不得刪除、降低或繞過它們以通過 CI。最小完整修法至少要先有持久事件 inbox／同事件去重，再以交易化的 monotonic payment/refund 狀態與 reservation lock 驗證 binding、金額、已退款及 late-success；對讀取未知、零列、partial refund、expanded object 和無法綁定事件保留證據及可恢復狀態，最後才評估 ack 和重送。只把 DB error 改成 500 無法提供這些保證。
+這些安全期待目前以測試形式保留，未達成的項目保持 RED；不得刪除、降低或繞過它們以通過 CI。最小完整修法至少要先有持久事件 inbox／同事件去重，再以交易化的 monotonic payment/refund 狀態與 reservation lock 驗證 binding、金額、已退款及 late-success；對讀取未知、零列、partial refund、expanded object 和無法綁定事件保留證據及可恢復狀態，最後才評估 ack 和重送。只把 DB error 改成 500 無法提供這些保證。
 
 此 draft 的局部 binding 縮險已讓 DB lookup 失敗／缺資料、無效 total 回 503；已確認的 metadata/ledger 不符回 403，錯誤貨幣、非成功 PI 或不足的實收回 409。Webhook 在沒有 durable inbox 時對 binding 非 ok 回非 2xx，前端 confirm endpoint 保留上述狀態區別。此修正不代表最終可重送的事件證據已永久保存，也不處理上述退款倒轉及其他 writer。
 
 Stripe TWD 的收款 API 使用最小貨幣單位；若訂位 `total_price` 是網站顯示的台幣元，半額 NT$500 應以 `amount=50000` 傳給 Stripe。既有 create-intent 將 config 的 500 原樣傳給 Stripe；畫面顯示的元與 provider amount 存在 100 倍單位風險。daan 的 `stripeEnabled:false` 僅反映程式配置，不證明正式 runtime、直呼 API 或歷史交易狀態。
 
-draft 的建單候選改從 reservation→room 取得 authoritative branch，要求與 caller 一致，未設定或停用分店一律拒絕；只在現有 50% 訂金與固定分店設定相符時把 API 的台幣元轉為 Stripe minor units。`BRANCH_DEPOSIT_CONFIG` 目前使用 `daan` 字串而 DB branch id 是 UUID，未知 mapping 安全停止；不同於固定設定的有效訂金也會停止，不代表一般付款可用。現有 create-intent 路徑沒有與 LINE Pay request 同等的 guest booking 驗證，branch guard 不等於授權；不得把 reservation UUID 當授權證明。舊版與候選使用同一 reservation idempotency key 但 amount 由 500 變 50000，同 key／不同參數可能被 Stripe 拒絕；key 到期後再呼叫又可能建立新 intent，兩者都不可視為安全 reconciliation。必須另行核對 UUID→設定映射、guest 授權、真實已發 intent／client secret、歷史金額單位、來源綁定與新舊版混跑，並完成 durable claim/inbox 和退款狀態交易，否則嚴禁部署／開啟 Stripe。
+draft 的建單候選改從 reservation→room 取得 authoritative branch，要求與 caller 一致，未設定或停用分店一律拒絕；只在現有 50% 訂金與固定分店設定相符時把 API 的台幣元轉為 Stripe minor units。`BRANCH_DEPOSIT_CONFIG` 目前使用 `daan` 字串而 DB branch id 是 UUID，未知 mapping 安全停止；不同於固定設定的有效訂金也會停止，不代表一般付款可用。此 draft 的 create-intent 與 confirm-deposit 在 provider 前要求 guest token 或電話加訂位代號並以現有 guest lookup 限流；分店判斷本身仍不是授權，不得把 reservation UUID 當授權證明。production 若 token 簽章退回共用模組已知的開發預設 secret，付款端拒絕該 token；電話及代號仍按既有驗證處理。這不證明其他設定密鑰強度、現有 guest auth 完整安全或正式設定狀態。舊版前端不帶憑證將無法使用新版 API，必須驗證前後版本混跑、token 過期及 credentials fallback；尚未聲稱可直接切換。舊版與候選使用同一 reservation idempotency key 但 amount 由 500 變 50000，同 key／不同參數可能被 Stripe 拒絕；key 到期後再呼叫又可能建立新 intent，兩者都不可視為安全 reconciliation。必須另行核對 UUID→設定映射、guest 授權切換相容性、真實已發 intent／client secret、歷史金額單位、來源綁定與新舊版混跑，並完成 durable claim/inbox 和退款狀態交易，否則嚴禁部署／開啟 Stripe。
+
+付款 modal 在建單結果不明或完成後確認逾時時不再提供會再次建單的「重試」按鈕，提示勿重複付款並聯繫店家；這只是避免該畫面觸發二次建單，重新載入、其他入口與重複的 provider 請求仍需 durable claim 和對帳機制保護，不能視為完整修復。
 
 ## 寫入者與順序盤點（以 main 11f6d03 程式為基準，並非現場資料）
 

@@ -12,7 +12,7 @@ vi.mock('@/lib/ops-log',()=>({logOps:()=>{}}));
 import { POST } from './route';
 const request=()=>new NextRequest('http://localhost/api/webhooks/stripe',{method:'POST',body:'{}'});
 beforeEach(()=>{vi.clearAllMocks();m.state=null;m.dbError=false;m.event={type:'payment_intent.succeeded',data:{object:{id:'pi_fixture',metadata:{reservationId:'r_fixture'}}}};m.markPaid.mockResolvedValue({changed:true,notification:null});});
-describe('unresolved synthetic safety expectations - expected RED',()=>{
+describe('synthetic safety expectations (two remain RED)',()=>{
  it('must not acknowledge and mark paid when ledger matched zero rows',async()=>{
    const response=await POST(request());
    expect(response.status).not.toBe(200);

@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
+// These scenarios exercise payment logic after successful guest authorization.
+vi.mock("@/lib/guest-auth", () => ({ verifyGuestBookingByTokenOrCredentials: async () => ({ ok: true, reservation: { id: "fixture" } }) }));
+vi.mock("@/lib/guest-rate-limit", () => ({ enforceGuestLookupLimit: async () => null }));
 import { verifyStripeIntentForReservation } from "@/lib/deposit-paid";
 
 const mockStripePaymentIntentsCreate = vi.fn();

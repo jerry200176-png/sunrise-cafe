@@ -1,5 +1,8 @@
 import { expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+// These scenarios exercise payment logic after successful guest authorization.
+vi.mock("@/lib/guest-auth", () => ({ verifyGuestBookingByTokenOrCredentials: async () => ({ ok: true, reservation: { id: "fixture" } }) }));
+vi.mock("@/lib/guest-rate-limit", () => ({ enforceGuestLookupLimit: async () => null }));
 const m=vi.hoisted(()=>({create:vi.fn(async()=>({id:'pi_fixture',client_secret:'synthetic-client-secret'}))}));
 vi.mock('@/lib/stripe',()=>({isStripeEnabled:()=>true,stripe:{paymentIntents:{create:m.create}}}));
 vi.mock('@/lib/constants',()=>({getBranchDepositConfig:()=>({stripeEnabled:true,isDepositRequired:true,defaultDepositAmount:500})}));

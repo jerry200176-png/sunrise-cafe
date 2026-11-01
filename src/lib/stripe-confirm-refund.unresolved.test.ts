@@ -1,5 +1,8 @@
 import { expect,it,vi } from 'vitest';
 import { NextRequest } from 'next/server';
+// These scenarios exercise payment logic after successful guest authorization.
+vi.mock("@/lib/guest-auth", () => ({ verifyGuestBookingByTokenOrCredentials: async () => ({ ok: true, reservation: { id: "fixture" } }) }));
+vi.mock("@/lib/guest-rate-limit", () => ({ enforceGuestLookupLimit: async () => null }));
 const state=vi.hoisted(()=>({deposit:'refunded',paid:true,ledger:'refunded'}));
 vi.mock('@/lib/stripe',()=>({isStripeEnabled:()=>true,stripe:{paymentIntents:{retrieve:async()=>({id:'pi_synthetic',object:'payment_intent',status:'succeeded',currency:'twd',amount:10000,amount_received:10000,metadata:{reservationId:'synthetic'}})}}}));
 vi.mock('@/lib/ops-log',()=>({logOps:vi.fn()}));
