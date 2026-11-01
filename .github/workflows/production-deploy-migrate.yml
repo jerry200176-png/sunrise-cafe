@@ -40,6 +40,8 @@ jobs:
             echo "::error::Forced deployment requires independent deployment-identity verification"
             exit 1
           fi
+          echo "::error::Release blocked: deployment writer fencing and a D7 recovery path are not verified"
+          exit 1
 
   predeploy_migrate:
     name: Apply predeploy migrations
@@ -162,6 +164,7 @@ jobs:
     timeout-minutes: 25
     outputs:
       deployment_attempted: ${{ steps.production_deploy.outputs.deployment_attempted }}
+      deployment_id: ${{ steps.production_deploy.outputs.deployment_id }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -192,15 +195,19 @@ jobs:
             echo "::error::Cannot verify the checked-out commit"
             exit 1
           fi
-          ACTUAL="$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' "$PRODUCTION_URL/api/version" | jq -er '.commit | strings' )" || {
+          VERSION="$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' "$PRODUCTION_URL/api/version")" || {
             echo "::error::Production version unavailable or invalid"
             exit 1
           }
+          ACTUAL="$(printf '%s' "$VERSION" | jq -er '.commit | strings')" || { echo "::error::Production commit unavailable"; exit 1; }
           if ! [[ "$ACTUAL" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error::Production version is malformed"
             exit 1
           fi
           if [ "$ACTUAL" = "$EXPECTED" ]; then
+            DEPLOYMENT_ID="$(printf '%s' "$VERSION" | jq -er '.deployment_id | strings')" || { echo "::error::Production deployment identity unavailable"; exit 1; }
+            [[ "$DEPLOYMENT_ID" =~ ^dpl_[A-Za-z0-9]+$ ]] || { echo "::error::Production deployment identity malformed"; exit 1; }
+            echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
             echo "Production already at $EXPECTED"
             exit 0
           fi
@@ -216,11 +223,15 @@ jobs:
             echo "::error::Deploy did not complete; postdeploy migrations are blocked"
             exit 1
           }
-          ACTUAL="$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' "$PRODUCTION_URL/api/version" | jq -er '.commit | strings' )" || {
+          VERSION="$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' "$PRODUCTION_URL/api/version")" || {
             echo "::error::Cannot confirm production version after deployment"
             exit 1
           }
+          ACTUAL="$(printf '%s' "$VERSION" | jq -er '.commit | strings')" || { echo "::error::Production commit unavailable"; exit 1; }
+          DEPLOYMENT_ID="$(printf '%s' "$VERSION" | jq -er '.deployment_id | strings')" || { echo "::error::Production deployment identity unavailable"; exit 1; }
           [[ "$ACTUAL" =~ ^[0-9a-f]{40}$ && "$ACTUAL" = "$EXPECTED" ]] || { echo "::error::Production version does not match; postdeploy migrations are blocked"; exit 1; }
+          [[ "$DEPLOYMENT_ID" =~ ^dpl_[A-Za-z0-9]+$ ]] || { echo "::error::Production deployment identity malformed"; exit 1; }
+          echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
 
   postdeploy_migrate:
     name: Apply postdeploy migrations
@@ -231,6 +242,10 @@ jobs:
       # age PUBLIC key; optional. Absent = NO retained backup (dump verified, then deleted at job end).
       BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
     steps:
+      - name: Block postdeploy until deployment writers are fenced
+        run: |
+          echo "::error::Postdeploy is disabled until an enforceable deployment-writer fence is reviewed"
+          exit 1
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -283,6 +298,7 @@ jobs:
           # Confirmed upload id; founder_approved runners refuse to migrate without it.
           BACKUP_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
           PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
+          EXPECTED_DEPLOYMENT_ID: ${{ needs.deploy.outputs.deployment_id }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
@@ -314,11 +330,14 @@ jobs:
           # against an independent deployment after the check.
           EXPECTED="$(git rev-parse HEAD)"
           [[ "$EXPECTED" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Cannot verify checked-out commit"; exit 1; }
-          ACTUAL="$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' "$PRODUCTION_URL/api/version" | jq -er '.commit | strings')" || {
+          VERSION="$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' "$PRODUCTION_URL/api/version")" || {
             echo "::error::Cannot confirm production version before postdeploy"
             exit 1
           }
+          ACTUAL="$(printf '%s' "$VERSION" | jq -er '.commit | strings')" || { echo "::error::Production commit unavailable"; exit 1; }
+          DEPLOYMENT_ID="$(printf '%s' "$VERSION" | jq -er '.deployment_id | strings')" || { echo "::error::Production deployment identity unavailable"; exit 1; }
           [[ "$ACTUAL" =~ ^[0-9a-f]{40}$ && "$ACTUAL" = "$EXPECTED" ]] || { echo "::error::Production version changed; postdeploy migrations are blocked"; exit 1; }
+          [[ "${EXPECTED_DEPLOYMENT_ID:-}" =~ ^dpl_[A-Za-z0-9]+$ && "$DEPLOYMENT_ID" = "$EXPECTED_DEPLOYMENT_ID" ]] || { echo "::error::Production deployment identity changed; postdeploy migrations are blocked"; exit 1; }
           node scripts/run-production-migration-phase.mjs postdeploy
 
       - name: Verify ops_events
@@ -447,13 +466,13 @@ jobs:
           fi
           node scripts/run-production-migration-phase.mjs postdeploy
 
-  # Gap #3 (RULEBOOK D6/D7/D8): watch RUNTIME health for 15 min after the deploy; on
-  # sustained failure roll back to the previous production deployment and open an
-  # incident issue. Scope is runtime only: it never reads migration drift (Verify
+  # Gap #3 (RULEBOOK D6/D7/D8): watch RUNTIME health for 15 min after the deploy;
+  # identity ambiguity requires an incident and the documented manual response.
+  # Scope is runtime only: it never reads migration drift (Verify
   # Production / deploy-health sha_parity), so the known drift issue cannot roll back a release.
   # The concurrency group above serializes the next deploy behind this window.
   post_deploy_watch:
-    name: Post-deploy watch and auto-rollback
+    name: Post-deploy watch and incident
     runs-on: ubuntu-latest
     needs: [deploy, postdeploy_verify]
     if: ${{ always() && needs.deploy.result != 'skipped' }}
@@ -473,58 +492,30 @@ jobs:
         env:
           PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
           EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_DEPLOYMENT_ID: ${{ needs.deploy.outputs.deployment_id }}
           WATCH_MINUTES: "15"
         run: node scripts/post-deploy-watch.mjs
 
-      - name: Roll back to the previous production deployment
-        id: rollback
-        if: ${{ steps.watch.outputs.verdict == 'sustained_failure' && needs.deploy.result == 'success' && needs.deploy.outputs.deployment_attempted == 'true' }}
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
-          BAD_SHA: ${{ github.sha }}
-        run: |
-          set -uo pipefail
-          if [ -z "${VERCEL_TOKEN:-}" ]; then
-            echo "::error::VERCEL_TOKEN unset: cannot roll back automatically (run docs/RUNBOOK.md rollback)"
-            echo "result=no_token" >>"$GITHUB_OUTPUT"; exit 0
-          fi
-          [ -f .vercel/project.json ] || npx vercel link --yes --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
-          if ! npx vercel rollback --yes --token "$VERCEL_TOKEN"; then
-            echo "result=rollback_command_failed" >>"$GITHUB_OUTPUT"; exit 0
-          fi
-          for i in $(seq 1 20); do
-            V=$(curl -sf "$PRODUCTION_URL/api/version" | jq -r '.commit // empty' || true)
-            H=$(curl -sf "$PRODUCTION_URL/api/booking-health" | jq -r '.ok // empty' || true)
-            echo "rollback verify $i: commit=${V:0:7} health=$H"
-            if [ -n "$V" ] && [ "$V" != "$BAD_SHA" ] && [ "$H" = "true" ]; then
-              echo "result=rolled_back" >>"$GITHUB_OUTPUT"; echo "now_serving=${V:0:7}" >>"$GITHUB_OUTPUT"; exit 0
-            fi
-            sleep 15
-          done
-          echo "result=rollback_unverified" >>"$GITHUB_OUTPUT"
-
       - name: Open incident issue
-        if: ${{ steps.watch.outputs.verdict == 'sustained_failure' }}
+        if: ${{ steps.watch.outputs.verdict == 'sustained_failure' || steps.watch.outputs.verdict == 'identity_unverified' || steps.watch.outputs.verdict == 'superseded' }}
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           FAILED: ${{ steps.watch.outputs.failed }}
-          ROLLBACK: ${{ steps.rollback.outputs.result }}
-          NOW_SERVING: ${{ steps.rollback.outputs.now_serving }}
+          VERDICT: ${{ steps.watch.outputs.verdict }}
         run: |
           set -euo pipefail
-          TITLE="Incident: production runtime health failed after deploy ${SHA:0:7}"
+          TITLE="Incident: production deployment requires review after ${SHA:0:7}"
           cat >body.md <<MD
-          Post-deploy watch saw sustained runtime failures after deploying \`${SHA}\`.
+          Post-deploy watch reported \`${VERDICT}\` for expected commit \`${SHA}\`.
 
           - failing probes (name:HTTP status): \`${FAILED}\`
-          - automatic rollback result: \`${ROLLBACK:-not_attempted}\` (now serving: \`${NOW_SERVING:-unknown}\`)
+          - automatic rollback: not attempted because deployment identity cannot be fenced
           - run: ${RUN_URL}
 
-          Per RULEBOOK D8 stop further releases to production until this is fixed. If the rollback result is not
-          \`rolled_back\`, run the rollback in docs/RUNBOOK.md now. Database migrations are additive and are not reverted.
+          Per RULEBOOK D7/D8 stop further releases. Immediately follow the identity-aware manual response in
+          docs/plans/2026-11-deploy-before-postdeploy.md; do not assume a timed-out rollback failed. Database migrations are not reverted.
 
           **After a rollback Vercel stops auto-assigning the production domain.** Pushes to main will NOT go live until a
           deployment is promoted manually. Once the fix is merged and its deployment is READY, promote it:
@@ -532,7 +523,7 @@ jobs:
           then confirm \`/api/version\` shows the fixed SHA. See docs/RUNBOOK.md "Post-deploy watch".
           Migration drift (Verify Production) is a separate issue and is not part of this watch.
           MD
-          EXISTING=$(gh issue list --state open --search "Incident: production runtime health failed in:title" --json number --jq '.[0].number // empty')
+          EXISTING=$(gh issue list --state open --search "Incident: production deployment requires review in:title" --json number --jq '.[0].number // empty')
           if [ -n "$EXISTING" ]; then
             gh issue comment "$EXISTING" --body-file body.md
           else
@@ -542,7 +533,13 @@ jobs:
       - name: Fail the run after a sustained failure
         if: ${{ steps.watch.outputs.verdict == 'sustained_failure' }}
         run: |
-          echo "::error::Sustained runtime failure after deploy; rollback result: ${{ steps.rollback.outputs.result }}"
+          echo "::error::Sustained runtime failure; immediate identity-aware manual response required"
+          exit 1
+
+      - name: Fail the run if deployment identity is unknown or superseded
+        if: ${{ steps.watch.outputs.verdict == 'identity_unverified' || steps.watch.outputs.verdict == 'superseded' }}
+        run: |
+          echo "::error::Production deployment identity is unknown or superseded; operator review required"
           exit 1
 
       - name: Fail the run if the watch itself errored
