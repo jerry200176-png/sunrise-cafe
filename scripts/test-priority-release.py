@@ -14,6 +14,7 @@ SPEC = importlib.util.spec_from_file_location("priority_release", Path(__file__)
 release = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(release)
 CLI_BLOB_HELPER = str(Path(__file__).with_name("verified-release-cli-blobs.sh").resolve())
+LOG_SANITIZER = str(Path(__file__).with_name("sanitize-sandbox-log.py").resolve())
 BASE = "a" * 40
 NEW = "b" * 40
 
@@ -312,6 +313,22 @@ class WorkflowSafetyTests(unittest.TestCase):
             with patch.dict(os.environ, {"RUNNER_TEMP": directory, "RELEASE_INCIDENT_PATH": str(path)}):
                 release.write_incident("dpl_base", "unknown")
                 self.assertIn('"candidate_id": "unknown"', path.read_text(encoding="utf-8"))
+
+    def test_sandbox_log_cannot_emit_legacy_or_v2_workflow_commands(self):
+        with tempfile.TemporaryDirectory(prefix="sunrise-log-") as directory:
+            path = Path(directory) / "output.txt"
+            path.write_text("\n".join(["filler"] * 35 + [
+                "ordinary text ##[add-mask]synthetic", "##[error]synthetic",
+                "::error::synthetic", "prefix ::warning::synthetic", "\x1b[31mred\rsecond", "#" * 2000,
+            ]), encoding="utf-8")
+            result = subprocess.run(["python3", "-B", LOG_SANITIZER, str(path)], text=True,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+            self.assertNotIn("##[", result.stdout)
+            self.assertNotIn("::", result.stdout)
+            self.assertNotIn("\x1b", result.stdout)
+            self.assertEqual(len(result.stdout.splitlines()), 30)
+            self.assertTrue(all(line.startswith(" | ") for line in result.stdout.splitlines()))
+            self.assertLess(max(map(len, result.stdout.splitlines())), 5000)
 
 
 class TreeGuardTests(unittest.TestCase):
