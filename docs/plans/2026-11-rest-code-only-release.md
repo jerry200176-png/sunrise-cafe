@@ -3,8 +3,8 @@
 The current migration-first workflow can replay historical SQL during a code
 release. The proposed REST workflow creates a Vercel deployment from the exact
 Git commit without invoking a migration runner or sending SQL. The product diff
-is limited to unpaid-booking retention, quiet group reminders, and disabling
-cold-start migration probes. Normal application requests, cron handlers,
+includes unpaid-booking retention, quiet group reminders, disabling cold-start
+migration probes, and tightening the existing booking-health endpoint. Normal application requests, cron handlers,
 rate-limiting and telemetry can still write; this is not a claim of zero writes.
 The existing migration-first workflow and both jobs of the new workflow start
 with a hard stop. The Python entrypoint and platform network switches also stop
@@ -28,8 +28,9 @@ before credential access. Nothing here deploys or changes production.
 4. Recheck both remote artifacts and deployment identity, then poll boundedly
    for READY and alias assignment before checking `/api/version` commit, a
    non-empty HTML homepage, and the public `/api/booking-health` result. The
-   latter calls the configured database and `get_blocked_slots` RPC; confirm
-   the actual target and RPC side effects before ever enabling it. The monitor
+   latter requires an active branch and an array result from `get_blocked_slots`;
+   confirm the actual database target and RPC side effects before enabling it.
+   A healthy response does not verify a booking or payment transaction. The monitor
    also polls boundedly for a delayed alias;
    expiry remains unknown because the provider request might still complete.
    Polling passes the remaining deadline to each Vercel/health request; the
