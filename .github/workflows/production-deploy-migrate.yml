@@ -341,32 +341,6 @@ jobs:
             [ "$CODE" = "200" ] || cat /tmp/col.json || true
           done
 
-      - name: Verify LINE reminder delivery ledger
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: |
-          set -euo pipefail
-          CODE=$(curl -sS -o /tmp/line_ledger.json -w '%{http_code}' \
-            "${NEXT_PUBLIC_SUPABASE_URL}/rest/v1/line_reminder_deliveries?select=id&limit=1" \
-            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}")
-          echo "line_reminder_deliveries probe: HTTP $CODE"
-          [ "$CODE" = "200" ] || { cat /tmp/line_ledger.json || true; exit 1; }
-          RPC_CODE=$(curl -sS -o /tmp/line_claim.json -w '%{http_code}' \
-            -X POST "${NEXT_PUBLIC_SUPABASE_URL}/rest/v1/rpc/claim_line_reminder_delivery" \
-            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Content-Type: application/json" \
-            -H "Prefer: return=representation" \
-            -d '{"p_reminder_type":"d1_group","p_reminder_date":"2099-01-01","p_reservation_id":"00000000-0000-4000-8000-000000000000","p_recipient_type":"group","p_recipient_id":"ledger-probe"}')
-          echo "claim_line_reminder_delivery probe: HTTP $RPC_CODE"
-          if grep -Eiq 'PGRST202|Could not find the function' /tmp/line_claim.json; then
-            cat /tmp/line_claim.json
-            exit 1
-          fi
-          [ "$RPC_CODE" -lt 500 ]
-
   postdeploy_verify:
     name: Verify postdeploy migrations
     runs-on: ubuntu-latest

@@ -452,9 +452,7 @@ export default function ExecutiveDashboardPage() {
               </p>
               {!data.funnel.ops_events_ready ? (
                 <p className="rounded-xl border border-amber-200 bg-amber-50/50 px-4 py-3 text-sm text-amber-800">
-                  ops_events 表未就緒 — 執行{" "}
-                  <code className="rounded bg-amber-100 px-1">migration-ops-events.sql</code>{" "}
-                  或 POST <code className="rounded bg-amber-100 px-1">/api/admin/migrations/apply-ops-events</code>
+                  無法確認 ops_events 是否就緒，請管理人員核對資料庫與遷移記錄。
                 </p>
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

@@ -92,7 +92,7 @@ export async function GET(request: NextRequest) {
     rate_limit_mode: rateLimitMode,
     rate_limit_grade:
       rateLimitMode === "upstash"
-        ? "distributed"
+        ? "configured_unverified"
         : rateLimitMode === "memory"
           ? "degraded_per_isolate"
           : "disabled",

@@ -10,12 +10,13 @@ function isUpstashConfigured() {
 
 /**
  * Production must never silently fail-open.
- * - Upstash configured → distributed limiter (A-grade evidence for rate-limit P0)
- * - Else → in-memory sliding window (**degraded**; per-isolate only — NOT A−/A alone)
+ * - Any Upstash setting present → shared limiter mode (configuration is not a connectivity check)
+ * - Neither setting present → in-memory sliding window (**degraded**; per-isolate only)
  * - Explicit RATE_LIMIT_DISABLED=1 → disabled (local/tests only; blocked in production)
  */
 export function getRateLimitMode(): RateLimitMode {
-  if (isUpstashConfigured()) return "upstash";
+  // A partially configured provider is unavailable, not a choice of local limiting.
+  if (process.env.UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_REST_TOKEN) return "upstash";
   const prod =
     process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production";
   if (process.env.RATE_LIMIT_DISABLED === "1" && !prod) return "disabled";
@@ -33,14 +34,43 @@ const WINDOW: Record<string, WindowSpec> = {
 };
 
 export type LimiterKey = keyof typeof WINDOW;
+export type RateLimitResult = {
+  success: boolean;
+  limit: number;
+  remaining: number;
+  reset: number;
+  mode: RateLimitMode;
+  /** The shared limiter could not decide; this is not a quota rejection. */
+  unavailable?: true;
+};
+
+const unavailableLogTimes = new Map<LimiterKey, number>();
+
+function unavailable(key: LimiterKey): RateLimitResult {
+  const now = Date.now();
+  const last = unavailableLogTimes.get(key);
+  if (last === undefined || now - last >= 60_000) {
+    unavailableLogTimes.set(key, now);
+    // Bounded per-isolate signal: no request identifier, path or provider error.
+    try { console.warn(JSON.stringify({ event: "rate_limiter_unavailable", limiter: key })); } catch { /* keep the 503 response */ }
+  }
+  return { success: false, limit: 0, remaining: 0, reset: Date.now() + 5000, mode: "upstash", unavailable: true };
+}
 
 function makeUpstash(requests: number, window: `${number} ${"s" | "m" | "h"}`) {
   if (!isUpstashConfigured()) return null;
-  return new Ratelimit({
-    redis: Redis.fromEnv(),
-    limiter: Ratelimit.slidingWindow(requests, window),
-    analytics: true,
-  });
+  try {
+    return new Ratelimit({
+      redis: Redis.fromEnv(),
+      limiter: Ratelimit.slidingWindow(requests, window),
+      // Preserve the SDK default prefix and legacy shared bucket during rollout.
+      // Separating categories requires a separately designed transition.
+      analytics: true,
+    });
+  } catch {
+    // Defer a configuration/constructor failure to the unavailable response.
+    return null;
+  }
 }
 
 const upstashLimiters = {
@@ -123,26 +153,35 @@ export function guestRateLimitId(ip: string, phone?: string | null): string {
 export async function rateLimit(
   identifier: string,
   key: LimiterKey
-): Promise<{ success: boolean; limit: number; remaining: number; reset: number; mode: RateLimitMode }> {
+): Promise<RateLimitResult> {
   const mode = getRateLimitMode();
   if (mode === "disabled") {
     return { success: true, limit: 0, remaining: 0, reset: 0, mode };
   }
   if (mode === "upstash") {
+    if (!isUpstashConfigured()) return unavailable(key);
     const limiter = upstashLimiters[key as keyof typeof upstashLimiters];
     if (!limiter) {
-      // Misconfigured mid-flight — fall back to memory rather than open
-      const mem = memoryLimit(identifier, key);
-      return { ...mem, mode: "memory" };
+      // A configured shared limiter cannot be replaced with a per-isolate one.
+      return unavailable(key);
     }
-    const result = await limiter.limit(identifier);
-    return {
-      success: result.success,
-      limit: result.limit,
-      remaining: result.remaining,
-      reset: result.reset,
-      mode,
-    };
+    try {
+      const result = await limiter.limit(identifier);
+      // Upstash reports success=true on its default timeout. That is not a decision.
+      if (result.reason === "timeout") return unavailable(key);
+      if (typeof result.success !== "boolean" || !Number.isFinite(result.limit) ||
+          !Number.isFinite(result.remaining) || !Number.isFinite(result.reset)) return unavailable(key);
+      return {
+        success: result.success,
+        limit: result.limit,
+        remaining: result.remaining,
+        reset: result.reset,
+        mode,
+      };
+    } catch {
+      // Do not expose provider errors, which may contain sensitive information.
+      return unavailable(key);
+    }
   }
   const mem = memoryLimit(identifier, key);
   return { ...mem, mode };

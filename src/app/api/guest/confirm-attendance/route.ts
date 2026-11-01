@@ -4,6 +4,7 @@ import { isAdminConfigured } from "@/lib/supabase-admin";
 import { verifyAttendanceToken } from "@/lib/attendance-token";
 import { signLookupToken } from "@/lib/lookup-token";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
+import { rateLimitResponse } from "@/lib/rate-limit-response";
 import {
   sendLineFlex,
   sendLineFlexToGroup,
@@ -155,8 +156,8 @@ export async function GET(request: NextRequest) {
   if (!isAdminConfigured()) {
     return NextResponse.json({ error: "後端未設定" }, { status: 503 });
   }
-  const { success } = await rateLimit(getClientIp(request), "guestLookup");
-  if (!success) return NextResponse.json({ error: "Too Many Requests" }, { status: 429 });
+  const limited = rateLimitResponse(await rateLimit(getClientIp(request), "guestLookup"));
+  if (limited) return limited;
 
   const token = request.nextUrl.searchParams.get("token")?.trim() ?? "";
   const id = verifyAttendanceToken(token);
@@ -177,8 +178,8 @@ export async function POST(request: NextRequest) {
   if (!isAdminConfigured()) {
     return NextResponse.json({ error: "後端未設定" }, { status: 503 });
   }
-  const { success } = await rateLimit(getClientIp(request), "guestLookup");
-  if (!success) return NextResponse.json({ error: "Too Many Requests" }, { status: 429 });
+  const limited = rateLimitResponse(await rateLimit(getClientIp(request), "guestLookup"));
+  if (limited) return limited;
 
   let token = "";
   try {
