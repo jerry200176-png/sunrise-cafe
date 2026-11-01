@@ -11,6 +11,7 @@ import { selectionProblem } from "@/lib/option-sets";
 import { getDurationOptions, getDepositAmount, isWeekendDate } from "@/lib/booking-utils";
 import { normalizePhone } from "@/lib/phone-utils";
 import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
+import { readBookingSubmitGuards, writeBookingSubmitGuards } from "@/lib/booking-submit-guard";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { CustomerShell } from "@/components/customer/CustomerShell";
 import { BookingStepProgress } from "@/components/customer/BookingStepProgress";
@@ -80,7 +81,8 @@ export default function BookPage() {
   const [mealFeatureEnabled, setMealFeatureEnabled] = useState(false);
   const [mealItems, setMealItems] = useState<DraftItemInput[]>([]);
   const [mealNotes, setMealNotes] = useState("");
-  const bookingRequestKey = useRef<string | null>(null);
+  const bookingRequestKey = useRef<{ selection: string; key: string } | null>(null);
+  const submittingRef = useRef(false);
   const [roomId, setRoomId] = useState("");
   const [previewRoomId, setPreviewRoomId] = useState<string | null>(null);
   const [date, setDate] = useState("");
@@ -119,10 +121,22 @@ export default function BookPage() {
   const [catalogRetry, setCatalogRetry] = useState(0);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  /** Booking (room|start|duration) whose submit ended without a readable response — it may or may not exist. */
-  const [uncertainSubmitKey, setUncertainSubmitKey] = useState<string | null>(null);
-  const currentSubmitKey = `${roomId}|${selectedStart}|${duration}`;
-  const submitUncertain = uncertainSubmitKey === currentSubmitKey;
+  /** Keep every potentially submitted selection locked for this browser tab. */
+  const uncertainSubmitKeysRef = useRef<Set<string>>(new Set());
+  const [uncertainSubmitKeys, setUncertainSubmitKeys] = useState<Set<string>>(() => new Set());
+  const [submitGuardReady, setSubmitGuardReady] = useState(false);
+  const [submitGuardUnavailable, setSubmitGuardUnavailable] = useState(false);
+  const currentSubmitKey = JSON.stringify([branchId, roomId, selectedStart, duration]);
+  const activeSubmitKeyRef = useRef(currentSubmitKey);
+  activeSubmitKeyRef.current = currentSubmitKey;
+  const activeStepRef = useRef(step);
+  activeStepRef.current = step;
+  const mountedRef = useRef(true);
+  const submitUncertain = uncertainSubmitKeys.has(currentSubmitKey);
+  const hasOtherUncertainSubmit = uncertainSubmitKeys.size > 0 && !submitUncertain;
+  const branchPhone = branches.find((branch) => branch.id === branchId)?.phone?.trim() ?? "";
+  const telephone = branchPhone.replace(/[^+\d]/g, "");
+  const contactHref = /^[+()\d\s.-]+$/.test(branchPhone) && /^\+?\d{5,15}$/.test(telephone) ? `tel:${telephone}` : null;
   const errorBannerRef = useRef<HTMLDivElement>(null);
   const stepPanelRef = useRef<HTMLDivElement>(null);
 
@@ -161,6 +175,31 @@ export default function BookPage() {
   const clearFormErrors = useCallback(() => {
     setError(null);
     setFieldErrors({});
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  useEffect(() => {
+    const syncGuards = () => {
+      try {
+        const previous = readBookingSubmitGuards(sessionStorage);
+        uncertainSubmitKeysRef.current = previous;
+        setUncertainSubmitKeys(new Set(previous));
+      } catch {
+        // Without tab-local storage we cannot reliably recover an unanswered submit.
+        setSubmitGuardUnavailable(true);
+      } finally {
+        setSubmitGuardReady(true);
+      }
+    };
+    // Same-tab storage writes do not emit a native storage event. An older,
+    // unmounted page can still receive a definite rejection after we return.
+    window.addEventListener("booking-submit-guards-changed", syncGuards);
+    syncGuards();
+    return () => window.removeEventListener("booking-submit-guards-changed", syncGuards);
   }, []);
 
   // 手機重整／返回後恢復未完成訂位草稿（6 小時內）
@@ -503,6 +542,16 @@ export default function BookPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // React state updates are asynchronous; the ref also protects Enter and rapid re-entry.
+    if (submittingRef.current) return;
+    if (!submitGuardReady || submitGuardUnavailable) {
+      setError(t("book.error.submitGuardUnavailable"));
+      return;
+    }
+    if (uncertainSubmitKeysRef.current.has(currentSubmitKey)) {
+      setError(t("book.error.submitUncertain"));
+      return;
+    }
     if (!selectedStart) return;
     const mealProblem = selectionProblem(mealCatalog, mealItems);
     if (mealProblem) { setError(mealProblem); return; }
@@ -529,12 +578,10 @@ export default function BookPage() {
 
     const start = new Date(selectedStart);
     const end = new Date(start.getTime() + duration * 60 * 60 * 1000);
-    setSubmitting(true);
     clearFormErrors();
 
     if (getTotalPrice() === null) {
       setError(t("book.room.priceUnavailable"));
-      setSubmitting(false);
       return;
     }
 
@@ -545,7 +592,6 @@ export default function BookPage() {
         setFieldErrors({ "booking-guest-count": t("book.room.partyInvalid") });
         setError(t("book.room.partyInvalid"));
         scrollToField("booking-guest-count");
-        setSubmitting(false);
         return;
       }
       const rm = rooms.find((r) => r.id === roomId && r.branch_id === branchId) ?? roomCatalog.find((r) => r.id === roomId && r.branch_id === branchId);
@@ -554,58 +600,128 @@ export default function BookPage() {
           setFieldErrors({ "booking-guest-count": t("book.error.minCapacity", { min: rm.min_capacity }) });
           setError(t("book.error.minCapacity", { min: rm.min_capacity }));
           scrollToField("booking-guest-count");
-          setSubmitting(false);
           return;
         }
         if (gC > rm.capacity) {
           setFieldErrors({ "booking-guest-count": t("book.error.maxCapacity", { max: rm.capacity }) });
           setError(t("book.error.maxCapacity", { max: rm.capacity }));
           scrollToField("booking-guest-count");
-          setSubmitting(false);
           return;
         }
       }
     }
 
+    // Prepare the request before recording it: a local serialization/UUID error
+    // cannot have created a booking and should not create an unknown-result lock.
+    let requestBody: string;
+    try {
+      if (bookingRequestKey.current?.selection !== currentSubmitKey) {
+        bookingRequestKey.current = { selection: currentSubmitKey, key: crypto.randomUUID() };
+      }
+      requestBody = JSON.stringify({
+        room_id: roomId,
+        customer_name: name.trim(),
+        phone: phone.trim(),
+        email: email.trim() || null,
+        start_time: start.toISOString(),
+        end_time: end.toISOString(),
+        total_price: getTotalPrice(),
+        guest_count: guestCount === "" ? null : Number(guestCount),
+        notes: null,
+        line_user_id: lineUserId || null,
+        meal_items: mealItems,
+        meal_notes: mealNotes.trim() || null,
+        booking_request_key: bookingRequestKey.current.key,
+      });
+    } catch {
+      setError(t("book.error.bookingFailed"));
+      return;
+    }
+
+    // Record before dispatch so a refresh, LINE redirect or navigation during
+    // the in-flight request does not silently erase the tab-local guard.
+    let pending: Set<string>;
+    try {
+      // Another mounted/unmounted instance in this tab may have settled while
+      // this one was open. Read the current guard before every change.
+      pending = readBookingSubmitGuards(sessionStorage);
+      if (pending.has(currentSubmitKey)) {
+        uncertainSubmitKeysRef.current = pending;
+        setUncertainSubmitKeys(new Set(pending));
+        setError(t("book.error.submitUncertain"));
+        return;
+      }
+      pending.add(currentSubmitKey);
+      writeBookingSubmitGuards(sessionStorage, pending);
+    } catch {
+      setSubmitGuardUnavailable(true);
+      setError(t("book.error.submitGuardUnavailable"));
+      return;
+    }
+    uncertainSubmitKeysRef.current = pending;
+    setUncertainSubmitKeys(new Set(pending));
+    submittingRef.current = true;
+    setSubmitting(true);
+    let completed = false;
+    const isActiveSubmission = () => mountedRef.current && activeStepRef.current === "form" && activeSubmitKeyRef.current === currentSubmitKey;
+    const clearRejectedGuard = () => {
+      try {
+        // Preserve selections added by a newer page instance while this request
+        // was still in flight; stale snapshots must not unlock those requests.
+        const next = readBookingSubmitGuards(sessionStorage);
+        next.delete(currentSubmitKey);
+        writeBookingSubmitGuards(sessionStorage, next);
+        window.dispatchEvent(new Event("booking-submit-guards-changed"));
+        uncertainSubmitKeysRef.current = next;
+        setUncertainSubmitKeys(new Set(next));
+      } catch {
+        // Keep the prior guard in memory/storage; do not silently unlock.
+        setSubmitGuardUnavailable(true);
+      }
+    };
+    const markUncertain = () => {
+      if (isActiveSubmission()) {
+        setError(t("book.error.submitUncertain"));
+        requestAnimationFrame(() => errorBannerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }));
+      }
+    };
     try {
       const res = await fetchWithTimeout("/api/reservations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          room_id: roomId,
-          customer_name: name.trim(),
-          phone: phone.trim(),
-          email: email.trim() || null,
-          start_time: start.toISOString(),
-          end_time: end.toISOString(),
-          total_price: getTotalPrice(),
-          guest_count: guestCount === "" ? null : Number(guestCount),
-          notes: null,
-          line_user_id: lineUserId || null,
-          meal_items: mealItems,
-          meal_notes: mealNotes.trim() || null,
-          booking_request_key: bookingRequestKey.current ??= crypto.randomUUID(),
-        }),
+        body: requestBody,
       }, 20000);
       const data = await res.json();
-      setSubmitting(false);
       if (res.status === 409) {
-        // Without meals the server has no idempotent replay: a retry after an
-        // unanswered submit can collide with the guest's own booking.
-        setError(submitUncertain ? t("book.error.slotTakenAfterUncertain") : (data as { error?: string })?.error ?? t("book.error.slotTaken"));
-        errorBannerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+        clearRejectedGuard();
+        if (isActiveSubmission()) {
+          setError((data as { error?: string })?.error ?? t("book.error.slotTaken"));
+          errorBannerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+        }
+        return;
+      }
+      // An upstream/server failure can occur after the reservation was written.
+      if (res.status === 408 || res.status >= 500) {
+        markUncertain();
         return;
       }
       if (!res.ok) {
-        setError((data as { error?: string })?.error ?? t("book.error.bookingFailed"));
-        errorBannerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+        clearRejectedGuard();
+        if (isActiveSubmission()) {
+          setError((data as { error?: string })?.error ?? t("book.error.bookingFailed"));
+          errorBannerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+        }
         return;
       }
-      const code = (data as { booking_code?: string; id?: string; lookup_token?: string })?.booking_code;
+      const rawCode = (data as { booking_code?: unknown; id?: string; lookup_token?: string })?.booking_code;
+      const code = typeof rawCode === "string" && rawCode.trim() ? rawCode : null;
       const reservationId = (data as { id?: string })?.id;
       const lookupToken = (data as { lookup_token?: string })?.lookup_token;
 
       if (code) {
+        // A late success for an abandoned selection must not overwrite a newer
+        // draft or navigate the customer away; the tab guard directs them to query.
+        if (!isActiveSubmission()) return;
         sessionStorage.setItem("booking_success_phone", phone.trim());
         clearBookingDraft();
         const endIso =
@@ -644,6 +760,7 @@ export default function BookPage() {
           reservationId &&
           !paymentModalTriggered.current
         ) {
+          completed = true;
           paymentModalTriggered.current = true;
           setPendingReservationId(reservationId);
           setPendingReservationCode(code);
@@ -654,15 +771,19 @@ export default function BookPage() {
         const weekendFlag = isWeekendDate(date) ? "1" : "0";
         const tokenParam = lookupToken ? `&token=${encodeURIComponent(lookupToken)}` : "";
         window.location.href = `/book/success?code=${encodeURIComponent(code)}&weekend=${weekendFlag}${lineUserId ? "&line_bound=1" : ""}${tokenParam}`;
+        completed = true;
       } else {
-        setError(t("book.error.noBookingCode"));
+        // The server may have inserted the reservation despite an incomplete response.
+        markUncertain();
       }
     } catch {
       // Timeout, dropped connection or unreadable body: the request may still have been saved.
-      setSubmitting(false);
-      setUncertainSubmitKey(currentSubmitKey);
-      setError(t("book.error.submitUncertain"));
-      requestAnimationFrame(() => errorBannerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }));
+      markUncertain();
+    } finally {
+      if (!completed) {
+        submittingRef.current = false;
+        setSubmitting(false);
+      }
     }
   };
 
@@ -753,18 +874,27 @@ export default function BookPage() {
         aria-label={`${t("book.headerTitle")} — ${t(`book.steps.${step}` as "book.steps.branch")}`}
         className={`outline-none ${step === "form" || step === "slot" ? "pb-sticky-form" : ""}`}
       >
-        {error && (
+        {(error || (step === "form" && (submitGuardUnavailable || (submitUncertain && !submitting)))) && (
           <div
             ref={errorBannerRef}
             role="alert"
             className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
           >
-            {error}
-            {submitUncertain && step === "form" && (
+            {step === "form" && submitGuardUnavailable ? t("book.error.submitGuardUnavailable") : submitUncertain && step === "form" && !submitting ? t("book.error.submitUncertain") : error}
+            {(submitGuardUnavailable || (submitUncertain && !submitting)) && step === "form" && (
+              <>
               <Link href="/book/query" className="mt-2 block font-medium text-red-900 underline underline-offset-2">
                 {t("book.error.goToQuery")}
               </Link>
+              {contactHref && <a href={contactHref} className="mt-2 block font-medium text-red-900 underline underline-offset-2">{t("book.error.callStore", { phone: branchPhone })}</a>}
+              </>
             )}
+          </div>
+        )}
+        {hasOtherUncertainSubmit && !submitGuardUnavailable && step === "form" && (
+          <div role="status" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            {t("book.error.otherSubmitUncertain")}
+            <Link href="/book/query" className="mt-2 block font-medium underline underline-offset-2">{t("book.error.goToQuery")}</Link>
           </div>
         )}
 
@@ -1476,7 +1606,7 @@ export default function BookPage() {
           <button
             type="submit"
             form="booking-form"
-            disabled={submitting || getTotalPrice() === null}
+            disabled={submitting || !submitGuardReady || submitGuardUnavailable || submitUncertain || getTotalPrice() === null}
             className="w-full rounded-lg bg-amber-600 py-3.5 text-base font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
           >
             {submitting ? t("book.form.submitting") : t("book.form.submit")}
