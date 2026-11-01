@@ -30,3 +30,15 @@
 `scripts/experiments/test-synthetic-line-claim-batch.sh` 只在 `--network none` 的臨時 PostgreSQL 17 容器建立合成表與函式；不讀正式服務、資料或憑證。原型在同一 transaction 依固定排序取得整批 claim，回傳每個 claim 的隨機 token 及遞增 generation；確認尚未呼叫 provider 時，僅以 key + token + generation + sending 狀態條件釋放。未知的 sending 與歷史 failed 不自動重領。
 
 合成實測涵蓋：第二項衝突使第一項 INSERT 回滾；兩個 worker 同時要求相同 guest/group 集合時只有一個得到整批；重新認領後舊 token/generation 不能釋放新 owner；sending 和歷史 failed 不能由原型自動重領。這**沒有**證明不同集合的競爭安全：例如舊 worker 分別只 claim guest 或 group，兩者仍可同時成功。因此正式方案仍需阻擋／隔離舊 worker、驗證呼叫者要求的集合完整、把訂位狀態轉換與 claim 的競態納入設計，並單獨測試 provider 接收後 timeout、lost claim response、跨 instance cache 和 migration 回滾。這些前提未成立前不得部署或將概念證據當作不重複發送的保證。
+
+### 撤權、原子釋出與 timeout 的第二個合成實驗
+
+`scripts/experiments/test-synthetic-line-cutover.sh` 建立臨時 PostgreSQL 17／無網路、測試專用 owner、舊角色、新角色及假 provider（資料列），沒有正式 migration 或帳號。其簡化的 release 函式鎖合成訂位，在同一 transaction 根據資料庫內的 guest/group 建立整組 claim 並將訂位標為取消；同一訂位的兩個競爭 worker 只有一個得到整組。此實驗不包含實際 reservation lifecycle、副作用觸發器、分店帳號解析或真實 LINE API。
+
+合成角色撤權後，舊角色不能再執行舊函式、直接寫 ledger 或讀 token；新角色只能呼叫指定函式。不過對照實驗中，**舊 transaction 已經執行 claim 且尚未提交時，撤權成功，舊 transaction 仍隨後提交**。因此 production cutover 須先關閉所有觸發與重試入口、阻止舊程式重新進入、追蹤並排空在途 transaction 和 provider call，再驗證每個實際資料庫角色、成員資格、連線與其他寫入者；角色撤權不是排空證據。實驗不能證明 Supabase service_role、管理員、排程或其他客戶端具有相同權限邊界。
+
+第二個實驗將 `claimed → attempted` 的 owner/token/generation CAS 提交於 fake provider 呼叫之前；相同 CAS 不會再次成功。假 provider 已記錄接受、回應遺失時，客戶端不再呼叫 provider，也不能釋放整批；若 `attempted` 提交後回應遺失，客戶端同樣不呼叫 provider。可確認接受時的標記可憑同一 owner/generation 重複完成；錯誤 owner 被拒絕。全組在任何 provider 呼叫前的已知成功 claim 可條件釋放，但合成訂位仍維持取消，後續人工處置，不自動重新開放或重送。這只證明樣本流程在刻意遵守協議下的行為，不能證明真實 provider 身分、HTTP acceptance、payload、訊息重試或完整應用程式全都遵守。
+
+正式執行包在準備與獨立審核之前，仍需：完整列舉並隔離所有 LINE sender 和舊 writer；盤點 Supabase 身分／role grant、transaction 與部署時序；定義正式 reservation lifecycle 的鎖順序與補償；以測試帳號和可控制的模擬 provider 核對逾時、回應遺失、取消、並發與 rollback；確認歷史 failed、未知結果只能經人工對帳。所有 migration 須另做 additive gate、備份還原、跨版本相容及可回退審核。以上尚未完成，本 PR 與 #525 均維持不可部署。
+
+合成協調器另測試成功接受與重複完成標記，以及 `begin_send` 對整批條件釋放的 10 次競爭。釋放前必須先鎖住全部 claim 再檢查，否則在檢查及 UPDATE 間可能有單筆進入 attempted、造成部分釋放。此處的假 provider 只有可控的記錄與遺失回應，並未使用網路、真實 LINE 身分或真實應用程序。一次執行曾因臨時資料庫提前停止而中斷，後續完整重跑通過；不能據此推斷正式環境穩定性。
