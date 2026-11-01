@@ -14,6 +14,9 @@ const scenarios = [
   ["malformed error", { status: 400, body: 'bad response' }, /unknown/],
   ["malformed success", { status: 200, body: 'bad response' }, /unknown/],
   ["non-array success", { status: 200, body: '{}' }, /unknown/],
+  ["success with null row", { status: 200, body: '[null]' }, /unknown/],
+  ["success with malformed row", { status: 200, body: '[1]' }, /unknown/],
+  ["success with missing fields", { status: 200, body: '[{}]' }, /unknown/],
   ["stale/missing table", { status: 404, body: '{"code":"PGRST205"}' }, /missing or stale/],
   ["stale/missing column", { status: 400, body: '{"code":"PGRST204"}' }, /missing or stale/],
   ["undefined column", { status: 400, body: '{"code":"42703"}' }, /missing or stale/],
@@ -21,7 +24,7 @@ const scenarios = [
 ];
 
 function run(runner, scenario, credentials = true) {
-  return spawnSync(process.execPath, ["--import", resolve("scripts/test-fixtures/mock-rest-preload.mjs"), resolve(`scripts/apply-migration-${runner}.mjs`)], {
+  return spawnSync(process.execPath, ["--no-warnings", "--experimental-loader", resolve("scripts/test-fixtures/deny-db-loader.mjs"), "--import", resolve("scripts/test-fixtures/mock-rest-preload.mjs"), resolve(`scripts/apply-migration-${runner}.mjs`)], {
     env: {
       SYNTHETIC_SCENARIO: JSON.stringify(scenario),
       NEXT_PUBLIC_SUPABASE_URL: "http://invalid.example",
@@ -33,22 +36,44 @@ function run(runner, scenario, credentials = true) {
   });
 }
 
+test("database guard reports imports even if the caller catches the error", () => {
+  const result = spawnSync(process.execPath, ["--no-warnings", "--experimental-loader", resolve("scripts/test-fixtures/deny-db-loader.mjs"), "--input-type=module", "-e", 'import("postgres").catch(() => {})'], { encoding: "utf8", timeout: 5000, env: {} });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /UNEXPECTED_DB_IMPORT/);
+});
+
 for (const runner of runners) {
   test(`${runner}: successful probes`, () => {
     const result = run(runner, { default: ready });
     assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stderr, /UNEXPECTED_DB_IMPORT/);
+  });
+  test(`${runner}: nonempty rows contain selected fields`, () => {
+    const responses = runner === "line-pay-safety" ? [
+      { match: "line_pay_payments", status: 200, body: '[{"id":1,"confirm_attempt_id":null}]' },
+      { match: "line_pay_notification_outbox", status: 200, body: '[{"id":1,"status":"pending"}]' },
+    ] : [
+      { match: "guest_confirmed_at", status: 200, body: '[{"guest_confirmed_at":null}]' },
+      { match: "deposit_urgent_reminder_sent_at", status: 200, body: '[{"deposit_urgent_reminder_sent_at":null}]' },
+      { match: "staff_called_at", status: 200, body: '[{"staff_called_at":null}]' },
+      { match: "staff_alerted_at", status: 200, body: '[{"staff_alerted_at":null}]' },
+    ];
+    const result = run(runner, { default: ready, responses });
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stderr, /UNEXPECTED_DB_IMPORT/);
   });
   test(`${runner}: missing credentials fail`, () => {
     const result = run(runner, { default: ready }, false);
     assert.equal(result.status, 1);
     assert.match(result.stderr, /unknown/);
+    assert.doesNotMatch(result.stderr, /UNEXPECTED_DB_IMPORT/);
   });
   for (const [name, response, expected] of scenarios) {
     test(`${runner}: ${name} stops without DDL`, () => {
       const result = run(runner, { default: response });
       assert.equal(result.status, 1, result.stdout + result.stderr);
       assert.match(result.stderr, expected);
-      assert.doesNotMatch(result.stdout + result.stderr, /Applying|postgres|synthetic-key/);
+      assert.doesNotMatch(result.stdout + result.stderr, /Applying|UNEXPECTED_DB_IMPORT|synthetic-key/);
     });
   }
   test(`${runner}: one failing probe stops even when others are ready`, () => {
@@ -56,6 +81,6 @@ for (const runner of runners) {
     const result = run(runner, { default: ready, responses: [{ match, status: 503, body: '{}' }] });
     assert.equal(result.status, 1, result.stdout + result.stderr);
     assert.match(result.stderr, /unknown/);
-    assert.doesNotMatch(result.stdout + result.stderr, /Applying|postgres|synthetic-key/);
+    assert.doesNotMatch(result.stdout + result.stderr, /Applying|UNEXPECTED_DB_IMPORT|synthetic-key/);
   });
 }

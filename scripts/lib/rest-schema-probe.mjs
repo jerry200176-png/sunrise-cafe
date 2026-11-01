@@ -8,7 +8,11 @@ export async function assertRestSchemaProbe(url, headers, label, fetchImpl = fet
   }
   if (response.status === 200) {
     try {
-      if (Array.isArray(await response.json())) return;
+      const rows = await response.json();
+      const columns = new URL(url).searchParams.get("select")?.split(",") ?? [];
+      if (columns.length && Array.isArray(rows) && rows.every((row) =>
+        row !== null && typeof row === "object" && !Array.isArray(row) &&
+        columns.every((column) => Object.hasOwn(row, column)))) return;
     } catch { /* An invalid or truncated body is not proof of readiness. */ }
     throw new Error(`${label} schema probe unknown: invalid success response`);
   }
