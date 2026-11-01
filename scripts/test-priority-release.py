@@ -28,6 +28,7 @@ class Fake:
         self.baseline_candidate = True
         self.other_writer = False
         self.stage_source_wrong = False
+        self.stage_timeout = False
         self.late_promote = False
         self.late_checks = 0
         self.rollback_timeout = False
@@ -49,6 +50,8 @@ class Fake:
 
     def stage(self, sha):
         self.calls.append("stage")
+        if self.stage_timeout:
+            raise release.ReleaseError("synthetic staging outcome unknown")
         return {"id": "dpl_new", "host": "stage.vercel.app", "meta": {}}
 
     def verify_selected_source(self, identity, files):
@@ -118,6 +121,15 @@ class ReleaseFlowTests(unittest.TestCase):
         with self.assertRaises(release.ReleaseError):
             self.run_flow(fake)
         self.assertFalse(any(call.startswith("promote:") for call in fake.calls))
+        self.assertIn("incident:dpl_base:dpl_new", fake.calls)
+
+    def test_staging_timeout_records_unknown_incident_and_never_promotes(self):
+        fake = Fake()
+        fake.stage_timeout = True
+        with self.assertRaisesRegex(release.ReleaseError, "outcome remains unknown"):
+            self.run_flow(fake)
+        self.assertIn("incident:dpl_base:unknown", fake.calls)
+        self.assertFalse(any(call.startswith("promote:") or call.startswith("rollback:") for call in fake.calls))
 
     def test_failed_live_smoke_rolls_back_exact_baseline(self):
         fake = Fake()
@@ -281,6 +293,13 @@ class WorkflowSafetyTests(unittest.TestCase):
                 self.assertEqual(path.stat().st_mode & 0o777, 0o600)
                 with self.assertRaises(FileExistsError):
                     release.write_incident("dpl_base", "dpl_new")
+
+    def test_unknown_stage_identity_can_be_recorded(self):
+        with tempfile.TemporaryDirectory(prefix="sunrise-incident-") as directory:
+            path = Path(directory) / "incident.json"
+            with patch.dict(os.environ, {"RUNNER_TEMP": directory, "RELEASE_INCIDENT_PATH": str(path)}):
+                release.write_incident("dpl_base", "unknown")
+                self.assertIn('"candidate_id": "unknown"', path.read_text(encoding="utf-8"))
 
 
 class TreeGuardTests(unittest.TestCase):

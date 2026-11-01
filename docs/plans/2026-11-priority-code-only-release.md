@@ -55,9 +55,10 @@ specified rollback to the prior deployment if the alias still points to its own
 candidate, then checks the prior alias/SHA and smoke. A changed alias, failed or
 unknown platform command, failed rollback or unconfirmed health is an incident
 requiring immediate documented operator response; no blind retry is attempted.
-Before investigating a post-promotion error, the adapter writes a restricted
-incident record. The workflow attempts to upload that record and create or update
-a same-repository incident issue on step failure. If promotion or rollback has an
+Before investigating any error after production-target staging has started, the
+adapter writes a restricted incident record, even if no deployment ID is known.
+The workflow attempts to upload that record and create or update a same-repository
+incident issue on step failure. If staging, promotion or rollback has an
 unknown outcome, the adapter observes the alias for a bounded period, attempts
 rollback at most once after observing its own candidate, and reports the outcome
 as unknown even if the baseline is currently healthy. A late platform operation

@@ -288,18 +288,25 @@ def release(provider, base, candidate_sha, source_files, *, record_incident=None
         raise ReleaseError("baseline rollback candidacy is unavailable")
     same_version(provider, HOST, base)
     provider.smoke(HOST)
-    stage = provider.stage(candidate_sha)
-    if stage["id"] == baseline_id:
-        raise ReleaseError("stage reused the baseline deployment")
-    provider.verify_selected_source(stage["id"], source_files)
-    same_version(provider, stage["host"], candidate_sha, stage["id"])
-    provider.smoke(stage["host"])
-    if provider.alias() != baseline_id:
-        raise ReleaseError("production alias changed before promotion")
-    # Repository concurrency serializes cooperating workflows; an external
-    # writer can still race between this observation and the promote call.
+    stage = None
+    stage_id = "unknown"
     promotion_returned = False
     try:
+        # The production-target staging call itself may have unknown cron or
+        # timeout effects; everything after it starts is covered by incident
+        # recording and bounded observation, even before promotion.
+        stage = provider.stage(candidate_sha)
+        stage_id = stage["id"]
+        if stage_id == baseline_id:
+            stage_id = "unknown"
+            raise ReleaseError("stage reused the baseline deployment")
+        provider.verify_selected_source(stage_id, source_files)
+        same_version(provider, stage["host"], candidate_sha, stage_id)
+        provider.smoke(stage["host"])
+        if provider.alias() != baseline_id:
+            raise ReleaseError("production alias changed before promotion")
+        # Repository concurrency serializes cooperating workflows; an external
+        # writer can still race between this observation and the promote call.
         provider.promote(stage["host"])
         promotion_returned = True
         for attempt in range(21):
@@ -331,7 +338,7 @@ def release(provider, base, candidate_sha, source_files, *, record_incident=None
         # still lose it and needs an independently staffed response.
         incident_written = True
         try:
-            record_incident(baseline_id, stage["id"])
+            record_incident(baseline_id, stage_id)
         except Exception:
             incident_written = False
         rollback_attempted = False
@@ -344,14 +351,14 @@ def release(provider, base, candidate_sha, source_files, *, record_incident=None
             baseline_verified = False
             try:
                 current = provider.alias()
-                if current == stage["id"] and not rollback_attempted:
+                if stage_id != "unknown" and current == stage_id and not rollback_attempted:
                     rollback_attempted = True
                     try:
                         provider.rollback(baseline["host"])
                     except Exception:
                         rollback_unknown = True
                     current = provider.alias()
-                if current not in (baseline_id, stage["id"]):
+                if current not in (baseline_id, stage_id):
                     raise ReleaseError("another deployment became current")
                 baseline_last = current == baseline_id
                 if baseline_last and promotion_returned and not rollback_unknown:
@@ -376,7 +383,8 @@ def release(provider, base, candidate_sha, source_files, *, record_incident=None
 
 def write_incident(baseline_id, candidate_id):
     location, runner_temp = os.environ.get("RELEASE_INCIDENT_PATH", ""), os.environ.get("RUNNER_TEMP", "")
-    if (not location or not runner_temp or not ID.fullmatch(baseline_id) or not ID.fullmatch(candidate_id)
+    if (not location or not runner_temp or not ID.fullmatch(baseline_id)
+            or (candidate_id != "unknown" and not ID.fullmatch(candidate_id))
             or Path(location).parent.resolve() != Path(runner_temp).resolve()):
         raise ReleaseError("incident path is invalid")
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)

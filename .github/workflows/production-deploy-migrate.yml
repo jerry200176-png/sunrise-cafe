@@ -650,7 +650,7 @@ jobs:
           [ -s "$INCIDENT_PATH" ] || exit 0
           [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]] || exit 1
           TITLE="Incident: priority release requires immediate investigation ${GITHUB_SHA:0:7}"
-          printf '%s\n' 'Promotion or rollback did not complete cleanly. Investigate the production deployment and the recorded incident artifact immediately; do not blindly retry.' > "$RUNNER_TEMP/sunrise-priority-incident.md"
+          printf '%s\n' 'Staging, promotion, or rollback did not complete cleanly. Investigate the production deployment and the recorded incident artifact immediately; do not blindly retry.' > "$RUNNER_TEMP/sunrise-priority-incident.md"
           EXISTING="$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number // empty')"
           if [ -n "$EXISTING" ]; then
             gh issue comment "$EXISTING" --body-file "$RUNNER_TEMP/sunrise-priority-incident.md"
