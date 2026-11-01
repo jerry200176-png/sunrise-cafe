@@ -1,6 +1,8 @@
 -- REVIEW DRAFT. This restores anon table-level SELECT and therefore re-exposes
 -- internal fields. Use only after target-specific incident, security and policy
 -- review; compare a fresh full ACL snapshot with the pre-change snapshot first.
+-- GRANT/REVOKE and role DDL do not serialize on this table lock: externally
+-- stop and drain all such changes throughout this transaction or do not run.
 BEGIN;
 DO $ack$ BEGIN
   IF current_setting('sunrise.branches_acl_rollback_ack', true) IS DISTINCT FROM 'reviewed-exposure-and-target' THEN
@@ -25,8 +27,8 @@ BEGIN
   SELECT array_agg(attname::text ORDER BY attname::text) INTO actual FROM pg_attribute
     WHERE attrelid='public.branches'::regclass AND attnum>0 AND NOT attisdropped;
   -- Compare the complete, reviewed PG17 table ACL as an unordered set while
-  -- holding the table lock. Any grantor, role, privilege or grant-option drift
-  -- requires a fresh snapshot and review, not a best-effort rollback.
+  -- holding the table lock. That lock does NOT exclude concurrent ACL/role DDL.
+  -- Any drift requires a fresh snapshot and review, not best-effort rollback.
   SELECT array_agg(entry ORDER BY entry COLLATE "C") INTO expected_table_acl
   FROM (
     SELECT format('postgres:%s:%s:false', role_name, privilege_name) AS entry

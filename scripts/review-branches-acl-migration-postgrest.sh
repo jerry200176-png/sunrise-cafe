@@ -48,6 +48,25 @@ CREATE POLICY anon_select ON branches FOR SELECT TO anon USING (true);
 GRANT ALL ON branches TO anon,authenticated,service_role;
 SQL
 docker exec -i "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q < "$root/docs/ops/branches-select-acl-metadata.sql" >/dev/null
+# Establish whether the table lock serializes concurrent table ACL DDL on PG17.
+docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'CREATE ROLE synthetic_concurrent NOLOGIN'
+docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'BEGIN; LOCK TABLE public.branches IN ACCESS EXCLUSIVE MODE; SELECT pg_sleep(5); COMMIT' >/dev/null 2>&1 &
+lock_holder=$!
+lock_held=false
+for i in $(seq 1 50); do
+  result=$(docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -Atq -c "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE relation='public.branches'::regclass AND mode='AccessExclusiveLock' AND granted)")
+  if [[ "$result" == t ]]; then lock_held=true; break; fi
+  read -r -t 0.05 || true
+done
+[[ "$lock_held" == true ]] || { echo 'synthetic table lock was not acquired' >&2; exit 1; }
+for statement in 'GRANT SELECT ON public.branches TO synthetic_concurrent' 'REVOKE SELECT ON public.branches FROM authenticated'; do
+  if ! docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c "SET statement_timeout='500ms'; $statement" >/dev/null 2>&1; then
+    echo 'synthetic concurrent table ACL DDL did not match observed PG17 behavior' >&2; exit 1
+  fi
+done
+wait "$lock_holder"
+docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'REVOKE SELECT ON public.branches FROM synthetic_concurrent; GRANT SELECT ON public.branches TO authenticated; DROP ROLE synthetic_concurrent'
+echo 'synthetic_table_lock_does_not_serialize_grant_revoke=demonstrated'
 api=$(docker run -d --network "$network_id" --network-alias api \
   -e PGRST_DB_URI='postgres://authenticator:synthetic-authenticator-password@db:5432/sunrise_privacy_fixture' \
   -e PGRST_DB_SCHEMAS=public -e PGRST_DB_ANON_ROLE=anon \

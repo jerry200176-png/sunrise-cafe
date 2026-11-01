@@ -2,6 +2,8 @@
 -- package have been reviewed. Not registered in the automatic migration plan.
 -- The session acknowledgement below is only an operator assertion, NOT proof of
 -- project identity. Verify the target independently on the same connection first.
+-- GRANT/REVOKE and role DDL do not serialize on this table lock: externally
+-- stop and drain all such changes throughout this transaction or do not run.
 BEGIN;
 DO $ack$ BEGIN
   IF current_setting('sunrise.branches_acl_review_ack', true) IS DISTINCT FROM 'reviewed-target-and-scope' THEN
