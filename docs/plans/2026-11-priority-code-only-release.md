@@ -92,6 +92,11 @@ reported 31 high and one critical in a separately generated lock. These are audi
 findings, not proof of exploitability of this particular command path. The
 dedicated CI job audits the locked release CLI before any credentialed use; no
 blind major-version overrides or downgrade are accepted as a fix.
+That CI job installs and runs the PR-supplied CLI inside rootless bubblewrap
+sandboxes with cleared environments and isolated process/filesystem views; only
+the version/help invocation additionally has its network namespace disabled.
+It does not use `sudo`, mount the checkout or runner home, or receive credentials.
+If the hosted runner lacks bubblewrap or user namespaces, the check fails closed.
 Vercel's [Cron deployment documentation](https://vercel.com/docs/cron-jobs/manage-cron-jobs#cron-jobs-and-deployments) states that existing running jobs continue during a new deployment, but does not establish that a `--prod --skip-domain` deployment cannot register or receive cron invocations before promotion. Cron behavior for this exact staging mode is therefore unverified, and old in-flight workers are not drained. The hard stop must remain while these prerequisites are unknown. No real LINE,
 production database, deployment, promotion or rollback was called in this work.
 

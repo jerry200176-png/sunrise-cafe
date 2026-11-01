@@ -283,6 +283,17 @@ class WorkflowSafetyTests(unittest.TestCase):
         self.assertIn("Upload release incident evidence", job)
         self.assertIn("Record release incident", job)
 
+    def test_cli_contract_uses_rootless_restricted_sandboxes_without_checkout_credentials(self):
+        workflow = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+        job = workflow.split("  release-cli-contract:\n", 1)[1].split("  e2e-smoke:\n", 1)[0]
+        self.assertIn("persist-credentials: false", job)
+        self.assertIn("bwrap --unshare-user --unshare-pid", job)
+        self.assertIn("--unshare-net", job)
+        self.assertIn("--clearenv", job)
+        self.assertNotIn("sudo ", job)
+        self.assertNotIn("--bind / /", job)
+        self.assertNotIn("VERCEL_TOKEN", job)
+
     def test_incident_record_is_private_and_rejects_overwrite(self):
         with tempfile.TemporaryDirectory(prefix="sunrise-incident-") as directory:
             path = Path(directory) / "incident.json"

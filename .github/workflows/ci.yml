@@ -110,24 +110,43 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
       - name: Install locked CLI without lifecycle scripts or secrets
         run: |
           set -euo pipefail
+          command -v bwrap >/dev/null || { echo '::error::rootless sandbox unavailable'; exit 1; }
+          NODE_ROOT="$(dirname "$(dirname "$(readlink -f "$(command -v node)")")")"
           mkdir -p "$RUNNER_TEMP/sunrise-vercel-cli"
           cp scripts/release-cli/package.json scripts/release-cli/package-lock.json "$RUNNER_TEMP/sunrise-vercel-cli/"
-          npm ci --ignore-scripts --no-audit --no-fund --prefix "$RUNNER_TEMP/sunrise-vercel-cli"
+          # Only public lockfiles and this job-owned install directory are
+          # mounted. No checkout, home, runner process tree, or host sockets.
+          bwrap --unshare-user --unshare-pid --unshare-ipc --unshare-uts --die-with-parent --clearenv \
+            --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+            --dir /sandbox --ro-bind "$NODE_ROOT" /sandbox/node --bind "$RUNNER_TEMP/sunrise-vercel-cli" /sandbox/cli \
+            --dir /etc --dir /etc/ssl --ro-bind /etc/ssl/certs /etc/ssl/certs \
+            --ro-bind /etc/resolv.conf /etc/resolv.conf --ro-bind /etc/hosts /etc/hosts \
+            --proc /proc --dev /dev --tmpfs /tmp --chdir /tmp \
+            --setenv PATH /sandbox/node/bin:/usr/bin:/bin --setenv NPM_CONFIG_CACHE /tmp/npm-cache \
+            --setenv NPM_CONFIG_USERCONFIG /dev/null --setenv NPM_CONFIG_GLOBALCONFIG /dev/null \
+            --setenv DO_NOT_TRACK 1 --setenv VERCEL_TELEMETRY_DISABLED 1 \
+            /sandbox/node/bin/npm ci --ignore-scripts --no-audit --no-fund --prefix /sandbox/cli
       - name: Check version and command flags without network or credentials
         run: |
           set -euo pipefail
-          CLI="$RUNNER_TEMP/sunrise-vercel-cli/node_modules/.bin/vercel"
+          NODE_ROOT="$(dirname "$(dirname "$(readlink -f "$(command -v node)")")")"
           offline_help() {
             local output="$1"; shift
             local code=0
-            sudo -n unshare --net -- env -i PATH=/usr/bin:/bin DO_NOT_TRACK=1 VERCEL_TELEMETRY_DISABLED=1 \
-              "$CLI" "$@" >"$output" 2>&1 || code=$?
+            bwrap --unshare-user --unshare-pid --unshare-net --unshare-ipc --unshare-uts --die-with-parent --clearenv \
+              --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+              --dir /sandbox --ro-bind "$NODE_ROOT" /sandbox/node --ro-bind "$RUNNER_TEMP/sunrise-vercel-cli" /sandbox/cli \
+              --proc /proc --dev /dev --tmpfs /tmp --chdir /tmp \
+              --setenv PATH /sandbox/node/bin:/usr/bin:/bin --setenv DO_NOT_TRACK 1 --setenv VERCEL_TELEMETRY_DISABLED 1 \
+              /sandbox/cli/node_modules/.bin/vercel "$@" >"$output" 2>&1 || code=$?
             [ "$code" = 0 ] || [ "$code" = 2 ] || { echo '::error::offline CLI help failed'; return 1; }
           }
           offline_help "$RUNNER_TEMP/vercel-version.txt" --version
