@@ -509,7 +509,7 @@ export async function runSendLineReminder(
             skipped_count,
             guest_sent_count: 0,
             result,
-            heartbeat: heartbeat === "none" ? "already_notified" : heartbeat,
+            heartbeat,
             heartbeat_keys,
             duplicate: false,
           },

@@ -140,8 +140,57 @@ describe("runSendLineReminder — sent=0 regression", () => {
 
     expect(json.ok).toBe(true);
     expect(json.sent).toBe(0);
-    expect(json.heartbeat).toBe("already_notified");
+    expect(json.heartbeat).toBe("none");
     expect(sendLineMessage).not.toHaveBeenCalled();
+  });
+
+  it("records an empty legacy run without claiming a heartbeat or calling LINE", async () => {
+    vi.mocked(fetchReservationsForReminder).mockResolvedValue([]);
+
+    const res = await runSendLineReminder({ sendHeartbeatOnEmpty: false, trigger_source: "cron" });
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json).toMatchObject({ ok: true, sent: 0, heartbeat: "none", accepted_count: 0, delivery_certainty: "not_attempted" });
+    expect(sendLineMessage).not.toHaveBeenCalled();
+    expect(sendLineMessageToGroup).not.toHaveBeenCalled();
+    expect(sendLineFlexToGroup).not.toHaveBeenCalled();
+    expect(fetchTomorrowsReservations).not.toHaveBeenCalled();
+  });
+
+  it("does not send an empty heartbeat to any configured store", async () => {
+    vi.mocked(fetchBranches).mockResolvedValue([
+      { id: "b1", name: "大安", line_group_id: "G1" },
+      { id: "b2", name: "其他", line_group_id: "G2" },
+    ] as never);
+    vi.mocked(fetchReservationsForReminder).mockResolvedValue([]);
+
+    const res = await runSendLineReminder({ sendHeartbeatOnEmpty: false, trigger_source: "cron" });
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json).toMatchObject({ ok: true, sent: 0, heartbeat: "none", accepted_count: 0 });
+    expect(sendLineMessage).not.toHaveBeenCalled();
+    expect(sendLineMessageToGroup).not.toHaveBeenCalled();
+    expect(sendLineFlexToGroup).not.toHaveBeenCalled();
+  });
+
+  it("still sends a real reservation reminder while empty heartbeats are disabled", async () => {
+    vi.mocked(fetchBranches).mockResolvedValue([{ id: "b1", name: "大安", line_group_id: "G1" }] as never);
+    vi.mocked(fetchReservationsForReminder).mockResolvedValue([{
+      id: "pending-1", booking_code: "A1", start_time: "2026-09-05T10:00:00+08:00",
+      end_time: "2026-09-05T11:00:00+08:00", customer_name: "測試", phone: "0912",
+      room: { name: "包廂1", branch_id: "b1", branch: { id: "b1", name: "大安" } },
+    }] as never);
+
+    const res = await runSendLineReminder({ sendHeartbeatOnEmpty: false, trigger_source: "cron" });
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json).toMatchObject({ ok: true, sent: 1, result: "sent", heartbeat: "digest" });
+    expect(sendLineFlexToGroup).toHaveBeenCalledTimes(1);
+    expect(updateReservationAdmin).toHaveBeenCalledWith("pending-1", { is_notified: true });
+    expect(sendLineMessageToGroup).not.toHaveBeenCalled();
   });
 
   it("does not turn a reservation query failure into a cat message", async () => {
