@@ -17,3 +17,5 @@ Upstash timeout、連線例外或配置狀態不一致時，拒絕該請求並�
 ## 驗證與限制
 
 以合成 SDK 回傳驗證成功、超額、timeout、例外與中途缺 limiter；直接路由與 middleware 測 503/429，確定不誤寫限流日誌；測試 memory 應維持現狀。按類別變更 prefix 會使新舊版本短暫各計各的配額；若原已設定 Upstash，發布時需確認舊 worker 已排空後才驗收，且 rollback 也會切換回舊 bucket。一般 API 的既有 cron 判斷可被偽造的 `x-vercel-cron-schedule` 繞過，#456 尚未部署，本改動不修正或聲稱消除該限制。現有正式站顯示 memory，本變更不新增／讀取／設定正式憑證，不探測或聲稱 Upstash 可用，也不發送正式客人通知。設定後仍需以經授權的安全測試及監測確認跨實例限制；單一 health JSON 不足以證明。若 Upstash 不穩，回退此程式會恢復 SDK timeout 放行，應先修復依賴而非視為安全回復。
+
+既有 SDK `analytics: true` 在應用程式讀到 timeout 前可能先以 SDK 的 `success: true` 記錄分析，故供應商面板的成功數不能證明應用程式放行；SDK 自身處理 analytics 失敗時也可能記錄其錯誤物件。此 PR 不更動既有 analytics 行為，實際啟用前須另行評估日誌隱私及觀測指標。
