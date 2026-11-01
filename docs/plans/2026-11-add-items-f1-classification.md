@@ -22,6 +22,8 @@ reports exactly 13 findings on the SQL hash above. These categories describe the
 semantics; they **do not override** the committed classifier, rulebook, CI or F1/F4.
 "Runtime" below means after another caller or trigger invokes the function; no claim is made
 that current production contains a particular object or role assignment.
+The separate read-only `node tests/research-additive-findings.mjs` verifies the candidate
+hash and the complete line/rule list; it is not an approval or a replacement for the gate.
 
 | Line | Class | Concrete effect and condition |
 | --- | --- | --- |
