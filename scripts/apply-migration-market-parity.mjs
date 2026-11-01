@@ -1,5 +1,9 @@
 #!/usr/bin/env node
-/** Verify market-parity columns without treating REST errors as DDL authorization. */
+/**
+ * Readiness check for migration-market-parity-rounds-3-7.sql. The historical
+ * file is intentionally not executed by this runner; an incomplete probe
+ * requires independent review.
+ */
 import { assertRestSchemaProbe } from "./lib/rest-schema-probe.mjs";
 
 const PROBES = [

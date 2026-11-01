@@ -1,5 +1,9 @@
 #!/usr/bin/env node
-/** Verify the LINE Pay safety probes without automatically replaying old DDL. */
+/**
+ * Readiness check for migration-line-pay-payments.sql and
+ * migration-line-pay-safety.sql. These historical files are intentionally not
+ * executed by this runner; an incomplete probe requires independent review.
+ */
 import { assertRestSchemaProbe } from "./lib/rest-schema-probe.mjs";
 
 async function main() {
