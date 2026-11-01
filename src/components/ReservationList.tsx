@@ -76,6 +76,14 @@ function responseObject(value: unknown): Record<string, unknown> | null {
     ? value as Record<string, unknown> : null;
 }
 
+function lineBindingMessage(reservation: Reservation): string {
+  const bound = reservation.has_line_user ?? (typeof reservation.line_user_id === "string"
+    ? reservation.line_user_id.length > 0 : reservation.line_user_id === null ? false : undefined);
+  if (bound === true) return "此訂位已綁定官方 LINE；需要人工轉發時仍可使用複製工作台。";
+  if (bound === false) return "此訂位尚未綁定官方 LINE；複製後請貼到員工與客人的 LINE 對話。";
+  return "目前無法確認此訂位是否綁定官方 LINE；請先核對後再轉發訊息。";
+}
+
 /** 依 id 合併（後面的覆蓋前面的），未結案與已載入的歷史紀錄共用同一份列表狀態。 */
 function mergeById(...lists: Reservation[][]): Reservation[] {
   const map = new Map<string, Reservation>();
@@ -472,7 +480,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation && currentFocusId.current === id && focusLookupRequest.current === requestId;
     focusLookupRef.current = id;
     try {
-      const params = new URLSearchParams({ branchId, scope: "history", id });
+      const params = new URLSearchParams({ branchId, scope: "history", id, list_contract: "v2" });
       const response = await fetchWithTimeout(`${RESERVATIONS_API}?${params.toString()}`);
       const payload = responseObject(await readJsonWithTimeout(response).catch(() => null));
       if (!isCurrent()) return false;
@@ -584,6 +592,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
           range: filters.range,
           status: filters.status,
           limit: String(limit),
+          list_contract: "v2",
         });
         if (filters.q) params.set("q", filters.q);
         if (mode === "append" && historyCursorRef.current) params.set("cursor", historyCursorRef.current);
@@ -634,7 +643,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     if (showLoading || verificationRequired.current) setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({ branchId, scope: "active", _t: String(Date.now()) });
+      const params = new URLSearchParams({ branchId, scope: "active", list_contract: "v2", _t: String(Date.now()) });
       const res = await fetchWithTimeout(`${RESERVATIONS_API}?${params.toString()}`);
       const payload: unknown = await readJsonWithTimeout(res).catch(() => null);
       if (!isCurrent()) return false;
@@ -2040,9 +2049,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
             </div>
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
               <div className="rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-800">
-                {messageWorkbench.line_user_id
-                  ? "此訂位已綁定官方 LINE；需要人工轉發時仍可使用複製工作台。"
-                  : "此訂位尚未綁定官方 LINE；複製後請貼到員工與客人的 LINE 對話。"}
+                {lineBindingMessage(messageWorkbench)}
               </div>
               <div>
                 <label htmlFor="reservation-message-template" className="mb-1 block text-sm font-medium text-gray-700">

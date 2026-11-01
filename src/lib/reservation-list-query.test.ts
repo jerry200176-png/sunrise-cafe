@@ -82,6 +82,13 @@ describe("parseReservationListParams", () => {
     expect(ok).toMatchObject({ ok: true, params: { range: "30d", status: "all", limit: 50, cursor: null, q: "" } });
   });
 
+  it("opts into the narrowed list only for the explicit v2 request", () => {
+    const legacy = parseReservationListParams(new URLSearchParams("branchId=b1&scope=active"));
+    const modern = parseReservationListParams(new URLSearchParams("branchId=b1&scope=active&list_contract=v2"));
+    expect(legacy.ok && legacy.params.listContract).toBeUndefined();
+    expect(modern.ok && modern.params.listContract).toBe("v2");
+  });
+
   it("clamps the page size and rejects bad cursors, ranges and ids", () => {
     const big = parseReservationListParams(new URLSearchParams("branchId=b1&scope=history&limit=99999"));
     expect(big.ok && big.params.limit).toBe(200);
@@ -283,8 +290,8 @@ describe("listReservationsForAdmin", () => {
       room_id: "r1", customer_name: "測試客人", end_time: "2026-10-01T08:00:00+00:00",
       total_price: 500, guest_count: 2, notes: null, booking_code: "ABC123", created_at: "2026-09-01T00:00:00Z",
       is_notified: true, is_deposit_paid: true, deposit_paid_on: "2026-09-02", deposit_last_five: "12345",
-      deposit_payment_note: "測試", guest_confirmed_at: null,
-      deposit_approved_retry_key: "internal", future_internal_column: "future",
+      deposit_payment_note: "測試", deposit_approved_notified_at: "2026-09-03T00:00:00Z", guest_confirmed_at: null,
+      deposit_approved_retry_key: "internal", future_internal_column: "future", line_user_id: "line-id",
       room_with_branch: { id: "r1", name: "A 包廂", internal: "hidden", branch: { name: "大安", internal: "hidden" } },
     };
     const { db } = fakeDb((q) => (q.table === "rooms" ? { data: rooms } : { data: [row] }));
@@ -294,16 +301,34 @@ describe("listReservationsForAdmin", () => {
       preorders: async () => new Map([[uuid(1), { status: "submitted", requires_reconfirmation: false, item_summary: "咖啡 ×1", guest_notes: null, internal: "hidden" }]]),
       visitCounts: async () => new Map([[row.phone, 3]]),
     };
-    const out = await listReservationsForAdmin(params({ id: uuid(1) }), { db, enrichDeps });
+    const out = await listReservationsForAdmin(params({ id: uuid(1), listContract: "v2" }), { db, enrichDeps });
     expect(out.items[0]).toEqual({
       id: uuid(1), room_id: "r1", customer_name: "測試客人", phone: row.phone, start_time: row.start_time,
       end_time: row.end_time, status: "confirmed", total_price: 500, guest_count: 2, notes: null,
       booking_code: "ABC123", created_at: row.created_at, is_notified: true, is_deposit_paid: true,
-      deposit_paid_on: "2026-09-02", deposit_last_five: "12345", deposit_payment_note: "測試", guest_confirmed_at: null,
+      deposit_paid_on: "2026-09-02", deposit_last_five: "12345", deposit_payment_note: "測試",
+      deposit_approved_notified_at: "2026-09-03T00:00:00Z", guest_confirmed_at: null,
       room_with_branch: { id: "r1", name: "A 包廂", branch: { name: "大安" } },
-      pending_payment_reviews: 2, visit_count: 3, deposit_auto_cancelled: false,
+      pending_payment_reviews: 2, visit_count: 3, deposit_auto_cancelled: false, has_line_user: true,
       preorder: { status: "submitted", requires_reconfirmation: false, item_summary: "咖啡 ×1", guest_notes: null },
     });
+    const legacy = await listReservationsForAdmin(params({ id: uuid(1) }), { db, enrichDeps });
+    expect(legacy.items[0]).toHaveProperty("line_user_id", "line-id");
+    expect(legacy.items[0]).toHaveProperty("future_internal_column", "future");
+  });
+
+  it.each([
+    { line: "id", expected: true },
+    { line: null, expected: false },
+    { line: "", expected: false },
+    { line: undefined, expected: undefined },
+  ])("projects binding presence without exposing the identifier: $expected", async ({ line, expected }) => {
+    const row = { ...res(1, "confirmed", "2026-10-01T06:00:00+00:00"), ...(line === undefined ? {} : { line_user_id: line }) };
+    const { db } = fakeDb((q) => (q.table === "rooms" ? { data: rooms } : { data: [row] }));
+    const out = await listReservationsForAdmin(params({ id: uuid(1), listContract: "v2" }), { db, enrichDeps: noEnrich });
+    expect(out.items[0]).not.toHaveProperty("line_user_id");
+    if (expected === undefined) expect(out.items[0]).not.toHaveProperty("has_line_user");
+    else expect(out.items[0]).toHaveProperty("has_line_user", expected);
   });
 
   it("a branch without rooms returns an empty list without querying reservations", async () => {
