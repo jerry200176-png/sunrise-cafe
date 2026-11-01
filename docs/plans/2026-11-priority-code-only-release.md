@@ -103,6 +103,11 @@ The public CLI manifests are copied from bounded regular Git blobs, never throug
 checkout symlinks. Install/help output and execution time are bounded, but this
 does not impose a total size quota on the job-owned install directory and is not
 an absolute guarantee against hostile kernel or resource-exhaustion behavior.
+The PR can modify both the workflow and the blob helper itself; the helper runs
+outside the sandbox. Thus this sandbox limits third-party CLI execution only when
+the workflow and helper are already trusted. It is not an isolation boundary
+against a malicious PR author. CI/review must evaluate the exact final head, and
+untrusted PR code must never receive production credentials.
 Vercel's [Cron deployment documentation](https://vercel.com/docs/cron-jobs/manage-cron-jobs#cron-jobs-and-deployments) states that existing running jobs continue during a new deployment, but does not establish that a `--prod --skip-domain` deployment cannot register or receive cron invocations before promotion. Cron behavior for this exact staging mode is therefore unverified, and old in-flight workers are not drained. The hard stop must remain while these prerequisites are unknown. No real LINE,
 production database, deployment, promotion or rollback was called in this work.
 
