@@ -8,9 +8,9 @@
  * (Verify Production / deploy-health sha_parity), so a known drift issue can never
  * trigger a rollback.
  *
- * Exit codes: 0 healthy, 10 sustained runtime failure (workflow rolls back),
- *             11 not our deploy / superseded (workflow never rolls back).
- * Env: PRODUCTION_URL, EXPECTED_SHA, WATCH_MINUTES (15), INTERVAL_SECONDS (30), FAIL_ROUNDS (5)
+ * Exit codes: 0 healthy, 10 sustained runtime failure, 11 identity unknown / superseded.
+ * This draft never automatically rolls back: a sampled identity cannot fence other writers.
+ * Env: PRODUCTION_URL, EXPECTED_SHA, EXPECTED_DEPLOYMENT_ID, WATCH_MINUTES, INTERVAL_SECONDS, FAIL_ROUNDS
  */
 
 export const PROBES = [
@@ -38,32 +38,41 @@ async function probe(base, p, fetchImpl) {
   }
 }
 
-export async function runRound({ base, expectedSha, fetchImpl }) {
+const isDeploymentId = (value) => typeof value === "string" && /^dpl_[A-Za-z0-9]+$/.test(value);
+const isCommit = (value) => typeof value === "string" && /^[0-9a-f]{40}$/.test(value);
+
+export async function runRound({ base, expectedSha, expectedDeploymentId, fetchImpl }) {
   let version = null;
+  let deploymentId = null;
   try {
-    const res = await fetchImpl(`${base}/api/version`, { signal: AbortSignal.timeout(15000) });
-    version = res.ok ? ((await res.json())?.commit ?? null) : null;
+    const res = await fetchImpl(`${base}/api/version`, { cache: "no-store", signal: AbortSignal.timeout(15000) });
+    const body = res.ok ? await res.json() : null;
+    version = isCommit(body?.commit) ? body.commit : null;
+    deploymentId = isDeploymentId(body?.deployment_id) ? body.deployment_id : null;
   } catch { /* treated as unknown version */ }
   const probes = await Promise.all(PROBES.map((p) => probe(base, p, fetchImpl)));
   const failed = probes.filter((p) => !p.ok).map((p) => `${p.name}:${p.status}`);
-  if (version === null) failed.unshift("version:unavailable"); // /api/version down counts as a failure once we have seen our SHA
-  return { version, matches: version === expectedSha, probes, failed };
+  if (version === null || deploymentId === null) failed.unshift("identity:unavailable");
+  return { version, deploymentId, matches: version === expectedSha && deploymentId === expectedDeploymentId, probes, failed };
 }
 
 /** Pure decision step. `state` carries consecutive failures. */
 export function decide(state, round, { failRounds }) {
-  if (round.version && !round.matches) return { ...state, verdict: "superseded" };
+  if (round.version && round.deploymentId && !round.matches) return { ...state, verdict: "superseded" };
   const failing = round.failed.length > 0;
   const consecutive = failing ? state.consecutive + 1 : 0;
   return { consecutive, lastFailed: failing ? round.failed : state.lastFailed, verdict: consecutive >= failRounds ? "sustained_failure" : "continue" };
 }
 
-export async function watch({ base, expectedSha, minutes = 15, intervalSeconds = 30, failRounds = 5, fetchImpl = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log }) {
+export async function watch({ base, expectedSha, expectedDeploymentId, minutes = 15, intervalSeconds = 30, failRounds = 5, fetchImpl = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log }) {
+  if (!isCommit(expectedSha) || !isDeploymentId(expectedDeploymentId)) return { exitCode: 11, verdict: "identity_unverified", consecutive: 0, lastFailed: ["identity:unavailable"], rounds: 0 };
   const rounds = Math.max(1, Math.floor((minutes * 60) / intervalSeconds));
   let state = { consecutive: 0, lastFailed: [], verdict: "continue" };
   let sawOurs = false;
+  let lastIdentityMatched = false;
   for (let i = 1; i <= rounds; i++) {
-    const round = await runRound({ base, expectedSha, fetchImpl });
+    const round = await runRound({ base, expectedSha, expectedDeploymentId, fetchImpl });
+    lastIdentityMatched = round.matches;
     if (round.matches) sawOurs = true;
     // Before the first match (propagation lag) or if production never serves our SHA: do not judge, never roll back.
     if (!sawOurs && !round.matches) {
@@ -76,7 +85,8 @@ export async function watch({ base, expectedSha, minutes = 15, intervalSeconds =
     }
     if (i < rounds) await sleep(intervalSeconds * 1000);
   }
-  if (!sawOurs) return { exitCode: 11, verdict: "never_served_expected_sha", consecutive: 0, lastFailed: [], rounds };
+  if (!sawOurs) return { exitCode: 11, verdict: "identity_unverified", consecutive: 0, lastFailed: ["identity:unverified"], rounds };
+  if (!lastIdentityMatched) return { exitCode: 11, ...state, verdict: "identity_unverified", lastFailed: ["identity:unavailable"], rounds };
   return { exitCode: 0, ...state, verdict: "healthy", rounds };
 }
 
@@ -87,6 +97,7 @@ async function main() {
   const result = await watch({
     base,
     expectedSha,
+    expectedDeploymentId: process.env.EXPECTED_DEPLOYMENT_ID ?? "",
     minutes: Number(process.env.WATCH_MINUTES ?? 15),
     intervalSeconds: Number(process.env.INTERVAL_SECONDS ?? 30),
     failRounds: Number(process.env.FAIL_ROUNDS ?? 5),

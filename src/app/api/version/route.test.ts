@@ -1,0 +1,17 @@
+import { afterEach, expect, it, vi } from "vitest";
+import { GET } from "./route";
+
+afterEach(() => vi.unstubAllEnvs());
+
+it("returns the runtime deployment identity without caching", async () => {
+  vi.stubEnv("VERCEL_GIT_COMMIT_SHA", "a".repeat(40));
+  vi.stubEnv("VERCEL_DEPLOYMENT_ID", "dpl_syntheticA");
+  const response = await GET();
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(await response.json()).toMatchObject({ commit: "a".repeat(40), deployment_id: "dpl_syntheticA" });
+});
+
+it("reports unknown deployment identity rather than fabricating one", async () => {
+  vi.stubEnv("VERCEL_DEPLOYMENT_ID", undefined);
+  expect((await (await GET()).json()).deployment_id).toBeNull();
+});
