@@ -50,19 +50,23 @@ SQL
 docker exec -i "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q < "$root/docs/ops/branches-select-acl-metadata.sql" >/dev/null
 # Establish whether the table lock serializes concurrent table ACL DDL on PG17.
 docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'CREATE ROLE synthetic_concurrent NOLOGIN'
-docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'BEGIN; LOCK TABLE public.branches IN ACCESS EXCLUSIVE MODE; SELECT pg_sleep(5); COMMIT' >/dev/null 2>&1 &
+lock_app="sunrise_acl_lock_${RANDOM}_${RANDOM}"
+docker exec -e PGAPPNAME="$lock_app" "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'BEGIN; LOCK TABLE public.branches IN ACCESS EXCLUSIVE MODE; SELECT pg_sleep(15); COMMIT' >/dev/null 2>&1 &
 lock_holder=$!
-lock_held=false
+lock_query="SELECT a.pid::text || '|' || a.xact_start::text FROM pg_stat_activity a JOIN pg_locks l ON l.pid=a.pid WHERE a.application_name='$lock_app' AND a.xact_start IS NOT NULL AND l.relation='public.branches'::regclass AND l.mode='AccessExclusiveLock' AND l.granted"
+lock_identity=""
 for i in $(seq 1 50); do
-  result=$(docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -Atq -c "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE relation='public.branches'::regclass AND mode='AccessExclusiveLock' AND granted)")
-  if [[ "$result" == t ]]; then lock_held=true; break; fi
+  lock_identity=$(docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -Atq -c "$lock_query")
+  if [[ "$lock_identity" =~ ^[0-9]+\|.+$ ]]; then break; fi
   read -r -t 0.05 || true
 done
-[[ "$lock_held" == true ]] || { echo 'synthetic table lock was not acquired' >&2; exit 1; }
+[[ "$lock_identity" =~ ^[0-9]+\|.+$ ]] || { echo 'synthetic table lock was not acquired' >&2; exit 1; }
 for statement in 'GRANT SELECT ON public.branches TO synthetic_concurrent' 'REVOKE SELECT ON public.branches FROM authenticated'; do
   if ! docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c "SET statement_timeout='500ms'; $statement" >/dev/null 2>&1; then
     echo 'synthetic concurrent table ACL DDL did not match observed PG17 behavior' >&2; exit 1
   fi
+  observed_lock=$(docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -Atq -c "$lock_query")
+  [[ "$observed_lock" == "$lock_identity" ]] || { echo 'synthetic lock holder changed or its transaction ended' >&2; exit 1; }
 done
 wait "$lock_holder"
 docker exec "$pg" psql -U postgres -d sunrise_privacy_fixture -v ON_ERROR_STOP=1 -q -c 'REVOKE SELECT ON public.branches FROM synthetic_concurrent; GRANT SELECT ON public.branches TO authenticated; DROP ROLE synthetic_concurrent'
