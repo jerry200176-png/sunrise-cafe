@@ -192,4 +192,41 @@ describe("report response errors", () => {
     expect(screen.getByRole("button", { name: /匯出/ })).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
   });
+
+  it("accepts a real multi-branch report and exports its room data", async () => {
+    const payload = buildReport([
+      { status: "confirmed", total_price: 1000, is_deposit_paid: false, guest_count: 2, start_time: "2026-10-05T06:00:00Z", room: { id: "r1", name: "A房", branch_id: "b1", branch: { name: "甲店" } } },
+      { status: "confirmed", total_price: 2000, is_deposit_paid: false, guest_count: 3, start_time: "2026-10-06T06:00:00Z", room: { id: "r2", name: "B房", branch_id: "b2", branch: { name: "乙店" } } },
+    ], [], 2, new Date("2026-10-08T04:00:00Z"), true);
+    mocked.fetch.mockResolvedValue(json(payload));
+    const create = vi.fn((blob: Blob) => blob instanceof Blob ? "blob:synthetic" : "");
+    const oldCreate = Object.getOwnPropertyDescriptor(URL, "createObjectURL");
+    const oldRevoke = Object.getOwnPropertyDescriptor(URL, "revokeObjectURL");
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: create });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    try {
+      render(<ReportsPage />);
+      expect(await screen.findByText("甲店 A房")).toBeTruthy();
+      expect(screen.getByText("乙店 B房")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: /匯出/ }));
+      expect(create).toHaveBeenCalledTimes(1);
+      const blob = create.mock.calls[0][0] as Blob;
+      const csv = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsText(blob);
+      });
+      expect(csv).toContain("甲店 A房,1,1000");
+      expect(csv).toContain("乙店 B房,1,2000");
+      expect(screen.queryByRole("alert")).toBeNull();
+    } finally {
+      click.mockRestore();
+      if (oldCreate) Object.defineProperty(URL, "createObjectURL", oldCreate);
+      else Reflect.deleteProperty(URL, "createObjectURL");
+      if (oldRevoke) Object.defineProperty(URL, "revokeObjectURL", oldRevoke);
+      else Reflect.deleteProperty(URL, "revokeObjectURL");
+    }
+  });
 });
