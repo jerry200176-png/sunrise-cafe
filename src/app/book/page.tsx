@@ -73,7 +73,15 @@ function isSlotList(value: unknown): value is SlotItem[] {
 
 export default function BookPage() {
   const { t } = useLocale();
-  const [step, setStep] = useState<Step>("branch");
+  const submittingRef = useRef(false);
+  // Increment synchronously for user edits/navigation while an older submit is
+  // in flight, even if the customer later changes the values back.
+  const submissionRevisionRef = useRef(0);
+  const [step, setStepState] = useState<Step>("branch");
+  const setStep = useCallback((next: Step) => {
+    if (submittingRef.current) submissionRevisionRef.current += 1;
+    setStepState(next);
+  }, []);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [roomCatalog, setRoomCatalog] = useState<Room[]>([]);
@@ -83,7 +91,6 @@ export default function BookPage() {
   const [mealItems, setMealItems] = useState<DraftItemInput[]>([]);
   const [mealNotes, setMealNotes] = useState("");
   const bookingRequestKey = useRef<{ selection: string; key: string } | null>(null);
-  const submittingRef = useRef(false);
   const [roomId, setRoomId] = useState("");
   const [previewRoomId, setPreviewRoomId] = useState<string | null>(null);
   const [date, setDate] = useState("");
@@ -182,7 +189,7 @@ export default function BookPage() {
     setFieldErrors({});
     requestAnimationFrame(scrollToTopForInteraction);
     focusStepPanel();
-  }, [focusStepPanel]);
+  }, [focusStepPanel, setStep]);
 
   const clearFormErrors = useCallback(() => {
     setError(null);
@@ -234,7 +241,7 @@ export default function BookPage() {
       }
     }
     setDraftHydrated(true);
-  }, []);
+  }, [setStep]);
 
   useEffect(() => {
     setMealItems([]);
@@ -491,7 +498,7 @@ export default function BookPage() {
       if (saved.step && BOOKING_STEP_ORDER.includes(saved.step as Step)) setStep(saved.step as Step);
     }
     window.history.replaceState({}, "", "/book");
-  }, []);
+  }, [setStep]);
 
   useEffect(() => {
     if (step === "form") {
@@ -673,9 +680,11 @@ export default function BookPage() {
     uncertainSubmitKeysRef.current = pending;
     setUncertainSubmitKeys(new Set(pending));
     submittingRef.current = true;
+    const submissionRevision = submissionRevisionRef.current;
     setSubmitting(true);
     let completed = false;
-    const isActiveSubmission = () => mountedRef.current && activeStepRef.current === "form" && activeSubmitKeyRef.current === currentSubmitKey;
+    const isActiveSubmission = () => mountedRef.current && activeStepRef.current === "form" &&
+      activeSubmitKeyRef.current === currentSubmitKey && submissionRevisionRef.current === submissionRevision;
     const clearRejectedGuard = () => {
       try {
         // Preserve selections added by a newer page instance while this request
@@ -703,7 +712,7 @@ export default function BookPage() {
         headers: { "Content-Type": "application/json" },
         body: requestBody,
       }, 20000);
-      const data = await res.json();
+      const data = await readJsonWithTimeout<unknown>(res);
       if (res.status === 409) {
         clearRejectedGuard();
         if (isActiveSubmission()) {
@@ -1398,7 +1407,9 @@ export default function BookPage() {
               )}
               <p className="mt-2 text-xs text-amber-900/90">{t("book.form.summaryHint")}</p>
             </div>
-            <form id="booking-form" noValidate onSubmit={handleSubmit} className="space-y-4">
+            <form id="booking-form" noValidate onSubmit={handleSubmit} onChangeCapture={() => {
+              if (submittingRef.current) submissionRevisionRef.current += 1;
+            }} className="space-y-4">
               <div>
                 <label htmlFor="booking-name" className="mb-1 block text-sm font-medium text-gray-700">{t("book.form.name")}</label>
                 <input

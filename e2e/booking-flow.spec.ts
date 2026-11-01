@@ -458,6 +458,117 @@ test.describe("手機訂位：選時段、同意條款、送出結果不明", ()
     await expect(page.getByText("舊時段已被預約")).toHaveCount(0);
   });
 
+  for (const scenario of [
+    { status: 200, revert: false, field: "#booking-phone", changed: "0987654321" },
+    { status: 200, revert: true, field: "#booking-name", changed: "暫時改名" },
+    { status: 409, revert: false, field: "#booking-email", changed: "new@example.invalid" },
+  ]) test(`送出後改資料${scenario.revert ? "再改回" : ""}，舊回覆 ${scenario.status} 不覆蓋新草稿`, async ({ page }) => {
+    const date = bookingDateOffset(2);
+    await setupBookingApiMocks(page, date);
+    let posts = 0;
+    let release: () => void = () => {};
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    await page.route("**/api/reservations", async (route) => {
+      posts += 1;
+      await pending;
+      await route.fulfill({ status: scenario.status, json: scenario.status === 409
+        ? { error: "舊資料的預約被拒絕" } : { ok: true, booking_code: "E2EOLD", id: "old" } });
+    });
+    await goToSlotStep(page, date);
+    await page.getByRole("button", { name: "10:00–12:00" }).click();
+    await page.getByRole("button", { name: "下一步 · 填寫資料" }).click();
+    await page.locator("#booking-name").fill("E2E 測試");
+    await page.locator("#booking-phone").fill("0912345678");
+    const field = page.locator(scenario.field);
+    const before = await field.inputValue();
+    const submit = page.getByRole("region", { name: "確認預約" }).getByRole("button");
+    await submit.click();
+    await expect.poll(() => posts).toBe(1);
+    await field.fill(scenario.changed);
+    if (scenario.revert) await field.fill(before);
+    const expected = scenario.revert ? before : scenario.changed;
+    await expect.poll(() => page.evaluate(({ fieldId }) => {
+      const draft = sessionStorage.getItem("sunrise_booking_draft_v1");
+      const names: Record<string, string> = { "#booking-name": "name", "#booking-phone": "phone", "#booking-email": "email" };
+      return draft ? JSON.parse(draft)[names[fieldId]] : null;
+    }, { fieldId: scenario.field })).toBe(expected);
+    release();
+    if (scenario.status === 409) {
+      await expect(submit).toBeEnabled();
+      await expect(page.getByText("舊資料的預約被拒絕")).toHaveCount(0);
+    } else {
+      await expect(page.getByRole("alert").filter({ hasText: "結果尚未確認" })).toBeVisible();
+      await expect(submit).toBeDisabled();
+    }
+    await expect(page).toHaveURL(/\/book$/);
+    await expect(field).toHaveValue(expected);
+    expect(posts).toBe(1);
+  });
+
+  test("送出後重選並回到同一時段，舊成功不覆蓋草稿", async ({ page }) => {
+    const date = bookingDateOffset(2);
+    await setupBookingApiMocks(page, date);
+    let release: () => void = () => {};
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    await page.route("**/api/reservations", async (route) => {
+      await pending;
+      await route.fulfill({ status: 200, json: { ok: true, booking_code: "E2EOLD", id: "old" } });
+    });
+    await goToSlotStep(page, date);
+    await page.getByRole("button", { name: "10:00–12:00" }).click();
+    await page.getByRole("button", { name: "下一步 · 填寫資料" }).click();
+    await page.locator("#booking-name").fill("E2E 測試");
+    await page.locator("#booking-phone").fill("0912345678");
+    const submit = page.getByRole("region", { name: "確認預約" }).getByRole("button");
+    await submit.click();
+    await page.getByRole("button", { name: "← 重選時段" }).click();
+    await page.getByRole("button", { name: "10:00–12:00" }).click();
+    await page.getByRole("button", { name: "下一步 · 填寫資料" }).click();
+    release();
+    await expect(page.getByRole("alert").filter({ hasText: "結果尚未確認" })).toBeVisible();
+    await expect(submit).toBeDisabled();
+    await expect(page).toHaveURL(/\/book$/);
+    await expect(page.locator("#booking-name")).toHaveValue("E2E 測試");
+  });
+
+  test("回應標頭已收到但內容卡住時逾時，保留待查詢鎖定", async ({ page }) => {
+    const date = bookingDateOffset(2);
+    await setupBookingApiMocks(page, date);
+    await goToSlotStep(page, date);
+    await page.getByRole("button", { name: "10:00–12:00" }).click();
+    await page.getByRole("button", { name: "下一步 · 填寫資料" }).click();
+    await page.locator("#booking-name").fill("E2E 測試");
+    await page.locator("#booking-phone").fill("0912345678");
+    await page.evaluate(() => {
+      const state = window as typeof window & { stalledBookingPosts: number; stalledBodyCancelled: boolean };
+      state.stalledBookingPosts = 0;
+      state.stalledBodyCancelled = false;
+      const originalFetch = window.fetch.bind(window);
+      const originalTimeout = window.setTimeout.bind(window);
+      // Shorten only the body reader's existing 15s deadline in this browser test.
+      window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) =>
+        originalTimeout(handler, delay === 15000 ? 40 : delay, ...args)) as typeof window.setTimeout;
+      window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) !== "/api/reservations" || init?.method !== "POST") return originalFetch(input, init);
+        state.stalledBookingPosts += 1;
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) { controller.enqueue(new TextEncoder().encode('{"booking_code":')); },
+          cancel() { state.stalledBodyCancelled = true; },
+        });
+        return Promise.resolve(new Response(body, { status: 200, headers: { "content-type": "application/json" } }));
+      }) as typeof window.fetch;
+    });
+    const submit = page.getByRole("region", { name: "確認預約" }).getByRole("button");
+    await submit.click();
+    const alert = page.getByRole("alert").filter({ hasText: "結果尚未確認" });
+    await expect(alert).toBeVisible();
+    await expect(alert.getByRole("link", { name: /查詢/ })).toBeVisible();
+    await expect(submit).toBeDisabled();
+    await expect.poll(() => page.evaluate(() => (window as typeof window & { stalledBodyCancelled: boolean }).stalledBodyCancelled)).toBe(true);
+    await page.locator("#booking-form").dispatchEvent("submit");
+    expect(await page.evaluate(() => (window as typeof window & { stalledBookingPosts: number }).stalledBookingPosts)).toBe(1);
+  });
+
   test("返回相同時段後舊請求的明確拒絕會解除保護", async ({ page }) => {
     const date = bookingDateOffset(2);
     await setupBookingApiMocks(page, date);
