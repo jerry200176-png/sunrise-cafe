@@ -166,6 +166,10 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       console.error("[create-intent] insert payment_intents failed");
+      return NextResponse.json(
+        { error: "付款建立結果尚待確認，請勿重複付款並聯繫店家" },
+        { status: 503 }
+      );
     }
 
     // 更新 reservation 關聯 payment_intent_id
@@ -188,6 +192,6 @@ export async function POST(request: NextRequest) {
     });
   } catch {
     console.error("[create-intent] payment request failed");
-    return NextResponse.json({ error: "建立付款失敗，請稍後再試或聯繫店家" }, { status: 500 });
+    return NextResponse.json({ error: "付款建立結果尚待確認，請勿重複付款並聯繫店家" }, { status: 500 });
   }
 }
