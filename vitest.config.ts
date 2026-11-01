@@ -17,7 +17,6 @@ export default defineConfig({
     exclude: [
       "**/node_modules/**",
       "**/dist/**",
-      "src/components/payment/PaymentModal.test.tsx",
     ],
     // Keep setup minimal for node tests; component files opt into jsdom via pragma.
     setupFiles: ["./vitest.setup.ts"],

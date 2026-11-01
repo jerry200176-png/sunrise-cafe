@@ -44,10 +44,10 @@ export async function POST(request: NextRequest) {
       signature,
       process.env.STRIPE_WEBHOOK_SECRET!
     );
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "無效的簽章";
-    console.error("[stripe-webhook] signature verification failed:", message);
-    logOps("webhook", "stripe.signature_failed", { error: message });
+  } catch {
+    // Parser errors can include fragments of a validly signed malformed body.
+    console.error("[stripe-webhook] signature or payload verification failed");
+    logOps("webhook", "stripe.signature_failed", { error: "invalid_signature_or_payload" });
     return NextResponse.json(
       { error: "Webhook signature verification failed" },
       { status: 400 }
@@ -59,24 +59,32 @@ export async function POST(request: NextRequest) {
     switch (event.type) {
       case "payment_intent.succeeded": {
         const paymentIntent = event.data.object;
-        const { reservationId } = paymentIntent.metadata;
+        const reservationId = paymentIntent.metadata?.reservationId;
+        if (!reservationId) throw new Error("Stripe payment binding unavailable");
 
-        await supabaseAdmin()
+        const binding = await verifyStripeIntentForReservation(paymentIntent, reservationId);
+        if (!binding.ok) {
+          // Keep provider redelivery possible until durable reconciliation exists.
+          // A confirmed mismatch is different from an unavailable DB lookup;
+          // neither should be acknowledged here without preserving evidence.
+          console.error("[stripe-webhook] payment binding not verified", binding.status);
+          throw new Error("Stripe payment binding not verified");
+        }
+
+        const { error: ledgerError, count: ledgerCount } = await supabaseAdmin()
           .from("payment_intents")
-          .update({ status: "succeeded", updated_at: new Date().toISOString() })
+          .update({ status: "succeeded", updated_at: new Date().toISOString() }, { count: "exact" })
           .eq("stripe_pi_id", paymentIntent.id);
+        // An UPDATE can succeed without touching any row. Do not mark the
+        // reservation paid unless exactly one ledger row was observed.
+        if (ledgerError || ledgerCount !== 1) throw new Error("Stripe payment ledger update failed");
 
-        if (reservationId) {
-          try {
-            const binding = await verifyStripeIntentForReservation(paymentIntent, reservationId);
-            if (!binding.ok) {
-              console.error("[stripe-webhook] PaymentIntent rejected for reservation:", binding.error, paymentIntent.id);
-              break;
-            }
-            await markDepositPaid(reservationId, "stripe_webhook", {}, "stripe");
-          } catch (err) {
-            console.error("[stripe-webhook] markDepositPaid failed:", err);
-          }
+        try {
+          await markDepositPaid(reservationId, "stripe_webhook", {}, "stripe");
+        } catch {
+          // A signed success event must remain eligible for provider retry if
+          // recording it failed; do not acknowledge a swallowed exception.
+          throw new Error("Stripe payment recording failed");
         }
 
         logOps("webhook", "stripe.payment_intent_succeeded", {
@@ -89,10 +97,11 @@ export async function POST(request: NextRequest) {
       case "payment_intent.payment_failed": {
         const paymentIntent = event.data.object;
 
-        await supabaseAdmin()
+        const { error: failedWriteError } = await supabaseAdmin()
           .from("payment_intents")
           .update({ status: "failed", updated_at: new Date().toISOString() })
           .eq("stripe_pi_id", paymentIntent.id);
+        if (failedWriteError) throw new Error("Stripe failed payment recording failed");
 
         logOps("webhook", "stripe.payment_intent_failed", {
           stripe_pi_id: paymentIntent.id,
@@ -107,23 +116,29 @@ export async function POST(request: NextRequest) {
             ? charge.payment_intent
             : null;
 
+        // No durable inbox exists yet: never acknowledge an unhandled expanded or
+        // missing identity as though the refund had been recorded.
+        if (!paymentIntentId) throw new Error("Stripe refund identity unavailable");
         if (paymentIntentId) {
-          await supabaseAdmin()
+          const { error: refundWriteError } = await supabaseAdmin()
             .from("payment_intents")
             .update({ status: "refunded", updated_at: new Date().toISOString() })
             .eq("stripe_pi_id", paymentIntentId);
+          if (refundWriteError) throw new Error("Stripe refund recording failed");
 
-          const { data: pi } = await supabaseAdmin()
+          const { data: pi, error: refundLookupError } = await supabaseAdmin()
             .from("payment_intents")
             .select("reservation_id")
             .eq("stripe_pi_id", paymentIntentId)
             .single();
 
+          if (refundLookupError || !pi?.reservation_id) throw new Error("Stripe refund reservation lookup failed");
           if (pi?.reservation_id) {
-            await supabaseAdmin()
+            const { error: reservationRefundError } = await supabaseAdmin()
               .from("reservations")
               .update({ deposit_status: "refunded" })
               .eq("id", pi.reservation_id);
+            if (reservationRefundError) throw new Error("Stripe reservation refund recording failed");
           }
         }
 
@@ -142,10 +157,9 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ received: true });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "處理 webhook 失敗";
-    console.error("[stripe-webhook] processing error:", message);
-    logOps("webhook", "stripe.webhook_error", { error: message });
-    return NextResponse.json({ error: message }, { status: 500 });
+  } catch {
+    console.error("[stripe-webhook] processing error");
+    logOps("webhook", "stripe.webhook_error", { error: "processing_failed" });
+    return NextResponse.json({ error: "Webhook processing failed" }, { status: 500 });
   }
 }
