@@ -23,7 +23,7 @@ export default defineConfig({
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
     // Guest booking is mostly used from iPhone Safari / LINE's in-app browser (WebKit on iOS).
-    { name: "webkit", testMatch: "booking-flow.spec.ts", use: { ...devices["Desktop Safari"] } },
+    { name: "webkit", testMatch: ["booking-flow.spec.ts", "booking-reduced-motion.spec.ts"], use: { ...devices["Desktop Safari"] } },
   ],
   webServer: {
     command: "npm run start",

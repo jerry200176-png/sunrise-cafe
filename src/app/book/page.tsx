@@ -11,6 +11,7 @@ import { selectionProblem } from "@/lib/option-sets";
 import { getDurationOptions, getDepositAmount, isWeekendDate } from "@/lib/booking-utils";
 import { normalizePhone } from "@/lib/phone-utils";
 import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
+import { scrollIntoViewForInteraction, scrollToTopForInteraction } from "@/lib/interaction-scroll";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { CustomerShell } from "@/components/customer/CustomerShell";
 import { BookingStepProgress } from "@/components/customer/BookingStepProgress";
@@ -143,9 +144,9 @@ export default function BookPage() {
   const scrollToField = useCallback((fieldId: string) => {
     requestAnimationFrame(() => {
       const el = document.getElementById(fieldId);
-      el?.scrollIntoView({ block: "center", behavior: "smooth" });
+      scrollIntoViewForInteraction(el, { block: "center" });
       if (el instanceof HTMLInputElement || el instanceof HTMLSelectElement) {
-        el.focus();
+        el.focus({ preventScroll: true });
       }
     });
   }, []);
@@ -154,7 +155,7 @@ export default function BookPage() {
     setStep(next);
     setError(null);
     setFieldErrors({});
-    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
+    requestAnimationFrame(scrollToTopForInteraction);
     focusStepPanel();
   }, [focusStepPanel]);
 
@@ -593,12 +594,12 @@ export default function BookPage() {
         // Without meals the server has no idempotent replay: a retry after an
         // unanswered submit can collide with the guest's own booking.
         setError(submitUncertain ? t("book.error.slotTakenAfterUncertain") : (data as { error?: string })?.error ?? t("book.error.slotTaken"));
-        errorBannerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+        scrollIntoViewForInteraction(errorBannerRef.current, { block: "start" });
         return;
       }
       if (!res.ok) {
         setError((data as { error?: string })?.error ?? t("book.error.bookingFailed"));
-        errorBannerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+        scrollIntoViewForInteraction(errorBannerRef.current, { block: "start" });
         return;
       }
       const code = (data as { booking_code?: string; id?: string; lookup_token?: string })?.booking_code;
@@ -662,7 +663,7 @@ export default function BookPage() {
       setSubmitting(false);
       setUncertainSubmitKey(currentSubmitKey);
       setError(t("book.error.submitUncertain"));
-      requestAnimationFrame(() => errorBannerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }));
+      requestAnimationFrame(() => scrollIntoViewForInteraction(errorBannerRef.current, { block: "start" }));
     }
   };
 
@@ -729,7 +730,7 @@ export default function BookPage() {
     setStep(target);
     setError(null);
     setFieldErrors({});
-    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
+    requestAnimationFrame(scrollToTopForInteraction);
     focusStepPanel();
   };
 
@@ -877,7 +878,7 @@ export default function BookPage() {
                   setPreviewRoomId(id);
                   requestAnimationFrame(() => {
                     const card = document.getElementById(`booking-room-card-${id}`);
-                    card?.scrollIntoView({ behavior: "smooth", block: "center" });
+                    scrollIntoViewForInteraction(card, { block: "center" });
                     card?.focus({ preventScroll: true });
                   });
                 }} />
