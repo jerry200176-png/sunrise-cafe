@@ -154,19 +154,22 @@ jobs:
                   --dir /etc --ro-bind /etc/passwd /etc/passwd --proc /proc --dev /dev --size 16777216 --tmpfs /tmp --chdir /tmp \
                   --setenv PATH /sandbox/node/bin:/usr/bin:/bin --setenv DO_NOT_TRACK 1 --setenv VERCEL_TELEMETRY_DISABLED 1 \
                   /bin/sh -c "mkdir -p /tmp/sandbox-home; exec /sandbox/cli/node_modules/.bin/vercel \"\$@\"" sh "$@" >"$output" 2>&1 || code=$?
-                [ "$code" = 0 ] || [ "$code" = 2 ] || { echo offline-help-failed; return 1; }
+                [ "$code" = 0 ] || [ "$code" = 2 ] || { tail -c 8192 "$output"; echo offline-help-failed; return 1; }
+              }
+              require_flag() {
+                grep -q -- "$1" "$2" || { tail -c 8192 "$2"; echo documented-flag-missing; return 1; }
               }
               offline_help /tmp/version.txt --version
-              grep -q 65\.9\.0 /tmp/version.txt
+              require_flag "65\\.9\\.0" /tmp/version.txt
               offline_help /tmp/deploy.txt --scope synthetic-team deploy --help
-              grep -q -- --skip-domain /tmp/deploy.txt
-              grep -q -- --prod /tmp/deploy.txt
-              grep -q -- --build-env /tmp/deploy.txt
-              grep -q -- --env /tmp/deploy.txt
+              require_flag --skip-domain /tmp/deploy.txt
+              require_flag --prod /tmp/deploy.txt
+              require_flag --build-env /tmp/deploy.txt
+              require_flag --env /tmp/deploy.txt
               offline_help /tmp/promote.txt --scope synthetic-team promote --help
-              grep -q -- --yes /tmp/promote.txt
+              require_flag --yes /tmp/promote.txt
               offline_help /tmp/rollback.txt --scope synthetic-team rollback --help
-              grep -q -- --yes /tmp/rollback.txt
+              require_flag --yes /tmp/rollback.txt
               /sandbox/node/bin/npm audit --omit=dev --audit-level=high --prefix /sandbox/cli
             ' 2>&1 | head -c 262144 > "$RUNNER_TEMP/vercel-install-output.txt"
           code=${PIPESTATUS[0]}
