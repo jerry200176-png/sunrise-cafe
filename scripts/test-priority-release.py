@@ -296,6 +296,14 @@ class WorkflowSafetyTests(unittest.TestCase):
         self.assertNotIn("--bind / /", job)
         self.assertNotIn("VERCEL_TOKEN", job)
         self.assertIn('grep -Fxq -- "65.9.0" /tmp/version.txt', job)
+        # Each sandbox is started by the host shell, never from another sandbox.
+        self.assertEqual(job.count("timeout 240s bwrap --unshare-user"), 1)
+        self.assertEqual(job.count("timeout 120s bwrap --unshare-user"), 1)
+        self.assertEqual(job.count("timeout 90s bwrap --unshare-user"), 1)
+        self.assertIn('--ro-bind "$ARCHIVE" /sandbox/cli.tar', job)
+        self.assertIn('head -c 805306369 > "$ARCHIVE"', job)
+        self.assertIn('[ "$archive_size" -gt 805306368 ]', job)
+        self.assertIn('npm audit --package-lock-only --omit=dev --audit-level=high', job)
 
     def test_cli_version_match_rejects_near_matches(self):
         with tempfile.TemporaryDirectory(prefix="sunrise-cli-version-") as directory:

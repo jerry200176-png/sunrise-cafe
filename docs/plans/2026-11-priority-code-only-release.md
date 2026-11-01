@@ -102,8 +102,12 @@ passwd entry pointing to a tmpfs home; it does not mount or change the host home
 The public CLI manifests are copied from bounded regular Git blobs, never through
 checkout symlinks. Install/help output and execution time are bounded, but this
 does not establish an absolute guarantee against hostile kernel or resource
-exhaustion. Installation and npm cache use separate size-bounded tmpfs mounts;
-CLI help runs in a nested network-disabled sandbox with read-only dependencies.
+exhaustion. Installation and npm cache use separate size-bounded tmpfs mounts.
+Installation exports only a size-limited archive to a newly created temporary
+file; an independent sandbox mounts that archive read-only, unpacks it into its
+own size-limited tmpfs, and runs help without network. A third independent
+sandbox audits the verified lock without the installed CLI. This avoids nested
+user namespaces; the GitHub-hosted runner still needs to permit each namespace.
 The per-file sandbox cap is 256 MiB: the pinned Linux native CLI package reports
 179,375,779 unpacked bytes in npm metadata, exceeding a 128 MiB cap. A synthetic
 test permits that size and rejects 256 MiB plus one byte without writing its data;

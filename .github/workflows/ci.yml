@@ -124,8 +124,10 @@ jobs:
           mkdir -p "$RUNNER_TEMP/sunrise-vercel-input"
           bash scripts/verified-release-cli-blobs.sh "$RUNNER_TEMP/sunrise-vercel-input"
           printf 'sandbox:x:%s:%s:Sandbox:/tmp/sandbox-home:/bin/sh\n' "$(id -u)" "$(id -g)" > "$RUNNER_TEMP/sunrise-sandbox-passwd"
-          # Install with network only inside a bounded tmpfs. No checkout,
-          # credential, runner home, host socket or host process tree is mounted.
+          ARCHIVE="$(mktemp "$RUNNER_TEMP/sunrise-cli-archive.XXXXXX")"
+          trap 'rm -f "$ARCHIVE"' EXIT
+          # Install to bounded tmpfs, with no checkout, home, credentials or host
+          # sockets. Only a bounded tar stream leaves the networked sandbox.
           set +e
           timeout 240s bwrap --unshare-user --unshare-pid --unshare-ipc --unshare-uts --die-with-parent --clearenv \
             --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
@@ -140,9 +142,6 @@ jobs:
             --setenv DO_NOT_TRACK 1 --setenv VERCEL_TELEMETRY_DISABLED 1 \
             /bin/sh -c '
               set -eu
-              # The pinned native CLI package declares 179,375,779 unpacked
-              # bytes. Allow up to 256 MiB per file while both filesystems
-              # retain independent 1 GiB tmpfs limits.
               ulimit -f 524288
               python3 -c "import resource; assert resource.getrlimit(resource.RLIMIT_FSIZE)[0] == 268435456"
               truncate -s 179375779 /tmp/sunrise-size-probe
@@ -151,39 +150,80 @@ jobs:
               mkdir -p /tmp/sandbox-home
               : > /tmp/user.npmrc; : > /tmp/global.npmrc
               /sandbox/node/bin/npm config get registry >/dev/null
-              /sandbox/node/bin/npm ci --ignore-scripts --no-audit --no-fund --prefix /sandbox/cli
-              offline_help() {
-                output=$1; shift
-                code=0
-                timeout 20s bwrap --unshare-user --unshare-pid --unshare-net --unshare-ipc --unshare-uts --die-with-parent --clearenv \
-                  --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
-                  --dir /sandbox --ro-bind /sandbox/node /sandbox/node --ro-bind /sandbox/cli /sandbox/cli \
-                  --dir /etc --ro-bind /etc/passwd /etc/passwd --proc /proc --dev /dev --size 16777216 --tmpfs /tmp --chdir /tmp \
-                  --setenv PATH /sandbox/node/bin:/usr/bin:/bin --setenv DO_NOT_TRACK 1 --setenv VERCEL_TELEMETRY_DISABLED 1 \
-                  /bin/sh -c "mkdir -p /tmp/sandbox-home; exec /sandbox/cli/node_modules/.bin/vercel \"\$@\"" sh "$@" >"$output" 2>&1 || code=$?
+              /sandbox/node/bin/npm ci --ignore-scripts --no-audit --no-fund --prefix /sandbox/cli >&2
+              exec tar -cf - -C /sandbox/cli node_modules
+            ' 2> >(head -c 262144 > "$RUNNER_TEMP/vercel-install-output.txt") | head -c 805306369 > "$ARCHIVE"
+          install_code=${PIPESTATUS[0]}
+          wait || true
+          set -e
+          archive_size="$(stat -c %s "$ARCHIVE")"
+          if [ "$install_code" != 0 ] || [ "$archive_size" -gt 805306368 ]; then
+            python3 -B scripts/sanitize-sandbox-log.py "$RUNNER_TEMP/vercel-install-output.txt"
+            echo '::error::sandboxed CLI install failed, exceeded limits, or timed out'
+            exit 1
+          fi
+          # A fresh independent user namespace can disable network without
+          # relying on nested user namespaces or host-root privileges.
+          set +e
+          timeout 120s bwrap --unshare-user --unshare-pid --unshare-net --unshare-ipc --unshare-uts --die-with-parent --clearenv \
+            --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+            --dir /sandbox --ro-bind "$NODE_ROOT" /sandbox/node --ro-bind "$ARCHIVE" /sandbox/cli.tar \
+            --size 1073741824 --tmpfs /sandbox/cli --dir /etc --ro-bind "$RUNNER_TEMP/sunrise-sandbox-passwd" /etc/passwd \
+            --proc /proc --dev /dev --size 268435456 --tmpfs /tmp --chdir /tmp \
+            --setenv PATH /sandbox/node/bin:/usr/bin:/bin --setenv DO_NOT_TRACK 1 --setenv VERCEL_TELEMETRY_DISABLED 1 \
+            /bin/sh -c '
+              set -eu
+              ulimit -f 524288
+              mkdir -p /tmp/sandbox-home
+              tar -xf /sandbox/cli.tar -C /sandbox/cli --no-same-owner --no-same-permissions
+              CLI=/sandbox/cli/node_modules/.bin/vercel
+              help() {
+                output=$1; shift; code=0
+                timeout 20s "$CLI" "$@" >"$output" 2>&1 || code=$?
                 [ "$code" = 0 ] || [ "$code" = 2 ] || { tail -c 8192 "$output"; echo offline-help-failed; return 1; }
               }
               require_flag() {
                 grep -Eq -- "(^|[^[:alnum:]_-])$1([^[:alnum:]_-]|$)" "$2" || { tail -c 8192 "$2"; echo documented-flag-missing; return 1; }
               }
-              offline_help /tmp/version.txt --version
+              help /tmp/version.txt --version
               grep -Fxq -- "65.9.0" /tmp/version.txt || { tail -c 8192 /tmp/version.txt; echo wrong-cli-version; exit 1; }
-              offline_help /tmp/deploy.txt --scope synthetic-team deploy --help
+              help /tmp/deploy.txt --scope synthetic-team deploy --help
               require_flag --skip-domain /tmp/deploy.txt
               require_flag --prod /tmp/deploy.txt
               require_flag --build-env /tmp/deploy.txt
               require_flag --env /tmp/deploy.txt
-              offline_help /tmp/promote.txt --scope synthetic-team promote --help
+              help /tmp/promote.txt --scope synthetic-team promote --help
               require_flag --yes /tmp/promote.txt
-              offline_help /tmp/rollback.txt --scope synthetic-team rollback --help
+              help /tmp/rollback.txt --scope synthetic-team rollback --help
               require_flag --yes /tmp/rollback.txt
-              /sandbox/node/bin/npm audit --omit=dev --audit-level=high --prefix /sandbox/cli
-            ' 2>&1 | head -c 262144 > "$RUNNER_TEMP/vercel-install-output.txt"
-          code=${PIPESTATUS[0]}
+            ' 2>&1 | head -c 262144 > "$RUNNER_TEMP/vercel-help-output.txt"
+          help_code=${PIPESTATUS[0]}
           set -e
-          if [ "$code" != 0 ]; then
-            python3 -B scripts/sanitize-sandbox-log.py "$RUNNER_TEMP/vercel-install-output.txt"
-            echo '::error::sandboxed CLI contract or audit failed'
+          if [ "$help_code" != 0 ]; then
+            python3 -B scripts/sanitize-sandbox-log.py "$RUNNER_TEMP/vercel-help-output.txt"
+            echo '::error::network-isolated CLI help failed'
+            exit 1
+          fi
+          # Audit only the verified public lock in a third sandbox with network,
+          # no installed CLI, and no credentials. Audit remains a hard gate.
+          set +e
+          timeout 90s bwrap --unshare-user --unshare-pid --unshare-ipc --unshare-uts --die-with-parent --clearenv \
+            --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+            --dir /sandbox --ro-bind "$NODE_ROOT" /sandbox/node --size 16777216 --tmpfs /sandbox/input \
+            --ro-bind "$RUNNER_TEMP/sunrise-vercel-input/package.json" /sandbox/input/package.json \
+            --ro-bind "$RUNNER_TEMP/sunrise-vercel-input/package-lock.json" /sandbox/input/package-lock.json \
+            --dir /etc --ro-bind "$RUNNER_TEMP/sunrise-sandbox-passwd" /etc/passwd --dir /etc/ssl --ro-bind /etc/ssl/certs /etc/ssl/certs \
+            --ro-bind /etc/resolv.conf /etc/resolv.conf --ro-bind /etc/hosts /etc/hosts \
+            --proc /proc --dev /dev --size 268435456 --tmpfs /tmp --chdir /tmp \
+            --setenv PATH /sandbox/node/bin:/usr/bin:/bin --setenv NPM_CONFIG_CACHE /tmp/npm-cache \
+            --setenv NPM_CONFIG_USERCONFIG /tmp/user.npmrc --setenv NPM_CONFIG_GLOBALCONFIG /tmp/global.npmrc \
+            /bin/sh -c 'set -eu; mkdir -p /tmp/sandbox-home; : > /tmp/user.npmrc; : > /tmp/global.npmrc; exec /sandbox/node/bin/npm audit --package-lock-only --omit=dev --audit-level=high --prefix /sandbox/input' \
+            2>&1 | head -c 262144 > "$RUNNER_TEMP/vercel-audit-output.txt"
+          audit_code=${PIPESTATUS[0]}
+          set -e
+          if [ "$audit_code" != 0 ]; then
+            python3 -B scripts/sanitize-sandbox-log.py "$RUNNER_TEMP/vercel-audit-output.txt"
+            echo '::error::release CLI dependency audit failed or timed out'
             exit 1
           fi
 
