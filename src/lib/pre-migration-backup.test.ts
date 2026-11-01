@@ -149,8 +149,41 @@ describe("production-deploy-migrate.yml wiring", () => {
 
   it("requires and uploads only the age-encrypted artifact for every executable phase job", () => {
     expect(workflow).not.toMatch(/steps\.backup\.outputs\.encrypted == 'true'/);
-    expect(workflow.match(/retention-days: 3/g)).toHaveLength(4);
+    const phaseJobs = ["predeploy_migrate", "predeploy_verify", "postdeploy_migrate", "postdeploy_verify"];
+    for (const job of phaseJobs) {
+      const block = phaseBlock(job);
+      expect(block.startsWith(`  ${job}:\n`)).toBe(true);
+      expect(block.match(/uses: actions\/upload-artifact@/g)).toHaveLength(1);
+      expect(block.match(/retention-days: 3/g)).toHaveLength(1);
+      expect(block).toContain('"$BACKUP_FILE" == *.dump.age');
+      const uploadPaths = /path: \|\n([\s\S]*?)\n\s+retention-days:/.exec(block)?.[1]
+        .split("\n").map((path) => path.trim());
+      expect(uploadPaths).toEqual([
+        "${{ steps.backup.outputs.artifact_path }}",
+        "${{ steps.backup.outputs.manifest_path }}",
+      ]);
+    }
+    // A fifth upload records a release incident, not a database backup.
+    expect(workflow.match(/uses: actions\/upload-artifact@/g)).toHaveLength(5);
+    const incident = phaseBlock("code_only_release");
+    expect(isExpectedIncidentUpload(incident)).toBe(true);
+    expect(isExpectedIncidentUpload(incident.replace(
+      "path: ${{ runner.temp }}/sunrise-priority-release-incident.json",
+      "path: ${{ runner.temp }}/unexpected.json"
+    ))).toBe(false);
     expect(workflow).toMatch(/BACKUP_AGE_RECIPIENT: \$\{\{ secrets\.BACKUP_AGE_RECIPIENT \}\}/);
     expect(readFileSync(script, "utf8")).not.toMatch(/echo[^\n]*SUPABASE_DB_URL/);
   });
 });
+
+function isExpectedIncidentUpload(block: string): boolean {
+  const steps = block.split("      - name: Upload release incident evidence\n");
+  if (steps.length !== 2) return false;
+  const upload = steps[1].split("\n      - name: ")[0];
+  return (block.match(/uses: actions\/upload-artifact@/g) ?? []).length === 1 &&
+    /^\s+uses: actions\/upload-artifact@/m.test(upload) &&
+    (upload.match(/^\s+path:/gm) ?? []).length === 1 &&
+    /^\s+name: priority-release-incident-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}$/m.test(upload) &&
+    /^\s+path: \$\{\{ runner\.temp \}\}\/sunrise-priority-release-incident\.json$/m.test(upload) &&
+    /^\s+retention-days: 3$/m.test(upload);
+}

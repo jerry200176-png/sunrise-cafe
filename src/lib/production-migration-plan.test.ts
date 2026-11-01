@@ -307,11 +307,24 @@ describe("explicit production migration plan", () => {
     expect(needs(jobs, "predeploy_verify")).toEqual(["predeploy_migrate"]);
     expect(needs(jobs, "deploy")).toEqual(["predeploy_verify"]);
     expect(needs(jobs, "postdeploy_migrate")).toEqual(["deploy"]);
-    expect(needs(jobs, "postdeploy_verify")).toEqual(["postdeploy_migrate"]);
+    // The verification job needs deploy outputs to recheck the exact deployment
+    // before its runner can write, as well as the preceding migration result.
+    expect(needs(jobs, "postdeploy_verify")).toEqual(["deploy", "postdeploy_migrate"]);
     expect(jobs.get("predeploy_verify")).not.toMatch(/if:\s*always\(\)/);
     expect(jobs.get("deploy")).not.toMatch(/if:\s*always\(\)/);
     expect(jobs.get("predeploy_migrate")).toContain("node scripts/run-production-migration-phase.mjs predeploy");
     expect(jobs.get("postdeploy_migrate")).toContain("node scripts/run-production-migration-phase.mjs postdeploy");
+  });
+
+  it("reads supported YAML flow needs and rejects malformed entries", () => {
+    const jobs = new Map([
+      ["bare", "    needs: [deploy, postdeploy_migrate]"],
+      ["quoted", "    needs: [\"deploy\", 'postdeploy_migrate']"],
+      ["bad", "    needs: [deploy,, postdeploy_migrate]"],
+    ]);
+    expect(needs(jobs, "bare")).toEqual(["deploy", "postdeploy_migrate"]);
+    expect(needs(jobs, "quoted")).toEqual(["deploy", "postdeploy_migrate"]);
+    expect(() => needs(jobs, "bad")).toThrow();
   });
 
   it("keeps bank-transfer RPCs service-role-only for Supabase roles", () => {
@@ -351,6 +364,14 @@ function needs(jobs: Map<string, string>, job: string): string[] {
   if (!block) throw new Error(`Missing workflow job ${job}`);
   const inline = /\n    needs:\s*([^\n]+)/.exec(`\n${block}`)?.[1]?.trim();
   if (!inline) return [];
-  if (inline.startsWith("[")) return JSON.parse(inline.replaceAll("'", '"')) as string[];
+  if (inline.startsWith("[")) {
+    // Support a deliberately narrow YAML flow sequence of job identifiers.
+    // Fail closed for complex or malformed input instead of guessing the graph.
+    const identifier = "(?:[A-Za-z_][A-Za-z0-9_]*|\"[A-Za-z_][A-Za-z0-9_]*\"|'[A-Za-z_][A-Za-z0-9_]*')";
+    if (!new RegExp(`^\\[\\s*${identifier}(?:\\s*,\\s*${identifier})*\\s*\\]$`).test(inline)) {
+      throw new Error(`Unsupported workflow needs for ${job}`);
+    }
+    return inline.slice(1, -1).split(",").map((name) => name.trim().replace(/^["']|["']$/g, ""));
+  }
   return [inline];
 }
