@@ -77,6 +77,35 @@ export interface ReservationListResult {
   warnings: string[];
 }
 
+// Keep the admin list contract explicit: selecting `*` accommodates older
+// schemas, but newly added database bookkeeping must not reach the browser.
+const LIST_FIELDS = [
+  "id", "room_id", "customer_name", "phone", "start_time", "end_time", "status",
+  "total_price", "guest_count", "notes", "booking_code", "created_at", "is_notified",
+  "is_deposit_paid", "deposit_payment_note", "deposit_paid_on", "deposit_last_five",
+  "guest_confirmed_at", "pending_payment_reviews", "visit_count", "deposit_auto_cancelled",
+] as const;
+
+function pickFields(value: unknown, fields: readonly string[]): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const source = value as Record<string, unknown>;
+  return Object.fromEntries(fields.filter((field) => Object.hasOwn(source, field)).map((field) => [field, source[field]]));
+}
+
+/** Project only fields used by ReservationList and its payment dialog. */
+function projectReservationListRow(row: ReservationRow): ReservationRow {
+  const result = pickFields(row, LIST_FIELDS) as ReservationRow;
+  if (Object.hasOwn(row, "room_with_branch")) {
+    const room = pickFields(row.room_with_branch, ["id", "name", "branch"]);
+    if (room && Object.hasOwn(room, "branch")) room.branch = pickFields(room.branch, ["name"]);
+    result.room_with_branch = room;
+  }
+  if (Object.hasOwn(row, "preorder")) {
+    result.preorder = pickFields(row.preorder, ["status", "requires_reconfirmation", "item_summary", "guest_notes"]);
+  }
+  return result;
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const SCOPE_REQUIRED_MESSAGE = "後台已更新，請重新整理頁面";
@@ -499,7 +528,7 @@ export async function listReservationsForAdmin(
   const enriched = await enrichReservationRows(page.items, options.enrichDeps ?? defaultEnrichDeps(db, roomIds));
   return {
     scope: params.scope,
-    items: enriched.rows,
+    items: enriched.rows.map(projectReservationListRow),
     nextCursor: page.nextCursor,
     total: page.total,
     warnings: [...warnings, ...enriched.warnings],

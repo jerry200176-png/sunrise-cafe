@@ -277,6 +277,35 @@ describe("listReservationsForAdmin", () => {
     expect(out.items).toHaveLength(1);
   });
 
+  it("returns the fields used by the list and payment dialog without database bookkeeping", async () => {
+    const row = {
+      ...res(1, "confirmed", "2026-10-01T06:00:00+00:00"),
+      room_id: "r1", customer_name: "測試客人", end_time: "2026-10-01T08:00:00+00:00",
+      total_price: 500, guest_count: 2, notes: null, booking_code: "ABC123", created_at: "2026-09-01T00:00:00Z",
+      is_notified: true, is_deposit_paid: true, deposit_paid_on: "2026-09-02", deposit_last_five: "12345",
+      deposit_payment_note: "測試", guest_confirmed_at: null,
+      deposit_approved_retry_key: "internal", future_internal_column: "future",
+      room_with_branch: { id: "r1", name: "A 包廂", internal: "hidden", branch: { name: "大安", internal: "hidden" } },
+    };
+    const { db } = fakeDb((q) => (q.table === "rooms" ? { data: rooms } : { data: [row] }));
+    const enrichDeps: EnrichDeps = {
+      ...noEnrich,
+      pendingCounts: async () => new Map([[uuid(1), 2]]),
+      preorders: async () => new Map([[uuid(1), { status: "submitted", requires_reconfirmation: false, item_summary: "咖啡 ×1", guest_notes: null, internal: "hidden" }]]),
+      visitCounts: async () => new Map([[row.phone, 3]]),
+    };
+    const out = await listReservationsForAdmin(params({ id: uuid(1) }), { db, enrichDeps });
+    expect(out.items[0]).toEqual({
+      id: uuid(1), room_id: "r1", customer_name: "測試客人", phone: row.phone, start_time: row.start_time,
+      end_time: row.end_time, status: "confirmed", total_price: 500, guest_count: 2, notes: null,
+      booking_code: "ABC123", created_at: row.created_at, is_notified: true, is_deposit_paid: true,
+      deposit_paid_on: "2026-09-02", deposit_last_five: "12345", deposit_payment_note: "測試", guest_confirmed_at: null,
+      room_with_branch: { id: "r1", name: "A 包廂", branch: { name: "大安" } },
+      pending_payment_reviews: 2, visit_count: 3, deposit_auto_cancelled: false,
+      preorder: { status: "submitted", requires_reconfirmation: false, item_summary: "咖啡 ×1", guest_notes: null },
+    });
+  });
+
   it("a branch without rooms returns an empty list without querying reservations", async () => {
     const { db, queries } = fakeDb(() => ({ data: [] }));
     const out = await listReservationsForAdmin(params(), { db, enrichDeps: noEnrich });
