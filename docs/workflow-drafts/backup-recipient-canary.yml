@@ -1,0 +1,155 @@
+# REVIEW DRAFT ONLY. This file is outside .github/workflows and is not runnable.
+# Promote only after the prerequisites in docs/plans/2026-11-backup-recipient-canary-draft.md.
+name: Backup recipient canary (draft)
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: backup-recipient-canary
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    permissions: {}
+    env:
+      BASH_ENV: /dev/null
+      SHELLOPTS: ""
+    steps:
+      - name: Require main branch
+        shell: bash
+        run: |
+          set +x
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "recipient canary is restricted to main"
+            exit 1
+          fi
+
+  canary:
+    needs: guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment:
+      name: backup-recipient-canary
+    permissions: {}
+    env:
+      BASH_ENV: /dev/null
+      SHELLOPTS: ""
+    steps:
+
+      - name: Install age
+        shell: bash
+        run: |
+          set +x
+          if ! sudo apt-get update -qq >/dev/null 2>&1 || \
+             ! sudo apt-get install -y -qq --no-install-recommends age >/dev/null 2>&1; then
+            echo "recipient canary failed at age installation"
+            exit 1
+          fi
+          if ! command -v age >/dev/null 2>&1; then
+            echo "recipient canary failed at age availability check"
+            exit 1
+          fi
+
+      - name: Encrypt fixed synthetic canary
+        shell: bash
+        env:
+          AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
+        run: |
+          set +x
+          set -euo pipefail
+          umask 077
+
+          output_dir="$RUNNER_TEMP/backup-recipient-canary-output"
+          work_dir="$(mktemp -d "$RUNNER_TEMP/backup-recipient-canary.XXXXXX")"
+          mkdir -m 700 -p "$output_dir"
+          trap 'rm -rf -- "$work_dir"' EXIT
+
+          if [[ -z "${AGE_RECIPIENT//[[:space:]]/}" ]]; then
+            echo "recipient canary failed: repository secret unavailable to this job"
+            exit 1
+          fi
+          if [[ "$AGE_RECIPIENT" == *$'\n'* || "$AGE_RECIPIENT" == *$'\r'* ]]; then
+            echo "recipient canary failed: exactly one recipient line is required"
+            exit 1
+          fi
+          if [[ ! "$AGE_RECIPIENT" =~ ^age1[023456789acdefghjklmnpqrstuvwxyz]{58}$ ]]; then
+            echo "recipient canary failed: only one native age X25519 recipient is supported"
+            exit 1
+          fi
+
+          printf '%s\n' \
+            'sunrise-backup-recipient-canary-v1' \
+            'purpose=synthetic-encryption-compatibility-check' \
+            'production-data=false' > "$work_dir/canary.txt"
+          printf '%s\n' "$AGE_RECIPIENT" > "$work_dir/recipients.txt"
+
+          if ! age --encrypt --recipients-file "$work_dir/recipients.txt" \
+              --output "$output_dir/canary.txt.age" "$work_dir/canary.txt" \
+              2>"$work_dir/age.stderr"; then
+            echo "recipient canary failed at encryption"
+            exit 1
+          fi
+          if [[ ! -s "$output_dir/canary.txt.age" ]]; then
+            echo "recipient canary failed: ciphertext is empty"
+            exit 1
+          fi
+
+          (
+            cd "$output_dir"
+            sha256sum canary.txt.age > canary.txt.age.sha256
+          )
+          ciphertext_digest="$(cd "$output_dir" && sha256sum canary.txt.age | cut -d ' ' -f 1)"
+          printf '{"format":"sunrise-recipient-canary-v1","scope":"synthetic-only","ciphertext_sha256":"%s"}\n' \
+            "$ciphertext_digest" > "$output_dir/manifest.json"
+
+      - name: Require all artifact files before upload
+        shell: bash
+        run: |
+          set +x
+          set -euo pipefail
+          output_dir="$RUNNER_TEMP/backup-recipient-canary-output"
+          for name in canary.txt.age canary.txt.age.sha256 manifest.json; do
+            if [[ ! -s "$output_dir/$name" ]]; then
+              echo "recipient canary failed: required artifact file missing or empty"
+              exit 1
+            fi
+          done
+
+      - name: Upload ciphertext-only canary
+        # if-no-files-found is an extra guard; the preceding step checks every required file.
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: backup-recipient-canary-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/backup-recipient-canary-output/canary.txt.age
+            ${{ runner.temp }}/backup-recipient-canary-output/canary.txt.age.sha256
+            ${{ runner.temp }}/backup-recipient-canary-output/manifest.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Report artifact identity only
+        shell: bash
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        run: |
+          set +x
+          set -euo pipefail
+          if [[ -z "$ARTIFACT_ID" || -z "$ARTIFACT_DIGEST" ]]; then
+            echo "recipient canary failed: artifact identity is missing"
+            exit 1
+          fi
+          printf 'artifact_id=%s\n' "$ARTIFACT_ID"
+          printf 'artifact_digest=%s\n' "$ARTIFACT_DIGEST"
+
+      - name: Remove local canary files
+        if: always()
+        shell: bash
+        run: |
+          set +x
+          rm -rf -- "$RUNNER_TEMP/backup-recipient-canary-output"
