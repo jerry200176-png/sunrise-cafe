@@ -179,9 +179,11 @@ class Context:
             incident_ok = self.record('production-outcome-unknown', intent['baseline'])
             try:
                 # Reconcile only through reads. Never repeat the create POST.
-                candidate, deployment = self.api.find_candidate(
+                candidate, _deployment = self.api.find_candidate(
                     self.sha, self.run_id, self.attempt, deadline=self.clock() + self.wait_seconds)
-                artifacts.persist_candidate(candidate_path, intent, {'id': candidate}, deployment)
+                # A provider listing and caller-supplied metadata cannot prove
+                # this ID came from our POST. Keep it as investigation only.
+                artifacts.persist_observation(Path(candidate_path).with_name('observed-candidate.json'), intent, candidate)
             except Exception:
                 pass
             return 'unknown' if incident_ok else 'incident-unwritten'

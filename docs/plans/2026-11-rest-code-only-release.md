@@ -50,8 +50,9 @@ attempt and commit as Vercel metadata. On an unknown create outcome the workflow
 does not repeat POST: it reads all bounded pages filtered by project, target,
 branch and SHA, requires exactly one matching run/attempt/commit marker, and
 rechecks the deployment's project, target, repository, ref, SHA and metadata.
-If found, it saves and attempts to upload the candidate for the separate
-monitor, but still reports unknown. Zero or multiple matches, inaccessible or
+If found, it saves only a separately named untrusted observation for manual
+investigation and still reports unknown. It is never uploaded as trusted
+candidate evidence and cannot authorize automatic rollback. Zero or multiple matches, inaccessible or
 incomplete pages, and identity mismatches remain unknown. Provider list results
 may be eventually consistent; the marker is not signed or an atomic lock.
 If the runner dies before candidate upload, the later monitor cannot attribute

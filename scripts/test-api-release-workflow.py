@@ -121,16 +121,20 @@ class Tests(unittest.TestCase):
             self.assertEqual(p.created, 1)
             self.assertEqual(incidents[-1][0], 'create-claim-unavailable')
 
-    def test_lost_create_response_preserves_only_uniquely_recovered_candidate(self):
+    def test_lost_create_response_preserves_only_untrusted_observation(self):
         with tempfile.TemporaryDirectory(prefix='sunrise-workflow-') as tmp:
             ctx, p, g, incidents, intent, ip, cp = self.setup_flow(tmp)
             iid, digest = g.upload(456, 'api-release-intent', intent); p.fail_create = True; p.recoverable = True
             self.assertEqual(ctx.create(ip, cp, intent_id=iid, intent_digest=digest), 'unknown')
-            self.assertEqual((p.created, p.searches), (1, 1)); self.assertTrue(cp.exists())
-            self.assertEqual(json.loads(cp.read_text())['candidate'], 'dpl_new')
-            cid, cdigest = g.upload(457, 'api-release-candidate', json.loads(cp.read_text()))
-            self.assertEqual(ctx.monitor(iid, digest, cid, cdigest), 'rolled-back')
-            self.assertEqual(p.rolled_back, 1)
+            self.assertEqual((p.created, p.searches), (1, 1)); self.assertFalse(cp.exists())
+            observation = json.loads(cp.with_name('observed-candidate.json').read_text())
+            self.assertEqual(observation['kind'], 'untrusted-list-observation')
+            self.assertEqual(observation['candidate'], 'dpl_new')
+            # A different writer can copy public metadata; list evidence must
+            # never be promoted into trusted candidate or automatic rollback.
+            cid, cdigest = g.upload(457, 'api-release-candidate', observation)
+            self.assertEqual(ctx.monitor(iid, digest, cid, cdigest), 'unknown')
+            self.assertEqual(p.rolled_back, 0)
 
     def test_candidate_metadata_retries_do_not_repeat_production_create(self):
         with tempfile.TemporaryDirectory(prefix='sunrise-workflow-') as tmp:

@@ -354,6 +354,28 @@ def persist_candidate(path, intent, create_response, deployment):
     return record
 
 
+def persist_observation(path, intent, candidate):
+    """Persist an untrusted list observation; never valid as candidate evidence."""
+    w.validate(intent)
+    if not isinstance(candidate, str) or not w.DEPLOYMENT.fullmatch(candidate):
+        raise InvalidEvidence('invalid observed deployment')
+    path = Path(path)
+    if path.name != 'observed-candidate.json': raise InvalidEvidence('invalid observation filename')
+    record = {'kind': 'untrusted-list-observation', 'run_id': intent['run_id'], 'attempt': intent['attempt'],
+              'commit': intent['commit'], 'project': intent['project'], 'candidate': candidate}
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0)
+    parent = w.open_safe_directory(path.parent)
+    try:
+        descriptor = os.open(path.name, flags, 0o600, dir_fd=parent)
+        with os.fdopen(descriptor, 'w', encoding='utf-8') as output:
+            json.dump(record, output, sort_keys=True, separators=(',', ':'))
+            output.write('\n'); output.flush(); os.fsync(output.fileno())
+        os.fsync(parent)
+    finally:
+        os.close(parent)
+    return record
+
+
 def bind_remote_candidate(github, deployment_lookup, run_id, attempt, sha,
                           intent_artifact_id, intent_digest, candidate_artifact_id, candidate_digest):
     """Authenticate both run artifacts and recheck the candidate deployment.

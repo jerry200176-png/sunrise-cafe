@@ -94,6 +94,12 @@ class Tests(unittest.TestCase):
         record = {'version': 1, 'run_id': '123', 'attempt': '2', 'commit': INTENT['commit'],
                   'baseline': 'dpl_base', 'candidate': 'dpl_new', 'project': a.w.PROJECT}
         with self.assertRaises(a.InvalidEvidence): a.validate_candidate(INTENT, record)
+    def test_untrusted_list_observation_is_never_candidate_evidence(self):
+        with tempfile.TemporaryDirectory(prefix='sunrise-observation-') as tmp:
+            path = pathlib.Path(tmp) / 'observed-candidate.json'
+            record = a.persist_observation(path, INTENT, 'dpl_new')
+            self.assertEqual(record['kind'], 'untrusted-list-observation')
+            with self.assertRaises(a.InvalidEvidence): a.validate_candidate(INTENT, record)
     def test_verified_candidate_archive_is_rebound_to_deployment(self):
         dep = {'id': 'dpl_new', 'projectId': a.w.PROJECT, 'target': 'production',
                'meta': {'sunrise_run_id': '123', 'sunrise_run_attempt': '1', 'sunrise_commit': INTENT['commit']},

@@ -19,6 +19,8 @@ class Tests(unittest.TestCase):
                    'Require candidate upload receipt', 'Verify production or attempt rollback']
         offsets = [workflow.index(step) for step in ordered]
         self.assertEqual(offsets, sorted(offsets))
+        self.assertIn('api-release-observation-${{ github.run_id }}-${{ github.run_attempt }}', workflow)
+        self.assertNotIn('steps.candidate_recovered.outputs', workflow)
     def test_intent_is_exclusive_and_contains_only_required_fields(self):
         with tempfile.TemporaryDirectory(prefix='sunrise-intent-') as tmp:
             path = pathlib.Path(tmp) / 'intent.json'; w.write_intent(path, INTENT)
