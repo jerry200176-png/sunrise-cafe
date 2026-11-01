@@ -160,7 +160,7 @@ jobs:
                 grep -q -- "$1" "$2" || { tail -c 8192 "$2"; echo documented-flag-missing; return 1; }
               }
               offline_help /tmp/version.txt --version
-              require_flag "65\\.9\\.0" /tmp/version.txt
+              grep -Fxq -- "65.9.0" /tmp/version.txt || { tail -c 8192 /tmp/version.txt; echo wrong-cli-version; exit 1; }
               offline_help /tmp/deploy.txt --scope synthetic-team deploy --help
               require_flag --skip-domain /tmp/deploy.txt
               require_flag --prod /tmp/deploy.txt

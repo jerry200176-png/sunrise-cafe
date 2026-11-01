@@ -295,6 +295,15 @@ class WorkflowSafetyTests(unittest.TestCase):
         self.assertNotIn("sudo ", job)
         self.assertNotIn("--bind / /", job)
         self.assertNotIn("VERCEL_TOKEN", job)
+        self.assertIn('grep -Fxq -- "65.9.0" /tmp/version.txt', job)
+
+    def test_cli_version_match_rejects_near_matches(self):
+        with tempfile.TemporaryDirectory(prefix="sunrise-cli-version-") as directory:
+            path = Path(directory) / "version.txt"
+            for text, expected in (("65.9.0\n", 0), ("165x9x0\n", 1), ("65x9x0\n", 1), ("165.9.0\n", 1)):
+                path.write_text(text, encoding="utf-8")
+                result = subprocess.run(["grep", "-Fxq", "--", "65.9.0", str(path)], check=False)
+                self.assertEqual(result.returncode, expected)
 
     def test_incident_record_is_private_and_rejects_overwrite(self):
         with tempfile.TemporaryDirectory(prefix="sunrise-incident-") as directory:
