@@ -29,6 +29,12 @@ async function itemCount() {
   assert.equal(result.error, null);
   return result.count;
 }
+function assertPermissionDenied(result, role) {
+  assert.ok(result.error, `${role} unexpectedly had permission`);
+  assert.equal(result.error.code, '42501');
+  assert.match(result.error.message, /^permission denied/);
+  assert.equal(result.status, role === 'anon' ? 401 : 403);
+}
 
 (async () => {
   for (let i = 0; i < 100; i++) {
@@ -38,13 +44,13 @@ async function itemCount() {
   }
   for (const role of ['anon', 'authenticated']) {
     const denied = await rpc(role, 'add_reservation_order_items_once', args('denied-request-00001'));
-    assert.ok(denied.error, `${role} could execute add RPC`);
+    assertPermissionDenied(denied, role);
     const cancel = await rpc(role, 'cancel_reservation_order_add', {
       p_reservation_id: reservation, p_order_id: order, p_request_key: 'denied-request-00001',
     });
-    assert.ok(cancel.error, `${role} could execute cancel RPC`);
+    assertPermissionDenied(cancel, role);
     const ledger = await client(role).from('reservation_order_add_requests').select('state');
-    assert.ok(ledger.error, `${role} could read the ledger`);
+    assertPermissionDenied(ledger, role);
   }
   const first = await admin.rpc('add_reservation_order_items_once', args('repeat-request-00001'));
   assert.equal(first.error, null);
