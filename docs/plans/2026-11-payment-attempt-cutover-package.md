@@ -76,6 +76,10 @@ draft 的建單候選改從 reservation→room 取得 authoritative branch，要
 
 研究同時證實兩個未解缺口：先 paid 再 refund 會留下原 paid outbox（不能宣稱已安全通知或撤回）；未知綁定與 DB transaction 失敗無法 durable 接收事件。跨訂位 event identity 鎖序、部分退款、既有 writer、舊版混跑及授權／保留策略仍需設計。四項 app RED 必須保留，不能因 fixture 通過而解除部署阻擋。
 
+### 事件先接收的第二輪隔離研究
+
+`scripts/research/stripe-receipt-races/` 是純 PG17 合成研究，先獨立提交 receipt，再於另一 transaction 處理成功／退款；兩 session 實測兩種鎖順序，保留未知綁定及 apply 回滾前已提交的 receipt。退款可取消尚未 claim 的合成 paid outbox；若已 claim，只標記需核對，不能宣稱訊息未送出。事件 ID 衝突在已處理後也無法撤回既有結果。這些都是合成局部性質，不能推論真 provider、未知簽章、舊 writer、跨訂位鎖序或部分退款已安全；receipt transaction 失敗本身仍無 durable 記錄。不得將 fixture 當 migration 或已解決四項 app RED。
+
 ## 版本相容與切換次序
 
 1. 設計階段先用 #536 合成兩 session 研究與 production-like PG17/PostgREST schema 建立 RED 測試；另以 fake Stripe/LINE sandbox 驗證 API 失敗、逾時、資料庫回應遺失、整個 process 中斷和 caller retry，不能觸真付款。
