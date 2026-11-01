@@ -34,6 +34,13 @@ def worker():
         if homepage.status != 200 or 'text/html' not in homepage.headers.get('Content-Type', '').lower():
             raise RuntimeError('homepage response invalid')
         if not homepage.read(4096): raise RuntimeError('homepage is empty')
+    with opener.open(urllib.request.Request('https://' + HOST + '/api/booking-health', headers={'Cache-Control': 'no-cache'}), timeout=15) as booking:
+        if booking.status != 200: raise RuntimeError('booking health status invalid')
+        payload = booking.read(MAX_BODY + 1)
+        if len(payload) > MAX_BODY: raise RuntimeError('booking health response too large')
+        state = json.loads(payload, object_pairs_hook=artifacts.strict_object)
+        if not isinstance(state, dict) or state.get('ok') is not True:
+            raise RuntimeError('booking backend unhealthy')
     json.dump({'deployed': value.get('deployed'), 'commit': value.get('commit')}, sys.stdout)
 
 

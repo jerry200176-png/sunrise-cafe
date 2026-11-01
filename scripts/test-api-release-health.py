@@ -25,6 +25,7 @@ class Tests(unittest.TestCase):
             def open(self, req, timeout):
                 self_test.assertIsNone(req.get_header('Authorization'))
                 if req.full_url == 'https://' + h.HOST + '/': return Response(b'<html>synthetic</html>')
+                if req.full_url == 'https://' + h.HOST + '/api/booking-health': return Response(b'{"ok":true}')
                 self_test.assertEqual(req.full_url, 'https://' + h.HOST + '/api/version')
                 return Response(self.body)
         self_test = self
@@ -33,6 +34,16 @@ class Tests(unittest.TestCase):
             self.assertEqual(json.loads(output.getvalue()), {'deployed': 'v2', 'commit': 'abc'})
         with patch.object(h, 'NETWORK_ENABLED', True), patch.object(h.urllib.request, 'build_opener', return_value=Opener(b'x' * (h.MAX_BODY + 1))):
             with self.assertRaises(RuntimeError): h.worker()
+    def test_worker_rejects_booking_backend_failure_without_echoing_data(self):
+        class Opener:
+            def open(self, req, timeout):
+                if req.full_url.endswith('/api/version'): return Response(b'{"deployed":"v2","commit":"abc"}')
+                if req.full_url.endswith('/api/booking-health'): return Response(b'{"ok":false,"error":"synthetic-private"}')
+                return Response(b'<html>synthetic</html>')
+        with patch.object(h, 'NETWORK_ENABLED', True), patch.object(h.urllib.request, 'build_opener', return_value=Opener()):
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                with self.assertRaises(RuntimeError): h.worker()
+            self.assertNotIn('synthetic-private', output.getvalue())
     def test_probe_requires_expected_commit(self):
         with patch.object(h, 'NETWORK_ENABLED', True), patch.object(h.artifacts, 'run_worker_with_deadline', return_value=b'{"deployed":"v2","commit":"' + b'a' * 40 + b'"}'):
             self.assertTrue(h.probe(None, 'dpl_fake', 'a' * 40))

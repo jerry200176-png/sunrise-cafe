@@ -26,8 +26,11 @@ before credential access. Nothing here deploys or changes production.
    commit metadata, persist and upload its candidate ID. This can serve real
    production traffic before verification completes.
 4. Recheck both remote artifacts and deployment identity, then poll boundedly
-   for READY and alias assignment before checking `/api/version` commit and a
-   non-empty HTML homepage. The monitor also polls boundedly for a delayed alias;
+   for READY and alias assignment before checking `/api/version` commit, a
+   non-empty HTML homepage, and the public `/api/booking-health` result. The
+   latter calls the configured database and `get_blocked_slots` RPC; confirm
+   the actual target and RPC side effects before ever enabling it. The monitor
+   also polls boundedly for a delayed alias;
    expiry remains unknown because the provider request might still complete.
    Polling passes the remaining deadline to each Vercel/health request; the
    preceding artifact verification has its own per-request deadlines and
