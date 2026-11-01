@@ -3,8 +3,12 @@
 import json
 import os
 import queue
+import re
+import shutil
+import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -15,9 +19,27 @@ IMAGE = 'postgres:17-alpine'
 CID = None
 SESSIONS = []
 COUNTER = 0
+DOCKER_CONFIG = None
+DOCKER_BIN = shutil.which('docker', path='/usr/local/bin:/usr/bin:/bin')
+SAFE_ENV = {'PATH':'/usr/local/bin:/usr/bin:/bin', 'LANG':'C.UTF-8'}
+
+def validate_socket_info(socket_info):
+    if not stat.S_ISSOCK(socket_info.st_mode) or socket_info.st_uid != 0:
+        raise RuntimeError('root-owned local Docker socket unavailable')
+
+def validate_container_id(value):
+    if not re.fullmatch(r'[0-9a-f]{64}', value):
+        raise RuntimeError('unexpected synthetic container identity')
+    return value
+
+def docker_command(*args):
+    if not DOCKER_BIN or not DOCKER_CONFIG:
+        raise RuntimeError('trusted local Docker setup unavailable')
+    return [DOCKER_BIN,'--host','unix:///var/run/docker.sock','--config',DOCKER_CONFIG,*args]
 
 def run(*cmd, input=None, check=True):
-    return subprocess.run(cmd, input=input, capture_output=True, text=True, check=check, timeout=30)
+    if not cmd or cmd[0] != 'docker': raise RuntimeError('unexpected subprocess')
+    return subprocess.run(docker_command(*cmd[1:]), env=SAFE_ENV, input=input, capture_output=True, text=True, check=check, timeout=30)
 
 def sql(query):
     return run('docker','exec','-i',CID,'psql','-U','postgres','-X','-qAt','-v','ON_ERROR_STOP=1', input=query+'\n').stdout.strip()
@@ -25,7 +47,7 @@ def sql(query):
 class Session:
     def __init__(self, app):
         self.app=app
-        self.proc=subprocess.Popen(['docker','exec','-i','-e','PGAPPNAME='+app,CID,'psql','-U','postgres','-X','-qAt','-v','ON_ERROR_STOP=1'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1)
+        self.proc=subprocess.Popen(docker_command('exec','-i','-e','PGAPPNAME='+app,CID,'psql','-U','postgres','-X','-qAt','-v','ON_ERROR_STOP=1'),env=SAFE_ENV,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1)
         self.lines=queue.Queue()
         threading.Thread(target=self._read,daemon=True).start()
         SESSIONS.append(self)
@@ -87,7 +109,8 @@ def check(query, expected):
 def main():
     global CID
     run('docker','image','inspect',IMAGE)
-    CID=run('docker','run','-d','--network','none','--log-driver','none','--tmpfs','/var/lib/postgresql/data:rw,size=256m','-e','POSTGRES_PASSWORD=synthetic-only-password',IMAGE).stdout.strip()
+    candidate=run('docker','run','-d','--pull=never','--network','none','--log-driver','none','--tmpfs','/var/lib/postgresql/data:rw,size=256m','-e','POSTGRES_PASSWORD=synthetic-only-password',IMAGE).stdout.strip()
+    CID=validate_container_id(candidate)
     cfg=json.loads(run('docker','inspect',CID).stdout)[0]
     assert cfg['HostConfig']['NetworkMode']=='none'
     assert '/var/lib/postgresql/data' in cfg['HostConfig']['Tmpfs']
@@ -175,7 +198,14 @@ def main():
     print('CONTRACT_FIXTURE_ONLY: no application RPC, provider, notification, or production data tested',flush=True)
 
 if __name__=='__main__':
-    try: main()
-    finally:
-        for session in SESSIONS: session.close()
-        if CID: run('docker','rm','-f',CID,check=False)
+    try:
+        socket_info=os.stat('/var/run/docker.sock')
+        validate_socket_info(socket_info)
+        with tempfile.TemporaryDirectory(prefix='sunrise-race-docker-config-') as config:
+            DOCKER_CONFIG=config
+            try: main()
+            finally:
+                for session in SESSIONS: session.close()
+                if CID: run('docker','rm','-f',CID,check=False)
+    except OSError as error:
+        raise SystemExit('local Docker setup unavailable') from error

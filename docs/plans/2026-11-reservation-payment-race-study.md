@@ -11,7 +11,7 @@
 
 ## 如何重跑
 
-執行 `python3 scripts/research/reservation-payment-races/run.py`。需本機 Docker daemon、Python 3 與已存在的 `postgres:17-alpine` 映像；程式不拉取映像，建立獨立容器，檢查 `--network none`、PGDATA tmpfs、沒有 bind/volume/ports、server major 17，僅寫合成資料，結束自動移除容器。不得改連正式資料庫，不需要任何正式憑證。
+執行 `python3 scripts/research/reservation-payment-races/run.py`。需可信本機 Docker daemon、root 擁有的 `/var/run/docker.sock`、Python 3 與已存在的 `postgres:17-alpine` 映像；程式明確使用該 Unix socket、獨立空白 Docker config 與精簡程序環境，拒絕不可驗證的 socket，`--pull=never` 禁止下載映像。它建立獨立容器，檢查 `--network none`、PGDATA tmpfs、沒有 bind/volume/ports、server major 17，僅寫合成資料，結束自動移除容器。Socket 檔案權限檢查不能證明本機 daemon 未被替換或轉送，因此仍需可信工作站／daemon。隔離工具測試可執行 `PYTHONDONTWRITEBYTECODE=1 python3 scripts/research/reservation-payment-races/test_isolation.py`。不得改連正式資料庫，不需要任何正式憑證。
 
 每項並行案例用兩條獨立 psql session：先讓第一筆交易保持未提交，再送第二筆操作；只在 `pg_stat_activity` 顯示第二條 session 等待鎖，且 `pg_blocking_pids` 確認實際被第一條交易阻塞後才提交第一筆，檢查兩筆結果與最終資料庫狀態。這是同步屏障，不靠 sleep 猜測兩筆交易有無重疊。
 
