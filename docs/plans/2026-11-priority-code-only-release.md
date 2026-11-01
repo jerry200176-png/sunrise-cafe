@@ -101,8 +101,9 @@ The npm configuration test uses two distinct empty sandbox files and a synthetic
 passwd entry pointing to a tmpfs home; it does not mount or change the host home.
 The public CLI manifests are copied from bounded regular Git blobs, never through
 checkout symlinks. Install/help output and execution time are bounded, but this
-does not impose a total size quota on the job-owned install directory and is not
-an absolute guarantee against hostile kernel or resource-exhaustion behavior.
+does not establish an absolute guarantee against hostile kernel or resource
+exhaustion. Installation and npm cache use separate size-bounded tmpfs mounts;
+CLI help runs in a nested network-disabled sandbox with read-only dependencies.
 The PR can modify both the workflow and the blob helper itself; the helper runs
 outside the sandbox. Thus this sandbox limits third-party CLI execution only when
 the workflow and helper are already trusted. It is not an isolation boundary

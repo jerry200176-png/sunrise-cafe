@@ -115,107 +115,67 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
-      - name: Check isolated npm configuration without network
+      - name: Verify locked CLI in bounded rootless sandboxes
         run: |
           set -euo pipefail
           command -v bwrap >/dev/null || { echo '::error::rootless sandbox unavailable'; exit 1; }
           NODE_ROOT="$(dirname "$(dirname "$(readlink -f "$(command -v node)")")")"
           umask 077
+          mkdir -p "$RUNNER_TEMP/sunrise-vercel-input"
+          bash scripts/verified-release-cli-blobs.sh "$RUNNER_TEMP/sunrise-vercel-input"
           printf 'sandbox:x:%s:%s:Sandbox:/tmp/sandbox-home:/bin/sh\n' "$(id -u)" "$(id -g)" > "$RUNNER_TEMP/sunrise-sandbox-passwd"
-          bwrap --unshare-user --unshare-pid --unshare-net --unshare-ipc --unshare-uts --die-with-parent --clearenv \
-            --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
-            --dir /sandbox --ro-bind "$NODE_ROOT" /sandbox/node --dir /etc --ro-bind "$RUNNER_TEMP/sunrise-sandbox-passwd" /etc/passwd \
-            --proc /proc --dev /dev --tmpfs /tmp --chdir /tmp \
-            --setenv PATH /sandbox/node/bin:/usr/bin:/bin --setenv NPM_CONFIG_CACHE /tmp/npm-cache \
-            /bin/sh -c '
-              set -e
-              mkdir -p /tmp/sandbox-home
-              : > /tmp/shared.npmrc; : > /tmp/user.npmrc; : > /tmp/global.npmrc
-              if NPM_CONFIG_USERCONFIG=/tmp/shared.npmrc NPM_CONFIG_GLOBALCONFIG=/tmp/shared.npmrc npm config get registry >/dev/null 2>&1; then exit 1; fi
-              NPM_CONFIG_USERCONFIG=/tmp/user.npmrc NPM_CONFIG_GLOBALCONFIG=/tmp/global.npmrc npm config get registry >/dev/null
-            '
-      - name: Install locked CLI without lifecycle scripts or secrets
-        run: |
-          set -euo pipefail
-          command -v bwrap >/dev/null || { echo '::error::rootless sandbox unavailable'; exit 1; }
-          NODE_ROOT="$(dirname "$(dirname "$(readlink -f "$(command -v node)")")")"
-          mkdir -p "$RUNNER_TEMP/sunrise-vercel-cli"
-          # Read exact regular blobs from HEAD rather than following any PR
-          # working-tree symlink. Reject unexpected modes and oversized inputs.
-          bash scripts/verified-release-cli-blobs.sh "$RUNNER_TEMP/sunrise-vercel-cli"
-          # Only public lockfiles and this job-owned install directory are
-          # mounted. No checkout, home, runner process tree, or host sockets.
+          # Install with network only inside a bounded tmpfs. No checkout,
+          # credential, runner home, host socket or host process tree is mounted.
           set +e
-          timeout 180s bwrap --unshare-user --unshare-pid --unshare-ipc --unshare-uts --die-with-parent --clearenv \
+          timeout 240s bwrap --unshare-user --unshare-pid --unshare-ipc --unshare-uts --die-with-parent --clearenv \
             --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
-            --dir /sandbox --ro-bind "$NODE_ROOT" /sandbox/node --bind "$RUNNER_TEMP/sunrise-vercel-cli" /sandbox/cli \
+            --dir /sandbox --ro-bind "$NODE_ROOT" /sandbox/node --size 1073741824 --tmpfs /sandbox/cli \
+            --ro-bind "$RUNNER_TEMP/sunrise-vercel-input/package.json" /sandbox/cli/package.json \
+            --ro-bind "$RUNNER_TEMP/sunrise-vercel-input/package-lock.json" /sandbox/cli/package-lock.json \
             --dir /etc --ro-bind "$RUNNER_TEMP/sunrise-sandbox-passwd" /etc/passwd --dir /etc/ssl --ro-bind /etc/ssl/certs /etc/ssl/certs \
             --ro-bind /etc/resolv.conf /etc/resolv.conf --ro-bind /etc/hosts /etc/hosts \
-            --proc /proc --dev /dev --tmpfs /tmp --chdir /tmp \
+            --proc /proc --dev /dev --size 1073741824 --tmpfs /tmp --chdir /tmp \
             --setenv PATH /sandbox/node/bin:/usr/bin:/bin --setenv NPM_CONFIG_CACHE /tmp/npm-cache \
             --setenv NPM_CONFIG_USERCONFIG /tmp/user.npmrc --setenv NPM_CONFIG_GLOBALCONFIG /tmp/global.npmrc \
             --setenv DO_NOT_TRACK 1 --setenv VERCEL_TELEMETRY_DISABLED 1 \
-            /bin/sh -c 'set -e; ulimit -f 65536; mkdir -p /tmp/sandbox-home; : > /tmp/user.npmrc; : > /tmp/global.npmrc; /sandbox/node/bin/npm config get registry >/dev/null; exec /sandbox/node/bin/npm ci --ignore-scripts --no-audit --no-fund --prefix /sandbox/cli' \
-            2>&1 | head -c 262144 > "$RUNNER_TEMP/vercel-install-output.txt"
+            /bin/sh -c '
+              set -eu
+              ulimit -f 262144
+              mkdir -p /tmp/sandbox-home
+              : > /tmp/user.npmrc; : > /tmp/global.npmrc
+              /sandbox/node/bin/npm config get registry >/dev/null
+              /sandbox/node/bin/npm ci --ignore-scripts --no-audit --no-fund --prefix /sandbox/cli
+              offline_help() {
+                output=$1; shift
+                code=0
+                timeout 20s bwrap --unshare-user --unshare-pid --unshare-net --unshare-ipc --unshare-uts --die-with-parent --clearenv \
+                  --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+                  --dir /sandbox --ro-bind /sandbox/node /sandbox/node --ro-bind /sandbox/cli /sandbox/cli \
+                  --dir /etc --ro-bind /etc/passwd /etc/passwd --proc /proc --dev /dev --size 16777216 --tmpfs /tmp --chdir /tmp \
+                  --setenv PATH /sandbox/node/bin:/usr/bin:/bin --setenv DO_NOT_TRACK 1 --setenv VERCEL_TELEMETRY_DISABLED 1 \
+                  /bin/sh -c "mkdir -p /tmp/sandbox-home; exec /sandbox/cli/node_modules/.bin/vercel \"\$@\"" sh "$@" >"$output" 2>&1 || code=$?
+                [ "$code" = 0 ] || [ "$code" = 2 ] || { echo offline-help-failed; return 1; }
+              }
+              offline_help /tmp/version.txt --version
+              grep -q 65\.9\.0 /tmp/version.txt
+              offline_help /tmp/deploy.txt --scope synthetic-team deploy --help
+              grep -q -- --skip-domain /tmp/deploy.txt
+              grep -q -- --prod /tmp/deploy.txt
+              grep -q -- --build-env /tmp/deploy.txt
+              grep -q -- --env /tmp/deploy.txt
+              offline_help /tmp/promote.txt --scope synthetic-team promote --help
+              grep -q -- --yes /tmp/promote.txt
+              offline_help /tmp/rollback.txt --scope synthetic-team rollback --help
+              grep -q -- --yes /tmp/rollback.txt
+              /sandbox/node/bin/npm audit --omit=dev --audit-level=high --prefix /sandbox/cli
+            ' 2>&1 | head -c 262144 > "$RUNNER_TEMP/vercel-install-output.txt"
           code=${PIPESTATUS[0]}
           set -e
           if [ "$code" != 0 ]; then
-            # This log comes only from the credential-free sandbox. Escape all
-            # controls and prefix lines so untrusted package output cannot emit
-            # GitHub workflow commands or terminal escape sequences.
             python3 -B scripts/sanitize-sandbox-log.py "$RUNNER_TEMP/vercel-install-output.txt"
-            echo '::error::sandboxed CLI install failed or timed out'
+            echo '::error::sandboxed CLI contract or audit failed'
             exit 1
           fi
-      - name: Check version and command flags without network or credentials
-        run: |
-          set -euo pipefail
-          NODE_ROOT="$(dirname "$(dirname "$(readlink -f "$(command -v node)")")")"
-          offline_help() {
-            local output="$1"; shift
-            local code=0
-            set +e
-            timeout 20s bwrap --unshare-user --unshare-pid --unshare-net --unshare-ipc --unshare-uts --die-with-parent --clearenv \
-              --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
-              --dir /sandbox --ro-bind "$NODE_ROOT" /sandbox/node --ro-bind "$RUNNER_TEMP/sunrise-vercel-cli" /sandbox/cli \
-              --dir /etc --ro-bind "$RUNNER_TEMP/sunrise-sandbox-passwd" /etc/passwd \
-              --proc /proc --dev /dev --tmpfs /tmp --chdir /tmp \
-              --setenv PATH /sandbox/node/bin:/usr/bin:/bin --setenv DO_NOT_TRACK 1 --setenv VERCEL_TELEMETRY_DISABLED 1 \
-              /bin/sh -c 'mkdir -p /tmp/sandbox-home; exec /sandbox/cli/node_modules/.bin/vercel "$@"' sh "$@" \
-              2>&1 | head -c 262144 > "$output"
-            code=${PIPESTATUS[0]}
-            set -e
-            [ "$code" = 0 ] || [ "$code" = 2 ] || { echo '::error::offline CLI help failed'; return 1; }
-          }
-          offline_help "$RUNNER_TEMP/vercel-version.txt" --version
-          grep -q '65\.9\.0' "$RUNNER_TEMP/vercel-version.txt"
-          offline_help "$RUNNER_TEMP/vercel-deploy-help.txt" --scope synthetic-team deploy --help
-          grep -q -- '--skip-domain' "$RUNNER_TEMP/vercel-deploy-help.txt"
-          grep -q -- '--prod' "$RUNNER_TEMP/vercel-deploy-help.txt"
-          grep -q -- '--build-env' "$RUNNER_TEMP/vercel-deploy-help.txt"
-          grep -q -- '--env' "$RUNNER_TEMP/vercel-deploy-help.txt"
-          offline_help "$RUNNER_TEMP/vercel-promote-help.txt" --scope synthetic-team promote --help
-          grep -q -- '--yes' "$RUNNER_TEMP/vercel-promote-help.txt"
-          offline_help "$RUNNER_TEMP/vercel-rollback-help.txt" --scope synthetic-team rollback --help
-          grep -q -- '--yes' "$RUNNER_TEMP/vercel-rollback-help.txt"
-      - name: Audit release CLI dependencies before any credentialed use
-        run: |
-          set -o pipefail
-          NODE_ROOT="$(dirname "$(dirname "$(readlink -f "$(command -v node)")")")"
-          set +e
-          timeout 90s bwrap --unshare-user --unshare-pid --unshare-ipc --unshare-uts --die-with-parent --clearenv \
-            --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
-            --dir /sandbox --ro-bind "$NODE_ROOT" /sandbox/node --ro-bind "$RUNNER_TEMP/sunrise-vercel-cli" /sandbox/cli \
-            --dir /etc --ro-bind "$RUNNER_TEMP/sunrise-sandbox-passwd" /etc/passwd --dir /etc/ssl --ro-bind /etc/ssl/certs /etc/ssl/certs \
-            --ro-bind /etc/resolv.conf /etc/resolv.conf --ro-bind /etc/hosts /etc/hosts \
-            --proc /proc --dev /dev --tmpfs /tmp --chdir /tmp \
-            --setenv PATH /sandbox/node/bin:/usr/bin:/bin --setenv NPM_CONFIG_CACHE /tmp/npm-cache \
-            --setenv NPM_CONFIG_USERCONFIG /tmp/user.npmrc --setenv NPM_CONFIG_GLOBALCONFIG /tmp/global.npmrc \
-            /bin/sh -c 'set -e; mkdir -p /tmp/sandbox-home; : > /tmp/user.npmrc; : > /tmp/global.npmrc; exec /sandbox/node/bin/npm audit --omit=dev --audit-level=high --prefix /sandbox/cli' \
-            2>&1 | head -c 262144
-          code=${PIPESTATUS[0]}
-          set -e
-          [ "$code" = 0 ] || { echo '::error::CLI dependency audit failed or timed out'; exit 1; }
 
   e2e-smoke:
     name: Playwright smoke
