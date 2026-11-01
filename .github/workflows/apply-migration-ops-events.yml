@@ -1,4 +1,4 @@
-name: Apply migration ops_events
+name: Verify ops_events readiness
 
 on:
   workflow_dispatch:
@@ -7,12 +7,12 @@ on:
     paths:
       - supabase/migration-ops-events.sql
       - scripts/apply-migration-ops-events.mjs
-      - scripts/vercel-production-env.sh
+      - src/lib/ops-events-readiness.mjs
       - src/lib/bootstrap-migrations.ts
 
 jobs:
   apply:
-    name: Create ops_events table
+    name: Verify ops_events REST visibility
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -22,32 +22,10 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci
-      - name: Apply migration
+      - name: Verify without applying SQL
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -z "${SUPABASE_DB_URL:-}" ] && [ -n "${VERCEL_TOKEN:-}" ]; then
-            echo "Pulling POSTGRES_URL from Vercel production env..."
-            bash scripts/vercel-production-env.sh .env.vercel.prod
-            # Only import Postgres URLs — keep GitHub Secrets for Supabase API keys
-            for key in POSTGRES_URL POSTGRES_URL_NON_POOLING SUPABASE_DB_URL DATABASE_URL; do
-              val=$(grep -E "^${key}=" .env.vercel.prod 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
-              if [ -n "$val" ]; then export "$key=$val"; fi
-            done
-            export SUPABASE_DB_URL="${SUPABASE_DB_URL:-${POSTGRES_URL_NON_POOLING:-${POSTGRES_URL:-}}}"
-          fi
-          node scripts/apply-migration-ops-events.mjs || {
-            echo "Direct apply failed — trying production API..."
-            if [ -z "${CRON_SECRET:-}" ]; then
-              echo "::warning::Will apply on Vercel cold start (bootstrap-migrations) after deploy"
-              exit 0
-            fi
-            curl -sf -X POST \
-              -H "Authorization: Bearer ${CRON_SECRET}" \
-              "https://sunrise-cafe-six.vercel.app/api/admin/migrations/apply-ops-events" || exit 0
-          }
+          node scripts/apply-migration-ops-events.mjs

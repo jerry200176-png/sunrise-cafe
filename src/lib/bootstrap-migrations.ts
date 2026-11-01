@@ -5,10 +5,6 @@
 import { readFileSync } from "fs";
 import { join } from "path";
 
-const OPS_EVENTS_SQL = readFileSync(
-  join(process.cwd(), "supabase/migration-ops-events.sql"),
-  "utf8"
-);
 const MARKET_PARITY_SQL = readFileSync(
   join(process.cwd(), "supabase/migration-market-parity-rounds-3-7.sql"),
   "utf8"
@@ -49,11 +45,6 @@ async function restColumnExists(table: string, column: string): Promise<boolean 
   } catch {
     return null;
   }
-}
-
-async function opsEventsReady(): Promise<boolean> {
-  const exists = await restColumnExists("ops_events", "id");
-  return exists === true;
 }
 
 async function lineDeliveriesReady(): Promise<boolean> {
@@ -122,13 +113,6 @@ async function bootstrapMigrations(): Promise<void> {
     const { default: postgres } = await import("postgres");
     const sql = postgres(conn, { max: 1, idle_timeout: 15 });
     try {
-      if (!(await opsEventsReady())) {
-        console.log("[bootstrap-migrations] applying migration-ops-events.sql");
-        await sql.unsafe(OPS_EVENTS_SQL);
-      } else {
-        console.log("[bootstrap-migrations] ops_events already ready");
-      }
-
       const guest = await restColumnExists("reservations", "guest_confirmed_at");
       if (guest === false) {
         console.log("[bootstrap-migrations] applying market-parity Round 3–7 columns");
