@@ -20,7 +20,7 @@
 ## 安全發布與回復
 
 1. 先部署本 PR 的相容讀取，確認 owner、staff、manager、finance scope；訪客清單、候補、訂位成功及驗證後查詢；LINE 模擬訊息及付款指引。不能用真實訂單、真實付款或真實 LINE 作冒煙測試。
-2. 用合成 schema 在隔離 PostgreSQL 測 table/column ACL、RLS 和授權鏈，另外在隔離 PostgREST 模擬 JWT 測公開明確欄位、`select=*`、拒絕受限欄位，以及 service-role 讀取；目前無真實 PostgREST 證據。現有本機 PGlite 僅用於基礎權限模擬，不取代正式環境。
+2. 用合成 schema 在隔離 PostgreSQL 測 table/column ACL、RLS 和授權鏈，另外在隔離 PostgREST 模擬 JWT 測公開明確欄位、`select=*`、拒絕受限欄位，以及 service-role 讀取；已另有隔離 PostgREST 合成測試，尚未驗證正式 Data API。現有本機 PGlite 僅用於基礎權限模擬，不取代正式環境。
 3. 由正式現況生成有確切 SQL/hash/目標/校驗與回復計畫的新 migration，獨立審查並遵守 F1/F4。安全發布必須採 app 相容在前、權限收緊在後，避免公開功能與後台查詢中斷。
 4. 恢復策略需依事先保存之權限快照精確恢復，不得盲目授予表級 SELECT，否則會再次公開內部欄位；恢復與應用版本配合，並記錄資料庫權限變更。需重新驗證匿名欄位、服務端權限、合成測試和實際網站健康。
 
@@ -32,3 +32,16 @@
 - [PostgreSQL GRANT](https://www.postgresql.org/docs/current/sql-grant.html)（PostgreSQL License）：欄位授權及角色繼承；不複製程式碼。
 - [PGlite](https://github.com/electric-sql/pglite)（Apache-2.0）：在記憶體內執行合成 PostgreSQL 權限測試；不連線外部服務。
 - 既有 `/api/branches` 的顯式公開字段及角色範圍控制；資料庫 RLS（按列）和 ACL（按欄）各司其職。
+
+## 隔離 PostgREST 驗證與權限變更包草案
+
+`scripts/review-branches-privacy-postgrest.sh` 僅使用已安裝的 `postgres:17-alpine`、`postgrest/postgrest:v12.2.12`、`node:22-alpine` 映像及合成密碼／資料，建立 Docker internal network 和一次性資料庫；不連線 Supabase，不會拉取映像。它執行下列**僅供隔離測試**的 SQL fixture，兩者在 `current_database()` 非 `sunrise_privacy_fixture` 時會停止，也不在部署 pipeline 或 migration plan 中：
+
+- `docs/ops/fixtures/branches-column-acl.synthetic.sql`：鎖表、檢查合成 schema、RLS、角色繼承及 ACL 前提，然後撤銷 anon 表級 SELECT 並授予既有訪客清單需要的欄位，逐欄核對有效權限。遇到多餘的 PUBLIC SELECT 時應完全停止；新增加的內部欄位預設不可讀。
+- `docs/ops/fixtures/branches-truncate-acl.synthetic.sql`：獨立示範只撤銷 anon 表級 TRUNCATE；不變更 authenticated、service_role 或其他操作權限。它不自動包含在欄位收斂中。
+
+合成 PostgREST 驗證：收斂前 anon 可讀模擬內部欄位；收斂後明確公開欄位及 `archived_at` 篩選正常，內部欄位及 `select=*` 被拒，service-role 查詢和 authenticated 的既有 RLS 行為保留；anon HTTP PATCH/POST 被拒或影響零列，而 HTTP `TRUNCATE` 方法不可用。PostgreSQL 測試另確認匿名角色已有直接資料庫連線並切換角色時，原有 TRUNCATE 無視 RLS；獨立撤銷後相同直接 SQL 被拒。這些僅證明合成環境的行為，**不證明正式 Data API 可執行 TRUNCATE，也不證明正式資料庫連線對外開放**。
+
+正式專案 2026-11-01 的唯讀 catalog 快照：anon 為 NOLOGIN 且無 superuser/bypass RLS；可登入的 authenticator 為 NOINHERIT 且屬於 anon，因此有可切換角色的機制。anon 對 branches 的表級 grants 亦包含 TRUNCATE、INSERT、UPDATE、DELETE 等；現場只有 anon SELECT RLS policy。repo 程式搜尋沒有發現業務使用 branches TRUNCATE，但外部 consumer 與所有登入角色實際使用情況未知。其他寫入 grants 的安全性與業務用途應單獨盤點，不把它們一併撤銷，也不可只憑 RLS 假定 TRUNCATE 被阻止。
+
+要形成**正式可執行包**，仍需按順序完成：確認 #520 的服務端相容變更已驗證上線；盤點所有直接 Data API 及資料庫 consumer；確認 exact project、目前連線角色、完整繼承／PUBLIC／表及欄位 ACL、RLS 和回復快照；核對備份與影響；依既有安全及 F1/F4 流程提出新的版本化 migration、最小且由快照推導的回復 SQL、執行與 rollback 驗收；先對相同合成契約重演並獨立審查。不可將本資料夾的 fixture 改名或直接套用正式環境，不能為通過 additive gate 降低規則。公開 `deposit_info` 保持現有訪客 API 契約，不代表已檢查其中實際內容；封存分店的列可見性依然是另一議題。
