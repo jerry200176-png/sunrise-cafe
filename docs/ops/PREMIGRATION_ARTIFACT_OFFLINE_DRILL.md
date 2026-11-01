@@ -28,6 +28,8 @@ python3 /path/to/verified-wsl-restore.py \
 
 封裝在要求私鑰前，檢查四個 helper、密文 ZIP 摘要、kernel 回報的 `/dev/shm` 檔案系統類型、本機 Unix socket 與 image digest，也會設定程序 core size 為 0 並關閉程序 dumpable；任一檢查失敗均不要求私鑰。成功後才透過控制終端隱藏輸入**單行 age X25519 私鑰**；非互動終端或無法關閉回顯會停止。私鑰短暫寫入 `/dev/shm` 內私有 0700 目錄與 0600 檔案；正常、失敗、Ctrl-C、TERM 及終端關閉的 SIGHUP 會嘗試清理，但 SIGKILL、斷電、swap 和同使用者程序存取不在保證範圍。`exec` 後 dumpable 可能重置，且系統 core dump pipe handler 可能繞過程序 core size 限制：你仍須在可信工作站先確認系統不會收集／轉送程序記憶體及 core dump，Python 不保證清除所有記憶體副本。helper 仍會在 `/tmp` 暫存並刪除**加密 ZIP 副本與 manifest**，不刻意把明文寫到 host 檔案。
 
+隔離工具失敗時，封裝只將既有 helper 的單一、完全吻合白名單的固定訊息映射成固定中文階段提示，不輸出原始 stdout、stderr、私鑰、SQL、客戶資料或檔案路徑。其他文字、額外行或多種訊息一律顯示「無法根據固定訊息判定失敗階段」；Docker 命令本身或角色初始化若沒有固定標記也會落入未知。階段提示只供排查，不能據此斷定根因或解除發布暫停。
+
 已審 helper 的 `docker run` 使用 `postgres:17-alpine` **可變 tag**；封裝前後比較 image ID，不能排除同一可信主機上的程序在兩次檢查間短暫替換 tag 後再換回。只應在你確認的單使用者本機 Docker Desktop、執行期間沒有其他程序變更 tag 時使用；需要消除該競態時，必須先修訂並重新審查 helper，不能聲稱目前已用 immutable image ID 啟動。
 
 1. 在 GitHub Actions 找到可信且仍保留的正式部署 run，確認 artifact 名稱、run 與階段；不要上傳其內容。若使用已登入且具對應權限的 GitHub CLI，可在自己的 shell 查閱該 run 的 artifact metadata（替換你自行確認的 RUN_ID）：

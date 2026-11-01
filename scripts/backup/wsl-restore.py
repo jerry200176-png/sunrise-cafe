@@ -32,6 +32,38 @@ HELPERS = {
     'extract-legacy-artifact.py': 'dae25d4b0d92a4e2f9d35102449e209933f79e017b41974ae3ae2b3ccccd4b80',
 }
 
+# Treat both streams from the reviewed helper as untrusted. Only a single,
+# byte-for-byte fixed stderr line with otherwise-empty stdout can be mapped.
+# Even an allowed line is a stage hint, not proof of the underlying cause.
+SAFE_FAILURE_STAGES = {
+    b'Local input paths are unavailable, disallowed or contain symlinks.': '輸入檔案路徑檢查未通過。',
+    b'Trusted ZIP digest missing or malformed.': '備份 ZIP 摘要格式檢查未通過。',
+    b'ZIP exceeds the safety limit or available temporary space.': '備份 ZIP 大小或暫存空間檢查未通過。',
+    b'Unable to read the local encrypted artifact.': '無法讀取本機加密備份。',
+    b'ZIP digest mismatch; stopping.': '備份 ZIP 摘要比對未通過。',
+    b'Unsupported or unsafe legacy backup artifact.': '備份 ZIP 格式或安全檢查未通過。',
+    b'Decryption failed; stopping.': '備份解密階段未通過。',
+    b'Decrypted dump does not match manifest.': '解密後備份的大小或雜湊比對未通過。',
+    b'A root-owned local Docker socket is unavailable.': '本機 Docker socket 檢查未通過。',
+    b'Local Docker CLI unavailable.': '本機 Docker 工具檢查未通過。',
+    b'Container isolation or logging configuration is unexpected.': '隔離容器的設定檢查未通過。',
+    b'Isolated restore database unavailable.': '隔離資料庫啟動或連線階段未通過。',
+    b'Isolated restore failed; inspect prerequisites without sharing unredacted data.': '備份資料流或 PostgreSQL 還原階段未通過。',
+    b'Required reservations table missing after restore.': '還原後的必要資料表檢查未通過。',
+}
+UNKNOWN_FAILURE_STAGE = '無法根據固定訊息判定失敗階段。'
+
+
+def safe_failure_stage(stdout, stderr):
+    if not isinstance(stdout, bytes) or not isinstance(stderr, bytes) or len(stdout) > 65536 or len(stderr) > 65536:
+        return UNKNOWN_FAILURE_STAGE
+    if any(line for line in stdout.split(b'\n')):
+        return UNKNOWN_FAILURE_STAGE
+    lines = [line for line in stderr.split(b'\n') if line]
+    if len(lines) != 1:
+        return UNKNOWN_FAILURE_STAGE
+    return SAFE_FAILURE_STAGES.get(lines[0], UNKNOWN_FAILURE_STAGE)
+
 class Abort(Exception):
     pass
 
@@ -266,7 +298,8 @@ def main(argv):
             terminate_child(process)
             raise
         if process.returncode != 0:
-            fail('隔離還原未通過；未輸出原始日誌或資料。請勿以此解除發布暫停。')
+            stage = safe_failure_stage(_stdout, _stderr)
+            fail(f'隔離還原未通過：{stage}這只是階段線索，並非根因結論。未輸出原始日誌或資料；請勿解除發布暫停。')
         raw_after = command(*docker_cmd, 'image', 'inspect', 'postgres:17-alpine', '--format', '{{.Id}}', env=env)
         if raw_after.decode('utf-8').strip() != image_id:
             fail('演練期間本機映像標籤已改變，不能採信結果。')
