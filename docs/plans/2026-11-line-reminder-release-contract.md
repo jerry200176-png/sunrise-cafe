@@ -24,3 +24,9 @@
 - 合成重疊 cron／多筆摘要，claim 成功、無權限、PGRST202、timeout、部分成功後失敗皆不得未持有 claim 就發送；部分 claim 可能停留 `sending`，只能經審核對帳，不能自動重發。
 - 模擬 provider 接收後逾時、409 含／不含 acceptance evidence、不同 payload 使用相同 key、超過 retry window、發送後資料庫更新失敗與執行程序中斷；必須同時檢查訊息次數與持久狀態。
 - 確認舊程式／新程式與原 ledger 的前向及回滾相容性、備份還原及 additive gate；先於流量切換完成經獨立審查的驗證。
+
+## 隔離原型（不是 migration）
+
+`scripts/experiments/test-synthetic-line-claim-batch.sh` 只在 `--network none` 的臨時 PostgreSQL 17 容器建立合成表與函式；不讀正式服務、資料或憑證。原型在同一 transaction 依固定排序取得整批 claim，回傳每個 claim 的隨機 token 及遞增 generation；確認尚未呼叫 provider 時，僅以 key + token + generation + sending 狀態條件釋放。未知的 sending 與歷史 failed 不自動重領。
+
+合成實測涵蓋：第二項衝突使第一項 INSERT 回滾；兩個 worker 同時要求相同 guest/group 集合時只有一個得到整批；重新認領後舊 token/generation 不能釋放新 owner；sending 和歷史 failed 不能由原型自動重領。這**沒有**證明不同集合的競爭安全：例如舊 worker 分別只 claim guest 或 group，兩者仍可同時成功。因此正式方案仍需阻擋／隔離舊 worker、驗證呼叫者要求的集合完整、把訂位狀態轉換與 claim 的競態納入設計，並單獨測試 provider 接收後 timeout、lost claim response、跨 instance cache 和 migration 回滾。這些前提未成立前不得部署或將概念證據當作不重複發送的保證。
