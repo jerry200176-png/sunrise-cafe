@@ -1,15 +1,13 @@
-# Apply LINE reminder delivery ledger migration (manual / post-deploy)
-# Ensures line_reminder_deliveries + claim_line_reminder_delivery exist before
-# production Cron send-line can claim idempotent deliveries.
+# Verify LINE reminder ledger structure without running the claim function or DDL.
 
-name: Apply migration line-reminder-deliveries
+name: Verify line-reminder-deliveries metadata
 
 on:
   workflow_dispatch:
 
 jobs:
   apply:
-    name: Apply line reminder delivery ledger
+    name: Verify line reminder delivery metadata
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -19,30 +17,9 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci
-      - name: Apply migration
+      - name: Verify existing ledger
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || [ -z "${NEXT_PUBLIC_SUPABASE_URL:-}" ]; then
-            echo "::error::Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in repo Secrets"
-            exit 1
-          fi
-          if [ -z "${SUPABASE_DB_URL:-}" ] || echo "${SUPABASE_DB_URL:-}" | grep -q '\[region\]'; then
-            if [ -n "${VERCEL_TOKEN:-}" ]; then
-              bash scripts/vercel-production-env.sh .env.vercel.prod
-              for key in POSTGRES_URL POSTGRES_URL_NON_POOLING POSTGRES_PRISMA_URL SUPABASE_DB_URL DATABASE_URL DIRECT_URL; do
-                val=$(grep -E "^${key}=" .env.vercel.prod 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
-                if [ -n "$val" ] && ! echo "$val" | grep -q '\[region\]'; then
-                  export "$key=$val"
-                fi
-              done
-              if [ -z "${SUPABASE_DB_URL:-}" ] || echo "${SUPABASE_DB_URL:-}" | grep -q '\[region\]'; then
-                export SUPABASE_DB_URL="${POSTGRES_URL_NON_POOLING:-${POSTGRES_URL:-${POSTGRES_PRISMA_URL:-${DATABASE_URL:-${DIRECT_URL:-}}}}}"
-              fi
-            fi
-          fi
-          node scripts/apply-migration-line-reminder-deliveries.mjs
+        run: node scripts/apply-migration-line-reminder-deliveries.mjs
