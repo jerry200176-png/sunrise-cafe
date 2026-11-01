@@ -25,25 +25,26 @@ that current production contains a particular object or role assignment.
 
 | Line | Class | Concrete effect and condition |
 | --- | --- | --- |
-| 15 | ACL | `REVOKE` changes table grants. On a fresh table it establishes restricted access; because `CREATE TABLE IF NOT EXISTS` may reuse a pre-existing object, it could change existing grants. F4 depends on the actual access policy and whether it is already decided, not merely this keyword. |
+| 15 | ACL | `REVOKE` removes any matching table grants that exist. On a fresh table it establishes restricted access and may be a no-op; because `CREATE TABLE IF NOT EXISTS` may reuse a pre-existing object, it could remove existing grants. F4 depends on the actual access policy and whether it is already decided, not merely this keyword. |
 | 18 | Possible existing-object rewrite | `CREATE OR REPLACE` creates an absent add RPC, but overwrites an existing same-signature function body if present. That is a real non-additive replacement, not a benign lexical match, when the object already exists. |
 | 72 | Runtime DML; conservatively flagged | `UPDATE orders` is inside the add RPC body. Defining the function alone does not execute this UPDATE; a later successful invocation modifies a real order inside its transaction. Triggers and current writer behavior remain material. |
-| 79 | ACL | `REVOKE` changes add RPC execute privileges. New functions ordinarily grant `PUBLIC` execute unless owner default privileges alter that; removing this statement to appease the gate could expose the RPC. |
+| 79 | ACL | `REVOKE` removes matching add RPC execute privileges if present. New functions ordinarily grant `PUBLIC` execute unless owner default privileges alter that; removing this statement to appease the gate could expose the RPC. |
 | 80 | ACL / lexical `EXECUTE` finding | `GRANT EXECUTE ... TO service_role` grants a privilege; it is **not** PL/pgSQL dynamic `EXECUTE`. It still changes ACL and must be reviewed against intended role access. |
 | 84 | Possible existing-object rewrite | `CREATE OR REPLACE` for cancellation RPC creates a new function only if the signature is absent; otherwise it overwrites existing behavior. |
-| 104 | ACL | `REVOKE` changes cancellation RPC execute privileges; it is required by this candidate to exclude PUBLIC, anon and authenticated. |
+| 104 | ACL | `REVOKE` removes matching cancellation RPC execute privileges if present; it is required by this candidate to exclude PUBLIC, anon and authenticated. |
 | 105 | ACL / lexical `EXECUTE` finding | `GRANT EXECUTE` for cancellation RPC is a role grant, not dynamic SQL; assess actual service-role ACL. |
 | 111 | Possible existing-object rewrite | `CREATE OR REPLACE` on the status-derivation trigger function may overwrite an existing same-signature body. It is `SECURITY DEFINER`; owner, search path, caller access and current triggers matter. |
-| 128 | ACL | `REVOKE` changes execute privileges on the status-derivation trigger function. Trigger execution and direct RPC execute are separate concerns. |
+| 128 | ACL | `REVOKE` removes matching execute privileges on the status-derivation trigger function if present. Trigger execution and direct RPC execute are separate concerns. |
 | 132 | Possible existing-object rewrite | `CREATE OR REPLACE` on the item-refresh trigger function has the same existing-object caveat; this function is also `SECURITY DEFINER`. |
 | 137 | Runtime DML; conservatively flagged | `UPDATE orders SET status = status` is inside the item trigger function; defining it does not backfill orders. Future INSERT/UPDATE/DELETE of items can invoke it within the writer's transaction and cause another order update/status trigger. |
-| 141 | ACL | `REVOKE` changes execute privileges on the item-refresh trigger function; verify owner/default privileges and callers. |
+| 141 | ACL | `REVOKE` removes matching execute privileges on the item-refresh trigger function if present; verify owner/default privileges and callers. |
 
 The two `GRANT EXECUTE` matches are lexical dynamic-SQL false positives **only for that
 specific rule**: the grants are real ACL changes. An UPDATE within a function is still real
 DML when invoked; it is not evidence that applying this file immediately backfills rows.
 Four `CREATE OR REPLACE` statements are dangerous if signatures already exist. Five
-`REVOKE` statements are real access changes. The classifier intentionally blocks all 13;
+`REVOKE` statements are real ACL operations, though their effective impact depends on existing
+and default privileges. The classifier intentionally blocks all 13;
 do not add markers or alter SQL merely to make the gate pass.
 
 Additional risk outside the 13: lines 129–130 and 142–143 add triggers to existing tables.
