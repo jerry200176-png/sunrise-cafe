@@ -151,7 +151,7 @@ describe("runSendLineReminder — sent=0 regression", () => {
     const json = await res.json();
 
     expect(res.status).toBe(200);
-    expect(json).toMatchObject({ ok: true, sent: 0, heartbeat: "none", accepted_count: 0, delivery_certainty: "not_attempted" });
+    expect(json).toMatchObject({ ok: true, sent: 0, result: "no_eligible", heartbeat: "none", accepted_count: 0, delivery_certainty: "not_attempted", reminder_evidence: { status: "succeeded_with_zero_work" } });
     expect(sendLineMessage).not.toHaveBeenCalled();
     expect(sendLineMessageToGroup).not.toHaveBeenCalled();
     expect(sendLineFlexToGroup).not.toHaveBeenCalled();
@@ -169,7 +169,7 @@ describe("runSendLineReminder — sent=0 regression", () => {
     const json = await res.json();
 
     expect(res.status).toBe(200);
-    expect(json).toMatchObject({ ok: true, sent: 0, heartbeat: "none", accepted_count: 0 });
+    expect(json).toMatchObject({ ok: true, sent: 0, result: "no_eligible", heartbeat: "none", accepted_count: 0, reminder_evidence: { status: "succeeded_with_zero_work" } });
     expect(sendLineMessage).not.toHaveBeenCalled();
     expect(sendLineMessageToGroup).not.toHaveBeenCalled();
     expect(sendLineFlexToGroup).not.toHaveBeenCalled();

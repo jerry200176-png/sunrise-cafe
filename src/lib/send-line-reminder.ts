@@ -68,6 +68,7 @@ export type ReminderRunObservability = {
   result:
     | "sent"
     | "already_notified"
+    | "no_eligible"
     | "empty_cat"
     | "duplicate_skip"
     | "schedule_window_skip"
@@ -350,6 +351,8 @@ function finalizeObs(
               ? "empty_cat"
               : observability.result === "already_notified"
                 ? "already_notified"
+                : observability.result === "no_eligible"
+                  ? "no_eligible"
                 : accepted_count > 0 && rejected_count > 0
                   ? "partial"
                   : "sent",
@@ -499,7 +502,7 @@ export async function runSendLineReminder(
             ? "empty_cat"
             : heartbeat === "already_notified"
               ? "already_notified"
-              : "already_notified";
+              : "no_eligible";
         const heartbeatSent = heartbeat === "cat" || heartbeat === "already_notified" ? 1 : 0;
         const observability = finalizeObs(
           {
@@ -679,7 +682,9 @@ export async function runSendLineReminder(
           ? "sent"
           : heartbeat === "cat"
             ? "empty_cat"
-            : "already_notified";
+            : heartbeat === "already_notified" || allRows.length > 0
+              ? "already_notified"
+              : "no_eligible";
 
     const observability = finalizeObs(
       {
