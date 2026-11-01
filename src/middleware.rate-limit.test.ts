@@ -16,7 +16,7 @@ const event = { waitUntil: vi.fn() } as unknown as NextFetchEvent;
 const base = { limit: 5, remaining: 0, reset: Date.now() + 5000, mode: "upstash" };
 describe("middleware limiter failures", () => {
   beforeEach(() => { mocks.rateLimit.mockReset(); mocks.logOps.mockReset(); });
-  it.each(["/api/admin/login", "/api/reservations", "/api/availability", "/api/my-bookings", "/api/waitlist", "/api/other"]) 
+  it.each(["/api/admin/login", "/api/reservations", "/api/availability", "/api/my-bookings", "/api/waitlist", "/api/other"])
     ("fails closed with 503 for %s without logging a quota denial", async (path) => {
       mocks.rateLimit.mockResolvedValue({ ...base, success: false, unavailable: true });
       const method = path === "/api/admin/login" || path === "/api/reservations" ? "POST" : "GET";
