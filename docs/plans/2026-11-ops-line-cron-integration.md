@@ -16,4 +16,4 @@
 
 ops-events runner 和 LINE reminder runner 目前即使部分檢查成功仍固定失敗；兩者位於 production postdeploy phase，因此此候選不可直接合併或部署。須另證明目標、ledger、完整 schema／ACL 及 PostgREST RPC 可用性；`OPTIONS`／部分 REST 投影不足以證明。ops GET 的 `limit=0` 診斷預設不啟用，但 pre-request、view 或 RLS hooks 仍可能執行，不能泛稱無副作用。
 
-其他 standalone migration runners、LINE 未知發送結果、正式 cron secret／Upstash 設定與舊 worker 排空、備份恢復及 release hold 均未解。限流同 prefix 可減少混版雙額度，但舊 worker timeout 仍會放行。需保留原 gate 並真實報告其對歷史非 additive SQL 的結果；不得以改名、修改白名單或標籤繞過。若三個來源 PR 有更新，應重新整合並執行 exact-head CI、獨立審查；回退會恢復舊的 fail-open 路徑。
+其他 standalone migration runners、LINE 未知發送結果、正式 cron secret／Upstash 設定與舊 worker 排空、備份恢復及 release hold 均未解。這次未整合 #527／#472：現有 reminder 與 guest deposit request 在非 production 環境的 ledger unavailable 分支仍可能不帶 claim 發送；若非 production 誤連真實 LINE／資料，此風險不能忽略。停用 bootstrap 也不能使這些 runtime 路徑變安全，須先另行修正及驗證。限流同 prefix 可減少混版雙額度，但舊 worker timeout 仍會放行。需保留原 gate 並真實報告其對歷史非 additive SQL 的結果；不得以改名、修改白名單或標籤繞過。若三個來源 PR 有更新，應重新整合並執行 exact-head CI、獨立審查；回退會恢復舊的 fail-open 路徑。
