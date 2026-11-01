@@ -82,7 +82,13 @@ async function verify(sql) {
   const acl = await verifyBankTransferAcl(sql);
   console.log(JSON.stringify({ migration: VERSION, ...acl }));
   if (!(await migrationApplied(sql))) throw new Error(`${VERSION} missing from schema_migrations`);
-  return { columns: EXPECTED_COLUMNS, indexes: 2, functions: EXPECTED_FUNCTIONS, privileges: "service_role_only" };
+  return {
+    columns: EXPECTED_COLUMNS,
+    indexes: 2,
+    functions: EXPECTED_FUNCTIONS,
+    privileges: "checked_roles_match_policy",
+    checked_roles: ["PUBLIC", "anon", "authenticated", "service_role"],
+  };
 }
 
 export async function runBankTransferMigration(sql) {

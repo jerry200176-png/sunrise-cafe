@@ -79,7 +79,7 @@ The `20260914-bank-transfer-reports` ledger entry records that the historical mi
 it does not authorize repeated ACL changes. For an already-applied migration, the runner now
 checks the effective PUBLIC, anon, authenticated and service-role permissions without changing
 them. Drift or an incomplete result stops the deployment. The historical SQL file and its SHA
-remain unchanged.
+remain unchanged. Passing this check makes no claim about EXECUTE privileges for other roles.
 
 The runner also stops without writing if the ledger table or this entry is missing. It does not
 bootstrap a new database or reapply the historical SQL. For a new environment or an inconsistent

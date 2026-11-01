@@ -44,9 +44,19 @@ function fakeDatabase(initiallyApplied: boolean, overrides: Record<string, unkno
 describe("bank-transfer migration and ACL separation", () => {
   it("only reads when the migration is already applied and privileges match", async () => {
     const { sql, unsafe } = fakeDatabase(true);
-    await expect(runBankTransferMigration(sql)).resolves.toBeUndefined();
-    expect(sql.begin).toHaveBeenCalledWith("isolation level repeatable read read only", expect.any(Function));
-    expect(unsafe).not.toHaveBeenCalled();
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await expect(runBankTransferMigration(sql)).resolves.toBeUndefined();
+      expect(sql.begin).toHaveBeenCalledWith("isolation level repeatable read read only", expect.any(Function));
+      expect(unsafe).not.toHaveBeenCalled();
+      const result = log.mock.calls.map(([message]) => JSON.parse(message as string)).find((message) => message.verification);
+      expect(result.verification).toMatchObject({
+        privileges: "checked_roles_match_policy",
+        checked_roles: ["PUBLIC", "anon", "authenticated", "service_role"],
+      });
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it.each([
