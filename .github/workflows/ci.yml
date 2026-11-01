@@ -35,6 +35,17 @@ jobs:
       - name: Rulebook pin, adapters and retired rule text
         run: python3 scripts/check-rulebook.py
 
+      - name: Code-only release safeguards (synthetic providers only)
+        run: |
+          python3 -B scripts/test-api-release-adapter.py
+          python3 -B scripts/test-api-release-artifacts.py
+          python3 -B scripts/test-api-release-transport.py
+          python3 -B scripts/test-api-release-write-ahead.py
+          python3 -B scripts/test-api-release-workflow.py
+          python3 -B scripts/test-api-release-health.py
+          python3 -B scripts/test-api-release-source.py
+          python3 -B scripts/test-api-release-model.py
+
       - name: Lint
         run: npm run lint
 

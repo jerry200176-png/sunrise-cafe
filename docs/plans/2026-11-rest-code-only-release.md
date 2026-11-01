@@ -1,0 +1,95 @@
+# Held production code-only REST release
+
+The current migration-first workflow can replay historical SQL during a code
+release. The proposed REST workflow creates a Vercel deployment from the exact
+Git commit without invoking a migration runner or sending SQL. The product diff
+is limited to unpaid-booking retention, quiet group reminders, and disabling
+cold-start migration probes. Normal application requests, cron handlers,
+rate-limiting and telemetry can still write; this is not a claim of zero writes.
+The existing migration-first workflow and both jobs of the new workflow start
+with a hard stop. The Python entrypoint and platform network switches also stop
+before credential access. Nothing here deploys or changes production.
+
+## Intended sequence
+
+1. Check out `main`, match the runtime SHA and caller-supplied reviewed tree,
+   then use GitHub's rules and PR association APIs to require strict rules,
+   green required checks on the exact merged PR head, and an identical merged
+   tree. Read the live production alias and persist a run/attempt-bound intent.
+   The independent D3 review is recorded separately; tree input alone proves
+   neither CI nor review.
+2. Upload the intent, check artifact receipt, then retrieve and verify its
+   metadata, run ID, name, commit, digest and bounded ZIP content before a
+   single create request. A fixed, exclusive runner-local claim prevents a
+   repeat while that claim remains; it does not fence another or restarted runner.
+3. Create the production Git-source deployment, check project/repository/ref/
+   commit metadata, persist and upload its candidate ID. This can serve real
+   production traffic before verification completes.
+4. Recheck both remote artifacts and deployment identity, then poll boundedly
+   for READY and alias assignment before checking `/api/version` commit and a
+   non-empty HTML homepage. The monitor also polls boundedly for a delayed alias;
+   expiry remains unknown because the provider request might still complete.
+   Polling passes the remaining deadline to each Vercel/health request; the
+   preceding artifact verification has its own per-request deadlines and
+   rollback has a separate bounded recovery window.
+   These reads do not verify the booking or payment flow. Existing version output has no deployment ID;
+   the Vercel alias API supplies that identity separately. Repeat the alias check
+   after the health responses. The routes can consume an Upstash rate-limit
+   bucket and, when limited, may write an ops record.
+5. If health fails and the live alias still identifies this candidate, request
+   rollback to the recorded baseline, then recheck alias and health. A separate
+   job can repeat recovery from verified same-run artifacts. The checks and
+   rollback are not atomic; a third-party writer can race between them.
+
+A timeout on create can leave a request in flight. If the runner dies before
+candidate upload, the later monitor cannot attribute an alias to this request;
+it reports unknown and cannot safely assume a rollback. A still-building
+candidate remains unknown even after a rollback. `always()` and a seven-day
+artifact do not guarantee a recovery job will survive cancellation, runner or
+platform failure. The hard stop must remain until a real D7 recovery path and
+the existing D8 stop-line are independently resolved. Operator fallback, when
+a valid baseline is known, is Vercel project → Deployments → select the
+previous production deployment → Instant Rollback, followed immediately by
+alias and health verification. See [Vercel rollback](https://vercel.com/docs/deployments/rollback-production-deployment).
+
+## Configuration and access to verify without displaying values
+
+- GitHub Actions secret `VERCEL_TOKEN`: existence for the appropriate repository
+  or environment and actual authorization to read the project, deployments and
+  alias, create a production Git deployment, and roll back. Exact available
+  scope and access have not been established. Do not print its value or create
+  a replacement as part of this check.
+- The Actions-provided `GITHUB_TOKEN`: `contents: read` for checkout/rules,
+  `checks: read`, `statuses: read` and `pull-requests: read` for exact-head
+  checks/PR association, and `actions: read` for same-run artifacts. Whether job
+  outputs and artifact retrieval remain available after cancellation needs an
+  actual platform-supported verification.
+- Repository variable `GITHUB_ARTIFACT_ALLOWED_HOSTS`: an independently approved
+  comma-separated exact host allowlist for GitHub's short-lived artifact archive
+  redirects. It is currently unverified; an empty or mismatched value fails
+  closed. GitHub credentials are sent only to `api.github.com`, never to these
+  archive hosts. HTTPS, redirect rejection, byte caps and a worker deadline were
+  checked using local synthetic HTTP/HTTPS only.
+- Vercel project/GitHub integration: same intended repository, `main` ref and
+  reviewed commit; production environment and the existing live alias must
+  resolve to the intended deployment and data target. The exact `gitSource`
+  response shape and source/build provenance remain unverified. The API can
+  build immediately and assign domains; a Git preview is not treated as the
+  same build or environment as production.
+- Production DB and REST target identity, cron configuration, previous worker
+  drain and rollback compatibility require independent evidence. The earlier
+  isolated PostgreSQL restore alone does not prove complete Supabase recovery.
+- Required checks must be green on the final merged head and final code must
+  receive independent review. The API gate fails closed for missing/ambiguous
+  strict rules, incomplete check pages, wrong head or different merged trees;
+  it does not independently establish reviewer identity. At inspection the
+  read-only rules endpoint returned Lint & Build, Playwright smoke and Agent
+  Session Provenance as strict required contexts. Network and prerequisite
+  constants remain disabled until the existing stop-line is resolved in a
+  separately reviewed change.
+
+The [Vercel create API](https://vercel.com/docs/rest-api/deployments/create-a-new-deployment),
+[deployment metadata API](https://vercel.com/docs/rest-api/deployments/get-a-deployment-by-id-or-url)
+and [rollback API](https://vercel.com/docs/rest-api/projects/point-production-traffic-to-a-previous-production-deployment-by-id)
+are used as the contract. Tests use synthetic transports and local servers;
+none establish that a real token, artifact redirect, deployment, or rollback works.

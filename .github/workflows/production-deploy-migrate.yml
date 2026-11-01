@@ -36,6 +36,10 @@ jobs:
       # age PUBLIC key; optional. Absent = NO retained backup (dump verified, then deleted at job end).
       BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
     steps:
+      - name: Stop legacy migration-first deployment while release hold is active
+        run: |
+          echo '::error::Production releases are paused pending verified code-only deployment and recovery'
+          exit 1
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:

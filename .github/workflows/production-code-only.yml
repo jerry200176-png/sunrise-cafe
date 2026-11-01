@@ -1,0 +1,144 @@
+name: Production code-only release (held)
+
+on:
+  workflow_dispatch:
+    inputs:
+      reviewed_tree:
+        description: Full Git tree SHA independently reviewed with passing checks
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  statuses: read
+  pull-requests: read
+
+concurrency:
+  group: production-deploy-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Guarded REST production release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      intent_id: ${{ steps.intent_upload.outputs.artifact-id }}
+      intent_digest: ${{ steps.intent_upload.outputs.artifact-digest }}
+      candidate_id: ${{ steps.candidate_upload.outputs.artifact-id }}
+      candidate_digest: ${{ steps.candidate_upload.outputs.artifact-digest }}
+    env:
+      REVIEWED_TREE_SHA: ${{ inputs.reviewed_tree }}
+      GITHUB_ARTIFACT_ALLOWED_HOSTS: ${{ vars.GITHUB_ARTIFACT_ALLOWED_HOSTS }}
+    steps:
+      - name: Stop until release hold and recovery prerequisites are resolved
+        run: |
+          echo '::error::Production release remains paused pending independently verified prerequisites'
+          exit 1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Prepare release intent
+        id: prepare
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -B scripts/api-release-workflow.py --prepare
+      - name: Upload write-ahead intent
+        id: intent_upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: api-release-intent-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sunrise-api-release-intent/intent.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Require write-ahead upload receipt
+        env:
+          ARTIFACT_ID: ${{ steps.intent_upload.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.intent_upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          [[ "${ARTIFACT_ID:-}" =~ ^[1-9][0-9]{0,19}$ ]]
+          [[ "${ARTIFACT_DIGEST:-}" =~ ^[0-9a-fA-F]{64}$ ]]
+      - name: Create production candidate and persist identity
+        id: create
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          INTENT_ARTIFACT_ID: ${{ steps.intent_upload.outputs.artifact-id }}
+          INTENT_ARTIFACT_DIGEST: ${{ steps.intent_upload.outputs.artifact-digest }}
+        run: python3 -B scripts/api-release-workflow.py --create
+      - name: Upload candidate evidence
+        id: candidate_upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: api-release-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sunrise-api-release-candidate/candidate.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Require candidate upload receipt
+        env:
+          ARTIFACT_ID: ${{ steps.candidate_upload.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.candidate_upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          [[ "${ARTIFACT_ID:-}" =~ ^[1-9][0-9]{0,19}$ ]]
+          [[ "${ARTIFACT_DIGEST:-}" =~ ^[0-9a-fA-F]{64}$ ]]
+      - name: Verify production or attempt rollback
+        id: verify
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          INTENT_ARTIFACT_ID: ${{ steps.intent_upload.outputs.artifact-id }}
+          INTENT_ARTIFACT_DIGEST: ${{ steps.intent_upload.outputs.artifact-digest }}
+          CANDIDATE_ARTIFACT_ID: ${{ steps.candidate_upload.outputs.artifact-id }}
+          CANDIDATE_ARTIFACT_DIGEST: ${{ steps.candidate_upload.outputs.artifact-digest }}
+        run: python3 -B scripts/api-release-workflow.py --verify
+      - name: Retain release incident evidence
+        if: ${{ always() && (steps.prepare.outcome == 'failure' || steps.create.outcome == 'failure' || steps.verify.outcome == 'failure') }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: api-release-incidents-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sunrise-api-release-incidents/*.json
+          retention-days: 7
+          if-no-files-found: error
+
+  recovery:
+    name: Guarded separate-runner recovery
+    needs: release
+    if: ${{ always() && needs.release.result != 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Stop until independent recovery prerequisites are resolved
+        run: |
+          echo '::error::Recovery is paused pending independently verified prerequisites'
+          exit 1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Verify evidence and recover when ownership is established
+        id: monitor
+        env:
+          REVIEWED_TREE_SHA: ${{ inputs.reviewed_tree }}
+          GITHUB_ARTIFACT_ALLOWED_HOSTS: ${{ vars.GITHUB_ARTIFACT_ALLOWED_HOSTS }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          INTENT_ARTIFACT_ID: ${{ needs.release.outputs.intent_id }}
+          INTENT_ARTIFACT_DIGEST: ${{ needs.release.outputs.intent_digest }}
+          CANDIDATE_ARTIFACT_ID: ${{ needs.release.outputs.candidate_id }}
+          CANDIDATE_ARTIFACT_DIGEST: ${{ needs.release.outputs.candidate_digest }}
+        run: python3 -B scripts/api-release-workflow.py --monitor
+      - name: Retain recovery incident evidence
+        if: ${{ always() && steps.monitor.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: api-recovery-incidents-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sunrise-api-release-incidents/*.json
+          retention-days: 7
+          if-no-files-found: error
