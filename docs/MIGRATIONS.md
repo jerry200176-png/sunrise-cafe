@@ -72,3 +72,31 @@ Idempotent seeds that must `UPDATE`/`ON CONFLICT DO UPDATE` can be wrapped in
 `-- additive-lint: allow-update <reason>` ... `-- additive-lint: end-allow-update`. The marker exempts
 UPDATE only, never DROP/DELETE/TRUNCATE. Replace `DROP POLICY IF EXISTS` + `CREATE POLICY` with a
 `pg_policies` existence guard so re-runs stay additive.
+
+## Bank-transfer RPC ACL drift (#384)
+
+The `20260914-bank-transfer-reports` ledger entry records that the historical migration ran;
+it does not authorize repeated ACL changes. For an already-applied migration, the runner now
+checks the effective PUBLIC, anon, authenticated and service-role permissions without changing
+them. Drift or an incomplete result stops the deployment. The historical SQL file and its SHA
+remain unchanged. Passing this check makes no claim about EXECUTE privileges for other roles.
+
+The runner also stops without writing if the ledger table or this entry is missing. It does not
+bootstrap a new database or reapply the historical SQL. For a new environment or an inconsistent
+ledger, first identify the exact target and inspect its schema, migration history, and existing
+permissions. Prepare the required migration or ledger-reconciliation package with recovery,
+verification and rollback, then use the existing reviewed migration and governance process. Never
+insert a ledger entry merely to make this check pass. Once correctly established, rerun the
+read-only verification.
+
+For investigation, an authorized operator can run `node scripts/audit-bank-transfer-acl.mjs`
+using the approved database connection. It has no apply mode and runs inside a read-only
+transaction. Save its output with the target identity and checked commit; do not copy credentials
+into logs. A failed check requires a separately reviewed reconciliation package with the exact
+target, existing and intended permissions, a verified recovery point, impact, verification and
+rollback. Any non-additive production permission change must pass the existing F1 decision and
+SQL gates; do not edit the historical migration or invoke ad hoc grant/revoke from this audit.
+
+Until ACL drift is resolved through that path and the read-only check passes, leave the release
+stopped. Reverting the runner restores the previous automatic ACL writes and is not a resolution
+of drift.

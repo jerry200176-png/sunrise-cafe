@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { VERIFIERS } from "../../scripts/lib/historical-verifiers.mjs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -26,6 +27,7 @@ const plan = JSON.parse(
     version?: string;
     file: string;
     runner?: string;
+    verifier?: keyof typeof VERIFIERS;
     execution?: string;
     phase?: "predeploy" | "postdeploy";
   }>;
@@ -42,15 +44,16 @@ const bankTransferMigration = readFileSync(
   "utf8"
 );
 const bankTransferRunner = readFileSync(
-  join(root, "scripts/apply-migration-bank-transfer-reports.mjs"),
+  join(root, "scripts/verify-bank-transfer-reports.mjs"),
   "utf8"
 );
+const bankTransferAcl = readFileSync(join(root, "scripts/lib/bank-transfer-acl.mjs"), "utf8");
 
 describe("explicit production migration plan", () => {
   it("requires an explicit phase for every executable entry", () => {
     expect(() => validateMigrationPlan(plan)).not.toThrow();
     expect(plan.schema_version).toBe(2);
-    for (const entry of plan.entries.filter((item) => item.runner)) {
+    for (const entry of plan.entries.filter((item) => item.runner || item.verifier)) {
       expect(["predeploy", "postdeploy"]).toContain(entry.phase);
     }
     expect(plan.entries.find((entry) => entry.version === "20260914-bank-transfer-reports")?.phase).toBe(
@@ -68,6 +71,11 @@ describe("explicit production migration plan", () => {
   it("maps every executable entry to a checked-in SQL file and runner", () => {
     for (const entry of plan.entries) {
       expect(() => readFileSync(join(root, "supabase", entry.file))).not.toThrow();
+      if (entry.verifier) {
+        const verifierSource = readFileSync(join(root, VERIFIERS[entry.verifier]), "utf8");
+        expect(verifierSource).toContain(entry.file);
+        continue;
+      }
       if (!entry.runner) {
         expect(entry.execution).toBe("manual_sql_editor");
         continue;
@@ -263,7 +271,7 @@ describe("explicit production migration plan", () => {
     const calls: string[] = [];
     await executePhase(plan, "predeploy", async (runner) => calls.push(runner));
     expect(calls).toEqual([
-      "scripts/apply-migration-bank-transfer-reports.mjs",
+      "scripts/verify-bank-transfer-reports.mjs",
       "scripts/apply-migration-reservation-preorder.mjs",
       "scripts/apply-migration-booking-meals.mjs",
       "scripts/apply-migration-preorder-menu-seed.mjs",
@@ -321,9 +329,9 @@ describe("explicit production migration plan", () => {
     expect(bankTransferMigration).toMatch(
       /REVOKE ALL ON FUNCTION confirm_bank_transfer_payment\(UUID, TEXT, TEXT\) FROM anon, authenticated;/
     );
-    expect(bankTransferRunner).toContain("authenticated_report");
-    expect(bankTransferRunner).toContain("authenticated_confirm");
-    expect(bankTransferRunner).toContain("role_privileges_repaired");
+    expect(bankTransferAcl).toContain("authenticated_report");
+    expect(bankTransferAcl).toContain("authenticated_confirm");
+    expect(bankTransferRunner).not.toContain("role_privileges_repaired");
   });
 });
 

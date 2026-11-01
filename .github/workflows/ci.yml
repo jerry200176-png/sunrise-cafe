@@ -41,6 +41,9 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Test migration REST probes
+        run: node --test scripts/rest-schema-probe.node-check.mjs
+
       - name: TypeScript typecheck
         run: npm run typecheck
 
