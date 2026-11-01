@@ -35,6 +35,7 @@ import { fetchUnpaidDepositDueReservations } from "@/lib/supabase-admin";
 import { transitionReservation } from "@/lib/reservation-lifecycle";
 import { sendLineFlexMessage } from "@/lib/line";
 import { sendLineFlexBatch } from "@/lib/line-notify";
+import { claimLineReminderDelivery } from "@/lib/line-delivery";
 import type { NextRequest } from "next/server";
 
 const H = 3_600_000;
@@ -112,5 +113,15 @@ describe("deposit-deadline cron (ADR-012 switch)", () => {
       { kind: "system", job: "deposit_deadline" }
     );
     expect(fetchUnpaidDepositDueReservations).toHaveBeenCalledWith({});
+  });
+
+  it("does not cancel or notify when a release claim is unavailable", async () => {
+    process.env.DEPOSIT_DEADLINE_AUTO_CANCEL = "true";
+    vi.mocked(fetchUnpaidDepositDueReservations).mockResolvedValue([row()] as never);
+    vi.mocked(claimLineReminderDelivery).mockResolvedValue({ available: false, id: null });
+    await POST();
+    expect(transitionReservation).not.toHaveBeenCalled();
+    expect(sendLineFlexMessage).not.toHaveBeenCalled();
+    expect(sendLineFlexBatch).not.toHaveBeenCalled();
   });
 });

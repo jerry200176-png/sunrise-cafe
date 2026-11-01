@@ -166,6 +166,9 @@ async function handleRun() {
               recipientId: r.line_user_id,
             })
           : null;
+        if (guestClaim && !guestClaim.available) {
+          throw new Error("LINE reminder delivery ledger unavailable");
+        }
         const groupClaim = await claimLineReminderDelivery({
           reminderType: "deposit_release_group",
           reminderDate: taipeiDateString(new Date(r.start_time)),
@@ -173,6 +176,9 @@ async function handleRun() {
           recipientType: "group",
           recipientId: "legacy-group",
         });
+        if (!groupClaim.available) {
+          throw new Error("LINE reminder delivery ledger unavailable");
+        }
         if (
           groupClaim.available &&
           !groupClaim.id &&
@@ -190,7 +196,7 @@ async function handleRun() {
         );
         if (!cancelled.ok) throw new Error(cancelled.message);
 
-        if (r.line_user_id && (!guestClaim?.available || guestClaim.id)) {
+        if (r.line_user_id && guestClaim?.id) {
           try {
             await sendLineFlexMessage(
               r.line_user_id,
@@ -217,7 +223,7 @@ async function handleRun() {
           }
         }
 
-        if (!groupClaim.available || groupClaim.id) {
+        if (groupClaim.id) {
           const groupId = await branchLineGroupIdForReservation(supabaseAdmin(), r.id);
           pendingGroupReleases.push({ deliveryId: groupClaim.id, groupId, ...buildGroupReleaseNotice(r) });
         }
@@ -255,7 +261,8 @@ async function handleRun() {
           recipientType: "guest",
           recipientId: r.line_user_id,
         });
-        if (claim.available && !claim.id) continue;
+        if (!claim.available) throw new Error("LINE reminder delivery ledger unavailable");
+        if (!claim.id) continue;
         deliveryId = claim.id;
         const urgency = getDepositUrgency(deadline, now) === "soon" ? "soon" : "ok";
         await sendDepositReminder(r, urgency);
@@ -305,7 +312,8 @@ async function handleRun() {
           recipientType: "guest",
           recipientId: r.line_user_id,
         });
-        if (claim.available && !claim.id) continue;
+        if (!claim.available) throw new Error("LINE reminder delivery ledger unavailable");
+        if (!claim.id) continue;
         deliveryId = claim.id;
         await sendDepositReminder(r, "soon");
         lineAccepted = true;

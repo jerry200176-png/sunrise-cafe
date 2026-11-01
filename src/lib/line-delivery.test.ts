@@ -82,21 +82,12 @@ describe("line reminder delivery ledger", () => {
     });
   });
 
-  it("treats a missing migration as compatibility mode outside production", async () => {
-    const client = mockClient({
-      claimError: { code: "PGRST202", message: "claim_line_reminder_delivery not found" },
-    });
+  it("does not return a sendable compatibility result when VERCEL_ENV is absent", async () => {
+    const client = mockClient({ claimError: { code: "PGRST202", message: "claim_line_reminder_delivery not found" } });
     vi.mocked(supabaseAdmin).mockReturnValue(client as never);
-
-    const result = await claimLineReminderDelivery({
-      reminderType: "d1_guest",
-      reminderDate: "2026-09-05",
-      reservationId: "reservation-1",
-      recipientType: "guest",
-      recipientId: "U1",
-    });
-
-    expect(result).toEqual({ available: false, id: null });
+    await expect(claimLineReminderDelivery({ reminderType: "d1_guest", reminderDate: "2026-09-05",
+      reservationId: "synthetic-reservation", recipientType: "guest", recipientId: "synthetic-recipient" }))
+      .rejects.toThrow(/ledger unavailable/);
   });
 
   it("fails closed in production when the ledger RPC is missing", async () => {
@@ -114,7 +105,7 @@ describe("line reminder delivery ledger", () => {
         recipientType: "group",
         recipientId: "G1",
       })
-    ).rejects.toThrow(/LINE reminder delivery ledger unavailable in production/);
+    ).rejects.toThrow(/LINE reminder delivery ledger unavailable/);
   });
 
   it("does not treat an already-claimed row as sendable", async () => {

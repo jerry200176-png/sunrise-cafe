@@ -43,13 +43,9 @@ export async function claimLineReminderDelivery(input: {
 
   if (error) {
     if (isLedgerUnavailable(error)) {
-      if (process.env.VERCEL_ENV === "production") {
-        const detail = [error.code, error.message].filter(Boolean).join(": ").slice(0, 240);
-        throw new Error(
-          `LINE reminder delivery ledger unavailable in production${detail ? ` (${detail})` : ""}`
-        );
-      }
-      return { available: false, id: null };
+      // Never permit an unclaimed push, including preview/non-Vercel processes
+      // that may share real LINE credentials or a production database.
+      throw new Error("LINE reminder delivery ledger unavailable");
     }
     throw error;
   }

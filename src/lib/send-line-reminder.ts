@@ -134,9 +134,8 @@ async function claimRows(
       recipientType,
       recipientId,
     });
-    // Before the migration is available, preserve the old flag-based behavior.
-    // Once the ledger exists, only an explicit claim may send.
-    if (!result.available || result.id) toSend.push({ row, deliveryId: result.id });
+    if (!result.available) throw new Error("LINE reminder delivery ledger unavailable");
+    if (result.id) toSend.push({ row, deliveryId: result.id });
     else handledRows.push(row);
   }
   return { toSend, handledRows };
