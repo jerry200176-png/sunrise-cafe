@@ -5,6 +5,9 @@ import subprocess
 import sys
 import time
 
+if sys.flags.optimize:
+    raise SystemExit('Optimized Python is unsupported: checks must not be removed')
+
 cid = sys.argv[1]
 base = ['docker', 'exec', '-i', cid, 'psql', '-U', 'postgres', '-v', 'ON_ERROR_STOP=1', '-At']
 

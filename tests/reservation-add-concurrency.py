@@ -4,6 +4,9 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
+if sys.flags.optimize:
+    raise SystemExit('Optimized Python is unsupported: checks must not be removed')
+
 container_id = sys.argv[1]
 query = """SELECT public.add_reservation_order_items_once(
 '00000000-0000-0000-0000-000000000004','00000000-0000-0000-0000-000000000005',

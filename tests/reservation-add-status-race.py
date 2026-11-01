@@ -3,6 +3,9 @@ import subprocess
 import sys
 import time
 
+if sys.flags.optimize:
+    raise SystemExit('Optimized Python is unsupported: checks must not be removed')
+
 container_id = sys.argv[1]
 reservation = '00000000-0000-0000-0000-000000000008'
 order = '00000000-0000-0000-0000-000000000009'
