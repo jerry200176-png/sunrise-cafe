@@ -13,10 +13,6 @@ const MARKET_PARITY_SQL = readFileSync(
   join(process.cwd(), "supabase/migration-market-parity-rounds-3-7.sql"),
   "utf8"
 );
-const LINE_DELIVERIES_SQL = readFileSync(
-  join(process.cwd(), "supabase/migration-line-reminder-deliveries.sql"),
-  "utf8"
-);
 const LINE_GUEST_DELIVERIES_SQL = readFileSync(
   join(process.cwd(), "supabase/migration-line-guest-notification-deliveries.sql"),
   "utf8"
@@ -56,46 +52,6 @@ async function opsEventsReady(): Promise<boolean> {
   return exists === true;
 }
 
-async function lineDeliveriesReady(): Promise<boolean> {
-  const exists = await restColumnExists("line_reminder_deliveries", "id");
-  if (exists !== true) return false;
-  return (await claimLineReminderRpcReady()) === true;
-}
-
-/** PostgREST must expose the claim RPC; a table without the function still fails cron. */
-async function claimLineReminderRpcReady(): Promise<boolean | null> {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key || key.startsWith("<") || key.length < 40) return null;
-  try {
-    const res = await fetch(
-      `${url.replace(/\/$/, "")}/rest/v1/rpc/claim_line_reminder_delivery`,
-      {
-        method: "POST",
-        headers: {
-          apikey: key,
-          Authorization: `Bearer ${key}`,
-          "Content-Type": "application/json",
-          Prefer: "return=representation",
-        },
-        body: JSON.stringify({
-          p_reminder_type: "d1_group",
-          p_reminder_date: "2099-01-01",
-          p_reservation_id: "00000000-0000-4000-8000-000000000000",
-          p_recipient_type: "group",
-          p_recipient_id: "ledger-probe",
-        }),
-      }
-    );
-    const text = await res.text();
-    if (/PGRST202|Could not find the function/i.test(text)) return false;
-    if (res.ok || (res.status >= 400 && res.status < 500)) return true;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 async function lineGuestDeliveriesReady(): Promise<boolean> {
   const exists = await restColumnExists("line_guest_notification_deliveries", "id");
   return exists === true;
@@ -133,14 +89,6 @@ async function bootstrapMigrations(): Promise<void> {
       if (guest === false) {
         console.log("[bootstrap-migrations] applying market-parity Round 3–7 columns");
         await sql.unsafe(MARKET_PARITY_SQL);
-      }
-
-      if (!(await lineDeliveriesReady())) {
-        console.log("[bootstrap-migrations] applying line reminder delivery ledger");
-        await sql.unsafe(LINE_DELIVERIES_SQL);
-        await sql.unsafe("NOTIFY pgrst, 'reload schema'");
-      } else {
-        console.log("[bootstrap-migrations] line reminder delivery ledger already ready");
       }
 
       if (!(await lineGuestDeliveriesReady())) {
