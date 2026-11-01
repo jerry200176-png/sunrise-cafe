@@ -3,6 +3,7 @@ import { bookingDateOffset, mockSlotsForDate, MOCK_ROOM, setupBookingApiMocks } 
 
 declare global {
   interface Window { motionEvents: Array<{ id: string; behavior?: ScrollBehavior }> }
+  interface Window { heldErrorFrame: { enabled: boolean; captured: boolean; cancelled: boolean; scrolls: number } }
 }
 
 test("訂位互動即時尊重減少動態偏好，保留照片與表單焦點", async ({ page }) => {
@@ -94,10 +95,11 @@ test("訂位互動即時尊重減少動態偏好，保留照片與表單焦點",
 });
 
 for (const scenario of [
-  { status: 409, reducedMotion: "reduce" as const },
-  { status: 503, reducedMotion: "no-preference" as const },
+  { status: 409, reducedMotion: "reduce" as const, message: "模擬錯誤 409" },
+  { status: 503, reducedMotion: "no-preference" as const, message: "模擬錯誤 503" },
+  { status: 0, reducedMotion: "reduce" as const, message: "無法確認訂位是否已送出" },
 ]) {
-  test(`首次送出回傳 ${scenario.status} 時定位錯誤並保留客人焦點`, async ({ page }) => {
+  test(`首次送出${scenario.status || "連線中斷"}時定位錯誤並保留客人焦點`, async ({ page }) => {
     const date = bookingDateOffset(2);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ reducedMotion: scenario.reducedMotion });
@@ -111,7 +113,8 @@ for (const scenario of [
       if (route.request().method() !== "POST") return route.continue();
       started();
       await responseGate;
-      await route.fulfill({ status: scenario.status, json: { error: `模擬錯誤 ${scenario.status}` } });
+      if (scenario.status === 0) return route.abort("failed");
+      await route.fulfill({ status: scenario.status, json: { error: scenario.message } });
     });
     await page.goto("/book");
     await page.locator("#booking-date").fill(date);
@@ -127,9 +130,61 @@ for (const scenario of [
     await phone.focus();
     await expect(phone).toBeFocused();
     release();
-    const alert = page.getByRole("alert").filter({ hasText: `模擬錯誤 ${scenario.status}` });
+    const alert = page.getByRole("alert").filter({ hasText: scenario.message });
     await expect(alert).toBeVisible();
     await expect(alert).toBeInViewport();
     await expect(phone).toBeFocused();
+    if (scenario.status === 0) await expect(alert.getByRole("link", { name: /查詢/ })).toBeVisible();
   });
 }
+
+test("離開表單前清除錯誤會取消尚未執行的錯誤捲動", async ({ page }) => {
+  const date = bookingDateOffset(2);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => {
+    const state: Window["heldErrorFrame"] = window.heldErrorFrame = { enabled: false, captured: false, cancelled: false, scrolls: 0 };
+    const request = window.requestAnimationFrame.bind(window);
+    const cancel = window.cancelAnimationFrame.bind(window);
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (arg?: boolean | ScrollIntoViewOptions) {
+      if (this.getAttribute("role") === "alert") state.scrolls += 1;
+      return original.call(this, arg);
+    };
+    window.requestAnimationFrame = (callback) => {
+      const banner = Array.from(document.querySelectorAll('[role="alert"]')).some((el) => el.textContent?.includes("模擬錯誤"));
+      if (state.enabled && banner) {
+        state.enabled = false;
+        state.captured = true;
+        return -12345;
+      }
+      return request(callback);
+    };
+    window.cancelAnimationFrame = (id) => {
+      if (id === -12345) state.cancelled = true;
+      else cancel(id);
+    };
+  });
+  await setupBookingApiMocks(page, date);
+  await page.route("**/api/rooms?**", (route) => route.fulfill({ json: [] }));
+  await page.route("**/api/reservations", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    await route.fulfill({ status: 503, json: { error: "模擬錯誤" } });
+  });
+  await page.goto("/book");
+  await page.locator("#booking-date").fill(date);
+  await page.getByRole("button", { name: "下一步" }).click();
+  await page.getByRole("button", { name: new RegExp(MOCK_ROOM.roomName) }).click();
+  await page.getByRole("button", { name: "10:00–12:00" }).click();
+  await page.getByRole("button", { name: /下一步 · 填寫資料/ }).click();
+  await page.locator("#booking-name").fill("測試客人");
+  await page.locator("#booking-phone").fill("0912345678");
+  await page.evaluate(() => { window.heldErrorFrame.enabled = true; });
+  await page.getByRole("region", { name: "確認預約" }).getByRole("button", { name: "確認預約" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "模擬錯誤" })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.heldErrorFrame.captured)).toBe(true);
+  await page.getByRole("button", { name: "← 重選時段" }).click();
+  await expect.poll(() => page.evaluate(() => window.heldErrorFrame.cancelled)).toBe(true);
+  expect(await page.evaluate(() => window.heldErrorFrame.scrolls)).toBe(0);
+  await expect(page.locator("#booking-duration")).toBeVisible();
+});
