@@ -46,6 +46,8 @@ test.describe("訂位流程（API mock）", () => {
     await page.getByRole("button", { name: /下一步 · 填寫資料/ }).click();
 
     // 填寫表單
+    await expect(page.getByText(/已付訂金無法線上自行取消：訂位開始前至少 48 小時/)).toBeVisible();
+    await expect(page.getByText(/不足 48 小時請聯繫店員審核/)).toBeVisible();
     await page.getByLabel(/姓名/).fill("E2E 測試");
     await page.getByPlaceholder(/09/).fill("0912345678");
     await page.getByRole("button", { name: "確認預約" }).click();
@@ -54,6 +56,7 @@ test.describe("訂位流程（API mock）", () => {
     await expect(page).toHaveURL(/\/book\/success/);
     await expect(page.getByText("預約申請已送出")).toBeVisible();
     await expect(page.getByText("E2E001")).toBeVisible();
+    await expect(page.getByText(/已付訂金無法線上自行取消：訂位開始前至少 48 小時/)).toBeVisible();
   });
 
   test("多分店時可先選分店", async ({ page }) => {
