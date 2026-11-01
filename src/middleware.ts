@@ -1,5 +1,6 @@
 import { NextFetchEvent, NextRequest, NextResponse } from "next/server";
-import { rateLimit, getClientIp, guestRateLimitId, getRateLimitMode } from "@/lib/rate-limit";
+import { rateLimit, getClientIp, guestRateLimitId, getRateLimitMode, type LimiterKey } from "@/lib/rate-limit";
+import { rateLimitResponse } from "@/lib/rate-limit-response";
 import { logOps } from "@/lib/ops-log";
 import { getSessionSecret } from "@/lib/admin-auth";
 import {
@@ -26,22 +27,19 @@ function withRateLimitMode(response: NextResponse): NextResponse {
   return response;
 }
 
-function tooManyRequests(reset: number, path: string, limiter: string, event: NextFetchEvent) {
-  logOps(
-    "guest",
-    "guest.lookup_denied_rate_limit",
-    { path, limiter },
-    (work) => event.waitUntil(work())
-  );
-  return withRateLimitMode(
-    NextResponse.json(
-      { error: "Too Many Requests" },
-      {
-        status: 429,
-        headers: { "Retry-After": String(Math.ceil((reset - Date.now()) / 1000)) },
-      }
-    )
-  );
+async function checkLimit(identifier: string, limiter: LimiterKey, path: string, event: NextFetchEvent) {
+  const result = await rateLimit(identifier, limiter);
+  const response = rateLimitResponse(result);
+  if (!response) return null;
+  if (!result.unavailable) {
+    logOps(
+      "guest",
+      "guest.lookup_denied_rate_limit",
+      { path, limiter },
+      (work) => event.waitUntil(work())
+    );
+  }
+  return withRateLimitMode(response);
 }
 
 export async function middleware(request: NextRequest, event: NextFetchEvent) {
@@ -50,37 +48,37 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
 
   // ── Rate Limiting ──────────────────────────────────────────────────
   if (pathname === "/api/admin/login" && request.method === "POST") {
-    const { success, reset } = await rateLimit(ip, "login");
-    if (!success) return tooManyRequests(reset, pathname, "login", event);
+    const limited = await checkLimit(ip, "login", pathname, event);
+    if (limited) return limited;
   } else if (pathname === "/api/reservations" && request.method === "POST") {
-    const { success, reset } = await rateLimit(ip, "booking");
-    if (!success) return tooManyRequests(reset, pathname, "booking", event);
+    const limited = await checkLimit(ip, "booking", pathname, event);
+    if (limited) return limited;
   } else if (pathname === "/api/availability") {
-    const { success, reset } = await rateLimit(ip, "availability");
-    if (!success) return tooManyRequests(reset, pathname, "availability", event);
+    const limited = await checkLimit(ip, "availability", pathname, event);
+    if (limited) return limited;
   } else if (pathname === "/api/my-bookings" && request.method === "GET") {
     const phone = request.nextUrl.searchParams.get("phone");
-    const { success, reset } = await rateLimit(guestRateLimitId(ip, phone), "guestLookup");
-    if (!success) return tooManyRequests(reset, pathname, "guestLookup", event);
+    const limited = await checkLimit(guestRateLimitId(ip, phone), "guestLookup", pathname, event);
+    if (limited) return limited;
   } else if (pathname === "/api/waitlist" && request.method === "GET") {
     const phone = request.nextUrl.searchParams.get("phone");
-    const { success, reset } = await rateLimit(guestRateLimitId(ip, phone), "guestLookup");
-    if (!success) return tooManyRequests(reset, pathname, "guestLookup", event);
+    const limited = await checkLimit(guestRateLimitId(ip, phone), "guestLookup", pathname, event);
+    if (limited) return limited;
   } else if (
     (pathname === "/api/my-bookings" && request.method === "POST") ||
     (pathname === "/api/cancel-booking" && request.method === "POST") ||
     (pathname === "/api/reschedule-booking" && request.method === "POST")
   ) {
-    const { success, reset } = await rateLimit(guestRateLimitId(ip, null), "guestLookup");
-    if (!success) return tooManyRequests(reset, pathname, "guestLookup", event);
+    const limited = await checkLimit(guestRateLimitId(ip, null), "guestLookup", pathname, event);
+    if (limited) return limited;
   } else if (
     pathname.startsWith("/api/") &&
     !pathname.startsWith("/api/webhooks/") &&
     !isVercelCronRequest(request)
   ) {
     // webhooks / Vercel Cron 不套用一般 API 限流，避免排程被 429 擋下
-    const { success, reset } = await rateLimit(ip, "api");
-    if (!success) return tooManyRequests(reset, pathname, "api", event);
+    const limited = await checkLimit(ip, "api", pathname, event);
+    if (limited) return limited;
   }
 
   // ── CTO / Ops evidence（Bearer CTO_OUTCOME_SECRET / CRON_SECRET）────────
