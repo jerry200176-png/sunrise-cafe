@@ -7,14 +7,14 @@
 不能安全地只新增 attempt 表後切換 cron：舊版已可能先呼叫 provider、後寫 ledger；在途請求可能不存在於任何本地表，且舊／新部署可同時寫入。把「本地查無 attempt」當成安全取消或重新收款，可能遺失已收款證據。以下候選僅降低局部未知，**不解決完整競態，也不保證事件永久保留**：
 
 - `payment_intent.succeeded` 的已驗簽 Stripe webhook 先驗證 binding／實收額，驗證不通過、既有 ledger 更新回傳 DB error 或記帳拋例外時回非 2xx 供 Stripe 重送，而不是吞掉例外後回 200。此 handler 新增的錯誤回應與固定訊息不包含 DB error 原文；不新增儲存欄位、不自行退款、不修改取消政策。
-- 這僅適用**被新版 handler 收到且可觀察到的錯誤**。既有更新零列不一定回 error；binding 拒絕、無 reservation metadata、處理其他 event type、舊部署、已被吞掉的歷史事件均未由此候選修好。Stripe 重送有期限；DB 若已部分成功而回應遺失，重送也可能再次進入通知／audit，現有流程不能宣稱完整冪等。上線前須獨立複核現有通知 lease、並行重送與錯誤告警；無法接受或驗證重複副作用時不要部署。此候選不等於 durable inbox。
+- 這僅適用**被新版 handler 收到且可觀察到的錯誤**。成功事件更新零列現在以 exact count 擋下，但這不涵蓋其他寫入或先前 binding 與更新之間的競態；binding 拒絕、無 reservation metadata、處理其他 event type、舊部署、已被吞掉的歷史事件均未由此候選修好。Stripe 重送有期限；DB 若已部分成功而回應遺失，重送也可能再次進入通知／audit，現有流程不能宣稱完整冪等。上線前須獨立複核現有通知 lease、並行重送與錯誤告警；無法接受或驗證重複副作用時不要部署。此候選不等於 durable inbox。
 - 若需要完整證據保全，先實作並測試具唯一 event identity 的 durable inbox／對帳能力，只有可信證據已持久化、可重複安全處理後才 ack；當 DB 無法保存時回非 2xx 並發出不含付款資料的監測。Stripe 的 2xx 並不保證內部後續處理完成，重送也不是永久保存方案。
 
 ## 已重現的阻擋（synthetic RED；禁止部署此候選）
 
-以下 9 項是要維持啟用的安全斷言，皆以合成資料／mock 重現；其中 3、4、5、9 的狹窄合成場景現已通過，其餘 5 項仍失敗；全部斷言不能 `skip`、刪除或降低：
+以下 9 項是要維持啟用的安全斷言，皆以合成資料／mock 重現；其中 1、3、4、5、9 的狹窄合成場景現已通過，其餘 4 項仍失敗；全部斷言不能 `skip`、刪除或降低：
 
-1. **成功事件 ledger 零列仍 ack／入帳**：可能讓缺綁定事件被當正常；需先保存事件，確認 row identity 與 affected row，再安全處理。
+1. **成功事件 ledger 零列仍 ack／入帳**：此 draft 要求 exact count 為 1，0、null 或非 1 時不呼叫 paid 並回非 2xx；這不保全事件，count 是更新後取得，若資料有重複列可能已改多筆，並無法保證 binding 查詢與更新間不變。需要 DB 唯一性、共同交易、durable inbox 與綁定核對。
 2. **遲到 succeeded 覆寫 refunded ledger**：可能使退款狀態倒轉；需事件去重、交易內鎖定並以退款歷史推導不可倒退狀態。
 3. **payment_failed 寫入 DB error 仍 ack**：此特定 DB error 改回非 2xx；失敗證據仍可能只剩 provider 的有限期重送，需 durable inbox 與失敗可恢復處置。
 4. **expanded refund object 未處理仍 ack**：此特定場景現在回非 2xx；仍未處理 expanded ID、綁定驗證或持久化事件。
@@ -24,13 +24,15 @@
 8. **confirm-deposit 可將 refunded 改回 paid**：需要和 webhook 共用資料庫層原子狀態與事件契約，不能各自先讀再寫。
 9. **provider 建單後 ledger insert 失敗仍回 client secret**：此特定場景回非 2xx、隱藏 client secret，本次 handler 不直接重呼叫 provider；已送出的 provider 請求仍可能無本地紀錄，其他入口或後續請求仍可重試。需 durable claim、崩潰／timeout reconciliation 與不丟證據的 response 合約，不能只改 503 就宣稱安全。
 
-- `route.unresolved.test.ts` 重現 ledger 更新匹配零列但 `error=null` 時仍回 200 並呼叫 paid；原本 `payment_failed` 的 DB error 和 expanded refund 未處理皆回 200；此 draft 對這兩個情境改非 2xx，但沒有 durable inbox。這些都是合成 mock，不代表正式資料已發生。
+- `route.unresolved.test.ts` 原本重現 ledger 更新匹配零列但 `error=null` 時仍回 200 並呼叫 paid；此 draft 在該情境改回非 2xx；原本 `payment_failed` 的 DB error 和 expanded refund 未處理皆回 200；此 draft 對這兩個情境改非 2xx，但沒有 durable inbox。這些都是合成 mock，不代表正式資料已發生。
 - 先前 synthetic 重現 intent binding 與金額讀取都回 DB error／null，卻因缺失金額以 0 計算而接受小額付款。此 draft 的 `deposit-binding.database.test.ts` 與 webhook 合成測試已檢查 DB error 回 503／webhook 非 2xx；仍需在拒絕／重試前安全保存付款事件證據。
 - `stripe-refund-checkout.unresolved.test.ts` 使用真 `deposit-paid` 與真 `computeCheckoutBill`、合成 DB state 和 checkout route 相同的 refunded→是否抵扣映射：refund 後遲到 succeeded 使應收由 NT$400 變 NT$200。正式結帳 RPC 的 SQL 同樣以 `is_deposit_paid` 和 `deposit_status != refunded` 判斷是否扣訂金；這是可能錯誤抵扣的程式證據，不是已發生的實際收款或該 RPC 的實測。
 - `deposit-concurrent.unresolved.test.ts` 的合成 barrier 使兩個呼叫讀到同一 unpaid snapshot，兩者各執行 audit；reviewer 另觀察兩次 notify 函式呼叫。通知下游 lease 未在此測試執行，因此不能把兩次呼叫宣稱為真實 LINE 重複發送。
 - `stripe-confirm-refund.unresolved.test.ts` 使用真 `confirm-deposit`／`markDepositPaid` 搭配合成 DB/provider，重現 PI 仍 succeeded 而 reservation 已 refunded 時，確認端點可把它改回 paid。webhook 與 confirm 必須共用**資料庫層原子**的退款／成功狀態不變式與持久證據，不能只在一端先讀狀態；本 draft 未完成這項修復。
 - `route.evidence.unresolved.test.ts` 模擬 Stripe 建單回傳後本地 intent insert 失敗，此 draft 不回 200 或 client secret，亦不在本次請求中重新呼叫 provider；資料庫回應遺失可能是已提交或未提交，兩者均維持未知。在 durable pre-claim／對帳機制完成之前，不能把這當安全收款或僅靠改 HTTP 回應宣稱保全證據。
 - 真 Stripe SDK 的**合法合成簽章**搭配 malformed synthetic body，可使 JSON parser exception 含 body 片段。此 draft 將 signature catch 改為固定訊息，並以合成測試確認該 catch 不再輸出片段；不能聲稱未簽名請求即可觸發，也不能聲稱整條 webhook 都已去敏。`create-intent` 與 `confirm-deposit` 外層 catch 也改為固定訊息，合成 provider exception 不再回顯；獨立 reviewer 的 synthetic 測試另發現既有下游 payment note／通知 raw error 可能進 console，本 draft 未修復全鏈日誌。
+
+synthetic count 的可重跑驗證：先確保可信本機 Docker 上已有 `postgres:17-alpine`、`postgrest/postgrest:v12.2.12`、`node:22-alpine`，執行 `python3 scripts/research/stripe-update-count/run.py "$(realpath node_modules)"`。此研究只使用合成帳號和資料、tmpfs PG，以及共用 PG `--network none` 的本機容器網路命名空間；不拉取映像、不碰正式資料。它驗證真 supabase-js/PostgREST 回傳 exact count 0／1／2；handler 使用 mock 的測試是分開執行，這不是 app 與真 DB 的端到端或原子交易測試。Docker daemon、映像及被掛入的 node_modules 均須可信。
 
 這些安全期待目前以測試形式保留，未達成的項目保持 RED；不得刪除、降低或繞過它們以通過 CI。最小完整修法至少要先有持久事件 inbox／同事件去重，再以交易化的 monotonic payment/refund 狀態與 reservation lock 驗證 binding、金額、已退款及 late-success；對讀取未知、零列、partial refund、expanded object 和無法綁定事件保留證據及可恢復狀態，最後才評估 ack 和重送。只把 DB error 改成 500 無法提供這些保證。
 
@@ -47,7 +49,7 @@ draft 的建單候選改從 reservation→room 取得 authoritative branch，要
 | 路徑 | 現有行為／需接入的共同契約 | 缺口 |
 | --- | --- | --- |
 | `src/app/api/payment/create-intent/route.ts` | 檢查 reservation → Stripe `paymentIntents.create`（固定 reservation idempotency key）→ 插入 `payment_intents` → 更新 reservation | provider 呼叫在本地 ledger 前；此 draft 對 insert error 不回 client secret；資料庫 timeout／process crash 時本地仍無法證明沒送出請求，缺少 durable pre-claim／對帳。 |
-| `src/app/api/webhooks/stripe/route.ts` | main 原順序：驗簽 → 更新 intent status → binding → `markDepositPaid`；本 draft 將 binding 前移，未核實先回非 2xx | 零列更新、其他事件與 binding 失敗的 durable 證據保全仍未完成。event 亂序、重複、退款及舊 deployment 必須納入。 |
+| `src/app/api/webhooks/stripe/route.ts` | main 原順序：驗簽 → 更新 intent status → binding → `markDepositPaid`；本 draft 將 binding 前移，未核實先回非 2xx | 成功事件零列以 exact count 擋下；其餘零列、binding 與更新競態、其他事件與 durable 證據保全仍未完成。event 亂序、重複、退款及舊 deployment 必須納入。 |
 | `src/app/api/payment/confirm-deposit/route.ts`、`src/lib/deposit-paid.ts` | provider retrieve/binding 後，`markDepositPaid` 先 load 再無條件 update，之後 audit／通知 | 可能與 cancel 互相穿插；update 與 audit／通知不在同一 transaction。DB read error 在部分 binding 查詢中被當缺資料，不能據此推定付款不存在。 |
 | `src/app/api/payment/refund/route.ts`、Stripe `charge.refunded` webhook | provider refund 與本地 `payment_intents`／`deposit_status` 分開更新 | 退款結果 unknown、重送／重試與部分退款需保留 provider id、金額、貨幣及原狀態；不得以此 PR 自動退款或改付款規則。 |
 | `src/app/api/linepay/request/route.ts`、`src/lib/line-pay.ts` | 驗客戶／訂位 → 產生 orderId → LINE Pay v4 request → 收到 response 後才 insert `line_pay_payments` | timeout/crash/insert failure 可能沒有本地 row 或 transactionId；隨機重新產生 orderId 不等於安全重試。 |

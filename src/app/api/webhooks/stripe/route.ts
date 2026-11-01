@@ -71,11 +71,13 @@ export async function POST(request: NextRequest) {
           throw new Error("Stripe payment binding not verified");
         }
 
-        const { error: ledgerError } = await supabaseAdmin()
+        const { error: ledgerError, count: ledgerCount } = await supabaseAdmin()
           .from("payment_intents")
-          .update({ status: "succeeded", updated_at: new Date().toISOString() })
+          .update({ status: "succeeded", updated_at: new Date().toISOString() }, { count: "exact" })
           .eq("stripe_pi_id", paymentIntent.id);
-        if (ledgerError) throw new Error("Stripe payment ledger update failed");
+        // An UPDATE can succeed without touching any row. Do not mark the
+        // reservation paid unless exactly one ledger row was observed.
+        if (ledgerError || ledgerCount !== 1) throw new Error("Stripe payment ledger update failed");
 
         try {
           await markDepositPaid(reservationId, "stripe_webhook", {}, "stripe");

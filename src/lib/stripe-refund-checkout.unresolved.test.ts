@@ -6,7 +6,7 @@ vi.mock('@/lib/ops-log',()=>({logOps:vi.fn()}));
 vi.mock('@/lib/payment-log',()=>({logDepositStatusChange:vi.fn()}));
 vi.mock('@/lib/payment-notify',()=>({notifyPaymentApproved:vi.fn(async()=>({ok:true}))}));
 vi.mock('@supabase/supabase-js',()=>({createClient:()=>({from:(name:string)=>({
- update:(patch:{status?:string,deposit_status?:string,is_deposit_paid?:boolean})=>({eq:async()=>{if(name==='payment_intents'&&patch.status)m.ledger=patch.status;if(name==='reservations'&&patch.deposit_status)m.deposit=patch.deposit_status;if(name==='reservations'&&patch.is_deposit_paid!==undefined)m.paid=patch.is_deposit_paid;return {error:null};}}),
+ update:(patch:{status?:string,deposit_status?:string,is_deposit_paid?:boolean})=>({eq:async()=>{if(name==='payment_intents'&&patch.status)m.ledger=patch.status;if(name==='reservations'&&patch.deposit_status)m.deposit=patch.deposit_status;if(name==='reservations'&&patch.is_deposit_paid!==undefined)m.paid=patch.is_deposit_paid;return {error:null,count:1};}}),
  select:()=>({eq:()=>({single:async()=>({data:{reservation_id:'synthetic'}}),maybeSingle:async()=>({data:name==='payment_intents'?{reservation_id:'synthetic'}:{total_price:400,is_deposit_paid:m.paid,deposit_payment_note:null,deposit_paid_on:null,deposit_last_five:null,status:'confirmed',booking_code:'synthetic'}})})}),
 })})}));
 import { POST } from '@/app/api/webhooks/stripe/route';

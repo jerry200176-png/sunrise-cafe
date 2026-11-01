@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
-  constructEvent: vi.fn(), ledgerUpdate: vi.fn(), markPaid: vi.fn(), binding: vi.fn(), logOps: vi.fn(),
+  constructEvent: vi.fn(), update: vi.fn(), ledgerUpdate: vi.fn(), markPaid: vi.fn(), binding: vi.fn(), logOps: vi.fn(),
 }));
 
 vi.mock("@/lib/stripe", () => ({
@@ -11,7 +11,7 @@ vi.mock("@/lib/stripe", () => ({
 }));
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
-    from: () => ({ update: () => ({ eq: mocks.ledgerUpdate }) }),
+    from: () => ({ update: mocks.update }),
   }),
 }));
 vi.mock("@/lib/deposit-paid", () => ({
@@ -34,7 +34,8 @@ beforeEach(() => {
     type: "payment_intent.succeeded",
     data: { object: { id: "pi_synthetic", metadata: { reservationId: "synthetic-reservation" } } },
   });
-  mocks.ledgerUpdate.mockResolvedValue({ error: null });
+  mocks.update.mockReturnValue({ eq: mocks.ledgerUpdate });
+  mocks.ledgerUpdate.mockResolvedValue({ error: null, count: 1 });
   mocks.binding.mockResolvedValue({ ok: true });
   mocks.markPaid.mockResolvedValue({ changed: true, notification: null });
 });
@@ -54,6 +55,14 @@ describe("Stripe succeeded webhook retry boundary", () => {
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: "Webhook processing failed" });
     expect(mocks.markPaid).not.toHaveBeenCalled();
+  });
+
+  it.each([0, null, 2])("does not mark paid when the exact affected count is %s", async (count) => {
+    mocks.ledgerUpdate.mockResolvedValue({ error: null, count });
+    const response = await POST(request());
+    expect(response.status).toBe(500);
+    expect(mocks.markPaid).not.toHaveBeenCalled();
+    expect(mocks.update).toHaveBeenCalledWith(expect.any(Object), { count: "exact" });
   });
 
   it("does not acknowledge an exception recording the paid result", async () => {
