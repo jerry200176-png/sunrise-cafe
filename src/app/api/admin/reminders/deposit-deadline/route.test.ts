@@ -31,7 +31,7 @@ vi.mock("@/lib/job-runs", () => ({
 vi.mock("@/lib/payment-log", () => ({ logPayment: vi.fn(), logDepositStatusChange: vi.fn() }));
 
 import { GET, POST } from "./route";
-import { fetchUnpaidDepositDueReservations } from "@/lib/supabase-admin";
+import { fetchUnpaidDepositDueReservations, fetchFailedDepositReleaseGroupDeliveries, updateReservationAdmin } from "@/lib/supabase-admin";
 import { transitionReservation } from "@/lib/reservation-lifecycle";
 import { sendLineFlexMessage } from "@/lib/line";
 import { sendLineFlexBatch } from "@/lib/line-notify";
@@ -61,7 +61,7 @@ function row(over: Record<string, unknown> = {}) {
 
 const json = async (res: Response) => (await res.json()) as Record<string, unknown>;
 
-describe("deposit-deadline cron (ADR-012 switch)", () => {
+describe("deposit-deadline cron retains unpaid bookings", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
@@ -73,16 +73,17 @@ describe("deposit-deadline cron (ADR-012 switch)", () => {
     delete process.env.DEPOSIT_DEADLINE_AUTO_CANCEL;
   });
 
-  it.each([undefined, "", "false", "0"])(
-    "does not cancel an overdue unpaid booking when the switch is %s (GET and POST)",
+  it.each([undefined, "", "false", "0", "true", "TRUE", "1", "on", "yes"])(
+    "does not cancel an overdue unpaid booking even with legacy flag %s (GET and POST)",
     async (value) => {
       if (value !== undefined) process.env.DEPOSIT_DEADLINE_AUTO_CANCEL = value;
-      vi.mocked(fetchUnpaidDepositDueReservations).mockResolvedValue([row()] as never);
+      vi.mocked(fetchUnpaidDepositDueReservations).mockResolvedValue([row(), row({ id: "r-confirmed", status: "confirmed" })] as never);
       for (const res of [await POST(), await GET({} as NextRequest)]) {
         const body = await json(res);
-        expect(body).toMatchObject({ ok: true, auto_cancel_enabled: false, released: 0, deadline_passed: 1 });
+        expect(body).toMatchObject({ ok: true, auto_cancel_enabled: false, released: 0, deadline_passed: 2 });
       }
       expect(transitionReservation).not.toHaveBeenCalled();
+      expect(updateReservationAdmin).not.toHaveBeenCalled();
       expect(sendLineFlexMessage).not.toHaveBeenCalled();
       expect(sendLineFlexBatch).not.toHaveBeenCalled();
       // Only future bookings are read when nothing will be cancelled.
@@ -101,16 +102,10 @@ describe("deposit-deadline cron (ADR-012 switch)", () => {
     expect(transitionReservation).not.toHaveBeenCalled();
   });
 
-  it("cancels again only when DEPOSIT_DEADLINE_AUTO_CANCEL=true", async () => {
-    process.env.DEPOSIT_DEADLINE_AUTO_CANCEL = "true";
-    vi.mocked(fetchUnpaidDepositDueReservations).mockResolvedValue([row()] as never);
-    const body = await json(await POST());
-    expect(body).toMatchObject({ auto_cancel_enabled: true, released: 1, deadline_passed: 0 });
-    expect(transitionReservation).toHaveBeenCalledWith(
-      "r-past",
-      { type: "cancel", reason: "deposit_deadline" },
-      { kind: "system", job: "deposit_deadline" }
-    );
-    expect(fetchUnpaidDepositDueReservations).toHaveBeenCalledWith({});
+  it("does not retry old release notices, which may refer to restored bookings", async () => {
+    vi.mocked(fetchUnpaidDepositDueReservations).mockResolvedValue([] as never);
+    await POST();
+    expect(fetchFailedDepositReleaseGroupDeliveries).not.toHaveBeenCalled();
+    expect(sendLineFlexBatch).not.toHaveBeenCalled();
   });
 });
