@@ -39,12 +39,12 @@ function adminHeaders(extra: HeadersInit = {}) {
   };
 }
 
-/** 預設不含已封存的分店；後台「已封存」清單用 includeArchived。 */
+/** Server-only: caller must authorize the admin session and scope the returned branches. */
 export async function fetchBranches(includeArchived = false): Promise<unknown[]> {
   const { url: baseUrl } = base();
   const res = await fetch(`${baseUrl}/rest/v1/branches?select=*&order=name.asc${includeArchived ? "" : "&archived_at=is.null"}`, {
     method: "GET",
-    headers: headers(),
+    headers: adminHeaders(),
     cache: "no-store",
   });
   if (!res.ok) {
