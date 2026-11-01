@@ -8,18 +8,18 @@ WITH target_table AS (
   SELECT p.* FROM pg_proc p
   WHERE p.oid = to_regprocedure('public.claim_line_reminder_delivery(text,date,uuid,text,text)')
 ), expected_columns(name, type, required) AS (
-  VALUES ('id', 'uuid', true), ('reminder_type', 'text', true),
-    ('reminder_date', 'date', true), ('reservation_id', 'uuid', true),
-    ('recipient_type', 'text', true), ('recipient_id', 'text', true),
-    ('status', 'text', true), ('attempt_count', 'integer', true),
-    ('last_error', 'text', false), ('message_count', 'integer', true),
-    ('created_at', 'timestamp with time zone', true), ('sent_at', 'timestamp with time zone', false)
+  VALUES ('id', 'pg_catalog.uuid'::regtype, true), ('reminder_type', 'pg_catalog.text'::regtype, true),
+    ('reminder_date', 'pg_catalog.date'::regtype, true), ('reservation_id', 'pg_catalog.uuid'::regtype, true),
+    ('recipient_type', 'pg_catalog.text'::regtype, true), ('recipient_id', 'pg_catalog.text'::regtype, true),
+    ('status', 'pg_catalog.text'::regtype, true), ('attempt_count', 'pg_catalog.int4'::regtype, true),
+    ('last_error', 'pg_catalog.text'::regtype, false), ('message_count', 'pg_catalog.int4'::regtype, true),
+    ('created_at', 'pg_catalog.timestamptz'::regtype, true), ('sent_at', 'pg_catalog.timestamptz'::regtype, false)
 ), reservation_columns(name, type) AS (
-  VALUES ('id', 'uuid'), ('status', 'text'), ('is_notified', 'boolean'),
-    ('is_deposit_paid', 'boolean'), ('is_reminded_7d', 'boolean'),
-    ('deposit_reminder_sent_at', 'timestamp with time zone'),
-    ('deposit_urgent_reminder_sent_at', 'timestamp with time zone'),
-    ('d1_guest_reminder_sent_at', 'timestamp with time zone')
+  VALUES ('id', 'pg_catalog.uuid'::regtype), ('status', 'pg_catalog.text'::regtype), ('is_notified', 'pg_catalog.bool'::regtype),
+    ('is_deposit_paid', 'pg_catalog.bool'::regtype), ('is_reminded_7d', 'pg_catalog.bool'::regtype),
+    ('deposit_reminder_sent_at', 'pg_catalog.timestamptz'::regtype),
+    ('deposit_urgent_reminder_sent_at', 'pg_catalog.timestamptz'::regtype),
+    ('d1_guest_reminder_sent_at', 'pg_catalog.timestamptz'::regtype)
 )
 SELECT
   EXISTS (SELECT 1 FROM target_table) AS table_present,
@@ -28,7 +28,7 @@ SELECT
     WHERE NOT EXISTS (
       SELECT 1 FROM target_table t JOIN pg_attribute a ON a.attrelid = t.oid
       WHERE a.attname = e.name AND a.attnum > 0 AND NOT a.attisdropped
-        AND format_type(a.atttypid, a.atttypmod) = e.type
+        AND a.atttypid = e.type AND a.atttypmod = -1
         AND (NOT e.required OR a.attnotnull)
     )
   ) AS columns_present,
@@ -37,7 +37,7 @@ SELECT
     WHERE NOT EXISTS (
       SELECT 1 FROM pg_attribute a
       WHERE a.attrelid = to_regclass('public.reservations') AND a.attname = e.name
-        AND a.attnum > 0 AND NOT a.attisdropped AND format_type(a.atttypid, a.atttypmod) = e.type
+        AND a.attnum > 0 AND NOT a.attisdropped AND a.atttypid = e.type AND a.atttypmod = -1
     )
   ) AS reservation_columns_present,
   EXISTS (

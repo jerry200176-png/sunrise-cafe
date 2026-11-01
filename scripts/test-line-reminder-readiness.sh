@@ -3,6 +3,7 @@
 set -euo pipefail
 command -v docker >/dev/null
 command -v node >/dev/null
+command -v cc >/dev/null
 [[ -S /var/run/docker.sock && ! -L /var/run/docker.sock ]] || { echo 'Local Docker unavailable' >&2; exit 1; }
 work="$(mktemp -d /tmp/sunrise-line-readiness.XXXXXX)"
 mkdir "$work/docker-config"
@@ -35,6 +36,24 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 [[ "$ready" == true ]] || { echo 'Synthetic PostgreSQL unavailable' >&2; exit 1; }
+# Build a synthetic typmodout from the isolated server's own headers.  The
+# module references PostgreSQL symbols only and exists in this fixture alone.
+docker_local cp "$pg_id:/usr/local/include/postgresql" "$work/pg-include"
+cat > "$work/synthetic_typmod.c" <<'C'
+#include "postgres.h"
+#include "fmgr.h"
+#include "commands/async.h"
+PG_MODULE_MAGIC;
+PG_FUNCTION_INFO_V1(synthetic_typmod_out);
+Datum synthetic_typmod_out(PG_FUNCTION_ARGS) {
+  Async_Notify("sunrise_synthetic_typmod", "synthetic");
+  PG_RETURN_CSTRING(pstrdup("(1)"));
+}
+C
+cc -shared -fPIC -I"$work/pg-include/server" -I"$work/pg-include" \
+  -o "$work/synthetic_typmod.so" "$work/synthetic_typmod.c"
+docker_local cp "$work/synthetic_typmod.so" "$pg_id:/tmp/synthetic_typmod.so"
+docker_local exec -u root "$pg_id" chmod 755 /tmp/synthetic_typmod.so
 docker_local exec -i "$pg_id" psql -X -q -v ON_ERROR_STOP=1 -U postgres -d fixture <<'SQL' >/dev/null
 CREATE ROLE anon NOLOGIN;
 CREATE ROLE authenticated NOLOGIN;
@@ -60,6 +79,19 @@ GRANT EXECUTE ON FUNCTION public.synthetic_openapi_root() TO service_role;
 CREATE FUNCTION public.synthetic_pre_request() RETURNS void LANGUAGE plpgsql AS $$
 BEGIN PERFORM pg_notify('sunrise_synthetic_pre_request', 'synthetic'); END $$;
 GRANT EXECUTE ON FUNCTION public.synthetic_pre_request() TO service_role;
+-- A custom typmodout exposes why format_type on untrusted columns is unsafe.
+CREATE TYPE public.synthetic_trap;
+CREATE FUNCTION public.synthetic_trap_in(cstring) RETURNS public.synthetic_trap
+  LANGUAGE internal IMMUTABLE STRICT AS 'int4in';
+CREATE FUNCTION public.synthetic_trap_out(public.synthetic_trap) RETURNS cstring
+  LANGUAGE internal IMMUTABLE STRICT AS 'int4out';
+CREATE FUNCTION public.synthetic_trap_typmod_in(cstring[]) RETURNS integer
+  LANGUAGE internal IMMUTABLE STRICT AS 'numerictypmodin';
+CREATE FUNCTION public.synthetic_trap_typmod_out(integer) RETURNS cstring
+  LANGUAGE C VOLATILE STRICT AS '/tmp/synthetic_typmod.so', 'synthetic_typmod_out';
+CREATE TYPE public.synthetic_trap (INPUT = public.synthetic_trap_in, OUTPUT = public.synthetic_trap_out,
+  TYPMOD_IN = public.synthetic_trap_typmod_in, TYPMOD_OUT = public.synthetic_trap_typmod_out,
+  INTERNALLENGTH = 4, PASSEDBYVALUE);
 CREATE FUNCTION public.synthetic_volatile_claim(p_reservation_id uuid) RETURNS uuid
 LANGUAGE plpgsql VOLATILE AS $$
 BEGIN
@@ -216,6 +248,20 @@ try {
     await new Promise((r) => setTimeout(r, 300));
     if (!ledgerSeen) throw new Error('Synthetic ledger RLS policy was not a valid side-effect trap');
   } finally { await pg`RESET ROLE`; }
+  let typmodSeen = false;
+  await listener.listen('sunrise_synthetic_typmod', () => { typmodSeen = true; });
+  await pg`ALTER TABLE public.reservations RENAME COLUMN status TO synthetic_original_status`;
+  await pg`ALTER TABLE public.reservations ADD COLUMN status public.synthetic_trap(1)`;
+  rejected = false;
+  try { await verifyCatalog(pg); } catch { rejected = true; }
+  await new Promise((r) => setTimeout(r, 300));
+  if (!rejected || typmodSeen) throw new Error('Unexpected result for malicious synthetic typmod');
+  await pg.begin('read only', (tx) => tx`SELECT format_type(a.atttypid, a.atttypmod) FROM pg_attribute a WHERE a.attrelid = 'public.reservations'::regclass AND a.attname = 'status'`);
+  await new Promise((r) => setTimeout(r, 300));
+  if (!typmodSeen) throw new Error('Synthetic typmodout was not a valid side-effect trap');
+  await pg`ALTER TABLE public.reservations DROP COLUMN status`;
+  await pg`ALTER TABLE public.reservations RENAME COLUMN synthetic_original_status TO status`;
+  await verifyCatalog(pg);
   await pg`ALTER TABLE public.reservations RENAME COLUMN deposit_urgent_reminder_sent_at TO synthetic_renamed_column`;
   rejected = false;
   try { await verifyCatalog(pg); } catch { rejected = true; }
