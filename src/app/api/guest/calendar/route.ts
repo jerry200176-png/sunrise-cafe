@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { isAdminConfigured } from "@/lib/supabase-admin";
 import { buildBookingIcs, taipeiRangeLabel } from "@/lib/booking-ics";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
+import { rateLimitResponse } from "@/lib/rate-limit-response";
 import { normalizePhone, phonesMatch } from "@/lib/phone-utils";
 import { verifyLookupToken } from "@/lib/lookup-token";
 
@@ -63,8 +64,8 @@ export async function GET(request: NextRequest) {
   if (!isAdminConfigured()) {
     return NextResponse.json({ error: "後端未設定" }, { status: 503 });
   }
-  const { success } = await rateLimit(getClientIp(request), "guestLookup");
-  if (!success) return NextResponse.json({ error: "Too Many Requests" }, { status: 429 });
+  const limited = rateLimitResponse(await rateLimit(getClientIp(request), "guestLookup"));
+  if (limited) return limited;
 
   // Explicit Sunset: Reject any phone number in URL query string
   if (request.nextUrl.searchParams.has("phone")) {
@@ -117,8 +118,8 @@ export async function POST(request: NextRequest) {
   if (!isAdminConfigured()) {
     return NextResponse.json({ error: "後端未設定" }, { status: 503 });
   }
-  const { success } = await rateLimit(getClientIp(request), "guestLookup");
-  if (!success) return NextResponse.json({ error: "Too Many Requests" }, { status: 429 });
+  const limited = rateLimitResponse(await rateLimit(getClientIp(request), "guestLookup"));
+  if (limited) return limited;
 
   try {
     const body = (await request.json().catch(() => ({}))) as {

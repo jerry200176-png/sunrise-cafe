@@ -87,10 +87,14 @@ jobs:
               ;;
           esac
 
-          curl -sS -H "Authorization: Bearer ${CRON_SECRET}" \
-            "${PROD_URL}/api/admin/reminders/verify" | tee /tmp/verify.json
-          echo
-          jq -e 'type == "object"' /tmp/verify.json >/dev/null
+          VERIFY_CODE=$(curl -sS -o /tmp/verify.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${PROD_URL}/api/admin/reminders/verify")
+          echo "GET verify → HTTP ${VERIFY_CODE}"
+          [ "$VERIFY_CODE" = "200" ] || { echo "::error::verify request failed"; exit 1; }
+          jq -e 'type == "object" and .ok == true' /tmp/verify.json >/dev/null || {
+            echo "::error::verify response did not confirm success"; exit 1;
+          }
           if grep -Fqi 'ledger unavailable' /tmp/verify.json; then
             echo "::error::verify still reports ledger unavailable"
             exit 1
