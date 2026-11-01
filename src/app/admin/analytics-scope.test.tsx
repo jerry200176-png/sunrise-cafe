@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import DashboardPage from "./dashboard/page";
 import ExecutivePage from "./executive/page";
 import ReportsPage from "./reports/page";
+import { buildReport } from "@/lib/report-builder";
 
 const mocked = vi.hoisted(() => ({
   branchState: {
@@ -183,8 +184,9 @@ describe("report response errors", () => {
   );
 
   it("allows a valid report with empty collections and no deposit rate", async () => {
-    const empty = report(0);
-    mocked.fetch.mockResolvedValue(json({ ...empty, summary: { ...empty.summary, deposit_rate: null } }));
+    const empty = buildReport([], [], 3, new Date("2026-11-01T00:00:00Z"), false);
+    expect(empty.summary.deposit_rate).toBeNull();
+    mocked.fetch.mockResolvedValue(json(empty));
     render(<ReportsPage />);
     expect(await screen.findByText("無資料")).toBeTruthy();
     expect(screen.getByRole("button", { name: /匯出/ })).toBeTruthy();
