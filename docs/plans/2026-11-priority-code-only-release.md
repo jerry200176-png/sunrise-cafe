@@ -104,6 +104,10 @@ checkout symlinks. Install/help output and execution time are bounded, but this
 does not establish an absolute guarantee against hostile kernel or resource
 exhaustion. Installation and npm cache use separate size-bounded tmpfs mounts;
 CLI help runs in a nested network-disabled sandbox with read-only dependencies.
+The per-file sandbox cap is 256 MiB: the pinned Linux native CLI package reports
+179,375,779 unpacked bytes in npm metadata, exceeding a 128 MiB cap. A synthetic
+test permits that size and rejects 256 MiB plus one byte without writing its data;
+the total tmpfs caps remain in place.
 The PR can modify both the workflow and the blob helper itself; the helper runs
 outside the sandbox. Thus this sandbox limits third-party CLI execution only when
 the workflow and helper are already trusted. It is not an isolation boundary

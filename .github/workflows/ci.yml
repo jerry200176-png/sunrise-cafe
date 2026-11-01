@@ -140,7 +140,14 @@ jobs:
             --setenv DO_NOT_TRACK 1 --setenv VERCEL_TELEMETRY_DISABLED 1 \
             /bin/sh -c '
               set -eu
-              ulimit -f 262144
+              # The pinned native CLI package declares 179,375,779 unpacked
+              # bytes. Allow up to 256 MiB per file while both filesystems
+              # retain independent 1 GiB tmpfs limits.
+              ulimit -f 524288
+              python3 -c "import resource; assert resource.getrlimit(resource.RLIMIT_FSIZE)[0] == 268435456"
+              truncate -s 179375779 /tmp/sunrise-size-probe
+              if truncate -s 268435457 /tmp/sunrise-size-probe 2>/dev/null; then exit 1; fi
+              rm -f /tmp/sunrise-size-probe
               mkdir -p /tmp/sandbox-home
               : > /tmp/user.npmrc; : > /tmp/global.npmrc
               /sandbox/node/bin/npm config get registry >/dev/null
