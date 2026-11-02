@@ -8,7 +8,7 @@
     "scripts/backup/restore-legacy-worker.sh": "be94a194056b63381238b17d665937b8551857ab",
     "scripts/backup/secure-open-inputs.py": "32a48069abe992b4bd097ae7ee750e83c41a3187",
     "scripts/backup/test-envelope-restore.sh": "e4262e53f62cb05a72b9b06759dc514376ca63e4",
-    "scripts/backup/test-safe-inputs.py": "86d311c3dbf13e00ba9bfb1fa0868fa2a38cc03c",
+    "scripts/backup/test-safe-inputs.py": "120d1b04b36af2b3e89027a5ddd9bc00f35129b8",
     "scripts/backup/test-wsl-diagnostics.py": "a4889b5f6d47907199fe0e08c924ea3ec1c4b717",
     "scripts/backup/wsl-restore.py": "079cc064485274ba7e020e7a5030fb92d57da996",
     "src/lib/backup-envelope.test.ts": "bfe47fc3a7b3e34be7145aa4bd734c60f35e6fc6"
