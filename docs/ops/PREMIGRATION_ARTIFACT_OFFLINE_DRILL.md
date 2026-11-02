@@ -1,6 +1,6 @@
 # 既有 3 天 pre-migration artifact：使用者本機隔離還原演練包
 
-**待使用者執行；本次沒有下載、解密或接觸任何正式 artifact、私鑰或正式資料。** 目標是在你自行控制的工作站，核對一份現有密文能否被既有私鑰解密，並把 dump 還原到全新、無網路的暫存 PostgreSQL。成功只證明該樣本經驗證 ZIP、解密雜湊與 PostgreSQL restore；**不代表正式來源身分、逐筆完整性、異地備援或完整 Supabase 恢復已驗證，也不解除正式發布暫停**。
+**由使用者在自行控制的工作站操作。** 使用者於 2026-11-01 回報一次 public-only 備份的隔離解密及 PostgreSQL 還原完成；此為使用者回報，未由 agent 取得私鑰、備份內容或正式資料庫驗證。該次結果不證明來源身分、逐筆完整性、異地備援或完整 Supabase 恢復，也不代表所有備份均可還原；未通過必要備份與恢復驗證的 migration 仍受限制。
 
 ## 支援與阻擋
 
@@ -28,7 +28,7 @@ python3 /path/to/verified-wsl-restore.py \
 
 封裝在要求私鑰前，檢查四個 helper、密文 ZIP 摘要、kernel 回報的 `/dev/shm` 檔案系統類型、本機 Unix socket 與 image digest，也會設定程序 core size 為 0 並關閉程序 dumpable；任一檢查失敗均不要求私鑰。成功後才透過控制終端隱藏輸入**單行 age X25519 私鑰**；非互動終端或無法關閉回顯會停止。私鑰短暫寫入 `/dev/shm` 內私有 0700 目錄與 0600 檔案；正常、失敗、Ctrl-C、TERM 及終端關閉的 SIGHUP 會嘗試清理，但 SIGKILL、斷電、swap 和同使用者程序存取不在保證範圍。`exec` 後 dumpable 可能重置，且系統 core dump pipe handler 可能繞過程序 core size 限制：你仍須在可信工作站先確認系統不會收集／轉送程序記憶體及 core dump，Python 不保證清除所有記憶體副本。helper 仍會在 `/tmp` 暫存並刪除**加密 ZIP 副本與 manifest**，不刻意把明文寫到 host 檔案。
 
-隔離工具失敗時，封裝只將既有 helper 的單一、完全吻合白名單的固定訊息映射成固定中文階段提示，不輸出原始 stdout、stderr、私鑰、SQL、客戶資料或檔案路徑。其他文字、額外行或多種訊息一律顯示「無法根據固定訊息判定失敗階段」；Docker 命令本身或角色初始化若沒有固定標記也會落入未知。階段提示只供排查，不能據此斷定根因或解除發布暫停。
+隔離工具失敗時，封裝只將既有 helper 的單一、完全吻合白名單的固定訊息映射成固定中文階段提示，不輸出原始 stdout、stderr、私鑰、SQL、客戶資料或檔案路徑。其他非空文字、額外非空行或多種訊息一律顯示「無法根據固定訊息判定失敗階段」（僅空行會忽略；含空格的行不忽略）；Docker 命令本身或角色初始化若沒有固定標記也會落入未知。階段提示只供排查，不能據此斷定根因或放行未驗證的 migration。
 
 已審 helper 的 `docker run` 使用 `postgres:17-alpine` **可變 tag**；封裝前後比較 image ID，不能排除同一可信主機上的程序在兩次檢查間短暫替換 tag 後再換回。只應在你確認的單使用者本機 Docker Desktop、執行期間沒有其他程序變更 tag 時使用；需要消除該競態時，必須先修訂並重新審查 helper，不能聲稱目前已用 immutable image ID 啟動。
 
@@ -59,4 +59,4 @@ python3 /path/to/verified-wsl-restore.py \
 
 成功訊息只表示 ZIP digest 與 manifest dump 雜湊吻合、使用者本機私鑰可解密、隔離 PostgreSQL 中 restore 未報錯且 `public.reservations` 存在。`public.btree_gist` 是依目前唯讀 schema 證據為隔離目標額外準備，**不是從這份 archive 證實原備份當時包含該 extension**；準備失敗或其他依賴缺失都停止。這個相容性缺口是目前的測試假說，不能推論先前實際失敗原因。**沒有**與來源逐表／逐列對照，沒有驗證 RLS／ACL 對實際應用等價，也沒有完整還原 Auth users、Storage objects、roles、Realtime、extensions 或 Supabase 專案設定；仍需依據已批准的復原策略與實際 source/target 身分進一步驗證。若步驟失敗，只回報失敗階段和已遮蔽的環境資訊，不傳檔案、金鑰或原始 log。
 
-該離線工具只用虛構 dump 與上游公開 age 測試身分測試過。它尚未對任何真實 artifact 執行；安全、權限、digest 可用性、image 版本及實際 source 自訂 roles/extension 仍需由你確認。
+合成測試使用虛構 dump 與上游公開 age 測試身分。使用者另回報一次以本機私鑰及加密 artifact 完成的 public-only 隔離演練；這不建立其他 artifact 或來源身分的證據。安全、權限、digest 可用性、image 版本及實際 source 自訂 roles/extension 仍需逐次確認。

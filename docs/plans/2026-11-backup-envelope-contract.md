@@ -12,7 +12,7 @@
 
 新格式 v1 定義一個 age 加密 tar 包（其中存 custom pg_dump 與敏感明細），外部 manifest 僅允許固定欄位：用途、建立時間、密文檔名／大小／SHA-256、固定格式及保留天數。上傳後才取得 artifact ID 與 ZIP digest，須以獨立 receipt 綁定 manifest digest；ZIP digest 不可與密文 digest 混為一談。不要在 manifest、receipt 或日誌輸出資料庫 URL、真實逐表數量、資料或私鑰。現有 #459 多檔密文、#466 tar 密文、#503 單一 dump 密文都是 legacy 格式，不得假稱能直接用 v1 讀取；需保留舊讀取器及另外演練後再轉換。
 
-本 PR 只新增純離線契約與驗證器，不接入、啟用或修改任何生產 workflow；不讀連線或正式環境設定，不備份、不修改資料、不建立身分。收到的密文 hash 與 manifest 只能證明兩份資料一致，不能證明上傳、真實來源、機密性、持有正確私鑰或可還原，更不是放行 migration 的授權。完整性與新鮮度分開：舊於建議保留期的備份仍可驗證／嘗試還原；新鮮度判斷必須由呼叫方明確給出時限，且不能代替來源身分或發布授權。必須另行驗證真實 source identity、TLS 憑證、recipient、上傳 receipt、失敗閘門、隔離還原、權限及備援策略。
+本候選只新增離線契約、驗證器及供使用者自行操作的隔離演練工具，不接入、啟用或修改任何生產 workflow；不讀連線或正式環境設定，不備份、不修改資料、不建立身分。收到的密文 hash 與 manifest 只能證明兩份資料一致，不能證明上傳、真實來源、機密性、持有正確私鑰或可還原，更不是放行 migration 的授權。完整性與新鮮度分開：舊於建議保留期的備份仍可驗證／嘗試還原；新鮮度判斷必須由呼叫方明確給出時限，且不能代替來源身分或發布授權。必須另行驗證真實 source identity、TLS 憑證、recipient、上傳 receipt、失敗閘門、隔離還原、權限及備援策略。
 
 ## 驗收與限制
 
@@ -26,3 +26,9 @@
 - [actions/upload-artifact v4.6.2](https://github.com/actions/upload-artifact/tree/v4.6.2)（MIT）：artifact ID 和 ZIP digest 在上傳後才能取得；不等於還原成功。
 - [PostgreSQL pg_restore](https://www.postgresql.org/docs/current/app-pgrestore.html)（PostgreSQL License）：清單檢查不等同實際還原。
 - [Supabase 15.19/17.11 還原注意事項](https://supabase.com/changelog/postgres-15-19-17-11-breaking-changes)：extension、自訂 operator 與 index 可能需額外處理。現有 #459/#466/#503 的持續相容性需在真實版本及權限資訊確認後重新檢查。
+
+## 使用者回報的單次演練與測試界線
+
+使用者於 2026-11-01 回報一份 public-only 加密備份在自己的電腦完成隔離解密及 PostgreSQL 還原。此為使用者回報，agent 未取得私鑰或備份內容，也未獨立驗證來源身分、逐筆資料、真實角色 ACL、Auth、Storage 與 Supabase 設定；此結果不是完整備份鏈驗收，#485 持續追蹤。過去全面發布暫停是當時狀態；目前仍須遵守未驗證 migration 的限制，不以該次演練推定所有部署或遷移均安全。
+
+離線 Vitest 與 Python 診斷／檔案測試使用合成資料。額外的 age／PostgreSQL 整合腳本必須以公開測試身分和虛構 dump 執行，會使用呼叫端預設 Docker context，操作前須自行確認其為可信的本機 daemon；不得提供真實備份或私鑰。該整合腳本與 Python 測試目前未接 CI，不應把手動結果稱為持續 gate。
