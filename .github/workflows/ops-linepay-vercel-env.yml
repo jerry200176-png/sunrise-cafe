@@ -5,7 +5,12 @@ on:
     paths:
       - '.github/workflows/ops-linepay-vercel-env.yml'
       - 'scripts/ops-linepay-vercel-env.sh'
+      - 'scripts/run-linepay-vercel-env-safely.sh'
+      - 'scripts/sanitize-linepay-report.py'
+      - 'scripts/parse-vercel-env-list.py'
       - 'src/lib/ops-linepay-vercel-env.test.ts'
+      - 'src/lib/linepay-evidence-safety.test.ts'
+      - 'src/lib/vercel-env-list-format.test.ts'
       - 'docs/ops/LINE_PAY_SANDBOX_ENV.md'
   workflow_dispatch:
     inputs:
@@ -25,16 +30,40 @@ concurrency:
 
 permissions:
   contents: read
-  actions: write
 
 jobs:
-  operate:
-    name: ${{ github.event_name }} LINE Pay Vercel env
+  validate:
+    if: github.event_name == 'pull_request'
+    name: pull_request LINE Pay Vercel env
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Validate with simulated Vercel (no production access)
+        run: |
+          npx vitest run src/lib/ops-linepay-vercel-env.test.ts src/lib/linepay-evidence-safety.test.ts src/lib/vercel-env-list-format.test.ts
+          echo 'PR validation uses a fake Vercel CLI and does not inspect production.' >> "$GITHUB_STEP_SUMMARY"
+
+  operate:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    name: Manual LINE Pay Vercel env
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "20"
           cache: npm
@@ -42,35 +71,24 @@ jobs:
       - name: Resolve mode
         id: scope
         env:
-          EVENT_NAME: ${{ github.event_name }}
           INPUT_MODE: ${{ inputs.mode }}
-          HEAD_REF: ${{ github.head_ref }}
         run: |
           set -euo pipefail
-          MODE=inspect
-          if [ "$EVENT_NAME" = workflow_dispatch ]; then
-            MODE="${INPUT_MODE:-inspect}"
-          elif [ "$EVENT_NAME" = pull_request ] && [ "$HEAD_REF" = "chore/task-linepay-sandbox-land-20260815" ]; then
-            MODE=set-sandbox-url
-          fi
+          MODE="${INPUT_MODE:-inspect}"
           case "$MODE" in
             inspect|set-sandbox-url|restore-fixed-link) ;;
             *) echo "::error::mode not allowlisted"; exit 1 ;;
           esac
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
       - name: Inspect or set sandbox base URL
+        id: inspect
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           MODE: ${{ steps.scope.outputs.mode }}
           PROD_URL: https://sunrise-cafe-six.vercel.app
         run: |
           set -euo pipefail
-          mkdir -p out
-          bash scripts/ops-linepay-vercel-env.sh | tee out/linepay-vercel-env.txt
-          if grep -E 'LINE_PAY_CHANNEL_(ID|SECRET)=[^[:space:]]{8,}' out/linepay-vercel-env.txt; then
-            echo "::error::refusing to publish channel secret or id values"
-            exit 1
-          fi
+          bash scripts/run-linepay-vercel-env-safely.sh
       - name: Route production activation through canonical workflow
         if: steps.scope.outputs.mode != 'inspect'
         env:
@@ -82,15 +100,15 @@ jobs:
             --ref main
           echo "Canonical production workflow dispatched after env operation."
       - name: Upload evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always() && steps.inspect.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linepay-vercel-env-${{ steps.scope.outputs.mode }}-${{ github.run_id }}
           path: out/linepay-vercel-env.txt
           if-no-files-found: error
           retention-days: 30
       - name: Job summary
-        if: always()
+        if: always() && steps.inspect.outcome == 'success'
         run: |
           {
             echo '### LINE Pay Vercel env'

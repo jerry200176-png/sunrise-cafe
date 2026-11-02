@@ -7,6 +7,10 @@
 # Environment mutations do not activate production. The canonical
 # migration-first production workflow must perform any resulting deployment.
 set -euo pipefail
+SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
+list_environment_names() {
+  npx vercel env ls "$1" --token "$VERCEL_TOKEN" | python3 "$SCRIPT_DIR/parse-vercel-env-list.py"
+}
 
 MODE="${MODE:-inspect}"
 SANDBOX_URL='https://sandbox-api-pay.line.me'
@@ -42,7 +46,7 @@ fi
   echo "=== LINE Pay Vercel env mode=$MODE generated=$(date -Iseconds) ==="
   echo "PROD_URL=$PROD_URL"
   echo "--- LINE_PAY production env names ---"
-  npx vercel env ls production --token "$VERCEL_TOKEN" | awk 'NR==1 {next} $1 ~ /^LINE_PAY_/ {print $1, $4, $5}'
+  list_environment_names production | awk '$1 ~ /^LINE_PAY_/ {print $1}'
 } | tee "$REPORT"
 
 npx vercel env pull "$PULL" --environment=production --yes --token "$VERCEL_TOKEN" >/dev/null
@@ -97,7 +101,12 @@ fi
 remove_line_pay_env() {
   local name="$1"
   local env_name="$2"
-  if npx vercel env ls "$env_name" --token "$VERCEL_TOKEN" | awk 'NR>1 {print $1}' | grep -qx "$name"; then
+  local names
+  if ! names="$(list_environment_names "$env_name")"; then
+    echo "ENV_LIST_FAILED: cannot verify LINE Pay environment; stopping." >&2
+    return 1
+  fi
+  if printf '%s\n' "$names" | grep -qx "$name"; then
     npx vercel env rm "$name" "$env_name" --yes --token "$VERCEL_TOKEN"
     echo "REMOVED_${name}_${env_name}" | tee -a "$REPORT"
   else
@@ -128,23 +137,50 @@ lines = ["--- LINE Pay presence after restore-fixed-link ---"]
 for key in ("LINE_PAY_API_BASE_URL", "LINE_PAY_CHANNEL_ID", "LINE_PAY_CHANNEL_SECRET"):
     value = wanted.get(key, "")
     lines.append(f"{key}={'present' if value else 'absent'} len={len(value) if value else 0}")
-if wanted.get("LINE_PAY_CHANNEL_ID") or wanted.get("LINE_PAY_CHANNEL_SECRET"):
+if any(wanted.get(key) for key in ("LINE_PAY_CHANNEL_ID", "LINE_PAY_CHANNEL_SECRET", "LINE_PAY_API_BASE_URL")):
     lines.append("DYNAMIC_LINEPAY_STILL_ENABLED")
 else:
     lines.append("FIXED_LINK_RESTORED")
 report.write_text(report.read_text(encoding="utf-8") + "\n".join(lines) + "\n", encoding="utf-8")
 print("\n".join(lines))
 PY
+  if grep -Fxq 'DYNAMIC_LINEPAY_STILL_ENABLED' "$REPORT"; then
+    echo "RESTORE_NOT_VERIFIED: production LINE Pay environment remains configured." >&2
+    exit 1
+  fi
+  for env_name in production preview; do
+    if ! verified_names="$(list_environment_names "$env_name")"; then
+      echo "ENV_LIST_FAILED: cannot verify LINE Pay environment; stopping." >&2
+      exit 1
+    fi
+    if printf '%s\n' "$verified_names" | grep -Eq '^LINE_PAY_(CHANNEL_ID|CHANNEL_SECRET|API_BASE_URL)$'; then
+      echo "RESTORE_NOT_VERIFIED: LINE Pay environment remains configured." >&2
+      exit 1
+    fi
+  done
   echo "ENV_MUTATION_APPLIED: canonical production activation remains required." | tee -a "$REPORT"
   echo "NO_PAYMENT_TEST: do not run live LINE Pay charges." | tee -a "$REPORT"
   exit 0
 fi
 
 name_present=0
-if npx vercel env ls production --token "$VERCEL_TOKEN" | awk 'NR>1 {print $1}' | grep -qx LINE_PAY_API_BASE_URL; then
+if ! production_names="$(list_environment_names production)"; then
+  echo "ENV_LIST_FAILED: cannot confirm existing LINE Pay URL; no env changed." >&2
+  exit 1
+fi
+if printf '%s\n' "$production_names" | grep -qx LINE_PAY_API_BASE_URL; then
   name_present=1
 fi
-if [[ "$current_url" == "$SANDBOX_URL" || "$name_present" -eq 1 ]]; then
+if [[ "$current_url" != "$SANDBOX_URL" ]] && [[ -n "$current_url" || "$name_present" -eq 1 ]]; then
+  echo "SANDBOX_URL_MISMATCH: existing value is not the expected sandbox URL; no env changed." | tee -a "$REPORT"
+  exit 1
+fi
+if printf '%s\n' "$production_names" | grep -Eq '^LINE_PAY_CHANNEL_(ID|SECRET)$' ||
+   grep -Eq '^LINE_PAY_CHANNEL_(ID|SECRET)=present len=' "$REPORT"; then
+  echo "SANDBOX_KEYS_UNVERIFIED: existing LINE Pay keys cannot be identified as sandbox; no env changed." | tee -a "$REPORT"
+  exit 1
+fi
+if [[ "$current_url" == "$SANDBOX_URL" ]]; then
   echo "SANDBOX_URL_ALREADY_SET" | tee -a "$REPORT"
 else
   printf '%s' "$SANDBOX_URL" | npx vercel env add LINE_PAY_API_BASE_URL production --token "$VERCEL_TOKEN"
