@@ -13,6 +13,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { isInteractiveTarget } from "@/lib/payment-shortcuts";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
+import { scrollIntoViewForInteraction } from "@/lib/interaction-scroll";
 
 type PendingItem = {
   id: string;
@@ -147,7 +148,7 @@ export default function AdminPaymentsPage() {
 
   useEffect(() => {
     const el = itemRefs.current[selectedIndex];
-    el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    scrollIntoViewForInteraction(el, { block: "nearest" });
   }, [selectedIndex, items.length]);
 
   useEffect(() => {

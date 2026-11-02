@@ -19,6 +19,7 @@ import {
 } from "@/lib/slot-grid";
 import { buildGoogleCalendarUrl } from "@/lib/booking-ics";
 import { getPaymentDisplayState } from "@/lib/payment-display";
+import { scrollIntoViewForInteraction } from "@/lib/interaction-scroll";
 
 const PREORDER_ENABLED = process.env.NEXT_PUBLIC_RESERVATION_PREORDER_ENABLED === "1";
 
@@ -424,7 +425,7 @@ function BookQueryContent() {
 
   useEffect(() => {
     if (!reschedulingItem) return;
-    reschedulePanelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    scrollIntoViewForInteraction(reschedulePanelRef.current, { block: "nearest" });
     const input = document.getElementById(`reschedule-date-${reschedulingItem.id}`);
     if (input instanceof HTMLInputElement) {
       input.focus();
@@ -1308,7 +1309,7 @@ function BookQueryContent() {
             )}
             <button
               type="button"
-              onClick={() => document.getElementById(`transfer-report-${unpaidDepositItem.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" })}
+              onClick={() => scrollIntoViewForInteraction(document.getElementById(`transfer-report-${unpaidDepositItem.id}`), { block: "center" })}
               className="flex flex-1 items-center justify-center rounded-lg border-2 border-amber-700 bg-amber-50 px-3 py-3 text-sm font-bold text-amber-900 hover:bg-amber-100"
             >
               {t("query.paymentReportCta")}
