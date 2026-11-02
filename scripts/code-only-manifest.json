@@ -1,16 +1,15 @@
 {
   "approved_files": {
-    "docs/plans/2026-11-add-items-ui-warning.md": "9c3a1de6169de1b35fedcc1d3b141e16d00b8dbc",
-    "src/app/admin/reservation-orders/[id]/page.test.tsx": "995a0abdc18ff47d859eb6e8e5c77c6253c9897d",
-    "src/app/admin/reservation-orders/[id]/page.tsx": "dd60b782c791fe13a19b8d418a0c945c57a6dd13",
-    "src/app/api/admin/reservation-orders/[id]/route.test.ts": "009148ce8cba8ad1e95a7b9e951824e5c40f14b7",
-    "src/app/api/admin/reservation-orders/[id]/route.ts": "4880992d5985d0273e3b09c9c9349fbd08247b4e",
-    "src/components/admin/AddOutcomeWarning.tsx": "d132f99b70d245a31061397842ddb90c44e8a1ba",
-    "src/components/admin/RoomCheckoutPanel.test.tsx": "860795c00a5067ab8f8f0e7ccace8619e975a1db",
-    "src/components/admin/RoomCheckoutPanel.tsx": "b9193e30df05a69b1e67866d65c1eaac9d864556",
-    "src/lib/add-items-outcome.test.ts": "68970908b5a030d38cbdf7644c18f728bd28e7f1",
-    "src/lib/add-items-outcome.ts": "24aac946d0789b32d3890f048f32828f19e2b121",
-    "src/lib/use-add-outcome-warning.ts": "fc7fab10620705bce26e0c31b7b70ce77d843abd"
+    "docs/plans/2026-11-anonymous-tab-add-warning-research.md": "bca31167752a741e806498ea3cb4a875514ed87b",
+    "src/app/admin/reservation-orders/[id]/page.test.tsx": "5cabb1a317b3d9aa89eb360eb48cbe7a60afc124",
+    "src/app/admin/reservation-orders/[id]/page.tsx": "d30bf936b66cd687f4d2cb5f19316eb3f8d8dea2",
+    "src/components/admin/RoomCheckoutPanel.test.tsx": "e1b4642dc63afa76571d2120113fc193b577b5e0",
+    "src/components/admin/RoomCheckoutPanel.tsx": "6dfd32f470e903632347614d4b769b12e835e87d",
+    "src/components/admin/TabAddWarning.tsx": "7ef8648c29503dd6cbf0294dcd84af41718de4ee",
+    "src/lib/session-add-warning-research.test.ts": "627813aa6127aa56ae837706e336142068da0196",
+    "src/lib/session-add-warning-research.ts": "8a27d67bcdf5b95597fd6792c9d89a245ddc5e55",
+    "src/lib/use-add-outcome-warning.ts": "8f3a43044d492c1cca7db1d3e746ebec6e07708c",
+    "src/lib/use-tab-add-warning.ts": "f312152bb240841e90bae2031089951f61da34bd"
   },
-  "baseline": "6d7fd7d2be736f64e48c85cedfaa5da81ea38773"
+  "baseline": "e9376a0d28f87b98b8bc03303645237d0dc8d7f8"
 }
