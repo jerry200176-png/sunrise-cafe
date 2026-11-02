@@ -1,26 +1,10 @@
 {
   "approved_files": {
-    "docs/plans/2026-11-admin-order-no-store.md": "0086728492f111082c9e4634cb41d236e0d459f9",
-    "docs/plans/2026-11-guest-copy-feedback.md": "a6b8881e300f5603eba5d41e9eeb3568aa81abb4",
-    "docs/plans/2026-11-waitlist-uncertain-writes.md": "57c93f7332399a15271574c948777b80629eacc5",
-    "scripts/code-only-release.py": "2f6d1724333ef70cb6d3011f2da05e7a8aabed5f",
-    "src/app/admin/reservation-orders/[id]/page.test.tsx": "52b9e1a6c377aeafaf8267bb2cc85118ed8bb18c",
-    "src/app/admin/reservation-orders/[id]/page.tsx": "9a44ff07e13a26e659c65a88915b209c6691b453",
-    "src/app/admin/waitlist/page.test.tsx": "b387ca68c147218f4c2fb443d02cc77b15dca170",
-    "src/app/admin/waitlist/page.tsx": "0b1b58916ea6bfebd9a98542a1a8f326941d0c8e",
-    "src/app/api/admin/reservation-orders/[id]/route.test.ts": "619ff992e4bd6fd3598abd3ab2caa3bfd741376f",
-    "src/app/api/admin/reservation-orders/[id]/route.ts": "d72d9a064c7673addc51da7de6ffc41ea267b3d0",
-    "src/app/book/guest-copy.integration.test.tsx": "c3d754e4408cbaaac1b8f8b911cb8c614c0011c3",
-    "src/app/book/query/page.tsx": "7f5832f1775ce0b8b5c3e29a02eaa634c09f14df",
-    "src/app/book/success/page.tsx": "646c7f6ac900efba56fb3ed628b2695151dbe1cb",
-    "src/components/CopyBookingCodeButton.tsx": "13faa8aaeb5f9e4abe681cfd32adebbc3bdd2866",
-    "src/components/GuestCopyButton.test.tsx": "7be3f36367161acee65ec9e14df6163ea4be127b",
-    "src/components/GuestCopyButton.tsx": "113a463b74e1aca72e9fdd36082ff42e6b168e5f",
-    "src/components/admin/RoomCheckoutPanel.test.tsx": "bcee4aa86bf7944fa92da1c87b18e4749694a709",
-    "src/components/admin/RoomCheckoutPanel.tsx": "93d1b21991a1cd6b43c9ef5cce947f0b7a1ff59e",
-    "src/lib/i18n/translations.ts": "aaa30db78e889df37edb1c466fbf6a4c0f553923",
-    "src/middleware.private-order-cache.test.ts": "cb81037b98ecb8746b48b1067e20a6b3d09017f5",
-    "src/middleware.ts": "801f45054e069fe95f7433a9bd2ca315f8628c8e"
+    "docs/plans/2026-11-dashboard-reminder-copy.md": "bb73eb3d05d443698137e18d6b387a476d73c459",
+    "scripts/code-only-release.py": "c0b7b8d2813b22c3c92837611fe58400e0b3d468",
+    "src/app/admin/analytics-scope.test.tsx": "d9c902c4d5cfbbbe55aebd359c93fc5243e38294",
+    "src/app/admin/dashboard/page.tsx": "95bc123a23b44815daf9ffbeb0698525e8f441fc",
+    "src/app/admin/dashboard/reminder-copy.test.tsx": "200e574e73209e3944e19980b789d7141a52187c"
   },
-  "baseline": "14aa253bd724cb4b03124198dc83dd834234eea0"
+  "baseline": "4371a18a99bb575101e4dcdf9f28a43aeb4fee62"
 }
