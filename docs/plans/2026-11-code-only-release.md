@@ -49,6 +49,11 @@ reported as unknown rather than retried or claimed successful.
   and real notification delivery are not established by synthetic tests. The
   health probes do not create reservations or payments and cannot prove those
   flows end to end.
+- The existing migration drift diagnostics request up to one row when probing
+  whether a column exists. Values are not intentionally printed, but a real
+  column value may be transferred into the runner. Table-existence probes use
+  zero rows. A future change to zero-row column probes requires verification
+  against the actual PostgREST behavior as well as synthetic tests.
 - A create request whose response is lost is never repeated. Recovery watches
   the alias for a bounded period and rolls back only the exact deployment ID
   retained from the create response as a commit-bound job output or artifact.

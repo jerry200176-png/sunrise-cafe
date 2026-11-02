@@ -21,10 +21,10 @@ on:
 permissions:
   contents: read
 
-# Serialize the sole repository-controlled production deploy writer.
-# Verification is intentionally read-only and never competes for Vercel quota.
+# This disabled legacy workflow must not occupy or replace pending runs in the
+# active deployment workflow's concurrency group.
 concurrency:
-  group: production-deploy-main
+  group: production-deploy-migrate-disabled
   cancel-in-progress: false
 
 jobs:

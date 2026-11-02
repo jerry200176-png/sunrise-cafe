@@ -28,7 +28,7 @@ assert.doesNotMatch(verifyWorkflow, /VERCEL_TOKEN/);
 assert.doesNotMatch(verifyWorkflow, /scripts\/orchestrator\/deploy\.sh/);
 assert.match(verifyWorkflow, /Production code-only release is the deploy owner/);
 
-assert.match(deployWorkflow, /group:\s*production-deploy-main/);
+assert.match(deployWorkflow, /group:\s*production-deploy-migrate-disabled/);
 assert.match(deployWorkflow, /predeploy_migrate:\s*\n(?:[^\n]*\n){0,4}\s*if:\s*\$\{\{\s*false\s*\}\}/);
 assert.match(codeOnlyWorkflow, /group:\s*production-deploy-main/);
 assert.match(codeOnlyWorkflow, /cancel-in-progress:\s*false/);
