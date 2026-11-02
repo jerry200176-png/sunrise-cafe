@@ -86,3 +86,12 @@ it("does not report a malformed successful audit response as recorded", async ()
   await screen.findByText(/紀錄結果未確認/);
   expect((screen.getByRole("button", { name: "單獨複製" }) as HTMLButtonElement).disabled).toBe(true);
 });
+
+
+it("preserves the copy-all success wording", async () => {
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } });
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ ok: true, version: 2, batch_id: "batch", action_ids: ["synthetic-action"] })));
+  render(<BatchDepositMessageWorkbench {...props()} />);
+  fireEvent.click(screen.getByRole("button", { name: "複製全部" }));
+  await screen.findByText(/已複製全部訊息/);
+});

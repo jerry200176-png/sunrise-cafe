@@ -87,7 +87,7 @@ export function BatchDepositMessageWorkbench({
         await recordCopied(ids, batchId, mode, digests, combinedDigest);
         if (!valid()) return;
         update("copied");
-        setMessage(`${label}已複製；已複製不等於已傳送。`);
+        setMessage(mode === "all" ? "已複製全部訊息；已複製不等於已傳送。" : `${label}已複製；已複製不等於已傳送。`);
         onCompleted?.();
       } catch {
         if (!valid()) return;
