@@ -13,6 +13,7 @@ vi.mock("@/lib/supabase", () => ({ supabase: {
   removeChannel: vi.fn(),
 } }));
 import AdminOrdersPage from "./page";
+import { projectAdminOrderList } from "@/lib/admin-order-list";
 
 const order = (id: string, name: string) => ({ id, status: "pending", created_at: "2026-10-31T10:00:00.000Z", total_amount: 100, table: { number: id }, order_items: [{ id: `item-${id}`, item_name: name, quantity: 1, unit_price: 100 }] });
 const page = (items: unknown[], nextCursor: string | null) => ({ ok: true, status: 200, json: async () => ({ items, nextCursor }) }) as Response;
@@ -34,6 +35,21 @@ describe("order board refresh scheduling", () => {
     }) as typeof window.setInterval);
   });
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("renders v2 projected order content and requests the v2 contract", async () => {
+    const projected = projectAdminOrderList({ ...order("a", "麵"), branch_id: "b1", notes: "少鹽", is_printed: false,
+      table: { number: "A1", internal: "secret" }, order_items: [{ id: "i1", item_name: "麵", quantity: 2, special_notes: null, selected_options: [{ name: "大碗", secret: "hidden" }] }] });
+    const fetch = vi.fn().mockResolvedValue(page([projected], null));
+    vi.stubGlobal("fetch", fetch);
+    render(<AdminOrdersPage />);
+    await screen.findByText("麵");
+    expect(screen.getByText("桌 A1")).toBeTruthy();
+    expect(screen.getByText("(大碗)")).toBeTruthy();
+    expect(screen.getByText(/少鹽/)).toBeTruthy();
+    expect(screen.getByText("$100")).toBeTruthy();
+    expect(screen.queryByText("hidden")).toBeNull();
+    expect(new URL(String(fetch.mock.calls[0][0]), "http://localhost").searchParams.get("listContract")).toBe("v2");
+  });
 
   it("lets a slow multi-page scan finish and coalesces timer and Realtime refreshes", async () => {
     const secondPage = deferred<Response>();

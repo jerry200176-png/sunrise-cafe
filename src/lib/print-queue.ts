@@ -6,7 +6,7 @@ export const MAX_AGE_MS = 8 * 60 * 60 * 1000;
  * 該補印的訂單：還沒印、有餐點明細（訂單先建立、明細後寫入，空的先跳過等下一輪）、
  * 還在進行中、且是這個班次內的單（避免把很舊的紀錄一次全印出來）。最舊的先印。
  */
-export function pickUnprinted(orders: Order[], printedThisSession: Set<string>, now = Date.now()): Order[] {
+export function pickUnprinted<T extends Pick<Order, "id" | "is_printed" | "status" | "created_at"> & { order_items?: readonly unknown[] | null }>(orders: T[], printedThisSession: Set<string>, now = Date.now()): T[] {
   return orders
     .filter(
       (o) =>
