@@ -1,4 +1,3 @@
-import { toTaipei } from "@/lib/datetime";
 export {
   getDurationOptions,
   MIN_DURATION_HOURS,
@@ -22,9 +21,24 @@ export function getDepositAmount(totalPrice: number): number {
   return Math.ceil(totalPrice * 0.5);
 }
 
-/** 依台灣時區判斷是否為週末（週六、週日） */
+/** 將帶時區的時間點換成台北日曆日；無效時間沒有可用日期。 */
+export function taipeiDateForInstant(instant: string): string | null {
+  if (typeof instant !== "string") return null;
+  const date = new Date(instant);
+  if (!Number.isFinite(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-US-u-ca-gregory-nu-latn", {
+    timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year").padStart(4, "0")}-${part("month")}-${part("day")}`;
+}
+
+/** 已是台北日曆日（YYYY-MM-DD）；不依瀏覽器或伺服器所在地轉換。 */
 export function isWeekendDate(dateStr: string): boolean {
-  const day = toTaipei(`${dateStr}T12:00:00`).getDay();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return false;
+  const date = new Date(`${dateStr}T00:00:00.000Z`);
+  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== dateStr) return false;
+  const day = date.getUTCDay();
   return day === 0 || day === 6;
 }
 
@@ -34,7 +48,10 @@ export function computeReservationTotalPrice(
   startTime: string,
   endTime: string
 ): number {
-  const dateStr = startTime.slice(0, 10);
+  // Preserve the existing non-string error rather than treating a numeric epoch
+  // supplied by an untyped caller as a newly supported request format.
+  if (typeof startTime !== "string") throw new TypeError("Invalid start time");
+  const dateStr = taipeiDateForInstant(startTime) ?? "";
   const pricePerHour = isWeekendDate(dateStr)
     ? Number(room.price_weekend)
     : Number(room.price_weekday);

@@ -160,6 +160,18 @@ describe("waitlist confirm branch checks", () => {
     expect(mocks.insertReservationAdmin).toHaveBeenCalledOnce();
   });
 
+  it("prices a UTC timestamp by the Taipei day when a waitlist becomes a booking", async () => {
+    mocks.entry = { ...entryFixture(), start_time: "2026-10-30T17:00:00Z", end_time: "2026-10-30T19:00:00Z" };
+    expect((await post()).status).toBe(200);
+    expect(mocks.insertReservationAdmin).toHaveBeenCalledWith(expect.objectContaining({ total_price: 500 }));
+  });
+
+  it("does not turn a non-string start time into a newly accepted timestamp", async () => {
+    mocks.entry = { ...entryFixture(), start_time: 123 };
+    expect((await post()).status).toBe(500);
+    expect(mocks.insertReservationAdmin).not.toHaveBeenCalled();
+  });
+
   it("keeps the confirmation GET available for waitlist history on an archived branch", async () => {
     mocks.branch = { id: "branch-1", archived_at: "2099-10-01T00:00:00Z", name: "大安店" };
 

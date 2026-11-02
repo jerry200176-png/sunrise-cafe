@@ -1,11 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import {
   getDurationOptions,
   isDepositRequired,
   getDepositAmount,
   isWeekendDate,
   computeReservationTotalPrice,
+  taipeiDateForInstant,
 } from "./booking-utils";
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe("getDepositAmount", () => {
   it("回傳總價一半", () => {
@@ -77,5 +80,37 @@ describe("isWeekendDate", () => {
 
   it("週三為平日", () => {
     expect(isWeekendDate("2026-07-08")).toBe(false);
+  });
+
+  it.each(["UTC", "Asia/Taipei", "America/Los_Angeles", "Pacific/Kiritimati"])("pure calendar dates do not depend on runtime time zone %s", (zone) => {
+    vi.stubEnv("TZ", zone);
+    expect(["2026-10-30", "2026-10-31", "2026-11-01", "2026-11-02"].map(isWeekendDate)).toEqual([false, true, true, false]);
+  });
+
+  it("returns false for invalid or incomplete calendar dates", () => {
+    for (const date of ["", "bad", "2026-02-30", "2026-11-1"]) expect(isWeekendDate(date)).toBe(false);
+  });
+});
+
+describe("Taipei price date", () => {
+  const room = { price_weekday: 200, price_weekend: 300 };
+  it.each(["UTC", "Asia/Taipei", "America/Los_Angeles", "Pacific/Kiritimati"])("uses the same Taipei day for equivalent instants in %s", (zone) => {
+    vi.stubEnv("TZ", zone);
+    for (const start of ["2026-10-30T17:00:00Z", "2026-10-31T01:00:00+08:00", "2026-10-30T10:00:00-07:00"]) {
+      expect(taipeiDateForInstant(start)).toBe("2026-10-31");
+      expect(computeReservationTotalPrice(room, start, "2026-10-30T19:00:00Z")).toBe(600);
+    }
+    expect(taipeiDateForInstant("2026-11-01T17:00:00Z")).toBe("2026-11-02");
+    expect(computeReservationTotalPrice(room, "2026-11-01T17:00:00Z", "2026-11-01T19:00:00Z")).toBe(400);
+  });
+
+  it("keeps the start day for a stay crossing Taipei midnight", () => {
+    expect(computeReservationTotalPrice(room, "2026-10-30T15:00:00Z", "2026-10-30T17:00:00Z")).toBe(400);
+  });
+
+  it("returns no Taipei day for an invalid instant", () => {
+    expect(taipeiDateForInstant("not-an-instant")).toBeNull();
+    expect(computeReservationTotalPrice(room, "not-an-instant", "2026-11-01T19:00:00Z")).toBeNaN();
+    expect(() => computeReservationTotalPrice(room, 123 as unknown as string, "2026-11-01T19:00:00Z")).toThrow(TypeError);
   });
 });
