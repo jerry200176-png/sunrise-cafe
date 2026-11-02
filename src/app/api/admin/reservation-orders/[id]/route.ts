@@ -125,13 +125,17 @@ async function settle(
 }
 
 export async function GET(request: NextRequest, { params }: Params) {
-  const id = (await params).id;
+  const privateOrderResponse = <T extends Response>(response: T): T => {
+    response.headers.set("Cache-Control", "private, no-store");
+    return response;
+  };
   try {
+    const id = (await params).id;
     const auth = await authorized(request, id, false);
-    if (auth.denied) return auth.denied;
-    return NextResponse.json({ reservation: auth.reservation, ...(await load(id)) });
+    if (auth.denied) return privateOrderResponse(auth.denied);
+    return privateOrderResponse(NextResponse.json({ reservation: auth.reservation, ...(await load(id)) }));
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "載入失敗" }, { status: 500 });
+    return privateOrderResponse(NextResponse.json({ error: error instanceof Error ? error.message : "載入失敗" }, { status: 500 }));
   }
 }
 

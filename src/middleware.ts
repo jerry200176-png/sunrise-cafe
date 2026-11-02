@@ -26,6 +26,13 @@ function withRateLimitMode(response: NextResponse): NextResponse {
   return response;
 }
 
+function withPrivateOrderNoStore(request: NextRequest, response: NextResponse): NextResponse {
+  if (request.method === "GET" && /^\/api\/admin\/reservation-orders\/[^/]+\/?$/.test(request.nextUrl.pathname)) {
+    response.headers.set("Cache-Control", "private, no-store");
+  }
+  return response;
+}
+
 function tooManyRequests(reset: number, path: string, limiter: string, event: NextFetchEvent) {
   logOps(
     "guest",
@@ -80,7 +87,7 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
   ) {
     // webhooks / Vercel Cron 不套用一般 API 限流，避免排程被 429 擋下
     const { success, reset } = await rateLimit(ip, "api");
-    if (!success) return tooManyRequests(reset, pathname, "api", event);
+    if (!success) return withPrivateOrderNoStore(request, tooManyRequests(reset, pathname, "api", event));
   }
 
   // ── CTO / Ops evidence（Bearer CTO_OUTCOME_SECRET / CRON_SECRET）────────
@@ -110,12 +117,12 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
       const cronSecret = process.env.CRON_SECRET;
       const authHeader = request.headers.get("authorization");
       if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
-        return withRateLimitMode(NextResponse.next());
+        return withPrivateOrderNoStore(request, withRateLimitMode(NextResponse.next()));
       }
     }
     const denied = await requireAdminApiAuth(request);
-    if (denied) return withRateLimitMode(denied);
-    return withRateLimitMode(NextResponse.next());
+    if (denied) return withPrivateOrderNoStore(request, withRateLimitMode(denied));
+    return withPrivateOrderNoStore(request, withRateLimitMode(NextResponse.next()));
   }
 
   // ── Admin-only API（訂位讀取/變更、分店/設定變更等）────────────────

@@ -115,7 +115,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   const load = useCallback(async (requireOrder = false): Promise<boolean> => {
     const requested = api;
     const gen = ++requestGen.current;
-    const response = await fetchWithTimeout(requested, { credentials: "include" });
+    const response = await fetchWithTimeout(requested, { credentials: "include", cache: "no-store" });
     // 逾時等情況回的是網頁不是 JSON：一樣要變成看得懂的錯誤
     const data: unknown = response.ok ? await readJsonWithTimeout<unknown>(response) : null;
     if (currentApi.current !== requested || gen !== requestGen.current) return false;

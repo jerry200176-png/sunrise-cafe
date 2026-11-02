@@ -29,6 +29,24 @@ beforeEach(() => { sessionStorage.removeItem("sunrise:add-outcomes:v1"); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("RoomCheckoutPanel load failures", () => {
+  it("uses no-store for initial and post-add order reads", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu")) return json(menu);
+      if (init?.method === "POST") return json({ ok: true, committed: true, refresh_failed: true });
+      return json(view);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderPanel();
+    await screen.findByRole("heading", { name: "王小明" });
+    fireEvent.click(await screen.findByRole("button", { name: /拿鐵/ }));
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([url, init]) =>
+      url === "/api/admin/reservation-orders/r1" && init?.method !== "POST")).toHaveLength(2));
+    for (const [, init] of fetchMock.mock.calls.filter(([url, init]) =>
+      url === "/api/admin/reservation-orders/r1" && init?.method !== "POST")) {
+      expect(init).toEqual(expect.objectContaining({ cache: "no-store", credentials: "include" }));
+    }
+  });
+
   it("shows a retry button instead of a blank panel when the reservation fails to load (non-JSON 504), and recovers", async () => {
     let calls = 0;
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
