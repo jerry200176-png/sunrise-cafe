@@ -37,20 +37,25 @@ jobs:
           path: ${{ runner.temp }}/sunrise-code-only-baseline.json
           retention-days: 7
           if-no-files-found: error
-      - name: Deploy and verify production
-        id: deploy
+      - name: Create production deployment
+        id: create
         env:
           GH_TOKEN: ${{ github.token }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: python3 -B scripts/code-only-release.py deploy
+        run: python3 -B scripts/code-only-release.py create
       - name: Retain candidate identity when available
-        if: ${{ always() && steps.prepare.outcome == 'success' }}
+        if: ${{ always() && steps.create.outcome != 'skipped' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: code-only-candidate-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/sunrise-code-only-candidate.json
           retention-days: 7
           if-no-files-found: warn
+      - name: Verify production deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: python3 -B scripts/code-only-release.py verify
       - name: Watch production runtime health for 15 minutes
         env:
           PRODUCTION_URL: https://sunrise-cafe-six.vercel.app

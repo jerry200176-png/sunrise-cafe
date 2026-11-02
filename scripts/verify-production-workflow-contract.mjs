@@ -30,7 +30,7 @@ assert.match(deployWorkflow, /group:\s*production-deploy-main/);
 assert.match(deployWorkflow, /predeploy_migrate:\s*\n(?:[^\n]*\n){0,4}\s*if:\s*\$\{\{\s*false\s*\}\}/);
 assert.match(codeOnlyWorkflow, /group:\s*production-deploy-main/);
 assert.match(codeOnlyWorkflow, /cancel-in-progress:\s*false/);
-assert.match(codeOnlyWorkflow, /code-only-release\.py prepare[\s\S]*upload-artifact@[a-f0-9]{40}[\s\S]*code-only-release\.py deploy/);
+assert.match(codeOnlyWorkflow, /code-only-release\.py prepare[\s\S]*upload-artifact@[a-f0-9]{40}[\s\S]*code-only-release\.py create[\s\S]*upload-artifact@[a-f0-9]{40}[\s\S]*code-only-release\.py verify/);
 assert.match(codeOnlyWorkflow, /recovery:[\s\S]*always\(\)[\s\S]*download-artifact@[a-f0-9]{40}[\s\S]*code-only-release\.py recover/);
 assert.match(deployWorkflow, /cancel-in-progress:\s*false/);
 assert.match(deployWorkflow, /name:\s*Vercel production deploy/);

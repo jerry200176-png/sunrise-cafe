@@ -234,11 +234,16 @@ def recover(api, http, record, candidate=None, *, clock=time.monotonic, sleep=ti
     raise Unknown('deployment still in flight; immediate manual recovery may be required')
 
 
-def deploy(api, http, record, *, on_candidate=lambda _value: None, clock=time.monotonic, sleep=time.sleep, seconds=720):
+def create_candidate(api, record, *, on_candidate=lambda _value: None):
     baseline, sha = record['baseline'], record['commit']
     if api.alias() != baseline: raise Unknown('production baseline changed before deploy')
     candidate = api.create(sha)  # Never retry an unknown create response.
     on_candidate(candidate)
+    return candidate
+
+
+def verify_candidate(api, http, record, candidate, *, clock=time.monotonic, sleep=time.sleep, seconds=720):
+    baseline, sha = record['baseline'], record['commit']
     deadline = clock() + seconds
     while clock() < deadline:
         deployment = api.deployment(candidate)
@@ -287,7 +292,7 @@ def read_candidate(path, sha):
 
 
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in ('prepare', 'deploy', 'recover'):
+    if len(sys.argv) != 2 or sys.argv[1] not in ('prepare', 'create', 'verify', 'recover'):
         raise SystemExit('invalid release phase')
     try:
         sha, ref = os.environ.get('GITHUB_SHA', ''), os.environ.get('GITHUB_REF', '')
@@ -307,10 +312,14 @@ def main():
         else:
             record = read_record(path)
             if record['commit'] != sha: raise Unknown('release record commit mismatch')
-            if sys.argv[1] == 'deploy':
+            if sys.argv[1] == 'create':
                 if github.main_sha() != sha: raise Unknown('main has advanced')
                 verify_code_only(record['previous'], sha)
-                deploy(api, http, record, on_candidate=lambda ident: write_candidate(candidate_path, ident, sha))
+                create_candidate(api, record, on_candidate=lambda ident: write_candidate(candidate_path, ident, sha))
+            elif sys.argv[1] == 'verify':
+                candidate = read_candidate(candidate_path, sha)
+                if candidate is None: raise Unknown('candidate record unavailable')
+                verify_candidate(api, http, record, candidate)
             else: recover(api, http, record, read_candidate(candidate_path, sha))
         print('Release phase complete:', sys.argv[1])
     except Exception:

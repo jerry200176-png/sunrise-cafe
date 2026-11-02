@@ -52,8 +52,9 @@ class Tests(unittest.TestCase):
         self.record = {'baseline': BASE, 'previous': OLD, 'commit': SHA}
         self.clock = FakeClock()
     def deploy(self):
-        return r.deploy(self.api, self.http, self.record, clock=self.clock,
-                        sleep=self.clock.sleep, seconds=10)
+        candidate = r.create_candidate(self.api, self.record)
+        return r.verify_candidate(self.api, self.http, self.record, candidate, clock=self.clock,
+                                  sleep=self.clock.sleep, seconds=10)
     def recover(self, candidate=None):
         return r.recover(self.api, self.http, self.record, candidate, clock=self.clock,
                          sleep=self.clock.sleep, seconds=10)
@@ -79,8 +80,9 @@ class Tests(unittest.TestCase):
             raise r.Unknown('metadata unavailable')
         self.api.deployment = no_metadata
         with self.assertRaises(r.Unknown):
-            r.deploy(self.api, self.http, self.record, on_candidate=seen.append,
-                     clock=self.clock, sleep=self.clock.sleep, seconds=10)
+            candidate = r.create_candidate(self.api, self.record, on_candidate=seen.append)
+            r.verify_candidate(self.api, self.http, self.record, candidate,
+                               clock=self.clock, sleep=self.clock.sleep, seconds=10)
         self.assertEqual(seen, [NEW])
     def test_candidate_record_is_bound_to_commit(self):
         with tempfile.TemporaryDirectory() as directory:

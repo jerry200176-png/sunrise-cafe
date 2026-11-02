@@ -15,7 +15,10 @@ merged PR head and verifies that its tree equals the checked-out merge tree.
 It records and uploads the current production deployment ID and version before
 one Git-source create request. It verifies the new deployment, `/api/version`,
 the home page and `/api/booking-health`, then preserves the existing 15-minute
-runtime watch. A separate recovery job downloads the baseline record and tries
+runtime watch. The watch also sends the existing unauthenticated PATCH to a
+fixed synthetic reservation ID and expects HTTP 401; this is a real HTTP
+request and may touch rate limiting or logging, not an entirely read-only probe.
+A separate recovery job downloads the baseline record and tries
 to restore that deployment after a failure. It will not roll back an unrelated
 deployment. A known in-flight candidate can be cancelled; an unknown result is
 reported as unknown rather than retried or claimed successful.
@@ -47,7 +50,9 @@ reported as unknown rather than retried or claimed successful.
   the alias for a bounded period and rolls back only a deployment identifying
   the reviewed source. A Vercel request may complete after that period, or the
   runner/recovery job may itself fail. These cases remain **unknown** and must
-  be inspected immediately; they are not a verified rollback.
+  be inspected immediately; they are not a verified rollback. Where Vercel's
+  deployment response does not expose the expected Git source fields, an
+  unrecorded candidate cannot be safely identified by metadata alone.
 - If automated recovery fails or is interrupted, use the documented
   [Vercel rollback procedure](https://vercel.com/docs/deployments/rollback-production-deployment)
   immediately to restore the prior production deployment recorded in the
