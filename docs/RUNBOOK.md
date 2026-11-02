@@ -148,7 +148,7 @@ npm run lint
 ## Pre-migration backup（Gap #4）
 
 下列內容描述舊 `production-deploy-migrate.yml` 的備份設計；目前該 workflow 的首個 job 已停用，不能據此推定正式 migration 已啟用。若將來經審查恢復，predeploy / postdeploy migration 與 verification jobs 都會執行 migration runner，
-四個 job 的設計是在各自執行 runner 前先執行
+四個 job 的設計是在各自執行 runner 前先以 `bash` 執行
 `scripts/pre-migration-backup.sh`：`pg_dump`（custom 格式、壓縮、`public` schema 結構+資料，postgres:17 容器，
 使用 runner 既有的 `SUPABASE_DB_URL`），再用 `pg_restore --list` 驗證並確認含 `public.reservations` 資料。
 在此 workflow 內，任一步失敗即停止後續 migration 步驟；直接執行其他腳本或歷史版本不受此 workflow 保護。manifest 和 artifact ID / digest 是流程輸出，不能單獨證明備份來源或 artifact 可還原。
