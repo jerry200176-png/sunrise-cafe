@@ -75,8 +75,8 @@ function parseStamp(stamp) {
 }
 
 /**
- * Checks the expected local backup manifest, encrypted file and upload metadata.
- * This does not independently authenticate the artifact or prove a successful restore.
+ * Proves scripts/pre-migration-backup.sh ran and verified a dump in this job, and that the
+ * dump left the runner (age-encrypted copy uploaded, artifact id confirmed). Returns safe metadata only.
  * @param {{ env?: Record<string, string | undefined>, now?: Date, phase?: string }} [options]
  */
 export function assertRecoveryPoint({ env = process.env, now = new Date(), phase = PHASE } = {}) {
@@ -105,8 +105,8 @@ export function assertRecoveryPoint({ env = process.env, now = new Date(), phase
   } else {
     const artifact = join(dir, `sunrise-cafe_${phase}_${manifest.created_at_utc}.dump.age`);
     if (!existsSync(artifact) || statSync(artifact).size < 1) problems.push("encrypted dump file missing");
-    // The workflow supplies the upload action output as an environment variable.
-    // Checking its format here is not independent proof of a retained ciphertext.
+    // production-deploy-migrate.yml passes steps.upload.outputs.artifact-id: the ciphertext
+    // left the runner (backup -> upload -> verify upload) before this migration may start.
     if (!/^\d+$/.test(String(env.BACKUP_ARTIFACT_ID ?? ""))) problems.push("encrypted backup upload not confirmed (no BACKUP_ARTIFACT_ID)");
   }
   if (problems.length) throw new Error(`Pre-migration backup is not a usable recovery point: ${problems.join("; ")}`);

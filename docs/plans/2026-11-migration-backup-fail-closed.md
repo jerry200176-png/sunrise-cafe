@@ -14,3 +14,5 @@
 ## 現況與邊界
 
 舊 deploy/migrate workflow 現已停用；本候選不重新啟用它，亦不處理其他入口或歷史 ref。phase CLI 的 gate 檢查同一程序可見的本機 manifest、密文及 upload 輸出格式，並非獨立驗證 artifact 存在、上傳內容、資料來源身分、recipient 可用性或可還原性；程式內部匯出的 helper 及直接 runner 呼叫也不能假定受此 CLI gate 保護。恢復正式 migration 前另須審核所有執行入口、備份與資料庫身分、金鑰及隔離還原證據。
+
+舊 `assertRecoveryPoint` 來源註解對上傳和復原證據的用詞較強；實際只做本機及 metadata 格式檢查，不代表驗證上傳或來源。此候選不修改該已綁定非 additive SQL 的歷史 runner。
