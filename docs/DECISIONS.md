@@ -178,7 +178,7 @@ new Date(new Date(s).toLocaleString("en-US", { timeZone: "Asia/Taipei" }))
 
 **決策**：
 - 訂金期限 Cron（`/api/admin/reminders/deposit-deadline`）不再因未付訂金取消訂位，逾期後訂位維持 `pending`／`confirmed` 與 `is_deposit_paid = false`，由店家決定。
-- 開關：環境變數 `DEPOSIT_DEADLINE_AUTO_CANCEL`。**未設定＝不取消**（部署即生效）；設成 `true` 並 Redeploy 才恢復 ADR-011 的逾期自動取消、客人「訂位已釋放」卡、群組「訂金逾期釋放」卡。
+- **歷史紀錄（已由 2026-11-01 政策取代，勿照此設定恢復自動取消）：** 開關：環境變數 `DEPOSIT_DEADLINE_AUTO_CANCEL`。**未設定＝不取消**（部署即生效）；設成 `true` 並 Redeploy 才恢復 ADR-011 的逾期自動取消、客人「訂位已釋放」卡、群組「訂金逾期釋放」卡。
 - 期限前 24 小時提醒、≤6 小時迫近提醒照舊（ADR-011 公式不變）；對客文案依開關顯示，開關關閉時不承諾「自動釋放」。
 - 後台「歷史紀錄」可對 `cancelled`／`no_show` 一鍵還原，並可篩選「未付訂金自動取消」。
 
@@ -195,5 +195,5 @@ new Date(new Date(s).toLocaleString("en-US", { timeZone: "Asia/Taipei" }))
 
 **已知限制**：還原不會重設期限或提醒欄位。若日後重新開啟自動取消，已還原的未付訂位可能再被釋放，也可能永遠不再釋放，取決於既有的釋放認領紀錄。
 
-**Rollback**：在 Vercel 設 `DEPOSIT_DEADLINE_AUTO_CANCEL=true` 後 Redeploy 即恢復自動取消（不需回滾程式）；或 revert 本 PR。無 migration、無資料變更。
+**歷史 Rollback（已失效）**：當時可設 `DEPOSIT_DEADLINE_AUTO_CANCEL=true` 後 Redeploy 恢復自動取消；2026-11-01 店主已明確要求未付訂金不自動取消，現行程式不再提供此開關。
 

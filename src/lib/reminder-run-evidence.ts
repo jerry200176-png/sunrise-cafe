@@ -56,6 +56,7 @@ export function buildReminderRunEvidence(input: {
   result:
     | "sent"
     | "already_notified"
+    | "no_eligible"
     | "empty_cat"
     | "duplicate_skip"
     | "schedule_window_skip"
@@ -71,7 +72,7 @@ export function buildReminderRunEvidence(input: {
   else if (input.result === "error") status = "failed";
   else if (input.result === "partial" || (input.accepted_count > 0 && input.rejected_count > 0))
     status = "partial";
-  else if (input.result === "empty_cat" || input.candidate_reservation_count === 0)
+  else if (input.result === "empty_cat" || input.result === "no_eligible" || input.candidate_reservation_count === 0)
     status = "succeeded_with_zero_work";
   else if (input.result === "already_notified" && input.message_attempt_count === 0)
     status = "succeeded_with_zero_work";

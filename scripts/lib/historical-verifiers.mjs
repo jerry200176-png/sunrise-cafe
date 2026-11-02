@@ -22,6 +22,10 @@ export const LEGACY_RUNNERS = Object.freeze([
   "scripts/apply-migration-market-parity.mjs",
 ]);
 export const PINS = Object.freeze({
+  // These compatibility paths are identical, inert fail-closed stubs.
+  "scripts/apply-migration-bank-transfer-reports.mjs": "ffd6dcb34e556650feabf92536621fe1f8c80a24bd486626ae0e64bd22569a35",
+  "scripts/apply-migration-line-pay-safety.mjs": "ffd6dcb34e556650feabf92536621fe1f8c80a24bd486626ae0e64bd22569a35",
+  "scripts/apply-migration-market-parity.mjs": "ffd6dcb34e556650feabf92536621fe1f8c80a24bd486626ae0e64bd22569a35",
   "scripts/verify-bank-transfer-reports.mjs": "a4ff060a2d3b5d9b8db141b52c72af0590bec020f8e88fe02fece2e65b23b2af",
   "scripts/verify-line-pay-safety.mjs": "2cda6185d49b10242b5467b7723c2a89fd76fc8343829b8fc8cfd25e43275c3d",
   "scripts/verify-market-parity.mjs": "7bdc388ce25bc05a1537e3fd61bd7564f9f92bf7196b84f8561fb63660bb3488",
@@ -52,11 +56,6 @@ export function assertHistoricalVerifierPlan(plan) {
 }
 
 export function assertVerifierFiles(root) {
-  for (const legacy of LEGACY_RUNNERS) {
-    try { lstatSync(resolve(root, legacy)); }
-    catch (error) { if (error?.code === "ENOENT") continue; throw error; }
-    throw new Error(`Historical writable runner must not exist: ${legacy}`);
-  }
   for (const [path, expected] of Object.entries(PINS)) {
     const absolute = resolve(root, path);
     if (!lstatSync(absolute).isFile()) throw new Error(`Not a regular verifier file: ${path}`);

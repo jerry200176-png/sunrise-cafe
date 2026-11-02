@@ -48,7 +48,7 @@ describe("fixed read-only historical verifier contract", () => {
     }
   });
 
-  it("fails closed on restored legacy runner, changed verifier/dependency/SQL or symlink", () => {
+  it("fails closed on missing or replaced legacy stub, changed verifier/dependency/SQL or symlink", () => {
     const temp = mkdtempSync(join(tmpdir(), "sunrise-verifier-test-"));
     try {
       for (const file of Object.keys(PINS)) {
@@ -58,8 +58,15 @@ describe("fixed read-only historical verifier contract", () => {
       expect(() => assertVerifierFiles(temp)).not.toThrow();
       for (const file of LEGACY_RUNNERS) {
         writeFileSync(join(temp, file), "unexpected writer");
-        expect(() => assertVerifierFiles(temp)).toThrow(/writable runner/);
+        expect(() => assertVerifierFiles(temp)).toThrow(/hash mismatch/);
         rmSync(join(temp, file));
+        expect(() => assertVerifierFiles(temp)).toThrow();
+        copyFileSync(join(root, file), join(temp, file));
+        rmSync(join(temp, file));
+        symlinkSync(join(root, file), join(temp, file));
+        expect(() => assertVerifierFiles(temp)).toThrow(/regular verifier file/);
+        rmSync(join(temp, file));
+        copyFileSync(join(root, file), join(temp, file));
       }
       for (const file of ["scripts/verify-market-parity.mjs", "scripts/lib/rest-schema-probe.mjs", "supabase/migration-bank-transfer-reports.sql"]) {
         writeFileSync(join(temp, file), "changed");
@@ -71,6 +78,19 @@ describe("fixed read-only historical verifier contract", () => {
       symlinkSync(join(root, "scripts/verify-market-parity.mjs"), path);
       expect(() => assertVerifierFiles(temp)).toThrow(/regular verifier file/);
     } finally { rmSync(temp, { recursive: true, force: true }); }
+  });
+
+  it.each(LEGACY_RUNNERS)("the retired %s entry point fails without a database or REST request", (file: string) => {
+    const result = spawnSync(process.execPath, [file], {
+      cwd: root, encoding: "utf8", timeout: 10000,
+      env: {
+        NODE_ENV: "test",
+        NODE_OPTIONS: `--no-warnings --experimental-loader=${join(root, "scripts/test-fixtures/deny-db-loader.mjs")} --import=${join(root, "scripts/test-fixtures/deny-fetch-preload.mjs")}`,
+      },
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("no migration or database verification was performed");
+    expect(result.stderr).not.toMatch(/UNEXPECTED_DB_IMPORT|UNEXPECTED_FETCH/);
   });
 
   it("rejects old runner references and obvious direct SQL application across all workflows", () => {

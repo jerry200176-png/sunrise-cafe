@@ -2,20 +2,23 @@ name: Verify historical market parity schema
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - supabase/migration-market-parity-rounds-3-7.sql
-      - scripts/verify-market-parity.mjs
-      - scripts/lib/rest-schema-probe.mjs
-      - scripts/lib/historical-verifiers.mjs
-      - scripts/production-migration-plan.json
-      - scripts/run-production-migration-phase.mjs
-      - .github/workflows/apply-migration-market-parity.yml
 
 jobs:
-  verify:
-    name: Read-only market parity probe
+  paused:
+    name: Migration paused — backup protection required
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    permissions: {}
+    steps:
+      - name: Explain why migration cannot run
+        run: |
+          echo '::error::Migration is paused until an encrypted, retained backup and a reviewed migration path are verified.'
+          exit 1
+
+  apply:
+    # The verifier remains disabled along with the legacy migration workflow.
+    if: ${{ false }}
+    name: Read-only market parity probe (paused)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

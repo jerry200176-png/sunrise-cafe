@@ -578,7 +578,7 @@ export async function fetchReservationsIn7Days() {
   return data;
 }
 
-// 取得尚未付訂金、待處理中的訂位（pending / confirmed，供到期提醒；開關開啟時也供逾期自動取消）
+// 取得尚未付訂金、待處理中的訂位（pending / confirmed，供到期提醒，不因逾期自動取消）
 const UNPAID_DEPOSIT_SELECT =
   "id, booking_code, customer_name, phone, start_time, end_time, created_at, status, line_user_id, deposit_reminder_sent_at, deposit_urgent_reminder_sent_at, room:rooms(id, name, branch:branches(name))";
 const UNPAID_DEPOSIT_SELECT_LEGACY =

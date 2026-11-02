@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { readFileSync } from "fs";
-import { join } from "path";
 import { requirePermission } from "@/lib/admin-api-auth";
-
-const MIGRATION_SQL = readFileSync(
-  join(process.cwd(), "supabase/migration-reservations-is-reminded-7d.sql"),
-  "utf8"
-);
+import { migrationPaused } from "@/lib/migration-pause";
 
 function pgConnectionString(): string | null {
   return (
@@ -24,31 +18,14 @@ async function probeColumn(): Promise<{ ok: boolean; message?: string }> {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return { ok: false, message: "Supabase not configured" };
 
-  const { error } = await createClient(url, key)
-    .from("reservations")
-    .select("is_reminded_7d")
-    .limit(1);
-
-  if (!error) return { ok: true };
-  const msg = error.message ?? String(error);
-  if (/is_reminded_7d/i.test(msg)) return { ok: false, message: msg };
-  return { ok: false, message: msg };
-}
-
-async function applyViaPostgres(): Promise<void> {
-  const conn = pgConnectionString();
-  if (!conn) {
-    throw new Error(
-      "No Postgres URL. Set SUPABASE_DB_URL or POSTGRES_URL_NON_POOLING on Vercel (Database → Connection string)."
-    );
-  }
-  const { default: postgres } = await import("postgres");
-  const sql = postgres(conn, { max: 1, idle_timeout: 10 });
   try {
-    await sql.unsafe(MIGRATION_SQL);
-  } finally {
-    await sql.end({ timeout: 10 });
-  }
+    const { error } = await createClient(url, key)
+      .from("reservations")
+      .select("is_reminded_7d")
+      .limit(1);
+    if (!error) return { ok: true };
+  } catch { /* Expose only a fixed status, not upstream connection details. */ }
+  return { ok: false, message: "無法確認欄位狀態" };
 }
 
 function isCronAuthorized(request: NextRequest): boolean {
@@ -60,7 +37,7 @@ function isCronAuthorized(request: NextRequest): boolean {
 
 /**
  * GET: 檢查 is_reminded_7d 欄位是否存在
- * POST: 套用 migration（需 bi:read 或 CRON_SECRET）
+ * POST: 已授權者可取得暫停執行的提示
  */
 export async function GET() {
   const probe = await probeColumn();
@@ -78,23 +55,5 @@ export async function POST(request: NextRequest) {
     if (denied) return denied;
   }
 
-  const before = await probeColumn();
-  if (before.ok) {
-    return NextResponse.json({ ok: true, already_applied: true, message: "Column already exists" });
-  }
-
-  try {
-    await applyViaPostgres();
-    const after = await probeColumn();
-    if (!after.ok) {
-      return NextResponse.json(
-        { error: "Migration ran but column still missing", detail: after.message },
-        { status: 500 }
-      );
-    }
-    return NextResponse.json({ ok: true, applied: true, message: "is_reminded_7d column added" });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
+  return migrationPaused();
 }

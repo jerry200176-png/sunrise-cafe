@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { requirePermission } from "@/lib/admin-api-auth";
+import { projectAdminOrderList } from "@/lib/admin-order-list";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/;
@@ -29,6 +30,7 @@ export async function GET(request: NextRequest) {
   const status = search.get("status");
   const scope = search.get("scope");
   const since = search.get("since");
+  const projectList = search.get("listContract") === "v2";
   if (!branchId) return NextResponse.json({ error: "缺少 branchId" }, { status: 400 });
   const denied = await requirePermission(request, "orders:read", branchId);
   if (denied) return denied;
@@ -47,7 +49,7 @@ export async function GET(request: NextRequest) {
   let cursor = cursorText === null ? null : decodeCursor(cursorText, branchId, status, scope, since);
   if (cursorText !== null && !cursor) return NextResponse.json({ error: "訂單游標不正確，請重新整理" }, { status: 400 });
   const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-  const accumulated: Row[] = [];
+  const accumulated: unknown[] = [];
 
   for (let page = 0; page < (paged ? 1 : MAX_PAGES); page++) {
     let query = db.from("orders").select("*, table:tables(number), order_items(*)", { count: "exact" })
@@ -67,8 +69,13 @@ export async function GET(request: NextRequest) {
     const last = items.at(-1);
     const nextCursor = rows.length > limit && last ? encodeCursor(last, branchId, status, scope, since) : null;
     if (nextCursor && !decodeCursor(nextCursor, branchId, status, scope, since)) return NextResponse.json({ error: "訂單資料無法分頁，請聯絡管理者" }, { status: 503 });
-    if (paged) return NextResponse.json({ items, nextCursor });
-    accumulated.push(...items);
+    let visibleItems: unknown[] = items;
+    if (projectList) {
+      try { visibleItems = items.map(projectAdminOrderList); }
+      catch { return NextResponse.json({ error: "訂單資料格式不正確，請聯絡管理者" }, { status: 503 }); }
+    }
+    if (paged) return NextResponse.json({ items: visibleItems, nextCursor });
+    accumulated.push(...visibleItems);
     if (!nextCursor) return NextResponse.json(accumulated);
     cursor = decodeCursor(nextCursor, branchId, status, scope, since);
   }

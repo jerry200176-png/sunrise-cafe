@@ -23,7 +23,7 @@ Non-negotiables (digest; the rulebook has the detail):
 
 - **LINE 雙 Channel**：群組 Bot（`LINE_CHANNEL_ACCESS_TOKEN`，無 webhook）推店員群組；客人帳號（`LINE_CUSTOMER_ACCESS_TOKEN` + `LINE_CHANNEL_SECRET`）推客人並接 `/api/webhooks/line`。`LINE_CHANNEL_SECRET` 是**客人帳號**的 secret，換群組 Bot 不要動它。分店另有 `LINE_EXTRA_GROUP_BOTS` / `LINE_BRANCH_CUSTOMER_BOTS`（`docs/LINE.md`）。
 - **時區**：Vercel 跑 UTC，顯示時間必須轉 `Asia/Taipei`；不可直接用 `new Date()`／`parseISO()` 顯示。
-- **Cron**：`vercel.json` `0 12 * * *` = 台灣 20:00 明日提醒（Hobby 可能延到 20:59）。訂金到期檢查／提醒每日 4 次（UTC 01/07/13/19）；Hobby 禁每小時 Cron。期限 = `max(建立+48hr, 開始−6hr)`，以開始時間封頂（ADR-011）。**逾期預設不自動取消**（ADR-012，Founder 2026-10-21）；僅 `DEPOSIT_DEADLINE_AUTO_CANCEL=true`（Redeploy 後）才恢復取消＋通知＋等位通知。已取消／沒來可在後台歷史紀錄一鍵還原（時段須空閒、不傳 LINE）。細節見 `docs/AI_DOMAIN_NOTES.md`。
+- **Cron**：`vercel.json` `0 12 * * *` = 台灣 20:00 明日提醒（Hobby 可能延到 20:59）。訂金到期檢查／提醒每日 4 次（UTC 01/07/13/19）；Hobby 禁每小時 Cron。期限 = `max(建立+48hr, 開始−6hr)`，以開始時間封頂（ADR-011）。**逾期不自動取消**（Founder 2026-11-01）；舊 `DEPOSIT_DEADLINE_AUTO_CANCEL` 設定不再生效。已取消／沒來可在後台歷史紀錄一鍵還原（時段須空閒、不傳 LINE）。細節見 `docs/AI_DOMAIN_NOTES.md`。
 - **多分店推播**：對所有有 `line_group_id` 的分店各自推播；皆未設定才 fallback `LINE_GROUP_ID`。
 - **付款**：話術由 `branches` 表欄位 + `src/lib/payment-message.ts` 產生，不得寫死帳號。LINE 截圖寫 `payment_events`（`pending_review`），不自動標 `is_deposit_paid`；審核在 `/admin/payments`（ADR-008、`docs/PAYMENT_STATE_MODEL.md`）。付款關鍵字排除問句。改付款規則屬 F4。
 - **取消訂位**要觸發等位通知的兩處：`src/app/api/cancel-booking/route.ts`、`src/app/api/reservations/[id]/route.ts`。

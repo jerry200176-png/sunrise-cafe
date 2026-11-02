@@ -3,7 +3,11 @@
 ## 症狀、根因與範圍
 #523 和 #507 去除舊 runner 的隱式重播／權限寫入後，既有 additive gate 仍因 runner 變動而重掃未變的歷史 SQL，依設計拒絕。根因是 plan 將「可執行 SQL 的 runner」和「只讀驗證」混成同一種能力。不能靠改名、空 SQL、忽略 findings 或放寬 grandfathered 清單處理。
 
-本候選只處理 bank transfer、LINE Pay、market parity 的舊自動執行路徑：刪除三個可寫 runner，歷史 SQL、ledger 與原 additive gate 不變。plan 的三組原始 identity 只允許固定的唯讀 verifier、原階段和原 SQL 類別；固定 registry 檢查 verifier 與其直接依賴雜湊，且不可用任意腳本路徑、未知 verifier、原 runner、變動的歷史 SQL 或移除 identity。每次 predeploy/postdeploy phase 中的順序及驗證失敗時停止該 phase 不變；既有 workflow 中 phase 可能各執行兩次。既有 deploy.sh 失敗被 workflow 當作 warning 的問題不在此修正範圍，因此不聲稱整條部署流程 fail closed。獨立 market workflow 只能經同一 registry 執行該 verifier，不能再呼叫已刪舊 runner。其他歷史 runner 完全不在此範圍。
+本候選只處理 bank transfer、LINE Pay、market parity 的舊自動執行路徑：三個舊可寫 runner 改為不可操作的 fail-closed stub，歷史 SQL、ledger 與原 additive gate 不變。plan 的三組原始 identity 只允許固定的唯讀 verifier、原階段和原 SQL 類別；固定 registry 檢查 verifier、其直接依賴及三個 stub 的 regular file 與雜湊，且不可用任意腳本路徑、未知 verifier、原可寫 runner、變動的歷史 SQL 或移除 identity。每次 predeploy/postdeploy phase 中的順序及驗證失敗時停止該 phase 不變；既有 workflow 中 phase 可能各執行兩次。phase 執行入口保留 #503 所需備份檢查；獨立 `--verify` 不執行 phase，但可能有下述 REST hook 作用。獨立 market workflow 保留 #549 暫停狀態：手動觸發明確失敗，包含 verifier 的 apply job 仍永久停用；沒有新增 push 觸發。其他歷史 runner 完全不在此範圍。
+
+三個舊 runner 路徑仍存在，但直接呼叫只輸出退役說明並以非零狀態結束：既不執行 migration，也沒有驗證任何資料庫。這是對舊 caller 的行為改變；若 repository 外有排程或操作者直接呼叫舊路徑，必須先確認目標、權限及副作用，並遷移至經審查的驗證或修復流程。repository 內搜尋無法證明外部 caller 不存在，也不授權重播 SQL。
+
+一次性 code-only 發布清單提議以前版 `40db9ac891d8b96537740e1efcf31d1d97909539` 為 baseline；這只是候選目標，正式版本及健康狀態須在發布前依既有流程確認。清單鎖定本候選各檔 blob，不修改歷史 SQL 或允許自動執行 migration；此計畫本身不啟動發布。
 
 bank verifier 使用單一 repeatable-read READ ONLY transaction 查 ledger/catalog/指定角色 ACL；缺少 ledger／權限錯誤即停止，不引導寫入。LINE Pay 與 market verifier 只發固定 REST 表 GET、不直接呼叫 RPC；使用 `limit=0` 且拒絕任何非空回應，僅證明所選 REST 欄位被接受，不證明完整 catalog、ACL、migration ledger 或目標身分。只允許一般 TLS 驗證的託管 `*.supabase.co` HTTPS origin、拒絕憑證關閉驗證與所有 HTTP 重導；此限制不證明正確專案，客製網域／自架環境需另行審核支援。新環境若尚未建立舊 schema 必須依治理另備 migration 與 recovery 流程；不自動建立 schema 或偽造 ledger。
 

@@ -1,0 +1,129 @@
+name: Synthetic artifact v7 compatibility
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/artifact-v7-canary.yml'
+      - 'scripts/test_artifact_v7_canary.py'
+      - 'src/lib/artifact-v7-canary.test.ts'
+      - 'docs/plans/2026-11-artifact-v7-canary.md'
+
+# No repository token permissions, checkout, user secrets, or production data.
+permissions: {}
+
+jobs:
+  upload:
+    name: Upload synthetic fixtures
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      baseline-id: ${{ steps.baseline.outputs.artifact-id }}
+      baseline-digest: ${{ steps.baseline.outputs.artifact-digest }}
+      candidate-id: ${{ steps.candidate.outputs.artifact-id }}
+      candidate-digest: ${{ steps.candidate.outputs.artifact-digest }}
+      backup-id: ${{ steps.backup.outputs.artifact-id }}
+      backup-digest: ${{ steps.backup.outputs.artifact-digest }}
+    steps:
+      - name: Create synthetic fixtures
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'artifact-v7-fixtures'
+          fixtures = {
+              'baseline': {'sunrise-code-only-baseline.json': b'{"fixture":"baseline-v1"}\n'},
+              'candidate': {'sunrise-code-only-candidate.json': b'{"fixture":"candidate-v1"}\n'},
+              'backup': {'synthetic.dump.age': b'synthetic ciphertext fixture, not an actual backup\n',
+                         'manifest.json': b'{"fixture":"synthetic-backup-v1"}\n'},
+          }
+          for kind, files in fixtures.items():
+              directory = root / kind
+              directory.mkdir(parents=True, exist_ok=False)
+              for name, content in files.items():
+                  (directory / name).write_bytes(content)
+          PY
+      - name: Upload synthetic baseline
+        id: baseline
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: artifact-v7-canary-baseline-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/artifact-v7-fixtures/baseline/sunrise-code-only-baseline.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Upload synthetic candidate
+        id: candidate
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: artifact-v7-canary-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/artifact-v7-fixtures/candidate/sunrise-code-only-candidate.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Upload synthetic backup shape
+        id: backup
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: artifact-v7-canary-backup-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/artifact-v7-fixtures/backup/*
+          retention-days: 7
+          if-no-files-found: error
+
+  verify:
+    name: Verify synthetic artifacts across jobs
+    needs: upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download synthetic baseline by name
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: artifact-v7-canary-baseline-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/artifact-v7-downloaded/baseline
+      - name: Download synthetic candidate by name
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: artifact-v7-canary-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/artifact-v7-downloaded/candidate
+      - name: Download synthetic backup shape by name
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: artifact-v7-canary-backup-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/artifact-v7-downloaded/backup
+      - name: Verify upload outputs and synthetic contents
+        env:
+          BASELINE_ID: ${{ needs.upload.outputs.baseline-id }}
+          BASELINE_DIGEST: ${{ needs.upload.outputs.baseline-digest }}
+          CANDIDATE_ID: ${{ needs.upload.outputs.candidate-id }}
+          CANDIDATE_DIGEST: ${{ needs.upload.outputs.candidate-digest }}
+          BACKUP_ID: ${{ needs.upload.outputs.backup-id }}
+          BACKUP_DIGEST: ${{ needs.upload.outputs.backup-digest }}
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          import re
+          root = Path(os.environ['RUNNER_TEMP']) / 'artifact-v7-downloaded'
+          fixtures = {
+              'baseline': {'sunrise-code-only-baseline.json': b'{"fixture":"baseline-v1"}\n'},
+              'candidate': {'sunrise-code-only-candidate.json': b'{"fixture":"candidate-v1"}\n'},
+              'backup': {'synthetic.dump.age': b'synthetic ciphertext fixture, not an actual backup\n',
+                         'manifest.json': b'{"fixture":"synthetic-backup-v1"}\n'},
+          }
+          seen = set()
+          for kind, files in fixtures.items():
+              ident = os.environ.get(f'{kind.upper()}_ID', '')
+              digest = os.environ.get(f'{kind.upper()}_DIGEST', '')
+              if not re.fullmatch(r'[1-9][0-9]*', ident) or not re.fullmatch(r'[0-9a-f]{64}', digest) or ident in seen:
+                  raise SystemExit('Synthetic upload outputs invalid')
+              seen.add(ident)
+              directory = root / kind
+              if not directory.is_dir() or {p.name for p in directory.iterdir()} != set(files):
+                  raise SystemExit('Synthetic download filenames differ')
+              for name, expected in files.items():
+                  path = directory / name
+                  if path.is_symlink() or not path.is_file():
+                      raise SystemExit('Synthetic download file invalid')
+                  if hashlib.sha256(path.read_bytes()).digest() != hashlib.sha256(expected).digest():
+                      raise SystemExit('Synthetic download content differs')
+          print('Synthetic artifact outputs and contents: PASS')
+          PY
