@@ -170,7 +170,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       if (result.error) throw result.error;
       return NextResponse.json({ ok: true, ...(await load(id)) });
     }
-    if (!order) return NextResponse.json({ error: "請先確認客人到店" }, { status: 409 });
+    if (!order) return NextResponse.json({ error: "請先確認客人到店", ...(body.action === "add_items" ? { add_outcome: "not_attempted" } : {}) }, { status: 409 });
     if (body.action === "extend") {
       // 只給已報到、尚未結帳的組調整結束時間（店員現場延時／提早離開）；不改 total_price，不推 LINE。
       if (auth.reservation!.status !== "checked_in") return NextResponse.json({ error: "客人到了以後才能改時間" }, { status: 409 });
@@ -286,7 +286,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const EDIT_ACTIONS = ["add_items", "replace_item", "update_quantity", "remove_item"];
     if (EDIT_ACTIONS.includes(body.action ?? "") && auth.reservation!.status !== "checked_in") {
       // 結帳完（或取消）的組只能補記餐費、標記出餐，不能再加點或改單
-      return NextResponse.json({ error: "這組已經結帳離開，不能再加點或改餐點" }, { status: 409 });
+      return NextResponse.json({ error: "這組已經結帳離開，不能再加點或改餐點", ...(body.action === "add_items" ? { add_outcome: "not_attempted" } : {}) }, { status: 409 });
     }
     // 餐費 0 元沒有東西可收：RPC 會回 nothing_to_settle，所以不走 food_only 結帳紀錄，
     // 改走下面的舊流程只標記 paid_at（不動 SQL；#447 P2-2）
@@ -306,9 +306,9 @@ export async function POST(request: NextRequest, { params }: Params) {
         if (result.error) throw result.error;
       }
     } else if (body.action === "add_items" || body.action === "replace_item") {
-      if (order.paid_at) return NextResponse.json({ error: "已結帳，不能修改餐點" }, { status: 409 });
+      if (order.paid_at) return NextResponse.json({ error: "已結帳，不能修改餐點", ...(body.action === "add_items" ? { add_outcome: "not_attempted" } : {}) }, { status: 409 });
       const input = body.action === "add_items" ? body.items : body.item ? [body.item] : null;
-      if (!input?.length) return NextResponse.json({ error: "缺少餐點" }, { status: 400 });
+      if (!input?.length) return NextResponse.json({ error: "缺少餐點", ...(body.action === "add_items" ? { add_outcome: "not_attempted" } : {}) }, { status: 400 });
       const snapshots = await validateAndSnapshotItems(auth.reservation!, input, false);
       const changes = snapshots.map((snapshot) => ({ menu_item_id: snapshot.source_menu_item_id, item_name: snapshot.item_name_snapshot,
         quantity: snapshot.quantity, unit_price: snapshot.unit_price_snapshot,

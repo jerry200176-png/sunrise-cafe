@@ -70,6 +70,21 @@ describe("table-existence probe does not assume an id column", () => {
     expect(await probeRestReadable("no_such_table", TABLE_PROBE_SELECT)).toBe(false);
   });
 
+  it("probes existing and missing columns without requesting rows", async () => {
+    const queries: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+      const url = new URL(String(input));
+      queries.push(url.searchParams.toString());
+      return url.searchParams.get("select") === "missing"
+        ? new Response('{"code":"42703","message":"column missing does not exist"}', { status: 400 })
+        : new Response("[]", { status: 200 });
+    }));
+    expect(await probeRestReadable("reservations", "id")).toBe(true);
+    expect(await probeRestReadable("reservations", "missing")).toBe(false);
+    expect(queries).toHaveLength(2);
+    expect(queries.every((query) => new URLSearchParams(query).get("limit") === "0")).toBe(true);
+  });
+
   it("reconcile-migration-ledger.mjs uses the same id-free table probe", () => {
     const src = readFileSync(
       join(__dirname, "../../scripts/reconcile-migration-ledger.mjs"),
@@ -77,5 +92,6 @@ describe("table-existence probe does not assume an id column", () => {
     );
     expect(src).not.toMatch(/probeColumn\([^)]*"id"\)/);
     expect(src).toContain('TABLE_PROBE_SELECT = "*"');
+    expect(src).toContain('${table}?select=${column}&limit=0');
   });
 });

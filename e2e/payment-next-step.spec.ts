@@ -65,6 +65,9 @@ for (const width of [390, 1440]) {
       mode = "ok";
       release?.();
       await expect(page.getByText(/訂金已確認|已確認收款/).first()).toBeVisible();
+      await expect(page.getByText(/已付訂金無法線上自行取消。訂位開始前至少 48 小時/)).toBeVisible();
+      await expect(page.getByText(/不足 48 小時請聯繫店員審核/)).toBeVisible();
+      await expect(page.getByText(/訂金不予退還/)).toHaveCount(0);
       await expect(page.getByText(/需繳納訂金以完成保留/)).toHaveCount(0);
       await expect(page.getByRole("button", { name: /LINE Pay 付款/ })).toHaveCount(0);
       await page.screenshot({ path: testInfo.outputPath("paid-notification-failed.png"), fullPage: true });

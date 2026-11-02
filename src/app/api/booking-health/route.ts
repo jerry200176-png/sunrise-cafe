@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const branchesRes = await fetch(
-      `${process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "")}/rest/v1/branches?select=id&limit=1`,
+      `${process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "")}/rest/v1/branches?select=id&archived_at=is.null&limit=1`,
       {
         method: "GET",
         headers: {
@@ -60,13 +60,15 @@ export async function GET(request: NextRequest) {
       );
     }
     const branches = (await branchesRes.json()) as { id: string }[];
-    const branchId = Array.isArray(branches) && branches[0] ? branches[0].id : null;
-
-    if (branchId) {
-      await fetchBranch(branchId);
-      const today = new Date().toISOString().slice(0, 10);
-      await getBlockedSlots(branchId, today);
+    const branchId = Array.isArray(branches) && typeof branches[0]?.id === "string" ? branches[0].id : null;
+    if (!branchId) throw new Error("no active branch available");
+    const branch = await fetchBranch(branchId);
+    if (!branch || branch.id !== branchId || branch.archived_at !== null) {
+      throw new Error("active branch unavailable");
     }
+    const today = new Date().toISOString().slice(0, 10);
+    const slots = await getBlockedSlots(branchId, today);
+    if (!Array.isArray(slots)) throw new Error("booking availability unavailable");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (!isAdmin) {

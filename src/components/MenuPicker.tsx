@@ -10,11 +10,12 @@ function ruleHint(min: number, max: number | null) {
   return max === 1 ? "可不選" : max ? `可多選，最多 ${max} 項` : "可多選";
 }
 
-export function MenuPicker({ items, value, onChange, disabled = false }: {
+export function MenuPicker({ items, value, onChange, disabled = false, showPrices = true }: {
   items: MenuItem[];
   value: DraftItemInput[];
   onChange: (items: DraftItemInput[]) => void;
   disabled?: boolean;
+  showPrices?: boolean;
 }) {
   function change(id: string, patch: Partial<DraftItemInput> | null) {
     const old = value.find((row) => row.menu_item_id === id);
@@ -33,7 +34,7 @@ export function MenuPicker({ items, value, onChange, disabled = false }: {
           {item.image_url && <ZoomableImage src={item.image_url} alt={item.name} unoptimized sizes="64px"
             className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-stone-100" />}
           <div className="min-w-0 flex-1">
-            <div className="flex justify-between gap-3 font-medium text-stone-900"><span>{item.name}</span><span>NT$ {Number(item.price).toLocaleString()}</span></div>
+            <div className="flex justify-between gap-3 font-medium text-stone-900"><span>{item.name}</span>{showPrices && <span>NT$ {Number(item.price).toLocaleString()}</span>}</div>
             {item.description && <p className="mt-1 text-sm text-stone-500">{item.description}</p>}
             {row && <div className="mt-3 space-y-3 border-t border-stone-100 pt-3">
               <label className="block text-sm">數量 <select aria-label={`${item.name}數量`} disabled={disabled}
@@ -58,7 +59,7 @@ export function MenuPicker({ items, value, onChange, disabled = false }: {
                       checked={picked.includes(option.id)}
                       onClick={group.max === 1 && group.min === 0 && picked.includes(option.id) ? () => toggle(option.id, false) : undefined}
                       onChange={(event) => toggle(option.id, event.target.checked)} />
-                    {option.option_name}{Number(option.price_delta) ? ` +${option.price_delta}` : ""}
+                    {option.option_name}{showPrices && Number(option.price_delta) ? ` +${option.price_delta}` : ""}
                   </label>)}
                 </div></fieldset>;
               })}

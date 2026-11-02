@@ -9,11 +9,6 @@ const { verify, requestProvider, supabaseAdmin, getDepositAmount, isAdminConfigu
 vi.mock("@/lib/guest-auth", () => ({ verifyGuestBookingById: verify }));
 vi.mock("@/lib/line-pay", () => ({ isLinePayConfigured, requestLinePayPayment: requestProvider }));
 vi.mock("@/lib/booking-utils", () => ({ getDepositAmount }));
-const { computeDepositDeadline } = vi.hoisted(() => ({ computeDepositDeadline: vi.fn() }));
-vi.mock("@/lib/deposit-deadline", async () => ({
-  ...(await vi.importActual<typeof import("@/lib/deposit-deadline")>("@/lib/deposit-deadline")),
-  computeDepositDeadline,
-}));
 vi.mock("@/lib/supabase-admin", () => ({ isAdminConfigured, supabaseAdmin }));
 vi.mock("@/lib/payment-log", () => ({ logPayment: vi.fn() }));
 
@@ -51,7 +46,6 @@ function request() {
 beforeEach(() => {
   vi.clearAllMocks();
   delete process.env.DEPOSIT_DEADLINE_AUTO_CANCEL;
-  computeDepositDeadline.mockReturnValue(new Date(Date.now() + 3600000));
   isAdminConfigured.mockReturnValue(true);
   isLinePayConfigured.mockReturnValue(true);
   getDepositAmount.mockReturnValue(300);
@@ -92,7 +86,7 @@ describe("LINE Pay request route", () => {
     const past = () => new Date(Date.now() - 3600000);
 
     it("still lets the guest pay after the deadline while auto-cancel is off", async () => {
-      computeDepositDeadline.mockReturnValue(past());
+      verify.mockResolvedValue({ ok: true, reservation: { ...reservation, created_at: new Date(Date.now() - 72 * 3600000).toISOString(), start_time: new Date(Date.now() + 3 * 3600000).toISOString() } });
       const response = await POST(request());
       expect(response.status).toBe(200);
       expect(requestProvider).toHaveBeenCalled();
@@ -105,12 +99,12 @@ describe("LINE Pay request route", () => {
       expect(requestProvider).not.toHaveBeenCalled();
     });
 
-    it("refuses after the deadline when DEPOSIT_DEADLINE_AUTO_CANCEL=true", async () => {
+    it("still allows payment after the deadline when the legacy flag is true", async () => {
       process.env.DEPOSIT_DEADLINE_AUTO_CANCEL = "true";
-      computeDepositDeadline.mockReturnValue(past());
+      verify.mockResolvedValue({ ok: true, reservation: { ...reservation, created_at: new Date(Date.now() - 72 * 3600000).toISOString(), start_time: new Date(Date.now() + 3 * 3600000).toISOString() } });
       const response = await POST(request());
-      expect(response.status).toBe(409);
-      expect((await response.json()).error).toContain("訂金期限已過");
+      expect(response.status).toBe(200);
+      expect(requestProvider).toHaveBeenCalled();
       delete process.env.DEPOSIT_DEADLINE_AUTO_CANCEL;
     });
 
