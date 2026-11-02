@@ -71,6 +71,27 @@ describe("guest copy feedback", () => {
     expect(document.querySelectorAll("textarea")).toHaveLength(0);
   });
 
+  it("returns keyboard focus after the legacy fallback and does not steal later focus", async () => {
+    clipboard(undefined);
+    const elsewhere = document.createElement("button");
+    elsewhere.textContent = "其他按鈕";
+    document.body.appendChild(elsewhere);
+    const legacy = vi.fn(() => false);
+    execCommand(legacy);
+    const view = show(<GuestCopyButton identity="code" getText={() => "ABC123"} label="複製資料" copiedLabel="複製成功" />);
+    const button = screen.getByRole("button", { name: "複製資料" });
+    button.focus();
+    fireEvent.click(button);
+    await screen.findByRole("textbox", { name: "可手動複製的文字" });
+    expect(document.activeElement).toBe(button);
+    legacy.mockImplementation(() => { elsewhere.focus(); return false; });
+    fireEvent.click(button);
+    await waitFor(() => expect(legacy).toHaveBeenCalledTimes(2));
+    expect(document.activeElement).toBe(elsewhere);
+    view.unmount();
+    elsewhere.remove();
+  });
+
   it("keeps each guest action independent and lets failures be retried", async () => {
     const writeText = vi.fn().mockRejectedValueOnce(new Error("denied")).mockResolvedValue(undefined);
     clipboard({ writeText });

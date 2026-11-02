@@ -48,6 +48,7 @@ function GuestCopyButtonInstance({ getText, label, copiedLabel, ariaLabel, class
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
       } else {
+        const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
         const input = document.createElement("textarea");
         input.value = text;
         input.readOnly = true;
@@ -56,10 +57,14 @@ function GuestCopyButtonInstance({ getText, label, copiedLabel, ariaLabel, class
         document.body.appendChild(input);
         let copied = false;
         try {
+          input.focus();
           input.select();
           copied = document.execCommand("copy");
         } finally {
+          // Do not pull focus back if another action has already moved it.
+          const restoreFocus = document.activeElement === input;
           input.remove();
+          if (restoreFocus && previousFocus?.isConnected) previousFocus.focus();
         }
         if (!copied) throw new Error("copy unavailable");
       }
