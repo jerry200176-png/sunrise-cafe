@@ -166,3 +166,10 @@ See `2026-11-add-items-ui-warning.md` for the limits of this partial mitigation.
 ## 暫停 maturity migration 入口
 
 此版本只暫停現有手動 maturity migration 入口：guard 以無權限固定訊息失敗，四個下游 job 固定停用；保留歷史腳本且不執行 SQL、資料庫寫入或正式備份。不能據此推論已驗證其他 migration 入口、備份來源或還原。manifest 包含 workflow 原文 blob、文件和合成測試，批准基準僅用於此版本；程式發布不授權執行 migration。
+
+
+## #489 pin 升級與合成 recovery canary
+
+此候選更新 19 個現有 workflow 的 checkout／setup-node／upload-artifact 固定版本，維持 #558 maturity、#549 migration、#554 LINE Pay 停用條件並保留 #537 已合入文件；新增僅 PR 執行、`contents: read` 且不取得 `actions: read` 或使用者 secrets 的合成 artifact／fake recovery canary。GitHub CI 上下載與本地合成測試不證明正式 Git push、伺服器 expiry、ZIP digest 或實際 rollback／備份還原；現有 v4 下載 digest mismatch 仍僅警告。
+
+本次 manifest 列入每個變更的 workflow 精確 blob、文件及測試；所有檔案維持 100644。若其他 PR 先合併，須重新製作 manifest 並複核，不能借用舊的發布核准。回復應以新 PR 撤回本次 action pin 與 canary，保持所有 migration／LINE Pay 暫停並依當時發布 gates 檢查；不會恢復消失的 artifact。
