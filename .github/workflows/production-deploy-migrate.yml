@@ -17,6 +17,10 @@ on:
         required: false
         default: false
         type: boolean
+      probe_expected_sha:
+        description: "Full independently reviewed SHA of this research branch; probe only"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -28,7 +32,80 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  vercel_scope_probe:
+    # Branch-specific, manually dispatched probe; no checkout or repository code.
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'jerry200176-png/sunrise-cafe' && github.ref == 'refs/heads/research/vercel-token-get-probe' }}
+    name: Research Vercel rollback-candidate read permission
+    runs-on: ubuntu-24.04
+    permissions: {}
+    timeout-minutes: 2
+    steps:
+      - name: Check reviewed commit before injecting a secret
+        shell: bash
+        env:
+          PROBE_EXPECTED_SHA: ${{ inputs.probe_expected_sha }}
+          PROBE_ACTUAL_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$PROBE_EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PROBE_ACTUAL_SHA" == "$PROBE_EXPECTED_SHA" ]]
+          echo 'Reviewed SHA matches workflow run.'
+      - name: GET the fixed Vercel rollback-candidate endpoint
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          /usr/bin/python3 -I -S - <<'PY'
+          import os
+          import re
+          import ssl
+          import sys
+          import urllib.error
+          import urllib.request
+
+          token = os.environ.pop('VERCEL_TOKEN', '')
+          # Avoid inherited proxy and CA overrides; the probe uses the OS trust store.
+          os.environ.clear()
+          if not re.fullmatch(r'[!-~]{1,1024}', token):
+              print('VERCEL_TOKEN is absent or has an invalid format; request not sent.')
+              sys.exit(2)
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, *args, **kwargs):
+                  return None
+
+          # Fixed official host and fixed user-approved project; never log response body.
+          url = ('https://api.vercel.com/v7/deployments?'
+                 'projectId=prj_5swHVn2nqzrZ50VYx1zoEXZAvKiP&'
+                 'teamId=team_o4vau0vkVyakLaNFPmhXkL5M&'
+                 'target=production&limit=1&rollbackCandidate=true')
+          try:
+              request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + token}, method='GET')
+              opener = urllib.request.build_opener(urllib.request.ProxyHandler({}),
+                                                   urllib.request.HTTPSHandler(context=ssl.create_default_context()),
+                                                   NoRedirect())
+              with opener.open(request, timeout=10) as response:
+                  status = response.status
+          except urllib.error.HTTPError as error:
+              status = error.code
+          except Exception:
+              print('Vercel permission probe could not be completed; result unknown.')
+              sys.exit(2)
+
+          if status == 200:
+              print('Rollback-candidate list: GET allowed. This does not prove rollback write permission.')
+              sys.exit(0)
+          if status == 403:
+              print('Rollback-candidate list: GET forbidden.')
+              sys.exit(1)
+          print('Vercel permission probe did not return a definitive result.')
+          sys.exit(2)
+          PY
+
   predeploy_migrate:
+    # Research branch only: never run the production migration/deployment DAG.
+    if: ${{ false }}
     name: Apply predeploy migrations
     runs-on: ubuntu-latest
     timeout-minutes: 15
