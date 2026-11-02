@@ -7,7 +7,20 @@ on:
   workflow_dispatch:
 
 jobs:
+  paused:
+    name: Migration paused — backup protection required
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    permissions: {}
+    steps:
+      - name: Explain why migration cannot run
+        run: |
+          echo '::error::Migration is paused until an encrypted, retained backup and a reviewed migration path are verified.'
+          exit 1
+
   apply:
+    # Keep the legacy definition for review, but never run it without a backup gate.
+    if: ${{ false }}
     name: Add reservations.is_reminded_7d
     runs-on: ubuntu-latest
     timeout-minutes: 10
