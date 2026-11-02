@@ -24,6 +24,18 @@ describe("fetchAllAdminOrders", () => {
     expect(first.searchParams.get("since")).toBe(second.searchParams.get("since"));
     expect(Math.abs(Date.parse(first.searchParams.get("since")!) - (now - 8 * 60 * 60 * 1000))).toBeLessThan(1000);
   });
+  it("opts into v2 on every page while the legacy helper remains unchanged", async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(response({ items: [{ id: "a" }], nextCursor: "next" }))
+      .mockResolvedValueOnce(response({ items: [{ id: "b" }], nextCursor: null }))
+      .mockResolvedValueOnce(response({ items: [], nextCursor: null }));
+    vi.stubGlobal("fetch", fetch);
+    await fetchAllAdminOrders("b1", () => true, "printable", "v2");
+    await fetchAllAdminOrders("b1");
+    const params = fetch.mock.calls.map(([url]) => new URL(String(url), "http://localhost").searchParams);
+    expect(params[0].get("listContract")).toBe("v2");
+    expect(params[1].get("listContract")).toBe("v2");
+    expect(params[2].has("listContract")).toBe(false);
+  });
   it("rejects a failed later page instead of returning partial orders", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(response({ items: [{ id: "a" }], nextCursor: "next" }))
       .mockResolvedValueOnce(response({ error: "failed" }, 503)));

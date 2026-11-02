@@ -24,6 +24,49 @@ beforeEach(() => {
 });
 
 describe("admin orders pagination", () => {
+  it("returns only the v2 board and printer fields, including nested selections; legacy callers stay unchanged", async () => {
+    const original = {
+      ...row(3), branch_id: "allowed", status: "pending", total_amount: 125, notes: "少鹽", is_printed: false,
+      reservation_id: null, internal_future_field: "do-not-expose", table: { number: "A1", secret: "private-table" },
+      order_items: [{ id: "i1", item_name: "麵", quantity: 2, special_notes: "不加蔥", internal_note: "private-item", selected_options: [{ name: "大碗", group: "份量", delta: 25, secret: "private-option" }] }],
+    };
+    mocks.results.push({ data: [original], count: 1, error: null });
+    const projected = await (await GET(req("branchId=allowed&limit=1&listContract=v2"))).json();
+    expect(projected).toEqual({ items: [{ ...row(3), branch_id: "allowed", status: "pending", total_amount: 125, notes: "少鹽", is_printed: false, reservation_id: null,
+      table: { number: "A1" }, order_items: [{ id: "i1", item_name: "麵", quantity: 2, special_notes: "不加蔥", selected_options: [{ name: "大碗" }] }] }], nextCursor: null });
+    mocks.results.push({ data: [original], count: 1, error: null });
+    const legacy = await (await GET(req("branchId=allowed&limit=1"))).json();
+    expect(legacy).toEqual({ items: [original], nextCursor: null });
+    mocks.results.push({ data: [original], count: 1, error: null });
+    expect(await (await GET(req("branchId=allowed"))).json()).toEqual([original]);
+  });
+
+  it("keeps v2 branch authorization and pagination; rejects malformed nested data without partial results", async () => {
+    mocks.auth.mockResolvedValueOnce(NextResponse.json({ error: "denied" }, { status: 403 }));
+    expect((await GET(req("branchId=other&limit=1&listContract=v2"))).status).toBe(403);
+    expect(mocks.createClient).not.toHaveBeenCalled();
+    mocks.results.push({ data: [row(3), row(2)], count: 2, error: null });
+    const first = await (await GET(req("branchId=allowed&limit=1&scope=active&listContract=v2"))).json();
+    expect(first.items).toEqual([row(3)]);
+    mocks.results.push({ data: [row(2)], count: 1, error: null });
+    expect(await (await GET(req(`branchId=allowed&limit=1&scope=active&listContract=v2&cursor=${first.nextCursor}`))).json()).toEqual({ items: [row(2)], nextCursor: null });
+    mocks.results.push({ data: [{ ...row(1), order_items: [{ id: "i1", item_name: "麵", quantity: 1, selected_options: [{ name: null }] }] }], count: 1, error: null });
+    expect((await GET(req("branchId=allowed&limit=1&listContract=v2"))).status).toBe(503);
+    mocks.results.push({ data: [], count: 0, error: null });
+    expect(await (await GET(req("branchId=allowed&limit=1&listContract=v2"))).json()).toEqual({ items: [], nextCursor: null });
+  });
+
+  it.each([
+    { table: ["invalid"], order_items: [] },
+    { table: null, order_items: "invalid" },
+    { table: null, order_items: [null] },
+    { table: null, order_items: [{ id: "i", item_name: "麵", quantity: 1, selected_options: "invalid" }] },
+  ])("fails closed for malformed v2 nested values without leaking their contents", async (nested) => {
+    mocks.results.push({ data: [{ ...row(1), internal: "private", ...nested }], count: 1, error: null });
+    const response = await GET(req("branchId=allowed&limit=1&listContract=v2"));
+    expect(response.status).toBe(503);
+    expect(await response.text()).not.toContain("private");
+  });
   it("keeps branch authorization before creating a database client", async () => {
     mocks.auth.mockResolvedValue(NextResponse.json({ error: "denied" }, { status: 403 }));
     expect((await GET(req("branchId=other&limit=1"))).status).toBe(403);
