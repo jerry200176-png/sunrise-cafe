@@ -59,7 +59,7 @@ export default function ReservationOrderPage() {
   const [notice, setNotice] = useState("");
   const addWarning = useAddOutcomeWarning(id);
 
-  const load = useCallback(async (): Promise<boolean> => {
+  const load = useCallback(async (requireOrder = false): Promise<boolean> => {
     if (currentId.current !== id) return false;
     const sequence = ++requestSequence.current;
     const isCurrent = () => sequence === requestSequence.current && currentId.current === id;
@@ -72,7 +72,7 @@ export default function ReservationOrderPage() {
     }
     const data = await readJsonWithTimeout<unknown>(response);
     if (!isCurrent()) return false;
-    if (!isReservationView(data)) throw new Error("訂單資料不完整，請重新載入");
+    if (!isReservationView(data) || (requireOrder && !data.order)) throw new Error("訂單資料不完整，請重新載入");
     const next = data;
     const room = Array.isArray(next.reservation.room) ? next.reservation.room[0] : next.reservation.room;
     setView(next);
@@ -131,7 +131,7 @@ export default function ReservationOrderPage() {
         }
         committed = true;
         addWarning.mark(id, "committed_stale");
-        await load().then((loaded) => {
+        await load(true).then((loaded) => {
           if (loaded) addWarning.refreshed(id);
         }).catch(() => {
           addWarning.mark(id, "committed_stale");
@@ -140,7 +140,7 @@ export default function ReservationOrderPage() {
         return true;
       }
       if (!response.ok) throw new Error(await responseError(response));
-      await load();
+      await load(addWarning.warning === "committed_stale");
       return true;
     } catch (cause) {
       if (action === "add_items") addWarning.mark(id, committed ? "committed_stale" : "unknown");
@@ -163,7 +163,7 @@ export default function ReservationOrderPage() {
         {view && <p className="mt-2 text-sm text-stone-600">{view.reservation.customer_name} · {room?.name ?? "包廂"} · 代碼 {view.reservation.booking_code} · {new Date(view.reservation.start_time).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}</p>}
       </header>
       <p role="status" aria-atomic="true" className={notice ? "rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900" : "sr-only"}>{notice}</p>
-      <AddOutcomeWarning warning={addWarning.warning} busy={busy} onReload={() => { load().catch((cause) => setError(thrownMessage(cause))); }} />
+      <AddOutcomeWarning warning={addWarning.warning} busy={busy} onReload={() => { load(addWarning.warning === "committed_stale").catch((cause) => setError(thrownMessage(cause))); }} />
       {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-rose-800">{error}</p>}
       {menuError && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">{menuError}</p>}
       {!view && !error && <p>載入中…</p>}

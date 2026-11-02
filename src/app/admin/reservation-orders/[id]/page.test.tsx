@@ -105,7 +105,7 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
     await waitFor(() => expect(screen.queryByText(/上次加點已完成，但畫面未更新/)).toBeNull());
   });
 
-  it.each(["missing", "null"])("keeps the existing order when reloaded order_items is %s", async (kind) => {
+  it.each(["missing", "null", "no order"])("keeps the existing order when reload has %s", async (kind) => {
     let reads = 0;
     const original = { ...view, order: { ...view.order, order_items: [{ id: "oi-1", item_name: "已點蛋糕",
       quantity: 1, unit_price: 120, served_at: null, selected_options: [] }] } };
@@ -113,7 +113,7 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
       if (url.startsWith("/api/menu?")) return Promise.resolve(Response.json(menu));
       if (init?.method === "POST") return Promise.resolve(Response.json({ ok: true, committed: true, refresh_failed: true }));
       reads++;
-      return Promise.resolve(Response.json(reads === 1 ? original : { ...view, order: { id: "ord-1", paid_at: null,
+      return Promise.resolve(Response.json(reads === 1 ? original : { ...view, order: kind === "no order" ? null : { id: "ord-1", paid_at: null,
         ...(kind === "null" ? { order_items: null } : {}) } }));
     }));
     await selectAndAdd();

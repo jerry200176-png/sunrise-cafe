@@ -103,7 +103,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   // 每次請求一個遞增編號：A→B→A 切回來時，A 的舊請求端點相同，只比端點擋不住
   const requestGen = useRef(0);
 
-  const load = useCallback(async (): Promise<boolean> => {
+  const load = useCallback(async (requireOrder = false): Promise<boolean> => {
     const requested = api;
     const gen = ++requestGen.current;
     const response = await fetchWithTimeout(requested, { credentials: "include" });
@@ -111,7 +111,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
     const data: unknown = response.ok ? await readJsonWithTimeout<unknown>(response) : null;
     if (currentApi.current !== requested || gen !== requestGen.current) return false;
     if (!response.ok) throw new Error(await responseError(response));
-    if (!isPanelView(data)) throw new Error("訂單資料不完整，請重新載入");
+    if (!isPanelView(data) || (requireOrder && !data.order)) throw new Error("訂單資料不完整，請重新載入");
     setView(data);
     setLoadFailed("");
     setCustomEnd(fmtClock(data.billing.end_time));
@@ -180,11 +180,11 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
       // Never merge an add response into a full view: reload and validate it.
       if (action === "add_items") {
         addWarning.mark(reservationId, "committed_stale");
-        await load().then((loaded) => { if (loaded) addWarning.refreshed(reservationId); }).catch(() => undefined);
+        await load(true).then((loaded) => { if (loaded) addWarning.refreshed(reservationId); }).catch(() => undefined);
       } else if (data?.billing && data?.order) {
         setView((previous) => previous ? { ...previous, ...(data as Partial<View>) } : previous);
         setCustomEnd(fmtClock((data as View).billing.end_time));
-      } else await load().catch(() => undefined);
+      } else await load(addWarning.warning === "committed_stale").catch(() => undefined);
       onChanged();
       return true;
     } catch (cause) {
@@ -249,7 +249,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
       </header>
 
       <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
-        <AddOutcomeWarning warning={addWarning.warning} busy={busy} onReload={() => { load().catch((cause) => setError(thrownMessage(cause))); }} />
+        <AddOutcomeWarning warning={addWarning.warning} busy={busy} onReload={() => { load(addWarning.warning === "committed_stale").catch((cause) => setError(thrownMessage(cause))); }} />
         {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>}
         {!view && loadFailed && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
           <p>{loadFailed}</p>
