@@ -57,7 +57,7 @@ export type Snapshot = {
   start_time: string;
   end_time: string;
   guest_count: number | null;
-  is_deposit_paid: boolean;
+  is_deposit_paid: boolean | null;
   booking_code: string;
   customer_name: string;
   phone: string;
@@ -65,6 +65,23 @@ export type Snapshot = {
   review_invited_at: string | null;
   branch_name: string | null;
 };
+
+type SnapshotVersion = Pick<
+  Snapshot,
+  "status" | "room_id" | "start_time" | "end_time" | "guest_count" | "is_deposit_paid" | "review_invited_at"
+>;
+type PersistedSnapshot = Omit<Snapshot, "branch_name">;
+
+function snapshotVersion(s: Snapshot): SnapshotVersion {
+  const { status, room_id, start_time, end_time, guest_count, is_deposit_paid, review_invited_at } = s;
+  return { status, room_id, start_time, end_time, guest_count, is_deposit_paid, review_invited_at };
+}
+
+function sameSnapshotVersion(a: Snapshot, b: Snapshot): boolean {
+  const left = snapshotVersion(a);
+  const right = snapshotVersion(b);
+  return (Object.keys(left) as (keyof SnapshotVersion)[]).every((key) => left[key] === right[key]);
+}
 
 export type Failure = {
   ok: false;
@@ -125,13 +142,13 @@ export type GuestAction = "cancel" | "reschedule";
 
 /** Same policy `transitionReservation` enforces for guests, for UIs to render. */
 export function guestAllowedActions(
-  r: { status: string; is_deposit_paid: boolean; start_time: string },
+  r: { status: string; is_deposit_paid: boolean | null; start_time: string },
   nowMs: number = Date.now()
 ): GuestAction[] {
   if (r.status !== "pending" && r.status !== "confirmed") return [];
   const startMs = new Date(r.start_time).getTime();
   const actions: GuestAction[] = [];
-  if (evaluateGuestCancel({ isDepositPaid: r.is_deposit_paid, startTimeMs: startMs, nowMs }).allowed) {
+  if (evaluateGuestCancel({ isDepositPaid: Boolean(r.is_deposit_paid), startTimeMs: startMs, nowMs }).allowed) {
     actions.push("cancel");
   }
   if (startMs - nowMs >= TWENTY_FOUR_HOURS_MS) actions.push("reschedule");
@@ -142,8 +159,8 @@ export function guestAllowedActions(
 export type Effects = {
   load(id: string): Promise<Snapshot | null>;
   update(id: string, patch: Record<string, unknown>): Promise<void>;
-  /** Compare-and-set: write only while status still equals `expected`; false when another writer won. */
-  updateIfStatus?(id: string, expected: string, patch: Record<string, unknown>): Promise<boolean>;
+  /** Atomic compare-and-set over business-state fields; returns the committed row for side effects. */
+  updateIfSnapshot?(id: string, expected: SnapshotVersion, patch: Record<string, unknown>): Promise<PersistedSnapshot | null>;
   cancelPreorder(id: string, reason: string): Promise<void>;
   lockPreorder(id: string): Promise<void>;
   requirePreorderReconfirmation(id: string, reason: string, actor: string): Promise<void>;
@@ -185,7 +202,7 @@ export async function transitionReservation(
       return fail("cancel_blocked", "目前無法自行取消，請來電店家", 400);
     }
     const decision = evaluateGuestCancel({
-      isDepositPaid: snap.is_deposit_paid,
+      isDepositPaid: Boolean(snap.is_deposit_paid),
       startTimeMs: new Date(snap.start_time).getTime(),
       nowMs: now,
     });
@@ -215,6 +232,9 @@ export async function transitionReservation(
   if (intent.type === "no_show" && new Date(snap.start_time).getTime() > now) {
     return fail("invalid_transition", "還沒到訂位時間，不能標記沒來", 409);
   }
+  if (intent.type === "cancel" && intent.reason === "deposit_deadline" && snap.is_deposit_paid === true) {
+    return fail("invalid_transition", "訂金已付款，不可由逾期檢查自動取消", 409);
+  }
 
   if (intent.type === "restore") {
     // The slot may have been taken since; the DB exclusion constraint stays the last line of defence.
@@ -227,19 +247,23 @@ export async function transitionReservation(
 
   const restoredStatus: ReservationStatus = snap.is_deposit_paid ? "confirmed" : "pending";
   const nextStatus = intent.type === "restore" ? restoredStatus : target;
-  if (intent.type === "restore" && effects.updateIfStatus) {
-    const won = await effects.updateIfStatus(id, snap.status, { status: nextStatus });
-    if (!won) {
+  let sideEffectSnapshot = snap;
+  if (effects.updateIfSnapshot) {
+    const committed = await effects.updateIfSnapshot(id, snapshotVersion(snap), { status: nextStatus });
+    if (!committed) {
       const latest = await effects.load(id);
-      if (latest && isActive(latest.status)) return { ok: true, status: latest.status, already: true };
+      if (intent.type === "restore" && latest && isActive(latest.status)) {
+        return { ok: true, status: latest.status, already: true };
+      }
       return fail("invalid_transition", "訂位狀態剛被變更，請重新整理後再試", 409);
     }
+    sideEffectSnapshot = { ...committed, branch_name: snap.branch_name };
   } else {
     await effects.update(id, { status: nextStatus });
   }
   effects.audit({
     reservation_id: id,
-    booking_code: snap.booking_code,
+    booking_code: sideEffectSnapshot.booking_code,
     intent: intent.type,
     from: snap.status,
     to: nextStatus,
@@ -256,10 +280,10 @@ export async function transitionReservation(
         : actor.kind === "guest" ? "guest_cancel" : "admin_cancel_or_reject";
       await effects.cancelPreorder(id, reason);
       // The deposit-deadline job sends its own release cards (guest + staff group).
-      if (intent.reason !== "deposit_deadline" && snap.line_user_id) {
-        await safely("guest cancellation notify", () => effects.guestCancelled(snap));
+      if (intent.reason !== "deposit_deadline" && sideEffectSnapshot.line_user_id) {
+        await safely("guest cancellation notify", () => effects.guestCancelled(sideEffectSnapshot));
       }
-      effects.notifyWaitlist(snap.room_id, snap.start_time, snap.end_time).catch((err) =>
+      effects.notifyWaitlist(sideEffectSnapshot.room_id, sideEffectSnapshot.start_time, sideEffectSnapshot.end_time).catch((err) =>
         console.error("[lifecycle] waitlist notify failed:", err)
       );
       break;
@@ -269,8 +293,8 @@ export async function transitionReservation(
       break;
     case "complete":
       await effects.lockPreorder(id);
-      if (snap.line_user_id && !snap.review_invited_at) {
-        await safely("review invite", () => effects.sendReviewInvite(snap));
+      if (sideEffectSnapshot.line_user_id && !sideEffectSnapshot.review_invited_at) {
+        await safely("review invite", () => effects.sendReviewInvite(sideEffectSnapshot));
       }
       break;
     default:
@@ -327,31 +351,44 @@ async function reschedule(
     new Date(intent.start).getTime() === new Date(snap.start_time).getTime() &&
     new Date(intent.end).getTime() === new Date(snap.end_time).getTime() &&
     guestCount === snap.guest_count;
-  if (same) return { ok: true, status: snap.status, already: true };
+  if (same) {
+    const latest = await effects.load(snap.id);
+    if (latest && sameSnapshotVersion(latest, snap)) return { ok: true, status: snap.status, already: true };
+    return fail("invalid_transition", "訂位資料剛被變更，請重新整理後再試", 409);
+  }
 
-  await effects.update(snap.id, {
+  const patch = {
     start_time: intent.start,
     end_time: intent.end,
     guest_count: guestCount,
     is_notified: false,
     d1_guest_reminder_sent_at: null,
-  });
+  };
+  let sideEffectSnapshot = snap;
+  if (effects.updateIfSnapshot) {
+    const committed = await effects.updateIfSnapshot(snap.id, snapshotVersion(snap), patch);
+    if (!committed) return fail("invalid_transition", "訂位資料剛被變更，請重新整理後再試", 409);
+    sideEffectSnapshot = { ...committed, branch_name: snap.branch_name };
+  } else {
+    await effects.update(snap.id, patch);
+  }
   await effects.requirePreorderReconfirmation(snap.id, guest ? "guest_reschedule" : "admin_reservation_change", actorLabel(actor));
   await effects.resetReminders(snap.id);
   effects.audit({
     reservation_id: snap.id,
-    booking_code: snap.booking_code,
+    booking_code: sideEffectSnapshot.booking_code,
     intent: "reschedule",
     from: snap.status,
     to: snap.status,
     actor: actor.kind,
     actor_id: actorLabel(actor),
     old_start: snap.start_time,
-    new_start: intent.start,
+    new_start: sideEffectSnapshot.start_time,
   });
-  const next = { start: intent.start, end: intent.end };
-  if (snap.line_user_id) await safely("guest reschedule notify", () => effects.guestRescheduled(snap, next));
-  await safely("group reschedule notify", () => effects.groupRescheduled(snap, { ...next, guestCount }));
+  const next = { start: sideEffectSnapshot.start_time, end: sideEffectSnapshot.end_time };
+  const notifySnapshot = { ...sideEffectSnapshot, start_time: snap.start_time, end_time: snap.end_time };
+  if (notifySnapshot.line_user_id) await safely("guest reschedule notify", () => effects.guestRescheduled(notifySnapshot, next));
+  await safely("group reschedule notify", () => effects.groupRescheduled(notifySnapshot, { ...next, guestCount }));
   effects.notifyWaitlist(snap.room_id, snap.start_time, snap.end_time).catch((err) =>
     console.error("[lifecycle] waitlist notify failed:", err)
   );
@@ -421,20 +458,34 @@ export const supabaseEffects: Effects = {
     if (!data) return null;
     const row = data as unknown as Snapshot & { room?: Rel<{ branch?: Rel<{ name?: string }> }> };
     const { room, ...rest } = row;
-    return { ...rest, is_deposit_paid: Boolean(rest.is_deposit_paid), branch_name: first(first(room)?.branch)?.name ?? null };
+    return {
+      ...rest,
+      is_deposit_paid: rest.is_deposit_paid == null ? null : Boolean(rest.is_deposit_paid),
+      branch_name: first(first(room)?.branch)?.name ?? null,
+    };
   },
   async update(id, patch) {
     await updateReservationAdmin(id, patch);
   },
-  async updateIfStatus(id, expected, patch) {
-    const { data, error } = await db()
+  async updateIfSnapshot(id, expected, patch) {
+    let query = db()
       .from("reservations")
       .update(patch)
       .eq("id", id)
-      .eq("status", expected)
-      .select("id");
+      .eq("status", expected.status)
+      .eq("room_id", expected.room_id)
+      .eq("start_time", expected.start_time)
+      .eq("end_time", expected.end_time);
+    query = expected.is_deposit_paid === null
+      ? query.is("is_deposit_paid", null)
+      : query.eq("is_deposit_paid", expected.is_deposit_paid);
+    query = expected.guest_count === null ? query.is("guest_count", null) : query.eq("guest_count", expected.guest_count);
+    query = expected.review_invited_at === null ? query.is("review_invited_at", null) : query.eq("review_invited_at", expected.review_invited_at);
+    const { data, error } = await query.select(
+      "id, status, room_id, start_time, end_time, guest_count, is_deposit_paid, booking_code, customer_name, phone, line_user_id, review_invited_at"
+    );
     if (error) throw error;
-    return (data ?? []).length > 0;
+    return ((data ?? [])[0] as PersistedSnapshot | undefined) ?? null;
   },
   async cancelPreorder(id, reason) {
     await cancelReservationPreorder(id, reason);

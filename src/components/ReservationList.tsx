@@ -1793,6 +1793,21 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                   <div className="flex flex-wrap items-center gap-2 pt-1">
                     <button
                       type="button"
+                      onClick={async () => {
+                        const reservationTime = `${format(toTaipei(r.start_time), "yyyy/MM/dd HH:mm")}–${format(toTaipei(r.end_time), "HH:mm")}`;
+                        const confirmed = await openConfirm(
+                          "確認客人到店",
+                          `確定將「${r.customer_name}」標記為已到店？\n\n預約時段：${reservationTime}\n此操作不可直接撤銷，且不會變更訂金狀態。`
+                        );
+                        if (!confirmed) return;
+                        await updateStatus(r.id, "checked_in");
+                      }}
+                      className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+                    >
+                      ✅ 已到店
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => updateStatus(r.id, "confirmed")}
                         disabled={realtimePending || pendingMutations.has(r.id)}
                       className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
