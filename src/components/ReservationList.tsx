@@ -9,6 +9,7 @@ import { Calendar, Clock, DoorOpen, Pencil, Users, X, Send } from "lucide-react"
 import { supabase } from "@/lib/supabase";
 import { isDepositRequired, isWeekendDate } from "@/lib/booking-utils";
 import { buildPaymentMessage, type BranchPaymentConfig } from "@/lib/payment-message";
+import { copyText } from "@/lib/copy-text";
 import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import type { Reservation, ReservationStatus, Room } from "@/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -204,6 +205,17 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   const [messageLoading, setMessageLoading] = useState(false);
   const [messageCopied, setMessageCopied] = useState(false);
   const [messageSubmitting, setMessageSubmitting] = useState(false);
+  const [messageUnknown, setMessageUnknown] = useState(false);
+  const [quickCopy, setQuickCopy] = useState<{ id: string; text: string } | null>(null);
+  const copyBusyRef = useRef(false);
+  const [copyBusy, setCopyBusy] = useState(false);
+  const beginCopy = useCallback(() => {
+    if (copyBusyRef.current) return false;
+    copyBusyRef.current = true;
+    setCopyBusy(true);
+    return true;
+  }, []);
+  const endCopy = useCallback(() => { copyBusyRef.current = false; setCopyBusy(false); }, []);
   const messagePreviewRequest = useRef(0);
   const openedFocusReservationId = useRef<string | null>(null);
   const [selectedReservationIds, setSelectedReservationIds] = useState<string[]>([]);
@@ -215,6 +227,9 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     combinedText: string;
     canBatchCopy: boolean;
     warnings: string[];
+    generation: number;
+    requestId: number;
+    branchId: string | null;
   } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string } | null>(null);
   const confirmResolver = useRef<((value: boolean) => void) | null>(null);
@@ -246,8 +261,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
           `${RESERVATIONS_API}/${reservationId}/message-actions?template_key=${encodeURIComponent(templateKey)}`
         );
         const data = (await response.json().catch(() => ({}))) as {
-          text?: string;
-          error?: string;
+          text?: string; error?: string;
         };
         if (!response.ok || !data.text) {
           throw new Error(data.error ?? "無法產生訊息");
@@ -275,6 +289,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         showToast("此訂位正在處理，請稍候並重新確認資料。", "info");
         return;
       }
+      setMessageUnknown(false);
       setMessageWorkbench(reservation);
       setMessageTemplate("booking_confirmation");
       void loadMessagePreview(reservation.id, "booking_confirmation");
@@ -291,7 +306,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       if (!isCurrent()) return false;
       setMessageSubmitting(true);
       try {
-        const response = await fetch(
+        const response = await fetchWithTimeout(
           `${RESERVATIONS_API}/${messageWorkbench.id}/message-actions`,
           {
             method: "POST",
@@ -303,16 +318,15 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
             }),
           }
         );
-        const data = (await response.json().catch(() => ({}))) as {
-          text?: string;
-          error?: string;
+        const data = (await readJsonWithTimeout(response)) as {
+          ok?: boolean; action_id?: string; text?: string;
         };
         if (!isCurrent()) return false;
-        if (!response.ok) throw new Error(data.error ?? "訊息操作失敗");
+        if (!response.ok || data.ok !== true || !data.action_id) throw new Error("結果未確認");
         if (data.text) setMessageText(data.text);
         return true;
-      } catch (error) {
-        if (isCurrent()) showToast(error instanceof Error ? error.message : "訊息操作失敗", "error");
+      } catch {
+        if (isCurrent()) { setMessageUnknown(true); showToast("操作紀錄結果未確認；請先核對，勿重複操作。", "error"); }
         return false;
       } finally {
         if (isCurrent()) setMessageSubmitting(false);
@@ -322,30 +336,22 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   );
 
   const copyWorkbenchMessage = useCallback(async () => {
-    if (!messageText || messageLoading) return;
+    if (!messageText || messageLoading || messageUnknown || !beginCopy()) return;
     const generation = branchGeneration.current;
     const previewId = messagePreviewRequest.current;
+    const isCurrent = () => branchGeneration.current === generation && currentBranch.current === branchId && messagePreviewRequest.current === previewId;
+    setMessageCopied(false);
     try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(messageText);
-      } else {
-        const textarea = document.createElement("textarea");
-        textarea.value = messageText;
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand("copy");
-        document.body.removeChild(textarea);
-      }
-      if (branchGeneration.current !== generation || currentBranch.current !== branchId || messagePreviewRequest.current !== previewId) return;
+      const copied = await copyText(messageText);
+      if (!isCurrent()) return;
+      if (!copied) { showToast("複製失敗，請手動選取訊息內容", "error"); return; }
       const recorded = await submitMessageAction("copied");
-      if (recorded) {
+      if (recorded && isCurrent()) {
         setMessageCopied(true);
         showToast("已複製訊息；請貼到客人的 LINE 對話", "success");
       }
-    } catch {
-      if (branchGeneration.current === generation && currentBranch.current === branchId && messagePreviewRequest.current === previewId) showToast("複製失敗，請手動選取訊息內容", "error");
-    }
-  }, [branchId, messageLoading, messageText, showToast, submitMessageAction]);
+    } finally { endCopy(); }
+  }, [branchId, messageLoading, messageText, messageUnknown, showToast, submitMessageAction, beginCopy, endCopy]);
 
   const toggleReservationSelection = useCallback((reservationId: string) => {
     batchRequest.current += 1;
@@ -430,7 +436,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         items: data.items,
         combinedText: data.combined_text,
         canBatchCopy: data.can_batch_copy === true,
-        warnings: data.warnings ?? [],
+        warnings: data.warnings ?? [], generation, requestId, branchId,
       });
     } catch (error) {
       if (isCurrent()) showToast(error instanceof Error ? error.message : "無法產生批次訂金訊息", "error");
@@ -548,6 +554,8 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
     setMessageCopied(false);
     setMessageLoading(false);
     setMessageSubmitting(false);
+    setMessageUnknown(false);
+    setQuickCopy(null);
     setBranchConfig(null);
     setBranchConfigStatus("loading");
     setEditSubmitting(false);
@@ -1821,7 +1829,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                     {isDepositRequired(reservationDateKey(r.start_time)) && r.total_price != null && !r.is_deposit_paid && (
                       <button
                         type="button"
-                        disabled={realtimePending || branchConfigStatus !== "ready" || pendingMutations.has(r.id)}
+                        disabled={realtimePending || branchConfigStatus !== "ready" || pendingMutations.has(r.id) || copyBusy}
                         onClick={async () => {
                           const branchName = r.room_with_branch?.branch?.name ?? "";
                           // 話術由分店設定驅動，與伺服器推播共用同一產生器，確保內容一致
@@ -1834,27 +1842,22 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                             bookingCode: r.booking_code,
                             createdAt: r.created_at,
                           });
+                          if (!beginCopy()) return;
+                          const generation = branchGeneration.current;
+                          setQuickCopy(null);
                           try {
-                            if (navigator.clipboard?.writeText) {
-                              await navigator.clipboard.writeText(text);
-                            } else {
-                              const textarea = document.createElement("textarea");
-                              textarea.value = text;
-                              document.body.appendChild(textarea);
-                              textarea.select();
-                              document.execCommand("copy");
-                              document.body.removeChild(textarea);
-                            }
-                            showToast("已複製通知內容", "success");
-                          } catch {
-                            showToast("複製失敗，請手動複製。", "error");
-                          }
+                            const copied = await copyText(text);
+                            if (currentBranch.current !== branchId || branchGeneration.current !== generation) return;
+                            if (copied) showToast("已複製通知內容", "success");
+                            else { setQuickCopy({ id: r.id, text }); showToast("複製失敗，請手動選取通知內容。", "error"); }
+                          } finally { endCopy(); }
                         }}
                         className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
                       >
                         📋 複製繳費通知
                       </button>
                     )}
+                    {quickCopy?.id === r.id && <textarea aria-label="可手動選取的繳費通知" readOnly rows={5} value={quickCopy.text} className="w-full rounded border border-gray-300 p-2 text-sm" />}
                     {isDepositRequired(reservationDateKey(r.start_time)) && r.total_price != null && (
                       <button
                         type="button"
@@ -2040,7 +2043,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
               </div>
               <button
                 type="button"
-                onClick={() => setMessageWorkbench(null)}
+                onClick={() => { messagePreviewRequest.current += 1; setMessageWorkbench(null); setMessageSubmitting(false); }}
                 className="-mr-2 flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600"
                 aria-label="關閉訊息工作台"
               >
@@ -2051,6 +2054,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
               <div className="rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-800">
                 {lineBindingMessage(messageWorkbench)}
               </div>
+              {messageUnknown && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">操作紀錄結果未確認；請先核對，勿重複操作。關閉視窗不代表操作未發生。</p>}
               <div>
                 <label htmlFor="reservation-message-template" className="mb-1 block text-sm font-medium text-gray-700">
                   訊息類型
@@ -2058,6 +2062,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                 <select
                   id="reservation-message-template"
                   value={messageTemplate}
+                  disabled={copyBusy || messageUnknown}
                   onChange={(event) => {
                     const next = event.target.value as ReservationMessageTemplateKey;
                     setMessageTemplate(next);
@@ -2089,7 +2094,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
               <button
                 type="button"
                 onClick={() => void copyWorkbenchMessage()}
-                disabled={messageLoading || messageSubmitting || !messageText}
+                disabled={messageLoading || messageSubmitting || copyBusy || messageUnknown || !messageText}
                 className="min-h-[44px] rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
               >
                 {messageSubmitting ? "處理中…" : "📋 產生並複製"}
@@ -2097,13 +2102,16 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
               <button
                 type="button"
                 onClick={async () => {
-                  const recorded = await submitMessageAction("manual_sent");
-                  if (recorded) {
-                    showToast("已記錄人工傳送；這不是 LINE 送達回執", "success");
-                    setMessageCopied(false);
-                  }
+                  if (!beginCopy()) return;
+                  try {
+                    const recorded = await submitMessageAction("manual_sent");
+                    if (recorded) {
+                      showToast("已記錄人工傳送；這不是 LINE 送達回執", "success");
+                      setMessageCopied(false);
+                    }
+                  } finally { endCopy(); }
                 }}
-                disabled={!messageCopied || messageLoading || messageSubmitting}
+                disabled={!messageCopied || messageLoading || messageSubmitting || copyBusy || messageUnknown}
                 className="min-h-[44px] rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
               >
                 ✅ 標記已傳送
@@ -2121,7 +2129,11 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
           combinedText={batchWorkbench.combinedText}
           canBatchCopy={batchWorkbench.canBatchCopy}
           warnings={batchWorkbench.warnings}
-          onClose={() => setBatchWorkbench(null)}
+          beginCopy={beginCopy}
+          endCopy={endCopy}
+          copyBusy={copyBusy}
+          isCurrent={() => currentBranch.current === batchWorkbench.branchId && branchGeneration.current === batchWorkbench.generation && batchRequest.current === batchWorkbench.requestId}
+          onClose={() => { batchRequest.current += 1; setBatchWorkbench(null); }}
         />
       )}
 
