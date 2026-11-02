@@ -1,9 +1,8 @@
 {
   "approved_files": {
-    "docs/plans/2026-11-watch-terminal-unknown-research.md": "9170dea11e033ad5fc2b38fd5c8f3599ca63112a",
-    "scripts/post-deploy-watch.mjs": "c3efed2fb83bd72f042e9e49fe04832de0d73c8a",
-    "scripts/test-watch-recovery-synthetic.py": "9fb1e3ff4e0b74837e24b39f001beadc7637e585",
-    "src/lib/post-deploy-watch.test.ts": "89627fd919e2687f7593df15131918598af5ecd3"
+    ".github/workflows/ci.yml": "ffc48f2e553d50eb255d21d9610c9abb466f5169",
+    ".github/workflows/dependency-review.yml": "11b6b635f2375f90d2608422b94043004b8c00d2",
+    "docs/plans/2026-11-actions-ci-pin-subset.md": "855e96c97190464b393e2d72d331d7d87563a7b3"
   },
-  "baseline": "5b364a477552c8f54fe2a9c2ba3fe23320436d5d"
+  "baseline": "fc17229b2d36acca1552b3931c57bf9ac6ad9b85"
 }
