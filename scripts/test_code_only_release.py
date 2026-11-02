@@ -91,9 +91,26 @@ class Tests(unittest.TestCase):
             r.write_candidate(path, NEW, SHA)
             self.assertEqual(r.read_candidate(path, SHA), NEW)
             with self.assertRaises(r.Unknown): r.read_candidate(path, OLD)
+    def test_job_output_survives_missing_artifact_and_binds_commit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'output'
+            missing_artifact = Path(directory) / 'candidate.json'
+            r.output_candidate(output, NEW, SHA)
+            fields = dict(line.split('=', 1) for line in output.read_text().splitlines())
+            candidate = r.recovery_candidate(missing_artifact, SHA, fields['candidate'], fields['candidate_commit'])
+            self.api.current = NEW; self.http.commit = SHA
+            self.assertEqual(self.recover(candidate), 'rolled-back')
+            with self.assertRaises(r.Unknown): r.recovery_candidate(missing_artifact, SHA, NEW, OLD)
+            self.assertIsNone(r.recovery_candidate(missing_artifact, SHA, '', ''))
+            r.write_candidate(missing_artifact, 'dpl_other', SHA)
+            with self.assertRaises(r.Unknown): r.recovery_candidate(missing_artifact, SHA, NEW, SHA)
     def test_recovery_only_rolls_back_expected_source(self):
         self.api.current = NEW; self.http.commit = SHA
         self.assertEqual(self.recover(NEW), 'rolled-back'); self.assertEqual(self.api.rollbacks, [BASE])
+    def test_live_candidate_still_building_is_unknown_not_rolled_back(self):
+        self.api.current = NEW; self.api.ready = False
+        with self.assertRaises(r.Unknown): self.recover(NEW)
+        self.assertEqual(self.api.rollbacks, [])
     def test_recovery_does_not_overwrite_other_source(self):
         self.api.current = 'dpl_other'; self.api.source_ok = False
         with self.assertRaises(r.Unknown): self.recover(NEW)

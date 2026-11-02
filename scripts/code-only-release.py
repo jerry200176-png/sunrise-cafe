@@ -213,7 +213,11 @@ def recover(api, http, record, candidate=None, *, clock=time.monotonic, sleep=ti
                 # another writer can deploy the same SHA. Never roll it back.
                 if candidate is None or current != candidate:
                     raise Unknown('production deployment ownership is unknown')
-                api.deployment(current)  # Confirm project and production target.
+                state = api.deployment(current).get('readyState')
+                # An in-flight deployment may later promote again after a
+                # rollback. Do not claim recovery until its state is settled.
+                if state not in ('READY', 'ERROR', 'CANCELED', 'CANCELLED'):
+                    raise Unknown('candidate is live but still in flight; manual recovery required')
                 api.rollback(baseline)
                 if api.alias() == baseline and health(http, previous): return 'rolled-back'
                 raise Unknown('rollback could not be verified')
@@ -297,6 +301,25 @@ def read_candidate(path, sha):
     return value['deployment']
 
 
+def output_candidate(path, candidate, sha):
+    if not isinstance(candidate, str) or not DEPLOYMENT.fullmatch(candidate) or not SHA.fullmatch(sha):
+        raise Unknown('candidate identity invalid')
+    with open(path, 'a', encoding='utf-8') as output:
+        output.write('candidate=' + candidate + '\ncandidate_commit=' + sha + '\n')
+        output.flush(); os.fsync(output.fileno())
+
+
+def recovery_candidate(path, sha, ident, commit):
+    artifact = read_candidate(path, sha)
+    if ident or commit:
+        if not DEPLOYMENT.fullmatch(ident) or commit != sha:
+            raise Unknown('candidate output invalid')
+        if artifact and artifact != ident:
+            raise Unknown('candidate identity sources disagree')
+        return ident
+    return artifact
+
+
 def main():
     if len(sys.argv) != 2 or sys.argv[1] not in ('prepare', 'create', 'verify', 'recover'):
         raise SystemExit('invalid release phase')
@@ -321,12 +344,18 @@ def main():
             if sys.argv[1] == 'create':
                 if github.main_sha() != sha: raise Unknown('main has advanced')
                 verify_code_only(record['previous'], sha)
-                create_candidate(api, record, on_candidate=lambda ident: write_candidate(candidate_path, ident, sha))
+                def retain(ident):
+                    output_candidate(os.environ['GITHUB_OUTPUT'], ident, sha)
+                    write_candidate(candidate_path, ident, sha)
+                create_candidate(api, record, on_candidate=retain)
             elif sys.argv[1] == 'verify':
                 candidate = read_candidate(candidate_path, sha)
                 if candidate is None: raise Unknown('candidate record unavailable')
                 verify_candidate(api, http, record, candidate)
-            else: recover(api, http, record, read_candidate(candidate_path, sha))
+            else:
+                candidate = recovery_candidate(candidate_path, sha, os.environ.get('CANDIDATE_ID', ''),
+                                               os.environ.get('CANDIDATE_COMMIT', ''))
+                recover(api, http, record, candidate)
         print('Release phase complete:', sys.argv[1])
     except Exception:
         raise SystemExit('Release failed or outcome unknown; follow documented rollback procedure') from None

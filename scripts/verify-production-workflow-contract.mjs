@@ -18,7 +18,8 @@ const linePayScript = await read("scripts/ops-linepay-vercel-env.sh");
 const ignoredBuild = await read("scripts/vercel-ignored-build.sh");
 const vercelConfig = JSON.parse(await read("vercel.json"));
 
-assert.match(verifyWorkflow, /group:\s*verify-production-main/);
+assert.match(verifyWorkflow, /workflow_call:/);
+assert.match(verifyWorkflow, /group:\s*verify-production-\$\{\{ github\.workflow \}\}-main/);
 assert.match(verifyWorkflow, /cancel-in-progress:\s*true/);
 assert.match(verifyWorkflow, /timeout-minutes:\s*25/);
 assert.match(verifyWorkflow, /for i in \$\(seq 1 40\)/);
@@ -31,6 +32,10 @@ assert.match(deployWorkflow, /predeploy_migrate:\s*\n(?:[^\n]*\n){0,4}\s*if:\s*\
 assert.match(codeOnlyWorkflow, /group:\s*production-deploy-main/);
 assert.match(codeOnlyWorkflow, /cancel-in-progress:\s*false/);
 assert.match(codeOnlyWorkflow, /code-only-release\.py prepare[\s\S]*upload-artifact@[a-f0-9]{40}[\s\S]*code-only-release\.py create[\s\S]*upload-artifact@[a-f0-9]{40}[\s\S]*code-only-release\.py verify/);
+assert.match(codeOnlyWorkflow, /verify-production:\s*\n\s*needs:\s*release\s*\n\s*uses:\s*\.\/\.github\/workflows\/verify-production\.yml\s*\n\s*secrets:\s*inherit/);
+assert.match(codeOnlyWorkflow, /needs:\s*\[release, verify-production\][\s\S]*needs\.release\.result != 'success' \|\| needs\.verify-production\.result != 'success'/);
+assert.match(codeOnlyWorkflow, /candidate:\s*\$\{\{ steps\.create\.outputs\.candidate \}\}/);
+assert.match(codeOnlyWorkflow, /CANDIDATE_ID:\s*\$\{\{ needs\.release\.outputs\.candidate \}\}/);
 assert.match(codeOnlyWorkflow, /recovery:[\s\S]*always\(\)[\s\S]*download-artifact@[a-f0-9]{40}[\s\S]*code-only-release\.py recover/);
 assert.match(deployWorkflow, /cancel-in-progress:\s*false/);
 assert.match(deployWorkflow, /name:\s*Vercel production deploy/);

@@ -7,13 +7,16 @@ it can run postdeploy SQL even if deployment did not finish. That coupling is
 the cause of the release block. This candidate pauses the legacy migration job
 and introduces a separate code-only deployment path. It does not execute
 migrations; future database changes require their own reviewed path. The
-existing independent Verify Production workflow remains enabled: its migration
-drift check uses PostgREST GETs and a catalog SELECT, not migration execution.
+existing Verify Production workflow runs as a required child of this release:
+its migration drift check uses PostgREST GETs and a catalog SELECT, not
+migration execution. Its failure triggers the same recovery job.
 
 On a protected `main` push, the workflow verifies the required checks on the
 merged PR head and verifies that its tree equals the checked-out merge tree.
 It records and uploads the current production deployment ID and version before
-one Git-source create request. It verifies the new deployment, `/api/version`,
+one Git-source create request. A one-use manifest rejects any unreviewed file,
+including migrations and schema changes; a later release needs a separately
+reviewed baseline and manifest. It verifies the new deployment, `/api/version`,
 the home page and `/api/booking-health`, then preserves the existing 15-minute
 runtime watch. The watch also sends the existing unauthenticated PATCH to a
 fixed synthetic reservation ID and expects HTTP 401; this is a real HTTP
@@ -48,7 +51,8 @@ reported as unknown rather than retried or claimed successful.
   flows end to end.
 - A create request whose response is lost is never repeated. Recovery watches
   the alias for a bounded period and rolls back only the exact deployment ID
-  retained from the create response. A matching source SHA alone cannot prove
+  retained from the create response as a commit-bound job output or artifact.
+  Conflicting records are rejected. A matching source SHA alone cannot prove
   ownership; a missing candidate ID requires immediate manual investigation.
   When the candidate ID is known, recovery attempts to
   cancel an in-progress build. Vercel documents a maximum build time of

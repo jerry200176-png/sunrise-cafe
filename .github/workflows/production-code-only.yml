@@ -19,6 +19,9 @@ jobs:
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      candidate: ${{ steps.create.outputs.candidate }}
+      candidate_commit: ${{ steps.create.outputs.candidate_commit }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -62,9 +65,14 @@ jobs:
           EXPECTED_SHA: ${{ github.sha }}
         run: node scripts/post-deploy-watch.mjs
 
-  recovery:
+  verify-production:
     needs: release
-    if: ${{ always() && needs.release.result != 'success' }}
+    uses: ./.github/workflows/verify-production.yml
+    secrets: inherit
+
+  recovery:
+    needs: [release, verify-production]
+    if: ${{ always() && (needs.release.result != 'success' || needs.verify-production.result != 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -87,4 +95,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          CANDIDATE_ID: ${{ needs.release.outputs.candidate }}
+          CANDIDATE_COMMIT: ${{ needs.release.outputs.candidate_commit }}
         run: python3 -B scripts/code-only-release.py recover
