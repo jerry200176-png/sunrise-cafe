@@ -4,9 +4,9 @@
  * after the Vercel deploy and reports whether failures are sustained.
  *
  * Scope is RUNTIME HEALTH ONLY: version identity, public pages, booking-health
- * (DB reachability), auth smoke. It deliberately does NOT read migration drift
- * (Verify Production / deploy-health sha_parity), so a known drift issue can never
- * trigger a rollback.
+ * (DB reachability), auth smoke. This watcher does NOT read migration drift.
+ * A caller can separately run drift verification and initiate recovery if that
+ * verification or another release step fails.
  *
  * Exit codes: 0 healthy, 10 sustained runtime failure, 11 identity unknown or superseded.
  * Recovery behavior depends on the calling workflow; code-only recovery can
@@ -72,7 +72,8 @@ export async function watch({ base, expectedSha, minutes = 15, intervalSeconds =
     const round = await runRound({ base, expectedSha, fetchImpl });
     lastRound = round;
     if (round.matches) sawOurs = true;
-    // Before the first match (propagation lag) or if production never serves our SHA: do not judge, never roll back.
+    // Before the first match, the watcher does not judge runtime health. If the
+    // window ends without a match it returns nonzero; the caller decides recovery.
     if (!sawOurs && !round.matches) {
       log(`round ${i}/${rounds}: production serves ${round.version ?? "unknown"} not ${expectedSha.slice(0, 7)} (not judged)`);
     } else {
