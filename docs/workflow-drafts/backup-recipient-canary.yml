@@ -69,7 +69,7 @@ jobs:
           trap 'rm -rf -- "$work_dir"' EXIT
 
           if [[ -z "${AGE_RECIPIENT//[[:space:]]/}" ]]; then
-            echo "recipient canary failed: repository secret unavailable to this job"
+            echo "recipient canary failed: effective recipient unavailable to this job"
             exit 1
           fi
           if [[ "$AGE_RECIPIENT" == *$'\n'* || "$AGE_RECIPIENT" == *$'\r'* ]]; then
