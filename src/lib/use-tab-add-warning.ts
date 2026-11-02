@@ -41,6 +41,11 @@ export function useTabAddWarning() {
     if (!operation.instance.mark(operation.operation, status)) writeFailed = true;
     notify();
   }
+  function acknowledgeRefreshed(operation: ReturnType<typeof begin>) {
+    if (!operation) return;
+    if (!operation.instance.acknowledgeCommitted(operation.operation)) writeFailed = true;
+    notify();
+  }
   function acknowledgeCommitted() {
     const instance = store();
     const snapshot = instance?.snapshot();
@@ -51,5 +56,5 @@ export function useTabAddWarning() {
     }
     notify();
   }
-  return { state, confirmationMessage, begin, mark, acknowledgeCommitted };
+  return { state, confirmationMessage, begin, mark, acknowledgeRefreshed, acknowledgeCommitted };
 }

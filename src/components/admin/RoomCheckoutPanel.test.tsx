@@ -89,7 +89,7 @@ describe("RoomCheckoutPanel add submission", () => {
     await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(button);
     await waitFor(() => expect(postCount).toBe(2));
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("不一定屬於目前訂位"));
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("releases the in-flight guard when a request fails", async () => {
@@ -281,6 +281,56 @@ describe("anonymous same-tab warning", () => {
     expect(posts).toBe(1);
     await act(async () => { finish(json({})); await pending; });
     await waitFor(() => expect(sessionStorage.getItem("sunrise:add-outcomes:v1")).toContain("unknown"));
+  });
+  it("keeps a committed marker if unmounted before the same request refresh completes", async () => {
+    let finish!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { finish = resolve; });
+    let reads = 0;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu")) return Promise.resolve(json(menu));
+      if (init?.method === "POST") return Promise.resolve(json({ ok: true, ...view }));
+      return ++reads === 2 ? pending : Promise.resolve(json(view));
+    }));
+    const first = renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: /拿鐵/ }));
+    await screen.findByText(/本分頁有已提交、仍需人工核對/);
+    first.unmount();
+    renderPanel();
+    await act(async () => { finish(json(view)); await pending; });
+    expect(await screen.findByText(/本分頁有已提交、仍需人工核對/)).toBeTruthy();
+    expect(sessionStorage.getItem("sunrise:add-outcomes:v1")).toContain("committed");
+  });
+  it("retains the old operation after switching A to B and back", async () => {
+    let finish!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { finish = resolve; });
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu")) return Promise.resolve(json(menu));
+      return init?.method === "POST" ? pending : Promise.resolve(json(view));
+    }));
+    const panel = renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: /拿鐵/ }));
+    const makePanel = (reservationId: string) => <RoomCheckoutPanel reservationId={reservationId} roomName="A 廳" branchId="b1" nowMs={Date.parse("2026-10-21T07:00:00Z")} onClose={() => undefined} onChanged={() => undefined} />;
+    panel.rerender(makePanel("r2"));
+    await screen.findByRole("heading", { name: "王小明" });
+    panel.rerender(makePanel("r1"));
+    await screen.findByRole("heading", { name: "王小明" });
+    await act(async () => { finish(json({ ok: true, ...view })); await pending; });
+    await waitFor(() => expect(sessionStorage.getItem("sunrise:add-outcomes:v1")).toContain("committed"));
+  });
+  it("clears the refreshed operation only, leaving an earlier unknown", async () => {
+    const { createSessionAddWarningResearch } = await import("@/lib/session-add-warning-research");
+    const store = createSessionAddWarningResearch(sessionStorage);
+    const older = store.begin();
+    if (!older.ok) throw new Error("setup");
+    store.mark(older.operation, "unknown");
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu")) return json(menu);
+      return init?.method === "POST" ? json({ ok: true, ...view }) : json(view);
+    }));
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: /拿鐵/ }));
+    await waitFor(() => expect(store.snapshot()).toEqual({ ok: true, value: { version: 1, entries: [{ n: older.operation, status: "unknown" }] } }));
   });
   it("clears only confirmed entries after explicit review, preserving pending", async () => {
     const { createSessionAddWarningResearch } = await import("@/lib/session-add-warning-research");

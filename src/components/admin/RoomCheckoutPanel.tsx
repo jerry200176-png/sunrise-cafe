@@ -99,6 +99,10 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   const api = `/api/admin/reservation-orders/${encodeURIComponent(reservationId)}`;
   const addWarning = useAddOutcomeWarning(reservationId);
   const tabWarning = useTabAddWarning();
+  const mounted = useRef(false);
+  const identity = useRef({ value: reservationId, generation: 0 });
+  if (identity.current.value !== reservationId) identity.current = { value: reservationId, generation: identity.current.generation + 1 };
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   // 目前顯示的是哪一組：切換組別後，舊組晚回來的回應一律丟掉，避免畫面是 A 組、按鈕卻送到 B 組
   const currentApi = useRef(api);
@@ -155,6 +159,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
 
   async function act(action: string, extra: Record<string, unknown> = {}) {
     if (mutationInFlight.current) return false;
+    const operationGeneration = identity.current.generation;
     let tabOperation: ReturnType<typeof tabWarning.begin> = null;
     if (action === "add_items") {
       const tabMessage = tabWarning.confirmationMessage();
@@ -191,7 +196,12 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
       // Never merge an add response into a full view: reload and validate it.
       if (action === "add_items") {
         addWarning.mark(reservationId, "committed_stale");
-        await load(true).then((loaded) => { if (loaded) addWarning.refreshed(reservationId); }).catch(() => undefined);
+        await load(true).then((loaded) => {
+          if (loaded && mounted.current && identity.current.generation === operationGeneration) {
+            addWarning.refreshed(reservationId);
+            tabWarning.acknowledgeRefreshed(tabOperation);
+          }
+        }).catch(() => undefined);
       } else if (data?.billing && data?.order) {
         setView((previous) => previous ? { ...previous, ...(data as Partial<View>) } : previous);
         setCustomEnd(fmtClock((data as View).billing.end_time));

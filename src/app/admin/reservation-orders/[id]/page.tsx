@@ -61,6 +61,10 @@ export default function ReservationOrderPage() {
   const [notice, setNotice] = useState("");
   const addWarning = useAddOutcomeWarning(id);
   const tabWarning = useTabAddWarning();
+  const mounted = useRef(false);
+  const identity = useRef({ value: id, generation: 0 });
+  if (identity.current.value !== id) identity.current = { value: id, generation: identity.current.generation + 1 };
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   const load = useCallback(async (requireOrder = false): Promise<boolean> => {
     if (currentId.current !== id) return false;
@@ -117,6 +121,7 @@ export default function ReservationOrderPage() {
 
   async function act(action: string, extra: Record<string, unknown> = {}) {
     if (mutationInFlight.current) return false;
+    const operationGeneration = identity.current.generation;
     let tabOperation: ReturnType<typeof tabWarning.begin> = null;
     if (action === "add_items") {
       const tabMessage = tabWarning.confirmationMessage();
@@ -143,7 +148,10 @@ export default function ReservationOrderPage() {
         tabWarning.mark(tabOperation, "committed");
         addWarning.mark(id, "committed_stale");
         await load(true).then((loaded) => {
-          if (loaded) addWarning.refreshed(id);
+          if (loaded && mounted.current && identity.current.generation === operationGeneration) {
+            addWarning.refreshed(id);
+            tabWarning.acknowledgeRefreshed(tabOperation);
+          }
         }).catch(() => {
           addWarning.mark(id, "committed_stale");
           if (currentId.current === id) setNotice("已加入訂單，但畫面未能更新。請重新整理頁面確認，請勿再次加點。");

@@ -269,6 +269,44 @@ describe("standalone same-tab warning", () => {
     await act(async () => { finish(Response.json({})); await pending; });
     await waitFor(() => expect(sessionStorage.getItem("sunrise:add-outcomes:v1")).toContain("unknown"));
   });
+  it("keeps a confirmed operation if the page unmounts before its refresh finishes", async () => {
+    let finish!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { finish = resolve; });
+    let reads = 0;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu?")) return Promise.resolve(Response.json(menu));
+      if (init?.method === "POST") return Promise.resolve(Response.json({ ok: true, committed: true, refresh_failed: true }));
+      return ++reads === 2 ? pending : Promise.resolve(Response.json(view));
+    }));
+    const first = render(<ReservationOrderPage />);
+    fireEvent.click(await screen.findByRole("checkbox", { name: "選擇咖啡" }));
+    fireEvent.click(screen.getByRole("button", { name: "加入訂單" }));
+    await screen.findByText(/本分頁有已提交、仍需人工核對/);
+    first.unmount();
+    render(<ReservationOrderPage />);
+    await act(async () => { finish(Response.json(view)); await pending; });
+    expect(await screen.findByText(/本分頁有已提交、仍需人工核對/)).toBeTruthy();
+    expect(sessionStorage.getItem("sunrise:add-outcomes:v1")).toContain("committed");
+  });
+  it("retains the old operation after switching A to B and back", async () => {
+    let finish!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { finish = resolve; });
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu?")) return Promise.resolve(Response.json(menu));
+      return init?.method === "POST" ? pending : Promise.resolve(Response.json(view));
+    }));
+    const page = render(<ReservationOrderPage />);
+    fireEvent.click(await screen.findByRole("checkbox", { name: "選擇咖啡" }));
+    fireEvent.click(screen.getByRole("button", { name: "加入訂單" }));
+    mockParams.id = "res-2";
+    page.rerender(<ReservationOrderPage />);
+    await screen.findByRole("checkbox", { name: "選擇咖啡" });
+    mockParams.id = "res-1";
+    page.rerender(<ReservationOrderPage />);
+    await screen.findByRole("checkbox", { name: "選擇咖啡" });
+    await act(async () => { finish(Response.json({ ok: true, committed: true, refresh_failed: true })); await pending; });
+    await waitFor(() => expect(sessionStorage.getItem("sunrise:add-outcomes:v1")).toContain("committed"));
+  });
   it("discloses unavailable storage and does not send when the user declines", async () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("quota"); });
     const confirm = vi.fn(() => false);
