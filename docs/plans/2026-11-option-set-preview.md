@@ -15,3 +15,7 @@ SQL 預覽以 PostgreSQL 的 `to_jsonb(row)` 讀取可選欄位，支援 migrati
 舊輸出以分店名與餐點名稱顯示，分店同名或餐點同名時，即使資料庫已按 ID 分組，人仍可能把不同來源認成同一筆。兩個查詢應保留既有可讀欄位，第一個查詢額外顯示分店 ID 與按餐點 ID 排序的 `{id, name}` 配對，第二個額外顯示分店 ID 與餐點 ID。名稱與 ID 在同一個 JSON 物件內對應，避免兩個分別排序的清單無法配對；只讀查詢與 migration 的合併規則不變。
 
 參考：[PostgreSQL JSON 聚合](https://www.postgresql.org/docs/current/functions-aggregate.html) 說明 `jsonb_agg` 可指定聚合順序（PostgreSQL License）；本次自行撰寫。以隔離合成資料加入同名分店與同名餐點，檢查結果可區分，並逐組比對原 migration；不使用正式資料。既有查詢結果會多兩個欄位，若有自訂外部消費者依欄位數解析，需自行調整；這不是已知存在的正式使用情況。
+
+## 後續單次 code-only 候選
+
+此候選以 `7fd6e66e6546ef5eebcaeec220601f800991adc5` 為預定前版，單次 manifest 只涵蓋本設計、離線合成測試與既有唯讀 SQL 預覽三個檔案；不修改 migration、schema、執行器或任何 SQL 自動執行路徑。此 baseline 是否已完成正式部署與健康驗證，必須於後續發布前另外確認；未確認時維持停止，不能把本地合成測試視為正式資料證據。新增 SQL 預覽的白名單僅允許檔案存在，不代表執行、讀取正式資料或批准更改資料庫。回復可 revert 此候選。
