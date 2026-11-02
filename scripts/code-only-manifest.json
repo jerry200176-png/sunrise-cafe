@@ -1,7 +1,9 @@
 {
   "approved_files": {
     "docs/plans/2026-11-taipei-price-date.md":
-      "1e1114063e7d63b0bfc33d5e524c3bdfd76ed2ed",
+      "001e029a31521de4684d61e8a4ea079febe51e48",
+    "e2e/booking-price-timezone.spec.ts":
+      "e69840f92dbd61fdf2f8c24f9f217b706492a1fd",
     "scripts/code-only-release.py":
       "f7fa1ce2f6fc9839a62ff4c86f5177b31a7eb02f",
     "src/app/api/reservations/route.test.ts":
