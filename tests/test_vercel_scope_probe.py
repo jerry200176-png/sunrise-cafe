@@ -64,7 +64,7 @@ class ProbeTest(unittest.TestCase):
         self.assertEqual(timeout, 10)
         self.assertEqual(request.full_url, 'https://api.vercel.com/v7/deployments?projectId=prj_5swHVn2nqzrZ50VYx1zoEXZAvKiP&teamId=team_o4vau0vkVyakLaNFPmhXkL5M&target=production&limit=1&rollbackCandidate=true')
         self.assertEqual(request.get_header('Authorization'), 'Bearer ' + TOKEN)
-        self.assertIn('does not prove rollback write permission', output)
+        self.assertIn('rollback write permission were not checked', output)
         self.assertEqual(handlers[0].proxies, {})
         self.assertTrue(handlers[1]._context.check_hostname)
         self.assertEqual(handlers[1]._context.verify_mode, 2)
@@ -74,7 +74,7 @@ class ProbeTest(unittest.TestCase):
         error = urllib.error.HTTPError('https://api.vercel.com/', 403, 'forbidden', {}, None)
         code, output, requests, _ = self.invoke(effect=error)
         self.assertEqual(code, 1)
-        self.assertIn('GET forbidden', output)
+        self.assertIn('returned HTTP 403', output)
         self.assertEqual(len(requests), 1)
 
     def test_redirect_and_network_errors_are_unknown(self):
@@ -96,6 +96,8 @@ class ProbeTest(unittest.TestCase):
         self.assertIn("github.ref == 'refs/heads/research/vercel-token-get-probe'", SOURCE)
         self.assertIn('[[ "$PROBE_ACTUAL_SHA" == "$PROBE_EXPECTED_SHA" ]]', SOURCE)
         self.assertIn('  predeploy_migrate:\n    # Research branch only: never run the production migration/deployment DAG.\n    if: ${{ false }}', SOURCE)
+        self.assertIn('  group: research-vercel-token-get-probe', SOURCE)
+        self.assertNotIn('  group: production-deploy-main', SOURCE)
         probe_job = SOURCE.split('  vercel_scope_probe:', 1)[1].split('  predeploy_migrate:', 1)[0]
         self.assertNotIn('actions/checkout', probe_job)
         self.assertNotIn('npm ', probe_job)

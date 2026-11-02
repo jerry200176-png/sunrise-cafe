@@ -25,10 +25,9 @@ on:
 permissions:
   contents: read
 
-# Serialize the sole repository-controlled production deploy writer.
-# Verification is intentionally read-only and never competes for Vercel quota.
+# Research branch only: do not affect the real production queue.
 concurrency:
-  group: production-deploy-main
+  group: research-vercel-token-get-probe
   cancel-in-progress: false
 
 jobs:
@@ -94,10 +93,10 @@ jobs:
               sys.exit(2)
 
           if status == 200:
-              print('Rollback-candidate list: GET allowed. This does not prove rollback write permission.')
+              print('Deployment-list GET with project and rollback-candidate filters returned HTTP 200. Candidate contents and rollback write permission were not checked.')
               sys.exit(0)
           if status == 403:
-              print('Rollback-candidate list: GET forbidden.')
+              print('Deployment-list GET with project and rollback-candidate filters returned HTTP 403.')
               sys.exit(1)
           print('Vercel permission probe did not return a definitive result.')
           sys.exit(2)
