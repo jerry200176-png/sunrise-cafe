@@ -20,16 +20,19 @@ SELECT b.name AS 分店,
        row_number() OVER (PARTITION BY l.branch_id, l.option_group ORDER BY count(*) DESC, l.sig) AS 同組名第幾種,
        (array_agg(l.choices ORDER BY l.item_id::text))[1] AS 選項,
        count(*) AS 套用餐點數,
-       string_agg(l.item_name, '、' ORDER BY l.item_name) AS 餐點
+       string_agg(l.item_name, '、' ORDER BY l.item_name) AS 餐點,
+       l.branch_id AS 分店ID,
+       jsonb_agg(jsonb_build_object('id', l.item_id, 'name', l.item_name) ORDER BY l.item_id::text) AS 餐點明細
   FROM legacy AS l
   JOIN branches AS b ON b.id = l.branch_id
  GROUP BY b.name, l.branch_id, l.option_group, l.sig
  ORDER BY 1, 2, 3;
 
--- 不會合併（同一餐點同組內選項名稱重複）。結果為空表示全部都能合併。
-SELECT mi.name AS 餐點, mo.option_group AS 組名
+-- 不會合併（同一餐點同組內選項名稱重複）。空結果只表示目前未綁定資料沒有這種重複。
+SELECT mi.name AS 餐點, mo.option_group AS 組名,
+       mi.branch_id AS 分店ID, mi.id AS 餐點ID
   FROM menu_item_options AS mo
   JOIN menu_items AS mi ON mi.id = mo.item_id
  WHERE to_jsonb(mo)->>'set_id' IS NULL
- GROUP BY mi.id, mi.name, mo.option_group
+ GROUP BY mi.id, mi.name, mi.branch_id, mo.option_group
 HAVING count(*) <> count(DISTINCT mo.option_name);
