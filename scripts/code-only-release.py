@@ -23,7 +23,7 @@ REPO = '/repos/jerry200176-png/sunrise-cafe'
 SHA = re.compile(r'[a-f0-9]{40}\Z')
 DEPLOYMENT = re.compile(r'dpl_[A-Za-z0-9]+\Z')
 MAX_BODY = 1024 * 1024
-APPROVED_BASELINE = '0f00e3796e7cee4854d630ff0763ff083db7ac50'
+APPROVED_BASELINE = 'e55ffb4792ee37dc94b2c45cb8ce3d2168a90f7e'
 CONTROL_FILES = frozenset({
     '.github/workflows/ci.yml', '.github/workflows/production-code-only.yml',
     '.github/workflows/production-deploy-migrate.yml', '.github/workflows/verify-production.yml',
