@@ -4,7 +4,7 @@
     "docs/plans/2026-11-code-only-release.md": "54cdf26119a8cd0decfa52e0557fc33729d2fc29",
     "docs/plans/2026-11-pause-maturity-migration.md": "8ab7bdb77a937847375d6f1e4fc1a544d8b298a8",
     "scripts/code-only-release.py": "c7d7db8e9005ca59c7708b59e997562907c639fd",
-    "src/lib/production-maturity-migrate-pause.test.ts": "4d973a4fb0c079251a6694ba71cdf8a0c96e831d"
+    "src/lib/production-maturity-migrate-pause.test.ts": "7a31a2d8653515eb0d0674dba8541b56f114b5f1"
   },
   "baseline": "fea0eff3e76b77ee0866467564d19f7a2759a60e"
 }

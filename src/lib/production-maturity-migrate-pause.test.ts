@@ -35,7 +35,7 @@ describe("paused maturity migration workflow", () => {
   it("fails at a credential-free guard and disables every later job", () => {
     assertPaused(workflow);
     const result = spawnSync("bash", ["-e", "-c", workflow.jobs.guard.steps[0].run!], {
-      encoding: "utf8", env: { PATH: process.env.PATH },
+      encoding: "utf8", env: { PATH: process.env.PATH, NODE_ENV: "test" },
     });
     expect(result.status).toBe(1);
     expect(result.stdout.trim()).toBe("::error::Migration is paused until an encrypted, retained backup and a reviewed migration path are verified.");
