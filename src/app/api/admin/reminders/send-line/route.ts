@@ -15,7 +15,10 @@ export async function GET(request: NextRequest) {
     () =>
       runSendLineReminder({
         force: false,
-        sendHeartbeatOnEmpty: true,
+        // Empty/already-notified heartbeats consume group recipients' LINE quota.
+        // Keep actual reservation reminders and failure reporting; an empty run
+        // is visible via job_runs and the reminder verification endpoint.
+        sendHeartbeatOnEmpty: false,
         enforceDayIdempotency: true,
         trigger_source,
       }),

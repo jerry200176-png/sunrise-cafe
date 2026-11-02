@@ -1,0 +1,8 @@
+{
+  "approved_files": {
+    "docs/plans/2026-11-admin-report-response.md": "f49f177db617fed3a62a8c01c7465e5413495cb4",
+    "src/app/admin/analytics-scope.test.tsx": "e372bcc6b5d43ca9354154276c336784f5aeb634",
+    "src/app/admin/reports/page.tsx": "5bc845110416e0de50638ebcbb9220c6b91df5cf"
+  },
+  "baseline": "b5c44d5b002276148cfea82708b740ac1b01825a"
+}

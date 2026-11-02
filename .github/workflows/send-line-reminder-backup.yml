@@ -75,7 +75,7 @@ jobs:
           RESULT2=$(jq -r '.result // .meta.result // empty' /tmp/send-line-2.json 2>/dev/null || true)
           echo "result_2=${RESULT2}"
           case "$RESULT2" in
-            duplicate_skip|already_notified|sent|partial|empty_cat|schedule_window_skip|"")
+            duplicate_skip|already_notified|no_eligible|sent|partial|empty_cat|schedule_window_skip|"")
               echo "idempotency ok (result_2=${RESULT2:-absent})"
               ;;
             error)

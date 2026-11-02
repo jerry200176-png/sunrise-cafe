@@ -104,7 +104,7 @@
 | 群組 | 新訂位、付款待審、逾期釋放、改期 | `src/lib/line-cards.ts` |
 | 共用版型 | header / rows / CTA | `src/lib/line-flex.ts` → `flexBubble()` |
 
-**仍為純文字**：診斷測試、明日無訂位時的貓咪彩蛋（`CAT_MESSAGES`）。
+**仍為純文字**：診斷測試。貓咪彩蛋保留於程式，但排程不再為空檔單獨推播。
 
 Webhook 客人回覆使用 `replyLineFlexMessage`（`src/lib/line.ts`）。
 
@@ -115,10 +115,9 @@ Webhook 客人回覆使用 `replyLineFlexMessage`（`src/lib/line.ts`）。
 ## 每日自動提醒
 
 - **時間**：台灣時間每日 20:00（vercel.json cron: `"0 12 * * *"` UTC）
-- **Hobby 延遲**：Vercel Hobby **不保證整點準時**，可能在 **20:00–20:59** 之間任一時刻觸發。21:00 後仍無訊息才算異常。
+- **Hobby 延遲**：Vercel Hobby **不保證整點準時**，可能在 **20:00–20:59** 之間任一時刻觸發；是否成功請查 `job_runs` 或提醒診斷，不以群組靜默判斷。
 - **範圍**：所有已設定 `line_group_id` 的分店（無設定時 fallback `LINE_GROUP_ID`）
-- **無訂位時**：隨機發送一則貓咪訊息到群組
-- **皆已通知時**：推一則「皆已通知過」狀態（不重送 digest），避免群組完全靜默
+- **無待通知訂位時**：不單獨發送貓咪或「皆已通知過」訊息，節省群組推播配額；待通知訂位仍照常提醒。
 - **同日冪等**：同一台北日若 cron 已成功執行，GitHub 備援／重複 cron **不會重送**（`duplicate_skip`，仍寫 `job_runs`）
 - **備援安全窗口**：GitHub 備援預期在台北 21:00–23:59 執行；若排程延遲跨過 00:00，系統會記錄 `schedule_window_skip` / `skipped_by_policy`，不查詢下一天訂位，也不發「無訂位」貓咪訊息。
 - **觀測欄位**：每次執行寫入 `job_runs.metadata`：`trigger_source` / `result` / `sent_count` / `skipped_count` / `reservation_count` / `guest_sent_count` / `duration_ms` / `heartbeat`
