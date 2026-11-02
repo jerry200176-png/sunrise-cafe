@@ -43,6 +43,29 @@ class Unknown(Exception):
     pass
 
 
+HTTP_CATEGORIES = frozenset({'http_2xx', 'http_429', 'http_4xx', 'http_5xx', 'http_other', 'unclassified'})
+
+
+def http_category(code):
+    # Never stringify untrusted status, reason, URL, headers or response body.
+    if type(code) is not int or not 100 <= code <= 599: return 'unclassified'
+    if code == 429: return 'http_429'
+    if 400 <= code <= 499: return 'http_4xx'
+    if 500 <= code <= 599: return 'http_5xx'
+    if 200 <= code <= 299: return 'http_2xx'
+    return 'http_other'
+
+
+class HTTPStatusUnknown(Unknown):
+    def __init__(self, category):
+        super().__init__('upstream response unconfirmed')
+        self.category = category if type(category) is str and category in HTTP_CATEGORIES else 'unclassified'
+
+
+class CreateStatusUnknown(HTTPStatusUnknown):
+    pass
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise Unknown('redirect rejected')
@@ -69,12 +92,25 @@ class HTTP:
             # The workflow supplies its own credential; do not inherit proxy
             # settings that could receive it or redirect the API request.
             with urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect()).open(req, timeout=timeout) as response:
-                raw = response.read(MAX_BODY + 1)
-                if len(raw) > MAX_BODY: raise Unknown('response too large')
+                try:
+                    raw = response.read(MAX_BODY + 1)
+                    if len(raw) > MAX_BODY: raise ValueError('response too large')
+                except Exception:
+                    try: category = http_category(response.status)
+                    except Exception: category = 'unclassified'
+                    raise HTTPStatusUnknown(category) from None
                 if not raw: return response.status, {}, b''
                 try: value = json.loads(raw, object_pairs_hook=source.strict_object)
                 except Exception: value = None
                 return response.status, value, raw
+        except urllib.error.HTTPError as exc:
+            try: category = http_category(exc.code)
+            except Exception: category = 'unclassified'
+            try: exc.close()
+            except Exception: pass
+            raise HTTPStatusUnknown(category) from None
+        except HTTPStatusUnknown:
+            raise
         except Exception:
             raise Unknown('upstream request failed or outcome unknown') from None
 
@@ -102,7 +138,7 @@ class Vercel:
     def request(self, path, body=None):
         status, result, _ = self.http.request('api.vercel.com', path + ('&' if '?' in path else '?') +
                                               urllib.parse.urlencode({'teamId': TEAM}), self.token, body)
-        if not 200 <= status < 300 or not isinstance(result, dict): raise Unknown('Vercel response invalid')
+        if not 200 <= status < 300 or not isinstance(result, dict): raise HTTPStatusUnknown(http_category(status))
         return result
     def alias(self):
         result = self.request('/v4/aliases/' + HOST)
@@ -117,11 +153,14 @@ class Vercel:
             raise Unknown('deployment project mismatch')
         return result
     def create(self, sha):
-        result = self.request('/v13/deployments', {'name': 'sunrise-cafe', 'project': PROJECT,
-            'target': 'production', 'gitSource': {'type': 'github', 'org': 'jerry200176-png',
-            'repo': 'sunrise-cafe', 'ref': 'main', 'sha': sha}})
+        try:
+            result = self.request('/v13/deployments', {'name': 'sunrise-cafe', 'project': PROJECT,
+                'target': 'production', 'gitSource': {'type': 'github', 'org': 'jerry200176-png',
+                'repo': 'sunrise-cafe', 'ref': 'main', 'sha': sha}})
+        except HTTPStatusUnknown as exc:
+            raise CreateStatusUnknown(exc.category) from None
         ident = result.get('id')
-        if not isinstance(ident, str) or not DEPLOYMENT.fullmatch(ident): raise Unknown('deployment ID unavailable')
+        if not isinstance(ident, str) or not DEPLOYMENT.fullmatch(ident): raise CreateStatusUnknown('http_2xx')
         return ident
     def rollback(self, ident):
         if not DEPLOYMENT.fullmatch(ident): raise Unknown('invalid rollback target')
@@ -360,6 +399,10 @@ def main():
                                                os.environ.get('CANDIDATE_COMMIT', ''))
                 recover(api, http, record, candidate)
         print('Release phase complete:', sys.argv[1])
+    except CreateStatusUnknown as exc:
+        category = exc.category if type(exc.category) is str and exc.category in HTTP_CATEGORIES else 'unclassified'
+        print('Deployment create outcome unknown; HTTP status category:', category, file=sys.stderr)
+        raise SystemExit('Release failed or outcome unknown; follow documented rollback procedure') from None
     except Exception:
         raise SystemExit('Release failed or outcome unknown; follow documented rollback procedure') from None
 
