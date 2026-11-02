@@ -61,7 +61,7 @@ jobs:
             fi
             sleep 30
           done
-          echo "::error::Production ($ACTUAL) ≠ main ($EXPECTED_SHA) after polling. Production deploy and migrate is the sole deploy owner."
+          echo "::error::Production ($ACTUAL) ≠ main ($EXPECTED_SHA) after polling. Production code-only release is the deploy owner."
           exit 1
 
       - name: Smoke — auth on reservation PATCH

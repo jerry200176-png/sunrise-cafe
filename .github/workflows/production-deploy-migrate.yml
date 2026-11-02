@@ -30,6 +30,9 @@ concurrency:
 jobs:
   predeploy_migrate:
     name: Apply predeploy migrations
+    # The reviewed code-only release workflow owns main deployments.  Historical
+    # SQL is paused; a separate reviewed migration path must be prepared first.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
