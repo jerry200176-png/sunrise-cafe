@@ -63,7 +63,9 @@ class HTTP:
             raise Unknown('cancel destination rejected')
         req = urllib.request.Request('https://' + host + path, data=data, headers=headers, method=method)
         try:
-            with urllib.request.build_opener(NoRedirect).open(req, timeout=timeout) as response:
+            # The workflow supplies its own credential; do not inherit proxy
+            # settings that could receive it or redirect the API request.
+            with urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect()).open(req, timeout=timeout) as response:
                 raw = response.read(MAX_BODY + 1)
                 if len(raw) > MAX_BODY: raise Unknown('response too large')
                 if not raw: return response.status, {}, b''
@@ -200,16 +202,18 @@ def prepare(api, github, http, sha, tree):
     return {'baseline': baseline, 'previous': previous, 'commit': sha}
 
 
-def recover(api, http, record, candidate=None, *, clock=time.monotonic, sleep=time.sleep, seconds=900):
-    baseline, previous, sha = record['baseline'], record['previous'], record['commit']
+def recover(api, http, record, candidate=None, *, clock=time.monotonic, sleep=time.sleep, seconds=3000):
+    baseline, previous = record['baseline'], record['previous']
     deadline = clock() + seconds
     while clock() < deadline:
         try:
             current = api.alias()
             if current != baseline:
-                info = api.deployment(current)
-                if current != candidate and not same_source(info, sha):
-                    raise Unknown('production changed by another deployment')
+                # Commit metadata is not a unique create-response identity:
+                # another writer can deploy the same SHA. Never roll it back.
+                if candidate is None or current != candidate:
+                    raise Unknown('production deployment ownership is unknown')
+                api.deployment(current)  # Confirm project and production target.
                 api.rollback(baseline)
                 if api.alias() == baseline and health(http, previous): return 'rolled-back'
                 raise Unknown('rollback could not be verified')
@@ -247,10 +251,12 @@ def verify_candidate(api, http, record, candidate, *, clock=time.monotonic, slee
     deadline = clock() + seconds
     while clock() < deadline:
         deployment = api.deployment(candidate)
-        if not same_source(deployment, sha): raise Unknown('candidate source unverified')
         state, live = deployment.get('readyState'), api.alias()
         if live not in (baseline, candidate): raise Unknown('production changed by another deployment')
         if state == 'READY' and live == candidate:
+            # Vercel may not expose optional Git fields while still building.
+            # They must be present and match before claiming a ready release.
+            if not same_source(deployment, sha): raise Unknown('candidate source unverified')
             try: healthy = health(http, sha)
             except Exception: healthy = False
             if healthy and api.alias() == candidate: return candidate

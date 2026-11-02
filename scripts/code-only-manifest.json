@@ -17,6 +17,8 @@
     "src/app/api/admin/reminders/deposit-deadline/route.ts": "c363065bf21d0c11284d5ad4f04b48c9384b5061",
     "src/app/api/admin/reminders/send-line/route.test.ts": "be8e7f7c237e82e690f8971eba3654a360b5f2f5",
     "src/app/api/admin/reminders/send-line/route.ts": "3675e588bb5a870eeddac445942ee914bfe3805b",
+    "src/app/api/booking-health/route.test.ts": "e203e1a44078f9f70879182755d377c9e22de85c",
+    "src/app/api/booking-health/route.ts": "05f4e8aa904c30ae26065e6e7af9aef53823cfe6",
     "src/app/api/linepay/request/route.test.ts": "9c6b90ed7f577c7293d4c51130a702c65baf754f",
     "src/app/api/linepay/request/route.ts": "6e92046b4dede8657fbe4b68aead6854040d3a92",
     "src/lib/booking-policy.ts": "bfb7085a33bf7af058c5dd27ea69f8d74ff24bdf",

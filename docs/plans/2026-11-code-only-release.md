@@ -47,8 +47,14 @@ reported as unknown rather than retried or claimed successful.
   health probes do not create reservations or payments and cannot prove those
   flows end to end.
 - A create request whose response is lost is never repeated. Recovery watches
-  the alias for a bounded period and rolls back only a deployment identifying
-  the reviewed source. A Vercel request may complete after that period, or the
+  the alias for a bounded period and rolls back only the exact deployment ID
+  retained from the create response. A matching source SHA alone cannot prove
+  ownership; a missing candidate ID requires immediate manual investigation.
+  When the candidate ID is known, recovery attempts to
+  cancel an in-progress build. Vercel documents a maximum build time of
+  [45 minutes](https://vercel.com/docs/builds); an unknown create is observed
+  for 50 minutes, but a build queue can add time. A Vercel request may complete
+  after that period, or the
   runner/recovery job may itself fail. These cases remain **unknown** and must
   be inspected immediately; they are not a verified rollback. Where Vercel's
   deployment response does not expose the expected Git source fields, an

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 spec = importlib.util.spec_from_file_location('release', Path(__file__).with_name('code-only-release.py'))
 r = importlib.util.module_from_spec(spec); spec.loader.exec_module(r)
@@ -92,9 +93,17 @@ class Tests(unittest.TestCase):
             with self.assertRaises(r.Unknown): r.read_candidate(path, OLD)
     def test_recovery_only_rolls_back_expected_source(self):
         self.api.current = NEW; self.http.commit = SHA
-        self.assertEqual(self.recover(), 'rolled-back'); self.assertEqual(self.api.rollbacks, [BASE])
+        self.assertEqual(self.recover(NEW), 'rolled-back'); self.assertEqual(self.api.rollbacks, [BASE])
     def test_recovery_does_not_overwrite_other_source(self):
         self.api.current = 'dpl_other'; self.api.source_ok = False
+        with self.assertRaises(r.Unknown): self.recover(NEW)
+        self.assertEqual(self.api.rollbacks, [])
+    def test_recovery_does_not_overwrite_same_sha_from_another_deployment(self):
+        self.api.current = 'dpl_other'; self.api.source_ok = True
+        with self.assertRaises(r.Unknown): self.recover(NEW)
+        self.assertEqual(self.api.rollbacks, [])
+    def test_recovery_does_not_infer_ownership_from_sha(self):
+        self.api.current = NEW; self.api.source_ok = True
         with self.assertRaises(r.Unknown): self.recover()
         self.assertEqual(self.api.rollbacks, [])
     def test_inflight_baseline_is_not_claimed_as_recovered(self):
@@ -116,8 +125,36 @@ class Tests(unittest.TestCase):
         self.api.source_ok = False
         with self.assertRaises(r.Unknown): self.deploy()
         self.assertEqual(self.api.created, 1)
+    def test_optional_git_source_may_be_absent_while_building(self):
+        calls = []
+        original = self.api.deployment
+        def delayed(ident):
+            calls.append(ident)
+            if len(calls) == 1:
+                data = original(ident); data['readyState'] = 'BUILDING'; data.pop('gitSource')
+                return data
+            return original(ident)
+        self.api.deployment = delayed
+        self.assertEqual(self.deploy(), NEW)
+        self.assertGreaterEqual(len(calls), 2)
+    def test_missing_source_when_ready_is_unknown(self):
+        original = self.api.deployment
+        def missing(ident):
+            data = original(ident); data.pop('gitSource'); return data
+        self.api.deployment = missing
+        with self.assertRaises(r.Unknown): self.deploy()
     def test_token_never_goes_to_public_health(self):
         with self.assertRaises(r.Unknown): r.HTTP().request(r.HOST, '/', 'fake-secret')
+    def test_network_error_does_not_expose_token_or_use_proxy(self):
+        with mock.patch.object(r.urllib.request, 'build_opener') as make:
+            make.return_value.open.side_effect = RuntimeError('synthetic-secret')
+            with self.assertRaises(r.Unknown) as error:
+                r.HTTP().request('api.vercel.com', '/v7/deployments', 'synthetic-secret')
+            self.assertNotIn('synthetic-secret', str(error.exception))
+            self.assertEqual(make.call_args.args[0].proxies, {})
+    def test_redirect_rejected(self):
+        with self.assertRaises(r.Unknown):
+            r.NoRedirect().redirect_request(None, None, 302, None, None, 'https://example.invalid')
     def test_code_only_manifest_rejects_schema_and_changed_application_files(self):
         blob = 'c' * 40
         with tempfile.TemporaryDirectory() as directory:
