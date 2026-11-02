@@ -10,6 +10,8 @@
 
 收斂 `commit` 為完整 40 位小寫 Git SHA；缺值、無效內容或讀取失敗為 UNKNOWN。觀察窗口已見預期 SHA 但最後一輪身份未知，回 `identity_unknown`、exit 11，不回 healthy；曾見預期 SHA 後觀察到另一有效 SHA 仍回 `superseded`。中途少量故障但末輪可確認可維持既有容忍規則。預期 SHA 本身無效時在任何探測前停止。
 
+既有連續失敗計數維持不變：若版本連續不可讀達門檻，會較早回 `sustained_failure`／exit 10；它表示連續探測失敗，可能只是觀測不足，不能視為服務故障已被證實。最後一輪未知但尚未達門檻則回 `identity_unknown`／exit 11。兩者在現有 code-only workflow 都進入相同 recovery。
+
 本研究不修改 workflow 或 recovery，不直接設定新的發布暫停。依目前 workflow，exit 11 將使 release 非成功並啟動既有 recovery；D7 要求驗證失敗後自動回復或立即執行文件化回復，D8 在失敗部署或 stop-line 時停止後續發布。是否將本候選採用為正式行為，須對完整 workflow、owner 與 recovery 的能力、可觀察性及 production 影響獨立審查和驗證。
 
 無網路合成測試：19 項 watcher 測試涵蓋末輪 503、空字串、錯誤 SHA、錯誤 JSON、中途未知後恢復、有效不同 SHA 及預期 SHA 不合法。另以 fake Vercel／HTTP 驗證 UNKNOWN 觸發現有 recovery 後，觀察到 alias 為已記錄 candidate 時回復 baseline；觀察到別的部署或沒有 candidate 時拒絕覆蓋。合成反例顯示 alias 在觀測與回滾間被其他 writer 更改時，現有 recovery 仍可能覆蓋新 alias；該案例明示為 expected failure，不把 race 視作已修復。Python watcher／recovery 合成研究目前**未接入 CI**，只能算本次手動測試證據；現有 CI 的 Vitest 涵蓋 watcher 單元測試。

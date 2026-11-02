@@ -8,7 +8,8 @@
  * A caller can separately run drift verification and initiate recovery if that
  * verification or another release step fails.
  *
- * Exit codes: 0 healthy, 10 sustained runtime failure, 11 identity unknown or superseded.
+ * Exit codes: 0 healthy, 10 sustained probe failures (including unavailable
+ * observations), 11 identity unknown at the end or superseded.
  * Recovery behavior depends on the calling workflow; code-only recovery can
  * roll back a retained candidate on any non-successful release step.
  * Env: PRODUCTION_URL, EXPECTED_SHA, WATCH_MINUTES (15), INTERVAL_SECONDS (30), FAIL_ROUNDS (5)

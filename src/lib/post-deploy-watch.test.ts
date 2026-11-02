@@ -79,7 +79,7 @@ describe("post-deploy watch", () => {
     expect(out.exitCode).toBe(0);
   });
 
-  it("requests rollback (exit 10) on sustained failure", async () => {
+  it("returns exit 10 on sustained failed health probes", async () => {
     const r = await run(() => ({ health: false }));
     expect(r).toMatchObject({ exitCode: 10, verdict: "sustained_failure", rounds: 5 });
     expect(r.lastFailed).toContain("booking-health:503");
@@ -90,7 +90,7 @@ describe("post-deploy watch", () => {
     expect((await run(() => ({ auth: 200 }))).lastFailed).toContain("auth-smoke:200");
     let first = true;
     const flaky = await run(() => { const v = first ? undefined : null; first = false; return { version: v }; });
-    expect(flaky.exitCode).toBe(10);
+    expect(flaky).toMatchObject({ exitCode: 10, verdict: "sustained_failure" });
     expect(flaky.lastFailed).toContain("version:unavailable");
   });
 
