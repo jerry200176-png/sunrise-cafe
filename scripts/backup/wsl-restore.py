@@ -303,11 +303,11 @@ def main(argv):
             raise
         if process.returncode != 0:
             stage = safe_failure_stage(_stdout, _stderr)
-            fail(f'隔離還原未通過：{stage}這只是階段線索，並非根因結論。未輸出原始日誌或資料；請勿解除發布暫停。')
+            fail(f'隔離還原未通過：{stage}這只是階段線索，並非根因結論。未輸出原始日誌或資料；不能據此放行未驗證的 migration。')
         raw_after = command(*docker_cmd, 'image', 'inspect', 'postgres:17-alpine', '--format', '{{.Id}}', env=env)
         if raw_after.decode('utf-8').strip() != image_id:
             fail('演練期間本機映像標籤已改變，不能採信結果。')
-        print('隔離解密與 PostgreSQL 還原已完成。這不驗證來源身分或完整 Supabase 恢復，也不解除發布暫停。', flush=True)
+        print('隔離解密與 PostgreSQL 還原已完成。這不驗證來源身分或完整 Supabase 恢復，也不能據此放行未驗證的 migration。', flush=True)
     finally:
         terminate_child(process)
         os.close(source_fd)
