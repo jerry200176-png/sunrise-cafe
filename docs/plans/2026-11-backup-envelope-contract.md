@@ -18,7 +18,7 @@
 
 本機合成測試使用公開的 age 上游測試身分與虛構資料（絕不能用於正式系統），執行加密、密文雜湊與損毀失敗檢查；如可用隔離 PostgreSQL，將虛構資料 dump、加密、解密並還原到另一個不對外發布連接埠的容器。不存在的加密器或容器能力必須明確標示未驗證，不能以 mock 成功冒充。正式資料庫的 role/default ACL、擴充套件、Auth、Storage、Realtime 和平台設定不受此測試涵蓋。
 
-在 repository 根目錄可執行 `scripts/backup/test-envelope-restore.sh`：傳入本機 `AGE_BIN`、`AGE_KEYGEN_BIN`，以及已下載的 age v1.2.1 公開 `testdata/example_keys.txt` 路徑 `AGE_PUBLIC_TEST_IDENTITY`。腳本固定核對該公開測試檔 SHA-256，拒絕其他身分，並使用本機已存在的 `postgres:17-alpine` image（不拉取 image），建立無網路、無 host port、tmpfs 的臨時容器。腳本沒有連正式資料庫或測試真實 artifact。損毀密文測試使用已改動的合成資料；尚未驗證錯誤私鑰、備份 workflow、雲端下載或正式還原。
+在 repository 根目錄可用 `bash scripts/backup/test-envelope-restore.sh` 執行：傳入本機 `AGE_BIN`、`AGE_KEYGEN_BIN`，以及已下載的 age v1.2.1 公開 `testdata/example_keys.txt` 路徑 `AGE_PUBLIC_TEST_IDENTITY`。腳本固定核對該公開測試檔 SHA-256，拒絕其他身分，並使用本機已存在的 `postgres:17-alpine` image（不拉取 image），建立無網路、無 host port、tmpfs 的臨時容器。腳本沒有連正式資料庫或測試真實 artifact。損毀密文測試使用已改動的合成資料；尚未驗證錯誤私鑰、備份 workflow、雲端下載或正式還原。
 
 ## 參考做法
 

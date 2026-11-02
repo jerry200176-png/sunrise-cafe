@@ -64,7 +64,9 @@ candidate does not deploy it or authorize a migration.
 
 This candidate proposes baseline `47134930ef9cbb8849ad4a1267cae91c711a6c5c`
 and an exact one-use manifest for the reviewed offline tools, documentation,
-and synthetic tests. It does not add or change a backup workflow, execute a
+and synthetic tests. New script files are mode 100644; invoke shell and Python
+entrypoints through `bash` or `python3`. No release guard was relaxed. It does
+not add or change a backup workflow, execute a
 backup, or enable a migration. A merge to main still triggers the existing
 code-only production deployment and its recovery behavior: these files being
 unused by runtime does not make the merge itself deployment-free. Before any
