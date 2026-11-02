@@ -10,11 +10,34 @@ import { selectionProblem } from "@/lib/option-sets";
 import type { MenuItem, Order, OrderItem } from "@/types";
 import type { DraftItemInput } from "@/lib/reservation-preorder";
 import { ENDED_STAY_STATUSES, foodStillOwed } from "@/lib/room-checkout";
+import { readAddItemsOutcome } from "@/lib/add-items-outcome";
+import { useAddOutcomeWarning } from "@/lib/use-add-outcome-warning";
+import { AddOutcomeWarning } from "@/components/admin/AddOutcomeWarning";
 
 type ReservationView = { customer_name: string; booking_code: string; start_time: string; status: string; room?: { name: string; branch_id: string } | { name: string; branch_id: string }[] | null };
 type PreorderView = { status: string; guest_notes: string | null; draft_items: DraftItemInput[];
   requires_reconfirmation: boolean; reservation_preorder_items: Array<{ id: string; item_name_snapshot: string; quantity: number; selected_options_snapshot: Array<{ name: string }>; special_notes: string | null }> };
 type View = { reservation: ReservationView; preorder: PreorderView | null; order: Order | null };
+
+function isReservationView(value: unknown): value is View {
+  if (!value || typeof value !== "object") return false;
+  const data = value as Record<string, unknown>;
+  if (!data.reservation || typeof data.reservation !== "object") return false;
+  const reservation = data.reservation as Record<string, unknown>;
+  if (typeof reservation.customer_name !== "string" || typeof reservation.status !== "string" ||
+      typeof reservation.start_time !== "string" || !Number.isFinite(Date.parse(reservation.start_time))) return false;
+  if (data.order === null) return true;
+  if (!data.order || typeof data.order !== "object") return false;
+  const order = data.order as Record<string, unknown>;
+  return typeof order.id === "string" && Array.isArray(order.order_items) && order.order_items.every((item: unknown) => {
+    if (!item || typeof item !== "object") return false;
+    const row = item as Record<string, unknown>;
+    return typeof row.id === "string" && typeof row.item_name === "string" && typeof row.quantity === "number" &&
+      Number.isFinite(row.quantity) && (typeof row.unit_price === "number" || typeof row.unit_price === "string") &&
+      Number.isFinite(Number(row.unit_price)) && (row.selected_options == null || (Array.isArray(row.selected_options) &&
+        row.selected_options.every((option: unknown) => option && typeof option === "object" && typeof (option as Record<string, unknown>).name === "string")));
+  });
+}
 
 export default function ReservationOrderPage() {
   const id = String(useParams().id);
@@ -34,8 +57,9 @@ export default function ReservationOrderPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const addWarning = useAddOutcomeWarning(id);
 
-  const load = useCallback(async (): Promise<boolean> => {
+  const load = useCallback(async (requireOrder = false): Promise<boolean> => {
     if (currentId.current !== id) return false;
     const sequence = ++requestSequence.current;
     const isCurrent = () => sequence === requestSequence.current && currentId.current === id;
@@ -46,9 +70,10 @@ export default function ReservationOrderPage() {
       if (!isCurrent()) return false;
       throw new Error(message);
     }
-    const data = await readJsonWithTimeout<View>(response);
+    const data = await readJsonWithTimeout<unknown>(response);
     if (!isCurrent()) return false;
-    const next = data as View;
+    if (!isReservationView(data) || (requireOrder && !data.order)) throw new Error("訂單資料不完整，請重新載入");
+    const next = data;
     const room = Array.isArray(next.reservation.room) ? next.reservation.room[0] : next.reservation.room;
     setView(next);
     setMenu([]);
@@ -89,21 +114,39 @@ export default function ReservationOrderPage() {
 
   async function act(action: string, extra: Record<string, unknown> = {}) {
     if (mutationInFlight.current) return false;
+    if (action === "add_items" && !addWarning.confirmBeforeAdd(id)) return false;
     mutationInFlight.current = true;
     setBusy(true); setError(""); setNotice("");
+    let committed = false;
     try {
-      const response = await fetch(`/api/admin/reservation-orders/${encodeURIComponent(id)}`, {
+      const response = await (action === "add_items" ? fetchWithTimeout : fetch)(`/api/admin/reservation-orders/${encodeURIComponent(id)}`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...extra }),
       });
+      if (action === "add_items") {
+        const outcome = await readAddItemsOutcome(response);
+        if (outcome.kind !== "committed") {
+          if (outcome.kind === "unknown") addWarning.mark(id, "unknown");
+          if (currentId.current === id) setError(outcome.message);
+          return false;
+        }
+        committed = true;
+        addWarning.mark(id, "committed_stale");
+        await load(true).then((loaded) => {
+          if (loaded) addWarning.refreshed(id);
+        }).catch(() => {
+          addWarning.mark(id, "committed_stale");
+          if (currentId.current === id) setNotice("已加入訂單，但畫面未能更新。請重新整理頁面確認，請勿再次加點。");
+        });
+        return true;
+      }
       if (!response.ok) throw new Error(await responseError(response));
-      // A menu failure is isolated inside load; it cannot turn a committed
-      // action into a reported failure. Keep the existing GET-failure behavior.
-      if (action === "add_items") await load().catch(() => {
-        setNotice("已加入訂單，但畫面未能更新。請重新整理頁面確認，請勿再次加點。");
-      });
-      else await load();
+      await load(addWarning.warning === "committed_stale");
       return true;
-    } catch (cause) { setError(thrownMessage(cause)); return false; }
+    } catch (cause) {
+      if (action === "add_items") addWarning.mark(id, committed ? "committed_stale" : "unknown");
+      if (currentId.current === id) setError(thrownMessage(cause));
+      return false;
+    }
     finally { mutationInFlight.current = false; setBusy(false); }
   }
 
@@ -120,6 +163,11 @@ export default function ReservationOrderPage() {
         {view && <p className="mt-2 text-sm text-stone-600">{view.reservation.customer_name} · {room?.name ?? "包廂"} · 代碼 {view.reservation.booking_code} · {new Date(view.reservation.start_time).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}</p>}
       </header>
       <p role="status" aria-atomic="true" className={notice ? "rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900" : "sr-only"}>{notice}</p>
+      <AddOutcomeWarning warning={addWarning.warning} busy={busy} onReload={() => {
+        load(addWarning.warning === "committed_stale").then((loaded) => {
+          if (loaded) { addWarning.refreshed(id); setError(""); setNotice(""); }
+        }).catch((cause) => setError(thrownMessage(cause)));
+      }} />
       {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-rose-800">{error}</p>}
       {menuError && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">{menuError}</p>}
       {!view && !error && <p>載入中…</p>}

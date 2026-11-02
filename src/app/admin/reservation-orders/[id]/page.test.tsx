@@ -22,6 +22,7 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
   let getCount: number;
   let refreshFailure: "http" | "network" | null;
   let postStatus: number;
+  let postNotAttempted: boolean;
 
   beforeEach(() => {
     mockParams.id = "res-1";
@@ -29,6 +30,7 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
     getCount = 0;
     refreshFailure = null;
     postStatus = 200;
+    postNotAttempted = false;
     fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url.startsWith("/api/menu?")) return Response.json(menu);
       if (url !== api) throw new Error(`Unexpected request: ${url}`);
@@ -36,7 +38,7 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
         posts.push(JSON.parse(String(init.body)));
         return postStatus === 200
           ? Response.json({ ok: true, committed: true, refresh_failed: true })
-          : Response.json({ error: "加點失敗" }, { status: postStatus });
+          : Response.json({ error: "加點失敗", ...(postNotAttempted ? { add_outcome: "not_attempted" } : {}) }, { status: postStatus });
       }
       getCount++;
       if (getCount > 1 && refreshFailure === "network") throw new TypeError("Failed to fetch");
@@ -61,8 +63,8 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
     await waitFor(() => expect((screen.getByRole("checkbox", { name: "選擇咖啡" }) as HTMLInputElement).checked).toBe(false));
     expect((screen.getByRole("button", { name: "加入訂單" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByRole("status").textContent).toBe("已加入訂單，但畫面未能更新。請重新整理頁面確認，請勿再次加點。");
-    expect(screen.getByRole("status").getAttribute("aria-atomic")).toBe("true");
+    const notice = screen.getByText("已加入訂單，但畫面未能更新。請重新整理頁面確認，請勿再次加點。");
+    expect(notice.getAttribute("aria-atomic")).toBe("true");
     expect(getCount).toBe(2);
     expect(posts).toEqual([submitted]);
     // An additional click without a new selection cannot repeat the committed add.
@@ -72,7 +74,7 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
     // even if that new action fails. It must not mask a genuine POST error.
     postStatus = 500;
     fireEvent.click(screen.getByRole("button", { name: "記錄現場已結帳" }));
-    expect(screen.getByRole("status").textContent).toBe("");
+    expect(notice.textContent).toBe("");
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(posts).toEqual([submitted, { action: "settle" }]);
   });
@@ -86,6 +88,40 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  it("shows committed-but-stale immediately while the reload is still pending", async () => {
+    let resolveReload!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { resolveReload = resolve; });
+    let reads = 0;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu?")) return Promise.resolve(Response.json(menu));
+      if (init?.method === "POST") return Promise.resolve(Response.json({ ok: true, committed: true, refresh_failed: true }));
+      reads++;
+      return reads === 1 ? Promise.resolve(Response.json(view)) : pending;
+    }));
+    await selectAndAdd();
+    await screen.findByText(/上次加點已完成，但畫面未更新/);
+    expect(reads).toBe(2);
+    await act(async () => { resolveReload(Response.json(view)); await pending; });
+    await waitFor(() => expect(screen.queryByText(/上次加點已完成，但畫面未更新/)).toBeNull());
+  });
+
+  it.each(["missing", "null", "no order"])("keeps the existing order when reload has %s", async (kind) => {
+    let reads = 0;
+    const original = { ...view, order: { ...view.order, order_items: [{ id: "oi-1", item_name: "已點蛋糕",
+      quantity: 1, unit_price: 120, served_at: null, selected_options: [] }] } };
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu?")) return Promise.resolve(Response.json(menu));
+      if (init?.method === "POST") return Promise.resolve(Response.json({ ok: true, committed: true, refresh_failed: true }));
+      reads++;
+      return Promise.resolve(Response.json(reads === 1 ? original : { ...view, order: kind === "no order" ? null : { id: "ord-1", paid_at: null,
+        ...(kind === "null" ? { order_items: null } : {}) } }));
+    }));
+    await selectAndAdd();
+    await screen.findByText(/上次加點已完成，但畫面未更新/);
+    expect(screen.getByText("已點蛋糕 ×1")).toBeTruthy();
+    expect(screen.queryByText(/尚無餐點/)).toBeNull();
+  });
+
   it.each([409, 500])("retains selection and reports an actual POST %s failure without refetching", async (status) => {
     postStatus = status;
     await selectAndAdd();
@@ -94,6 +130,43 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
     expect((screen.getByRole("button", { name: "加入訂單" }) as HTMLButtonElement).disabled).toBe(false);
     expect(getCount).toBe(1);
     expect(posts).toEqual([submitted]);
+  });
+
+  it("asks for explicit acknowledgement before retrying an unknown add", async () => {
+    postStatus = 409; // No machine-readable proof of a pre-write rejection.
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirm);
+    await selectAndAdd();
+    await screen.findByText(/上次加點結果未確認，原請求可能稍後完成/);
+    fireEvent.click(screen.getByRole("button", { name: "重新載入訂單" }));
+    await waitFor(() => expect(getCount).toBe(2));
+    expect(screen.getByText(/上次加點結果未確認，原請求可能稍後完成/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "加入訂單" }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(posts).toEqual([submitted]);
+    postNotAttempted = true;
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "加入訂單" }));
+    await waitFor(() => expect(posts).toEqual([submitted, submitted]));
+    await screen.findByText(/上次加點結果未確認，原請求可能稍後完成/);
+    await waitFor(() => expect((screen.getByRole("button", { name: "加入訂單" }) as HTMLButtonElement).disabled).toBe(false));
+    confirm.mockReturnValue(false);
+    fireEvent.click(screen.getByRole("button", { name: "加入訂單" }));
+    expect(confirm).toHaveBeenCalledTimes(3);
+    expect(posts).toEqual([submitted, submitted]);
+  });
+
+  it("clears only committed-stale after a successful manual reload", async () => {
+    refreshFailure = "http";
+    await selectAndAdd();
+    await screen.findByText(/上次加點已完成，但畫面未更新/);
+    fireEvent.click(screen.getByRole("button", { name: "重新載入訂單" }));
+    await waitFor(() => expect(getCount).toBe(3));
+    expect(screen.getByText(/上次加點已完成，但畫面未更新/)).toBeTruthy();
+    refreshFailure = null;
+    fireEvent.click(screen.getByRole("button", { name: "重新載入訂單" }));
+    await waitFor(() => expect(screen.queryByText(/上次加點已完成，但畫面未更新/)).toBeNull());
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("keeps the existing refresh-failure behavior for other actions", async () => {

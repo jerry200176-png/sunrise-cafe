@@ -11,6 +11,10 @@ import type { MenuCategory, MenuItem, Order, OrderItem } from "@/types";
 import { EXTEND_STEPS_MINUTES, addMinutes, foodStillOwed, newEndProblem, overtimeSettledEnd, resolveClockNear, type CheckoutBill } from "@/lib/room-checkout";
 import { fmtClock, minutesText } from "@/components/admin/RoomFloor3D";
 import { PAYMENT_METHODS, type PaymentMethod } from "@/lib/room-settlement";
+import { readAddItemsOutcome } from "@/lib/add-items-outcome";
+import { useAddOutcomeWarning } from "@/lib/use-add-outcome-warning";
+import { AddOutcomeWarning } from "@/components/admin/AddOutcomeWarning";
+import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
 
 type View = {
   reservation: { customer_name: string; booking_code: string; start_time: string; status: string; guest_count?: number | null };
@@ -21,6 +25,40 @@ type View = {
   billing: { start_time: string; end_time: string; status: string; total_price: number | null; is_deposit_paid: boolean;
     next_start: string | null; bill: CheckoutBill | null };
 };
+
+function isPanelView(value: unknown): value is View {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  if (!v.reservation || typeof v.reservation !== "object" || !v.billing || typeof v.billing !== "object") return false;
+  const reservation = v.reservation as Record<string, unknown>;
+  const billing = v.billing as Record<string, unknown>;
+  const time = (x: unknown) => typeof x === "string" && Number.isFinite(Date.parse(x));
+  if (typeof reservation.customer_name !== "string" ||
+      (reservation.booking_code !== null && typeof reservation.booking_code !== "string") ||
+      !time(billing.start_time) || !time(billing.end_time) || typeof billing.status !== "string" ||
+      (billing.total_price !== null && (typeof billing.total_price !== "number" || !Number.isFinite(billing.total_price))) ||
+      typeof billing.is_deposit_paid !== "boolean" || (billing.next_start !== null && !time(billing.next_start))) return false;
+  if (billing.bill !== null) {
+    if (!billing.bill || typeof billing.bill !== "object") return false;
+    const bill = billing.bill as Record<string, unknown>;
+    if (!["hours", "hourlyRate", "roomFee", "foodTotal", "depositCredit", "due", "refund"].every((key) => typeof bill[key] === "number" && Number.isFinite(bill[key])) ||
+        !["bookedRoomFee", "extensionFee"].every((key) => bill[key] === null || (typeof bill[key] === "number" && Number.isFinite(bill[key]))) ||
+        typeof bill.isWeekend !== "boolean" || typeof bill.foodSettled !== "boolean") return false;
+  }
+  if (v.order !== null) {
+    if (!v.order || typeof v.order !== "object") return false;
+    const order = v.order as Record<string, unknown>;
+    if (typeof order.id !== "string" || (order.paid_at !== null && !time(order.paid_at)) || !Array.isArray(order.order_items) || order.order_items.some((item: unknown) => {
+      if (!item || typeof item !== "object") return true;
+      const row = item as Record<string, unknown>;
+      return typeof row.id !== "string" || typeof row.item_name !== "string" || typeof row.quantity !== "number" || !Number.isFinite(row.quantity) ||
+        (typeof row.unit_price !== "number" && typeof row.unit_price !== "string") || !Number.isFinite(Number(row.unit_price)) ||
+        (row.selected_options != null && (!Array.isArray(row.selected_options) || row.selected_options.some((option: unknown) =>
+          !option || typeof option !== "object" || typeof (option as Record<string, unknown>).name !== "string")));
+    })) return false;
+  }
+  return true;
+}
 
 const money = (n: number) => `NT$ ${Math.round(n).toLocaleString()}`;
 const durationText = (hours: number) => {
@@ -50,11 +88,14 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   const [discount, setDiscount] = useState("");
   const [discountReason, setDiscountReason] = useState("");
   const [busy, setBusy] = useState(false);
+  // State updates render asynchronously; guard synchronous repeat clicks too.
+  const mutationInFlight = useRef(false);
   const [error, setError] = useState("");
   /** 第一次載入就失敗：沒有畫面可顯示，要給「重試」而不是一直顯示載入中 */
   const [loadFailed, setLoadFailed] = useState("");
   const [menuState, setMenuState] = useState<"loading" | "ready" | "error">("loading");
   const api = `/api/admin/reservation-orders/${encodeURIComponent(reservationId)}`;
+  const addWarning = useAddOutcomeWarning(reservationId);
 
   // 目前顯示的是哪一組：切換組別後，舊組晚回來的回應一律丟掉，避免畫面是 A 組、按鈕卻送到 B 組
   const currentApi = useRef(api);
@@ -62,17 +103,19 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   // 每次請求一個遞增編號：A→B→A 切回來時，A 的舊請求端點相同，只比端點擋不住
   const requestGen = useRef(0);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (requireOrder = false): Promise<boolean> => {
     const requested = api;
     const gen = ++requestGen.current;
-    const response = await fetch(requested, { credentials: "include" });
+    const response = await fetchWithTimeout(requested, { credentials: "include" });
     // 逾時等情況回的是網頁不是 JSON：一樣要變成看得懂的錯誤
-    const data = response.ok ? await response.json() : null;
-    if (currentApi.current !== requested || gen !== requestGen.current) return;
+    const data: unknown = response.ok ? await readJsonWithTimeout<unknown>(response) : null;
+    if (currentApi.current !== requested || gen !== requestGen.current) return false;
     if (!response.ok) throw new Error(await responseError(response));
-    setView(data as View);
+    if (!isPanelView(data) || (requireOrder && !data.order)) throw new Error("訂單資料不完整，請重新載入");
+    setView(data);
     setLoadFailed("");
-    setCustomEnd(fmtClock((data as View).billing.end_time));
+    setCustomEnd(fmtClock(data.billing.end_time));
+    return true;
   }, [api]);
 
   const firstLoad = useCallback(() => {
@@ -108,25 +151,49 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   useEffect(() => { loadMenu(); }, [loadMenu]);
 
   async function act(action: string, extra: Record<string, unknown> = {}) {
+    if (mutationInFlight.current) return false;
+    if (action === "add_items" && !addWarning.confirmBeforeAdd(reservationId)) return false;
+    mutationInFlight.current = true;
     setBusy(true); setError("");
     const requested = api;
     const gen = ++requestGen.current;
+    let committed = false;
     try {
-      const response = await fetch(requested, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+      const response = await (action === "add_items" ? fetchWithTimeout : fetch)(requested, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, ...extra }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(friendlyMessage(data.error, response.status));
+      let data: Record<string, unknown>;
+      if (action === "add_items") {
+        const outcome = await readAddItemsOutcome(response);
+        if (outcome.kind !== "committed") {
+          if (outcome.kind === "unknown") addWarning.mark(reservationId, "unknown");
+          if (currentApi.current === requested) setError(outcome.message);
+          return false;
+        }
+        committed = true;
+        data = outcome.data;
+      } else {
+        data = await response.json();
+        if (!response.ok) throw new Error(friendlyMessage(typeof data.error === "string" ? data.error : undefined, response.status));
+      }
       // 回應已帶最新資料：直接套用。動作已成功，就不要因為之後的重新整理失敗而回報失敗（避免重按而重複加點）。
       if (currentApi.current !== requested || gen !== requestGen.current) { onChanged(); return true; }
-      // POST 回應帶 order／billing／preorder（沒有 reservation）：合併進目前畫面
-      if (data?.billing) {
+      // Never merge an add response into a full view: reload and validate it.
+      if (action === "add_items") {
+        addWarning.mark(reservationId, "committed_stale");
+        await load(true).then((loaded) => { if (loaded) addWarning.refreshed(reservationId); }).catch(() => undefined);
+      } else if (data?.billing && data?.order) {
         setView((previous) => previous ? { ...previous, ...(data as Partial<View>) } : previous);
         setCustomEnd(fmtClock((data as View).billing.end_time));
-      } else await load().catch(() => undefined);
+      } else await load(addWarning.warning === "committed_stale").catch(() => undefined);
       onChanged();
       return true;
-    } catch (cause) { setError(thrownMessage(cause)); return false; }
-    finally { setBusy(false); }
+    } catch (cause) {
+      const detail = thrownMessage(cause);
+      if (action === "add_items") addWarning.mark(reservationId, committed ? "committed_stale" : "unknown");
+      if (currentApi.current === requested) setError(detail);
+      return false;
+    }
+    finally { mutationInFlight.current = false; setBusy(false); }
   }
 
   const shown = useMemo(() => menu.filter((item) => category === "all" || item.category_id === category), [menu, category]);
@@ -176,12 +243,17 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
             {view.reservation.guest_count ? `${view.reservation.guest_count} 位 · ` : ""}訂位代號 {view.reservation.booking_code}
           </p>}
         </div>
-        <button type="button" onClick={onClose} aria-label="關閉" className="flex h-11 w-11 items-center justify-center rounded-xl hover:bg-paper-deep">
+        <button type="button" onClick={() => { if (!mutationInFlight.current || window.confirm("關閉面板不會取消正在送出的操作，操作仍可能完成。確定關閉？")) onClose(); }} aria-label="關閉" className="flex h-11 w-11 items-center justify-center rounded-xl hover:bg-paper-deep">
           <X className="h-5 w-5" strokeWidth={1.5} />
         </button>
       </header>
 
       <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
+        <AddOutcomeWarning warning={addWarning.warning} busy={busy} onReload={() => {
+          load(addWarning.warning === "committed_stale").then((loaded) => {
+            if (loaded) { addWarning.refreshed(reservationId); setError(""); }
+          }).catch((cause) => setError(thrownMessage(cause)));
+        }} />
         {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>}
         {!view && loadFailed && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
           <p>{loadFailed}</p>
@@ -269,8 +341,8 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
               <div className="mt-3 flex gap-2">
                 <button type="button" disabled={busy || picking.length !== 1 || Boolean(selectionProblem(menu, picking))}
                   onClick={async () => { if (await act("add_items", { items: picking })) setPicking(null); }}
-                  className="h-11 rounded-xl bg-ink px-4 text-sm font-semibold text-paper disabled:opacity-40">加入</button>
-                <button type="button" onClick={() => setPicking(null)} className="h-11 rounded-xl border border-ink/15 px-4 text-sm">取消</button>
+                  className="h-11 rounded-xl bg-ink px-4 text-sm font-semibold text-paper disabled:opacity-40">{busy ? "送出中…" : "加入"}</button>
+                <button type="button" disabled={busy} onClick={() => setPicking(null)} className="h-11 rounded-xl border border-ink/15 px-4 text-sm disabled:opacity-50">取消</button>
               </div>
             </div> : <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {shown.map((item) => <button key={item.id} type="button" disabled={busy} onClick={() => tapItem(item)}

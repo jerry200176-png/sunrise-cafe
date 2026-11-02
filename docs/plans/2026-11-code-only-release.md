@@ -69,6 +69,15 @@ be the healthy production version when this candidate is actually released;
 if production has changed, prepare a new reviewed baseline and manifest.
 This candidate is prepared locally and has not been deployed.
 
+### Add-items warning candidate
+
+The staff add-items warning candidate proposes baseline
+`6d7fd7d2be736f64e48c85cedfaa5da81ea38773` and a separately reviewed one-use
+manifest. Its code changes do not execute a migration or alter release,
+verification, watch or rollback behavior. The baseline must be the healthy
+production version at release; a different baseline requires new review.
+See `2026-11-add-items-ui-warning.md` for the limits of this partial mitigation.
+
 - Production deployment creation serves traffic when ready; unlike a staged
   production build, health verification occurs immediately after traffic moves.
   Preview and production would be different builds/environments, so a preview
