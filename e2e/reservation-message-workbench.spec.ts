@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { test, expect, type Page } from "@playwright/test";
 import { seedAdminSession } from "./helpers/admin-session";
 
@@ -39,8 +40,11 @@ const reservationDifferentContact = {
 async function mockReservationApis(
   page: Page,
   actions: Array<Record<string, unknown>>,
-  reservations: Array<Record<string, unknown>> = [reservation]
+  reservations: Array<Record<string, unknown>> = [reservation],
+  options: { copyResponse?: "mismatch" | "missing"; paths?: string[] } = {}
 ) {
+  const batchId = "11111111-1111-4111-8111-111111111111";
+  const digest = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
   await page.route("**/api/branches**", async (route) => {
     await route.fulfill({
       status: 200,
@@ -64,17 +68,30 @@ async function mockReservationApis(
   });
   await page.route("**/api/reservations**", async (route) => {
     const url = new URL(route.request().url());
-    if (url.pathname.endsWith("/message-actions/batch")) {
+    if (url.pathname.endsWith("/message-actions/batch") || url.pathname.endsWith("/message-actions/batch/v2")) {
+      const isV2 = url.pathname.endsWith("/v2");
       const body = JSON.parse(route.request().postData() ?? "{}");
       const selected = reservations.filter((item) => body.reservation_ids.includes(item.id));
       const blocked = new Set(selected.map((item) => item.phone)).size > 1;
-      if (body.action === "copied") actions.push(body);
+      const combined = selected.map((item, index) => `===== 第 ${index + 1} 筆訂位 =====\ncanonical ${item.booking_code}`).join("\n\n");
+      if (isV2) {
+        options.paths?.push(url.pathname);
+        expect(route.request().method()).toBe("POST");
+        expect(body).toMatchObject({ version: 2, action: "copied", template_key: "deposit_request", batch_id: batchId });
+        expect(["single", "all"]).toContain(body.mode);
+        expect(body.reservation_ids).toEqual(selected.map((item) => item.id));
+        expect(body.digests).toEqual(selected.map((item) => ({ id: item.id, digest: digest(`canonical ${item.booking_code}`) })));
+        if (body.mode === "all") expect(body.combined_digest).toBe(digest(combined));
+        else { expect(selected).toHaveLength(1); expect(body.combined_digest).toBeUndefined(); }
+        actions.push(body);
+      } else expect(body.action).toBe("preview");
       await route.fulfill({
         status: body.action === "copied" && blocked ? 409 : 200,
         contentType: "application/json",
         body: JSON.stringify({
           ok: !blocked,
-          batch_id: "batch-e2e-1",
+          batch_id: batchId,
+          ...(isV2 ? { version: 2 } : {}),
           can_batch_copy: !blocked,
           warnings: blocked ? ["選取的訂位不是同一位客人／聯絡資料，無法複製全部。"] : [],
           items: selected.map((item) => ({
@@ -87,28 +104,33 @@ async function mockReservationApis(
             deposit_amount: 1000,
             text: `canonical ${item.booking_code}`,
           })),
-          combined_text: selected.map((item, index) => `===== 第 ${index + 1} 筆訂位 =====\ncanonical ${item.booking_code}`).join("\n\n"),
+          combined_text: combined,
           action_ids: selected.map((_, index) => `batch-a-${index + 1}`),
         }),
       });
       return;
     }
-    if (url.pathname.endsWith("/message-actions")) {
-      if (route.request().method() === "POST") {
-        const body = JSON.parse(route.request().postData() ?? "{}");
-        actions.push(body);
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true, action_id: `a-${actions.length}`, text: "canonical message" }),
-        });
+    if (url.pathname.endsWith("/message-actions/v2")) {
+      options.paths?.push(url.pathname);
+      const body = JSON.parse(route.request().postData() ?? "{}");
+      expect(route.request().method()).toBe("POST");
+      expect(body).toMatchObject({ version: 2, channel: "manual_line", template_key: "booking_confirmation", digest: digest("canonical message") });
+      expect(["copied", "manual_sent"]).toContain(body.action);
+      actions.push(body);
+      if (options.copyResponse) {
+        await route.fulfill({ status: options.copyResponse === "missing" ? 404 : 409, contentType: "application/json", body: JSON.stringify({ error: "synthetic failure" }) });
         return;
       }
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ ok: true, template_key: "booking_confirmation", text: "canonical message" }),
-      });
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, version: 2, action: body.action, action_id: `a-${actions.length}`, text: "canonical message" }) });
+      return;
+    }
+    if (url.pathname.endsWith("/message-actions")) {
+      if (route.request().method() === "POST") {
+        options.paths?.push(url.pathname);
+        await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "unexpected legacy write" }) });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, template_key: "booking_confirmation", text: "canonical message" }) });
       return;
     }
     // GET /api/reservations 回傳 { items, nextCursor, total, warnings }；這些訂位都是未結案（scope=active）
@@ -125,7 +147,8 @@ test("未綁 LINE 客人可複製訊息並留下人工傳送紀錄", async ({ pa
   await seedAdminSession(context);
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   const actions: Array<Record<string, unknown>> = [];
-  await mockReservationApis(page, actions);
+  const paths: string[] = [];
+  await mockReservationApis(page, actions, [reservation], { paths });
 
   await page.goto("/admin");
   await page.getByRole("button", { name: "訊息工作台" }).click();
@@ -139,13 +162,33 @@ test("未綁 LINE 客人可複製訊息並留下人工傳送紀錄", async ({ pa
   await markSent.click();
   await expect(page.getByText("已記錄人工傳送")).toBeVisible();
   expect(actions.map((action) => action.action)).toEqual(["copied", "manual_sent"]);
+  expect(paths).toEqual(["/api/reservations/r-message-1/message-actions/v2", "/api/reservations/r-message-1/message-actions/v2"]);
 });
+
+for (const copyResponse of ["mismatch", "missing"] as const) {
+  test(`v2 ${copyResponse} 回應不回退舊寫入或標記傳送`, async ({ page, context }) => {
+    await seedAdminSession(context);
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    const actions: Array<Record<string, unknown>> = [];
+    const paths: string[] = [];
+    await mockReservationApis(page, actions, [reservation], { copyResponse, paths });
+    await page.goto("/admin");
+    await page.getByRole("button", { name: "訊息工作台" }).click();
+    await expect(page.locator("#reservation-message-preview")).toHaveValue("canonical message");
+    await page.getByRole("button", { name: "產生並複製" }).click();
+    await expect(page.getByRole("alert").filter({ hasText: "操作紀錄結果未確認" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "標記已傳送" })).toBeDisabled();
+    expect(paths).toEqual(["/api/reservations/r-message-1/message-actions/v2"]);
+    expect(actions).toHaveLength(1);
+  });
+}
 
 test("同一客人的多天訂位可預覽、複製全部與逐筆複製", async ({ page, context }) => {
   await seedAdminSession(context);
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   const actions: Array<Record<string, unknown>> = [];
-  await mockReservationApis(page, actions, [reservation, reservation2]);
+  const paths: string[] = [];
+  await mockReservationApis(page, actions, [reservation, reservation2], { paths });
 
   await page.goto("/admin");
   await page.getByRole("checkbox", { name: /未綁 LINE 客人 MSG001/ }).check();
@@ -161,6 +204,7 @@ test("同一客人的多天訂位可預覽、複製全部與逐筆複製", async
 
   await page.getByRole("button", { name: "單獨複製" }).first().click();
   await expect(page.getByText(/已複製；已複製不等於已傳送/)).toBeVisible();
+  expect(paths).toEqual(["/api/reservations/message-actions/batch/v2", "/api/reservations/message-actions/batch/v2"]);
 });
 
 test("不同聯絡資料只顯示警告並阻止複製全部", async ({ page, context }) => {

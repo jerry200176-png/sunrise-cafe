@@ -1,10 +1,47 @@
 {
   "approved_files": {
-    "docs/plans/2026-11-query-payment-reduced-motion.md": "70103cf1355d762b497f9d9151c8f7f75c038a45",
-    "scripts/code-only-release.py": "ffe1cdcafbfa54ba94165c07c2335a6eb14c4f33",
-    "src/app/admin/payments/page.tsx": "74ebcea50bc28432900048a2626a6f7a67e95356",
-    "src/app/book/query/page.tsx": "a143d79bb1f614d63982145ef2614b9fa8d253c1",
-    "src/app/interaction-motion.integration.test.tsx": "7b955da1e2d681f680532b1051ca6d1fc4188efa"
+    "docs/plans/2026-11-admin-copy-feedback-integrity.md":
+      "f29975fd10d157b49b48128cfe13d1c8e66bc13d",
+    "e2e/reservation-message-workbench.spec.ts":
+      "27d831adac99133082991b2ca511321082f0a337",
+    "scripts/code-only-release.py":
+      "39f92db37e3022bde9def6e50715468b14598fb1",
+    "src/app/api/reservations/[id]/message-actions/handler.ts":
+      "fdbfd252c9daae25a78f2643695b2d2f0616333c",
+    "src/app/api/reservations/[id]/message-actions/route.test.ts":
+      "f7879f175c73e85a781e18c5da4aef4e6ec9eec8",
+    "src/app/api/reservations/[id]/message-actions/route.ts":
+      "51cb60d2e1cfd14e0ab715a39eeeab919fadaa86",
+    "src/app/api/reservations/[id]/message-actions/v2/route.ts":
+      "1056d957c30983a7e262eae39298d5e6a02d4a61",
+    "src/app/api/reservations/message-actions/batch/handler.ts":
+      "7c0a6bbc574baad6c8ede36421d98e5a85cf1329",
+    "src/app/api/reservations/message-actions/batch/route.test.ts":
+      "cab5ea66b3720d974b9f46ce05e8620247cc977e",
+    "src/app/api/reservations/message-actions/batch/route.ts":
+      "166a151e959c0e9ed6914ae222486974ebceb1ed",
+    "src/app/api/reservations/message-actions/batch/v2/route.ts":
+      "1056d957c30983a7e262eae39298d5e6a02d4a61",
+    "src/components/BatchDepositMessageWorkbench.test.tsx":
+      "91392287423fe7387c0bddb98ea9dad2cb9bfa62",
+    "src/components/BatchDepositMessageWorkbench.tsx":
+      "3653354a21af700cab9ea67a16e7345141039fb1",
+    "src/components/ReservationList.selection.test.tsx":
+      "fa9d777166183edf7f6dd67ff57b6abf429fb958",
+    "src/components/ReservationList.tsx":
+      "f3050184aecaeecf3fda6bf9262fd766376b3a40",
+    "src/lib/admin-api-auth.test.ts":
+      "dc52d55045f5e319a368e84f606d261da5b74d12",
+    "src/lib/admin-api-auth.ts":
+      "fba7e3b1ab0f6d2961c4748888dcff6b74a56420",
+    "src/lib/copy-text.ts":
+      "3b007bd12129d7a4301b344e8fff2b8876077b8f",
+    "src/lib/message-copy-digest.test.ts":
+      "cbc8c1178412f85e8b02d4dd95e807ce16f6ba01",
+    "src/lib/message-copy-digest.ts":
+      "6f4ff0a71033a240203ba9511680a4cfa763e2c1",
+    "src/middleware.message-copy-v2.test.ts":
+      "30301b2abdd8f72e1d7a4d5fa273ea1db942aaa9"
   },
-  "baseline": "3486c48d3514f197ab72cf24e6ff6532b0b28005"
+  "baseline": "0f00e3796e7cee4854d630ff0763ff083db7ac50"
 }

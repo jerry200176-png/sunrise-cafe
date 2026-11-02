@@ -127,3 +127,34 @@ describe("batch reservation message API", () => {
     expect(mocks.assertMessage).toHaveBeenCalledWith(mocks.authContext, "branch-1");
   });
 });
+
+describe("versioned batch verification", () => {
+  it("checks every rendered item and combined text before any write", async () => {
+    const { createHash } = await import("node:crypto");
+    const { POST: postV2 } = await import("./v2/route");
+    const hash = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
+    mocks.recordBatch.mockClear(); mocks.fetchBatch.mockReset();
+    const rows = [context("r-1"), context("r-2")];
+    mocks.fetchBatch.mockResolvedValue(rows);
+    const preview = await POST(request({ reservation_ids: ["r-1", "r-2"], template_key: "deposit_request", action: "preview" }));
+    const body = await preview.json();
+    const payload = { reservation_ids: ["r-1", "r-2"], template_key: "deposit_request", action: "copied", version: 2, mode: "all", batch_id: body.batch_id, digests: body.items.map((item: { reservation_id: string; text: string }) => ({ id: item.reservation_id, digest: hash(item.text) })), combined_digest: hash(body.combined_text) };
+    expect((await postV2(request({ ...payload, combined_digest: hash("changed") }))).status).toBe(409);
+    expect((await postV2(request({ ...payload, digests: [payload.digests[0], { ...payload.digests[1], digest: hash("changed") }] }))).status).toBe(409);
+    expect((await postV2(request({ ...payload, digests: [payload.digests[0], payload.digests[0]] }))).status).toBe(400);
+    expect(mocks.recordBatch).not.toHaveBeenCalled();
+    const response = await postV2(request(payload));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ version: 2, ok: true });
+    expect(mocks.recordBatch).toHaveBeenCalledOnce();
+  });
+  it("denies revoked branch access before writing", async () => {
+    const { POST: postV2 } = await import("./v2/route");
+    mocks.recordBatch.mockClear(); mocks.fetchBatch.mockReset(); mocks.assertMessage.mockReset();
+    mocks.fetchBatch.mockResolvedValue([context("r-1")]);
+    mocks.assertMessage.mockReturnValueOnce("Forbidden");
+    const response = await postV2(request({ reservation_ids: ["r-1"], template_key: "deposit_request", action: "copied", version: 2, mode: "single", digests: [] }));
+    expect(response.status).toBe(403);
+    expect(mocks.recordBatch).not.toHaveBeenCalled();
+  });
+});
