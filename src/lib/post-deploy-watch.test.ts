@@ -24,11 +24,52 @@ function fakeFetch(spec: () => Spec) {
 const noSleep = async () => {};
 const run = (spec: () => Spec, extra = {}) =>
   watch({ base: "https://x.test", expectedSha: SHA, minutes: 15, intervalSeconds: 30, failRounds: 5, fetchImpl: fakeFetch(spec) as never, sleep: noSleep, log: () => {}, ...extra });
+const runThreeRounds = (versions: (string | null)[]) => {
+  let round = 0;
+  const calls = fakeFetch(() => ({ version: versions[round - 1] }));
+  return watch({
+    base: "https://x.test", expectedSha: SHA, minutes: 1.5, intervalSeconds: 30, failRounds: 5,
+    fetchImpl: ((url: string, init: unknown) => {
+      if (url.endsWith("/api/version")) round++;
+      return (calls as never as (u: string, i: unknown) => unknown)(url, init);
+    }) as never, sleep: noSleep, log: () => {},
+  });
+};
 
 describe("post-deploy watch", () => {
   it("is healthy when every probe passes for the whole window", async () => {
     const r = await run(() => ({}));
     expect(r).toMatchObject({ exitCode: 0, verdict: "healthy", rounds: 30 });
+  });
+
+  it.each([null, "", "not-a-sha", "a".repeat(7)])("does not report healthy when the final version is unknown (%s)", async (last) => {
+    const result = await runThreeRounds([SHA, SHA, last]);
+    expect(result).toMatchObject({ exitCode: 11, verdict: "identity_unknown", rounds: 3 });
+    expect(result.lastFailed).toContain("version:unavailable");
+  });
+
+  it("allows an intermediate unknown version only when the last version is confirmed", async () => {
+    expect(await runThreeRounds([SHA, null, SHA])).toMatchObject({ exitCode: 0, verdict: "healthy", rounds: 3 });
+  });
+
+  it("reports another valid SHA as superseded rather than unknown", async () => {
+    expect(await runThreeRounds([SHA, SHA, OLD])).toMatchObject({ exitCode: 11, verdict: "superseded", rounds: 3 });
+  });
+
+  it("rejects an invalid expected SHA before any network probe", async () => {
+    let calls = 0;
+    const result = await watch({ base: "https://x.test", expectedSha: "", fetchImpl: (async () => { calls++; throw new Error("not called"); }) as never, sleep: noSleep, log: () => {} });
+    expect(result).toMatchObject({ exitCode: 11, verdict: "invalid_expected_sha", rounds: 0 });
+    expect(calls).toBe(0);
+  });
+
+  it("classifies a malformed version body as unavailable", async () => {
+    const result = await runRound({ base: "https://x.test", expectedSha: SHA, fetchImpl: (async (url: string) => {
+      if (url.endsWith("/api/version")) return { ok: true, json: async () => { throw new SyntaxError("bad JSON"); } };
+      return { status: 200, headers: { get: () => "application/json" }, json: async () => ({ ok: true }) };
+    }) as never });
+    expect(result.matches).toBe(false);
+    expect(result.failed).toContain("version:unavailable");
   });
 
   it("tolerates a transient blip (2 failing rounds, fewer than 5 consecutive)", async () => {
@@ -53,7 +94,7 @@ describe("post-deploy watch", () => {
     expect(flaky.lastFailed).toContain("version:unavailable");
   });
 
-  it("never rolls back when production serves a different SHA (not ours or superseded)", async () => {
+  it("does not report healthy when production serves a different SHA", async () => {
     const never = await run(() => ({ version: OLD, health: false }));
     expect(never).toMatchObject({ exitCode: 11, verdict: "never_served_expected_sha" });
     let n = 0;
