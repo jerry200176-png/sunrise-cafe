@@ -170,6 +170,7 @@ function SuccessContent() {
               <div className="mt-3 flex flex-wrap justify-center gap-2">
                 <CopyBookingCodeButton code={code} />
                 <GuestCopyButton
+                  identity={JSON.stringify([meta, code, effectiveToken, deadlineInfo?.label])}
                   getText={receiptText}
                   label={t("success.copyReceipt")}
                   copiedLabel={t("success.receiptCopied")}
@@ -222,6 +223,7 @@ function SuccessContent() {
                   <div className="flex items-center justify-between gap-2 mb-1.5">
                     <p className="text-xs font-bold text-amber-900">{t("success.depositPaymentTitle")}</p>
                     <GuestCopyButton
+                      identity={meta.paymentInfo!}
                       getText={() => meta.paymentInfo!}
                       label={t("query.copyPaymentInfo")}
                       copiedLabel={t("query.paymentInfoCopied")}

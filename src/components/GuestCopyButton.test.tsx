@@ -27,7 +27,7 @@ describe("guest copy feedback", () => {
     let complete!: () => void;
     const writeText = vi.fn(() => new Promise<void>((resolve) => { complete = resolve; }));
     clipboard({ writeText });
-    show(<GuestCopyButton getText={() => "synthetic account"} label="複製資料" copiedLabel="複製成功" />);
+    show(<GuestCopyButton identity="account" getText={() => "synthetic account"} label="複製資料" copiedLabel="複製成功" />);
     fireEvent.click(screen.getByRole("button", { name: "複製資料" }));
     fireEvent.click(screen.getByRole("button", { name: "複製中…" }));
     expect(writeText).toHaveBeenCalledOnce();
@@ -47,7 +47,7 @@ describe("guest copy feedback", () => {
       if (mode === "fallback throws") execCommand(vi.fn(() => { throw new Error("unsupported"); }));
       if (mode === "fallback missing") execCommand(undefined);
     }
-    show(<GuestCopyButton getText={() => "synthetic payment info"} label="複製資料" copiedLabel="複製成功" />);
+    show(<GuestCopyButton identity="payment" getText={() => "synthetic payment info"} label="複製資料" copiedLabel="複製成功" />);
     fireEvent.click(screen.getByRole("button", { name: "複製資料" }));
     const field = await screen.findByRole("textbox", { name: "可手動複製的文字" }) as HTMLTextAreaElement;
     expect(field.readOnly).toBe(true);
@@ -64,7 +64,7 @@ describe("guest copy feedback", () => {
     clipboard(undefined);
     const legacy = vi.fn(() => true);
     execCommand(legacy);
-    show(<GuestCopyButton getText={() => "ABC123"} label="複製資料" copiedLabel="複製成功" />);
+    show(<GuestCopyButton identity="code" getText={() => "ABC123"} label="複製資料" copiedLabel="複製成功" />);
     fireEvent.click(screen.getByRole("button", { name: "複製資料" }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe("複製成功"));
     expect(legacy).toHaveBeenCalledWith("copy");
@@ -74,7 +74,7 @@ describe("guest copy feedback", () => {
   it("keeps each guest action independent and lets failures be retried", async () => {
     const writeText = vi.fn().mockRejectedValueOnce(new Error("denied")).mockResolvedValue(undefined);
     clipboard({ writeText });
-    show(<><GuestCopyButton getText={() => "A"} label="複製 A" copiedLabel="A 已複製" /><GuestCopyButton getText={() => "B"} label="複製 B" copiedLabel="B 已複製" /></>);
+    show(<><GuestCopyButton identity="A" getText={() => "A"} label="複製 A" copiedLabel="A 已複製" /><GuestCopyButton identity="B" getText={() => "B"} label="複製 B" copiedLabel="B 已複製" /></>);
     fireEvent.click(screen.getByRole("button", { name: "複製 A" }));
     await screen.findByRole("textbox", { name: "可手動複製的文字" });
     fireEvent.click(screen.getByRole("button", { name: "複製 B" }));
@@ -96,6 +96,30 @@ describe("guest copy feedback", () => {
     show(<CopyBookingCodeButton code="ABC123" />);
     fireEvent.click(await screen.findByRole("button", { name: button }));
     expect((await screen.findByRole("textbox", { name: label }) as HTMLTextAreaElement).value).toBe("ABC123");
+  });
+
+  it.each(["resolve", "reject"])("ignores a late %s after the booking code changes", async (outcome) => {
+    let finish!: () => void;
+    let reject!: (reason: Error) => void;
+    clipboard({ writeText: () => new Promise<void>((resolve, fail) => { finish = resolve; reject = fail; }) });
+    const view = show(<CopyBookingCodeButton code="OLD123" />);
+    fireEvent.click(screen.getByRole("button", { name: "複製訂位代號" }));
+    view.rerender(<LocaleProvider><CopyBookingCodeButton code="NEW456" /></LocaleProvider>);
+    const button = screen.getByRole("button", { name: "複製訂位代號" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    await act(async () => outcome === "resolve" ? finish() : reject(new Error("denied")));
+    expect(screen.queryByText("已複製")).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe("");
+  });
+
+  it("clears a failed manual fallback when the copied content changes", async () => {
+    clipboard({ writeText: vi.fn().mockRejectedValue(new Error("denied")) });
+    const view = show(<CopyBookingCodeButton code="OLD123" />);
+    fireEvent.click(screen.getByRole("button", { name: "複製訂位代號" }));
+    expect((await screen.findByRole("textbox") as HTMLTextAreaElement).value).toBe("OLD123");
+    view.rerender(<LocaleProvider><CopyBookingCodeButton code="NEW456" /></LocaleProvider>);
+    expect(screen.queryByRole("textbox")).toBeNull();
   });
 
   it("ignores a late result after unmount", async () => {

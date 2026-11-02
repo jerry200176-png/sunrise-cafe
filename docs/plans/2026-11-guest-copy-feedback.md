@@ -6,13 +6,13 @@
 
 ## 現有功能與方案
 
-searched: `clipboard.writeText`, `execCommand`, `copyPaymentInfo`, `copyReceipt`, `CopyBookingCodeButton`、開啟的 PR 與既有複製工作。found: `src/app/admin/menu/page.tsx` 與 #516 已等待完成並保留可選取的手動欄位；`BatchDepositMessageWorkbench` 檢查 fallback 布林但綁定後台記錄，不適合客人頁。現有客人查詢、成功頁及訂位碼元件各自複製；不改動原有文字內容。選擇抽取客人共用元件：每個按鈕有獨立 pending、成功、可見的失敗與唯讀手動欄位；只在 API resolve 或 fallback 明確回傳 true 後顯示成功，拒絕或 false 皆可手動選取。重入被同步防止、卸載清理計時與非同步結果；內容不寫入儲存、日誌或事件。
+searched: `clipboard.writeText`, `execCommand`, `copyPaymentInfo`, `copyReceipt`, `CopyBookingCodeButton`、開啟的 PR 與既有複製工作。found: `src/app/admin/menu/page.tsx` 與 #516 已等待完成並保留可選取的手動欄位；`BatchDepositMessageWorkbench` 檢查 fallback 布林但綁定後台記錄，不適合客人頁。現有客人查詢、成功頁及訂位碼元件各自複製；不改動原有文字內容。選擇抽取客人共用元件：每個按鈕有獨立 pending、成功、可見的失敗與唯讀手動欄位；只在 API resolve 或 fallback 明確回傳 true 後顯示成功，拒絕或 false 皆可手動選取。重入被同步防止、卸載清理計時與非同步結果；複製內容或訂位身分變更時重建按鈕，丟棄舊的 pending／手動狀態。內容不寫入儲存、日誌或事件。
 
 替代方案是各頁各自補錯誤處理；會繼續複製狀態機且容易讓行為分歧。另一方案只顯示 toast；訂位摘要含動態連結，失敗時客人無法完整手動選取，故不採用。使用現有 Tailwind 樣式與翻譯架構，不新增套件；避免自動傳送任何資訊。
 
 ## 驗收、發布與觀察
 
-在中英日語介面，成功須等待瀏覽器確認；拒絕、缺 API、fallback false/exception 時，不宣稱成功並提供帶標籤可鍵盤選取的手動文字；pending 不重送，跨按鈕不互相覆蓋。測試 Promise 延遲／拒絕、fallback 結果、手動欄位與卸載；以客人頁整合測試或相關元件測試核對各入口。保留原複製文字和既有付款邏輯，不動 API、資料庫、訂金規則或 LINE。依正常 CI 與獨立審查發布；必要時回退應用程式碼，不涉及資料回復。以離線測試及部署後不含客資的人工瀏覽器操作觀察，不新增追蹤事件。
+在中英日語介面，成功須等待瀏覽器確認；拒絕、缺 API、fallback false/exception 時，不宣稱成功並提供帶標籤可鍵盤選取的手動文字；pending 不重送，跨按鈕不互相覆蓋。測試 Promise 延遲／拒絕、fallback 結果、手動欄位、卸載及 A／B 內容切換期間遲到的成功／失敗；以客人頁整合測試或相關元件測試核對各入口。保留原複製文字和既有付款邏輯，不動 API、資料庫、訂金規則或 LINE。依正常 CI 與獨立審查發布；必要時回退應用程式碼，不涉及資料回復。以離線測試及部署後不含客資的人工瀏覽器操作觀察，不新增追蹤事件。
 
 ## 參考做法
 

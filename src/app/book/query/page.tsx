@@ -683,6 +683,7 @@ function BookQueryContent() {
                         {item.branch_display_name || item.branch_name} · {item.room_name}
                       </p>
                       <GuestCopyButton
+                        identity={JSON.stringify([item, lookupToken])}
                         getText={() => bookingDetailsText(item)}
                         label={t("query.copyReceipt")}
                         copiedLabel={t("query.receiptCopied")}
@@ -930,6 +931,7 @@ function BookQueryContent() {
                                 </div>
                                 <div className="flex justify-end pt-2 border-t border-gray-100">
                                   <GuestCopyButton
+                                    identity={item.payment_info!.trim()}
                                     getText={() => item.payment_info!.trim()}
                                     label={t("query.copyPaymentInfo")}
                                     copiedLabel={t("query.paymentInfoCopied")}

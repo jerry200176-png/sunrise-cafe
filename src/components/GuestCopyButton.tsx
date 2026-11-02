@@ -5,6 +5,8 @@ import { Check, Copy } from "lucide-react";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 
 type Props = {
+  /** Changes whenever the content being copied changes. Never written to logs or storage. */
+  identity: string;
   getText: () => string;
   label: string;
   copiedLabel: string;
@@ -12,8 +14,13 @@ type Props = {
   className?: string;
 };
 
+/** A content change abandons pending state and any old manual fallback. */
+export function GuestCopyButton(props: Props) {
+  return <GuestCopyButtonInstance key={props.identity} {...props} />;
+}
+
 /** Keep the failed text local to this button so a guest can select it manually. */
-export function GuestCopyButton({ getText, label, copiedLabel, ariaLabel, className = "" }: Props) {
+function GuestCopyButtonInstance({ getText, label, copiedLabel, ariaLabel, className = "" }: Props) {
   const { t } = useLocale();
   const [state, setState] = useState<"idle" | "pending" | "copied" | "error">("idle");
   const [manualText, setManualText] = useState("");

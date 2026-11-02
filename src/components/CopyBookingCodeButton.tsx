@@ -12,6 +12,7 @@ export function CopyBookingCodeButton({ code, className = "" }: Props) {
   const { t } = useLocale();
   return (
     <GuestCopyButton
+      identity={code}
       getText={() => code}
       label={t("copyCode.label")}
       copiedLabel={t("copyCode.copied")}
