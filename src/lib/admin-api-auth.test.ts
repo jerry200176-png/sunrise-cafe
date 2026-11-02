@@ -51,6 +51,8 @@ describe("isAdminOnlyApiPath (RC2 P2)", () => {
     expect(isAdminOnlyApiPath("/api/reservations/send-line", "POST")).toBe(true);
     expect(isAdminOnlyApiPath("/api/reservations/abc/message-actions", "GET")).toBe(true);
     expect(isAdminOnlyApiPath("/api/reservations/abc/message-actions", "POST")).toBe(true);
+    expect(isAdminOnlyApiPath("/api/reservations/abc/message-actions/v2", "POST")).toBe(true);
+    expect(isAdminOnlyApiPath("/api/reservations/message-actions/batch/v2", "POST")).toBe(true);
     expect(isAdminOnlyApiPath("/api/reservations/recurring/admin", "POST")).toBe(true);
   });
 
