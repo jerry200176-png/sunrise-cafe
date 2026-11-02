@@ -31,4 +31,4 @@
 
 使用者於 2026-11-01 回報一份 public-only 加密備份在自己的電腦完成隔離解密及 PostgreSQL 還原。此為使用者回報，agent 未取得私鑰或備份內容，也未獨立驗證來源身分、逐筆資料、真實角色 ACL、Auth、Storage 與 Supabase 設定；此結果不是完整備份鏈驗收，#485 持續追蹤。過去全面發布暫停是當時狀態；目前仍須遵守未驗證 migration 的限制，不以該次演練推定所有部署或遷移均安全。
 
-離線 Vitest 與 Python 診斷／檔案測試使用合成資料。額外的 age／PostgreSQL 整合腳本必須以公開測試身分和虛構 dump 執行，會使用呼叫端預設 Docker context，操作前須自行確認其為可信的本機 daemon；不得提供真實備份或私鑰。該整合腳本與 Python 測試目前未接 CI，不應把手動結果稱為持續 gate。
+離線 Vitest 與 Python 診斷／檔案測試使用合成資料。額外的 age／PostgreSQL 整合腳本必須以公開測試身分和虛構 dump 執行，會使用呼叫端預設 Docker context，操作前須自行確認其為可信的本機 daemon；不得提供真實備份或私鑰。兩個 Python 診斷／路徑測試已列入 CI，但 age／PostgreSQL 與完整 PTY 整合測試仍未接入 CI，不應把手動結果稱為持續 gate。
