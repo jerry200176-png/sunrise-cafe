@@ -3,9 +3,10 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { CheckCircle2, ArrowLeft, Clock, Copy, CalendarPlus, Calendar, MapPin, Phone, ExternalLink } from "lucide-react";
+import { CheckCircle2, ArrowLeft, Clock, CalendarPlus, Calendar, MapPin, Phone, ExternalLink } from "lucide-react";
 import { encodeLineBindState } from "@/lib/line-bind";
 import { CopyBookingCodeButton } from "@/components/CopyBookingCodeButton";
+import { GuestCopyButton } from "@/components/GuestCopyButton";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { CustomerShell } from "@/components/customer/CustomerShell";
 import { loadBookingSuccessMeta, type BookingSuccessMeta } from "@/lib/booking-draft";
@@ -42,8 +43,6 @@ function SuccessContent() {
   const [bindPhone, setBindPhone] = useState("");
   const [meta, setMeta] = useState<BookingSuccessMeta | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const [receiptCopied, setReceiptCopied] = useState(false);
-  const [paymentInfoCopied, setPaymentInfoCopied] = useState(false);
 
   const effectiveToken = tokenFromUrl || meta?.lookupToken || "";
 
@@ -70,25 +69,6 @@ function SuccessContent() {
       endTime: endIso,
     });
   }, [code, meta, effectiveToken]);
-
-  async function copyPaymentInfo(text: string) {
-    if (!text.trim()) return;
-    try {
-      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
-      else {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-      }
-      setPaymentInfoCopied(true);
-      window.setTimeout(() => setPaymentInfoCopied(false), 2000);
-    } catch {
-      /* ignore */
-    }
-  }
 
   useEffect(() => {
     const saved = sessionStorage.getItem("booking_success_phone");
@@ -126,8 +106,8 @@ function SuccessContent() {
     };
   }, [meta, now]);
 
-  async function copyReceipt() {
-    if (!meta && !code) return;
+  function receiptText() {
+    if (!meta && !code) return "";
     const origin = typeof window !== "undefined" ? window.location.origin : "";
     const manageUrl = origin
       ? effectiveToken
@@ -154,22 +134,7 @@ function SuccessContent() {
       meta?.branchAddress ? `地址：${meta.branchAddress}` : null,
       `查詢／取消訂位：${manageUrl}`,
     ].filter(Boolean) as string[];
-    const text = lines.join("\n");
-    try {
-      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
-      else {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-      }
-      setReceiptCopied(true);
-      window.setTimeout(() => setReceiptCopied(false), 2000);
-    } catch {
-      /* ignore */
-    }
+    return lines.join("\n");
   }
 
   function startLineLogin() {
@@ -204,14 +169,12 @@ function SuccessContent() {
               </p>
               <div className="mt-3 flex flex-wrap justify-center gap-2">
                 <CopyBookingCodeButton code={code} />
-                <button
-                  type="button"
-                  onClick={copyReceipt}
+                <GuestCopyButton
+                  getText={receiptText}
+                  label={t("success.copyReceipt")}
+                  copiedLabel={t("success.receiptCopied")}
                   className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-50"
-                >
-                  <Copy className="h-4 w-4" />
-                  {receiptCopied ? t("success.receiptCopied") : t("success.copyReceipt")}
-                </button>
+                />
               </div>
               <p className="mt-3 text-xs text-amber-700">{t("success.codeHint")}</p>
             </div>
@@ -258,14 +221,12 @@ function SuccessContent() {
                 <div className="mt-3 rounded-lg border border-amber-200 bg-white p-3 shadow-sm">
                   <div className="flex items-center justify-between gap-2 mb-1.5">
                     <p className="text-xs font-bold text-amber-900">{t("success.depositPaymentTitle")}</p>
-                    <button
-                      type="button"
-                      onClick={() => copyPaymentInfo(meta.paymentInfo!)}
+                    <GuestCopyButton
+                      getText={() => meta.paymentInfo!}
+                      label={t("query.copyPaymentInfo")}
+                      copiedLabel={t("query.paymentInfoCopied")}
                       className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 hover:text-amber-800"
-                    >
-                      <Copy className="h-3.5 w-3.5" />
-                      {paymentInfoCopied ? t("query.paymentInfoCopied") : t("query.copyPaymentInfo")}
-                    </button>
+                    />
                   </div>
                   <p className="whitespace-pre-line text-xs text-gray-800 font-mono leading-relaxed bg-amber-50/50 p-2.5 rounded border border-amber-100">
                     {meta.paymentInfo}

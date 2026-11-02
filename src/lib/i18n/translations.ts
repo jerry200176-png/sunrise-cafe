@@ -267,6 +267,9 @@ const zhTW: Dict = {
   "waitlistConfirm.expiredTitle": "候補連結已失效",
   "waitlistConfirm.expiredDesc": "此候補連結已逾時或已被其他候補取代，請重新加入候補清單。",
 
+  "copy.pending": "複製中…",
+  "copy.error": "無法自動複製，請選取下方文字手動複製。",
+  "copy.manualLabel": "可手動複製的文字",
   "copyCode.label": "複製代號",
   "copyCode.copied": "已複製",
   "copyCode.ariaLabel": "複製訂位代號",
@@ -628,6 +631,9 @@ const en: Dict = {
   "waitlistConfirm.expiredTitle": "Link expired",
   "waitlistConfirm.expiredDesc": "This link timed out or was taken by another guest. Please join the waitlist again.",
 
+  "copy.pending": "Copying…",
+  "copy.error": "Could not copy automatically. Select the text below to copy it manually.",
+  "copy.manualLabel": "Text to copy manually",
   "copyCode.label": "Copy code",
   "copyCode.copied": "Copied",
   "copyCode.ariaLabel": "Copy booking code",
@@ -989,6 +995,9 @@ const ja: Dict = {
   "waitlistConfirm.expiredTitle": "リンクの有効期限切れ",
   "waitlistConfirm.expiredDesc": "このリンクは期限切れか、他のお客様に取られました。キャンセル待ちに再登録してください。",
 
+  "copy.pending": "コピー中…",
+  "copy.error": "自動コピーできませんでした。下のテキストを選択してコピーしてください。",
+  "copy.manualLabel": "手動でコピーするテキスト",
   "copyCode.label": "番号をコピー",
   "copyCode.copied": "コピーしました",
   "copyCode.ariaLabel": "予約番号をコピー",
