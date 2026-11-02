@@ -1,7 +1,7 @@
 {
   "approved_files": {
     "docs/ops/PREMIGRATION_ARTIFACT_OFFLINE_DRILL.md": "bdd66b6d2cb29184dc9547684df9f5786f939a46",
-    "docs/plans/2026-11-backup-envelope-contract.md": "ab980c80ce75d89d387095a8b0272b607f0c373f",
+    "docs/plans/2026-11-backup-envelope-contract.md": "49cf64524e9f19f70671f6b0df8079add90fd8dd",
     "scripts/backup/envelope.mjs": "fc89305f19516cf4928031f5a7453e3f9ea8ad75",
     "scripts/backup/extract-legacy-artifact.py": "9f5bd6df1c2de873912d8f43ef8b3a775ca13673",
     "scripts/backup/restore-legacy-local.sh": "d5e9d66b290b3af0afbfd041d21f53ec6af4eea1",
