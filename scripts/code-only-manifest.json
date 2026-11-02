@@ -1,10 +1,10 @@
 {
   "approved_files": {
-    "docs/plans/2026-11-dashboard-reminder-copy.md": "bb73eb3d05d443698137e18d6b387a476d73c459",
-    "scripts/code-only-release.py": "c0b7b8d2813b22c3c92837611fe58400e0b3d468",
-    "src/app/admin/analytics-scope.test.tsx": "d9c902c4d5cfbbbe55aebd359c93fc5243e38294",
-    "src/app/admin/dashboard/page.tsx": "95bc123a23b44815daf9ffbeb0698525e8f441fc",
-    "src/app/admin/dashboard/reminder-copy.test.tsx": "200e574e73209e3944e19980b789d7141a52187c"
+    "docs/plans/2026-11-query-payment-reduced-motion.md": "70103cf1355d762b497f9d9151c8f7f75c038a45",
+    "scripts/code-only-release.py": "ffe1cdcafbfa54ba94165c07c2335a6eb14c4f33",
+    "src/app/admin/payments/page.tsx": "74ebcea50bc28432900048a2626a6f7a67e95356",
+    "src/app/book/query/page.tsx": "a143d79bb1f614d63982145ef2614b9fa8d253c1",
+    "src/app/interaction-motion.integration.test.tsx": "7b955da1e2d681f680532b1051ca6d1fc4188efa"
   },
-  "baseline": "4371a18a99bb575101e4dcdf9f28a43aeb4fee62"
+  "baseline": "3486c48d3514f197ab72cf24e6ff6532b0b28005"
 }
