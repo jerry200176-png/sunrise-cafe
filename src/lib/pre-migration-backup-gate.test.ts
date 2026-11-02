@@ -23,6 +23,16 @@ function uploadCheck(id: string, hash: string) {
 }
 
 describe("backup upload gate", () => {
+  it.each(["predeploy", "postdeploy"])("rejects the %s phase before any runner without backup evidence", (phase) => {
+    const result = spawnSync(process.execPath, ["scripts/run-production-migration-phase.mjs", phase], {
+      cwd: process.cwd(), encoding: "utf8", timeout: 10000,
+      env: { NODE_ENV: "test", NODE_OPTIONS: `--no-warnings --experimental-loader=${join(process.cwd(), "scripts/test-fixtures/deny-db-loader.mjs")} --import=${join(process.cwd(), "scripts/test-fixtures/deny-fetch-preload.mjs")}` },
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("No pre-migration backup manifest");
+    expect(result.stderr).not.toMatch(/UNEXPECTED_DB_IMPORT|UNEXPECTED_FETCH/);
+  });
+
   it("blocks migration for failed upload, missing artifact id or missing digest", () => {
     const { dir, now } = fixture();
     let ran = false;

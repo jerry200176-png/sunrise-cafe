@@ -14,7 +14,7 @@ type Workflow = {
 describe("paused legacy migration workflows", () => {
   it.each([
     ["apply-migration-ops-events.yml", "scripts/apply-migration-ops-events.mjs"],
-    ["apply-migration-market-parity.yml", "scripts/apply-migration-market-parity.mjs"],
+    ["apply-migration-market-parity.yml", "node scripts/run-production-migration-phase.mjs --verify market-parity"],
     ["apply-migration-reminded-7d.yml", "scripts/apply-migration-reminded-7d.mjs"],
     ["apply-migration-line-reminder-deliveries.yml", "scripts/apply-migration-line-reminder-deliveries.mjs"],
     ["apply-migration-reservation-preorder.yml", "scripts/apply-migration-reservation-preorder.mjs"],
@@ -24,8 +24,12 @@ describe("paused legacy migration workflows", () => {
     expect(Object.keys(workflow.on ?? {})).toEqual(["workflow_dispatch"]);
     expect(Object.keys(workflow.jobs ?? {}).sort()).toEqual(["apply", "paused"]);
     expect(workflow.jobs?.apply.if).toBe("${{ false }}");
-    // Retain the old runner for review, without making it callable by the job.
+    // The market probe replaces its removed writer; every apply job remains disabled.
     expect(workflow.jobs?.apply.steps?.some((step) => step.run?.includes(runner))).toBe(true);
+    if (file === "apply-migration-market-parity.yml") {
+      const commands = workflow.jobs?.apply.steps?.flatMap((step) => step.run ? [step.run] : []);
+      expect(commands).toEqual(["npm ci", "node scripts/run-production-migration-phase.mjs --verify market-parity"]);
+    }
     const notice = workflow.jobs?.paused;
     expect(notice?.if).toBeUndefined();
     expect(notice?.permissions).toEqual({});
