@@ -2,6 +2,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -193,6 +194,12 @@ class Tests(unittest.TestCase):
             state['blob'] = blob; state['mode'] = '120000'
             with self.assertRaises(r.Unknown): r.verify_code_only(r.APPROVED_BASELINE, SHA, git=git, manifest_path=manifest)
             with self.assertRaises(r.Unknown): r.verify_code_only(OLD, SHA, git=git, manifest_path=manifest)
+
+    def test_reviewed_report_release_tree_matches_manifest(self):
+        # Exercise the real Git tree: later unrelated application or migration
+        # changes must not become deployable merely by passing mock fixtures.
+        head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+        r.verify_code_only(r.APPROVED_BASELINE, head)
 
 
 if __name__ == '__main__': unittest.main()

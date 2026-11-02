@@ -38,6 +38,16 @@ reported as unknown rather than retried or claimed successful.
 
 ## Operational limits
 
+### Subsequent report-only candidate
+
+The report recovery candidate uses the separately reviewed production baseline
+`b5c44d5b002276148cfea82708b740ac1b01825a` and a replacement one-use manifest
+covering the three report PR files. It does not authorize any migration or
+change the deployment, health, or rollback workflow. The baseline must still
+be the healthy production version when this candidate is actually released;
+if production has changed, prepare a new reviewed baseline and manifest.
+This candidate is prepared locally and has not been deployed.
+
 - Production deployment creation serves traffic when ready; unlike a staged
   production build, health verification occurs immediately after traffic moves.
   Preview and production would be different builds/environments, so a preview
