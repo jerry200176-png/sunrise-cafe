@@ -14,13 +14,13 @@ export function useAddOutcomeWarning(id: string) {
     records.current[reservationId] = warning;
     render((n) => n + 1);
   }
-  function confirmBeforeAdd(reservationId: string) {
+  function confirmBeforeAdd(reservationId: string, tabWarning = "") {
     const warning = records.current[reservationId];
-    if (!warning) return true;
     const message = warning === "unknown"
       ? "上次加點結果仍未確認，原請求可能稍後完成。請先核對訂單並與同事確認。你已了解可能重複，仍要繼續加點嗎？"
-      : "上次加點已完成，但畫面未更新。請先重新載入並核對訂單。你已核對並要繼續加點嗎？";
-    if (!window.confirm(message)) return false;
+      : warning === "committed_stale" ? "上次加點已完成，但畫面未更新。請先重新載入並核對訂單。你已核對並要繼續加點嗎？" : "";
+    const combined = [message, tabWarning].filter(Boolean).join("\n");
+    if (combined && !window.confirm(combined)) return false;
     // Consent covers this action only; it cannot resolve a previous request.
     return true;
   }

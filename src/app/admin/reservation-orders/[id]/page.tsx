@@ -13,6 +13,8 @@ import { ENDED_STAY_STATUSES, foodStillOwed } from "@/lib/room-checkout";
 import { readAddItemsOutcome } from "@/lib/add-items-outcome";
 import { useAddOutcomeWarning } from "@/lib/use-add-outcome-warning";
 import { AddOutcomeWarning } from "@/components/admin/AddOutcomeWarning";
+import { useTabAddWarning } from "@/lib/use-tab-add-warning";
+import { TabAddWarning } from "@/components/admin/TabAddWarning";
 
 type ReservationView = { customer_name: string; booking_code: string; start_time: string; status: string; room?: { name: string; branch_id: string } | { name: string; branch_id: string }[] | null };
 type PreorderView = { status: string; guest_notes: string | null; draft_items: DraftItemInput[];
@@ -58,6 +60,11 @@ export default function ReservationOrderPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const addWarning = useAddOutcomeWarning(id);
+  const tabWarning = useTabAddWarning();
+  const mounted = useRef(false);
+  const identity = useRef({ value: id, generation: 0 });
+  if (identity.current.value !== id) identity.current = { value: id, generation: identity.current.generation + 1 };
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   const load = useCallback(async (requireOrder = false): Promise<boolean> => {
     if (currentId.current !== id) return false;
@@ -114,7 +121,14 @@ export default function ReservationOrderPage() {
 
   async function act(action: string, extra: Record<string, unknown> = {}) {
     if (mutationInFlight.current) return false;
-    if (action === "add_items" && !addWarning.confirmBeforeAdd(id)) return false;
+    const operationGeneration = identity.current.generation;
+    let tabOperation: ReturnType<typeof tabWarning.begin> = null;
+    if (action === "add_items") {
+      const tabMessage = tabWarning.confirmationMessage();
+      if (!addWarning.confirmBeforeAdd(id, tabMessage)) return false;
+      tabOperation = tabWarning.begin();
+      if (!tabOperation && !tabMessage.includes("無法保存分頁提醒") && !window.confirm("本次無法保存分頁提醒；關閉或重新整理後提示可能消失。你仍要送出嗎？")) return false;
+    }
     mutationInFlight.current = true;
     setBusy(true); setError(""); setNotice("");
     let committed = false;
@@ -125,14 +139,19 @@ export default function ReservationOrderPage() {
       if (action === "add_items") {
         const outcome = await readAddItemsOutcome(response);
         if (outcome.kind !== "committed") {
+          tabWarning.mark(tabOperation, outcome.kind);
           if (outcome.kind === "unknown") addWarning.mark(id, "unknown");
           if (currentId.current === id) setError(outcome.message);
           return false;
         }
         committed = true;
+        tabWarning.mark(tabOperation, "committed");
         addWarning.mark(id, "committed_stale");
         await load(true).then((loaded) => {
-          if (loaded) addWarning.refreshed(id);
+          if (loaded && mounted.current && identity.current.generation === operationGeneration) {
+            addWarning.refreshed(id);
+            tabWarning.acknowledgeRefreshed(tabOperation);
+          }
         }).catch(() => {
           addWarning.mark(id, "committed_stale");
           if (currentId.current === id) setNotice("已加入訂單，但畫面未能更新。請重新整理頁面確認，請勿再次加點。");
@@ -143,7 +162,10 @@ export default function ReservationOrderPage() {
       await load(addWarning.warning === "committed_stale");
       return true;
     } catch (cause) {
-      if (action === "add_items") addWarning.mark(id, committed ? "committed_stale" : "unknown");
+      if (action === "add_items") {
+        if (!committed) tabWarning.mark(tabOperation, "unknown");
+        addWarning.mark(id, committed ? "committed_stale" : "unknown");
+      }
       if (currentId.current === id) setError(thrownMessage(cause));
       return false;
     }
@@ -163,6 +185,7 @@ export default function ReservationOrderPage() {
         {view && <p className="mt-2 text-sm text-stone-600">{view.reservation.customer_name} · {room?.name ?? "包廂"} · 代碼 {view.reservation.booking_code} · {new Date(view.reservation.start_time).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}</p>}
       </header>
       <p role="status" aria-atomic="true" className={notice ? "rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900" : "sr-only"}>{notice}</p>
+      <TabAddWarning guard={tabWarning} />
       <AddOutcomeWarning warning={addWarning.warning} busy={busy} onReload={() => {
         load(addWarning.warning === "committed_stale").then((loaded) => {
           if (loaded) { addWarning.refreshed(id); setError(""); setNotice(""); }
