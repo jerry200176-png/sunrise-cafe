@@ -124,6 +124,7 @@ export function taipeiDayUtcBounds(now = new Date()): {
 const SUCCESS_REMINDER_RESULTS = new Set([
   "sent",
   "already_notified",
+  "no_eligible",
   "empty_cat",
 ]);
 
