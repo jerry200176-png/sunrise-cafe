@@ -1,9 +1,17 @@
 {
   "approved_files": {
-    ".github/workflows/artifact-v7-canary.yml": "48e4d5822661e133be0b8b8932dab92601fb8433",
-    "docs/plans/2026-11-artifact-v7-canary.md": "7c5ad894e8a19975c387b66b34b3b1f92db882c1",
-    "scripts/test_artifact_v7_canary.py": "fc46331b614c3e2bde871bbe08d733ef40c08a30",
-    "src/lib/artifact-v7-canary.test.ts": "fcbcfc4abb7bd43024839ac02e700e8bb2ff9544"
+    "docs/ops/PREMIGRATION_ARTIFACT_OFFLINE_DRILL.md": "bdd66b6d2cb29184dc9547684df9f5786f939a46",
+    "docs/plans/2026-11-backup-envelope-contract.md": "49cf64524e9f19f70671f6b0df8079add90fd8dd",
+    "scripts/backup/envelope.mjs": "fc89305f19516cf4928031f5a7453e3f9ea8ad75",
+    "scripts/backup/extract-legacy-artifact.py": "9f5bd6df1c2de873912d8f43ef8b3a775ca13673",
+    "scripts/backup/restore-legacy-local.sh": "d5e9d66b290b3af0afbfd041d21f53ec6af4eea1",
+    "scripts/backup/restore-legacy-worker.sh": "be94a194056b63381238b17d665937b8551857ab",
+    "scripts/backup/secure-open-inputs.py": "32a48069abe992b4bd097ae7ee750e83c41a3187",
+    "scripts/backup/test-envelope-restore.sh": "e4262e53f62cb05a72b9b06759dc514376ca63e4",
+    "scripts/backup/test-safe-inputs.py": "120d1b04b36af2b3e89027a5ddd9bc00f35129b8",
+    "scripts/backup/test-wsl-diagnostics.py": "a4889b5f6d47907199fe0e08c924ea3ec1c4b717",
+    "scripts/backup/wsl-restore.py": "079cc064485274ba7e020e7a5030fb92d57da996",
+    "src/lib/backup-envelope.test.ts": "bfe47fc3a7b3e34be7145aa4bd734c60f35e6fc6"
   },
-  "baseline": "075dcc528dc545d728eb2c285fe48c07c34f9f25"
+  "baseline": "47134930ef9cbb8849ad4a1267cae91c711a6c5c"
 }

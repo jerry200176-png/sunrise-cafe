@@ -60,6 +60,21 @@ and limits. The previous deployment must have completed verification and
 production must still match this baseline before release. Preparing this
 candidate does not deploy it or authorize a migration.
 
+## Subsequent offline backup tooling candidate
+
+This candidate proposes baseline `47134930ef9cbb8849ad4a1267cae91c711a6c5c`
+and an exact one-use manifest for the reviewed offline tools, documentation,
+and synthetic tests. New script files are mode 100644; invoke shell and Python
+entrypoints through `bash` or `python3`. No release guard was relaxed. It does
+not add or change a backup workflow, execute a
+backup, or enable a migration. A merge to main still triggers the existing
+code-only production deployment and its recovery behavior: these files being
+unused by runtime does not make the merge itself deployment-free. Before any
+release, the prior deployment must have completed verification and production
+must still match this baseline. A reported single public-only isolated restore
+is partial evidence, not a verified complete Supabase recovery; see the backup
+contract and #485 for limitations and remaining work.
+
 ## Operational limits
 
 ### Subsequent guest booking and preorder candidate
