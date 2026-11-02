@@ -317,6 +317,19 @@ describe("anonymous same-tab warning", () => {
     await act(async () => { finish(json({ ok: true, ...view })); await pending; });
     await waitFor(() => expect(sessionStorage.getItem("sunrise:add-outcomes:v1")).toContain("committed"));
   });
+  it("retains the old operation after switching branch with the same reservation", async () => {
+    let finish!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { finish = resolve; });
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu")) return Promise.resolve(json(menu));
+      return init?.method === "POST" ? pending : Promise.resolve(json(view));
+    }));
+    const panel = renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: /拿鐵/ }));
+    panel.rerender(<RoomCheckoutPanel reservationId="r1" roomName="A 廳" branchId="b2" nowMs={Date.parse("2026-10-21T07:00:00Z")} onClose={() => undefined} onChanged={() => undefined} />);
+    await act(async () => { finish(json({ ok: true, ...view })); await pending; });
+    await waitFor(() => expect(sessionStorage.getItem("sunrise:add-outcomes:v1")).toContain("committed"));
+  });
   it("clears the refreshed operation only, leaving an earlier unknown", async () => {
     const { createSessionAddWarningResearch } = await import("@/lib/session-add-warning-research");
     const store = createSessionAddWarningResearch(sessionStorage);

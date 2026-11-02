@@ -100,8 +100,10 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   const addWarning = useAddOutcomeWarning(reservationId);
   const tabWarning = useTabAddWarning();
   const mounted = useRef(false);
-  const identity = useRef({ value: reservationId, generation: 0 });
-  if (identity.current.value !== reservationId) identity.current = { value: reservationId, generation: identity.current.generation + 1 };
+  const identity = useRef({ value: reservationId, branch: branchId, generation: 0 });
+  if (identity.current.value !== reservationId || identity.current.branch !== branchId) {
+    identity.current = { value: reservationId, branch: branchId, generation: identity.current.generation + 1 };
+  }
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   // 目前顯示的是哪一組：切換組別後，舊組晚回來的回應一律丟掉，避免畫面是 A 組、按鈕卻送到 B 組
