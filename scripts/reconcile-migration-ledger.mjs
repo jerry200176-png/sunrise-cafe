@@ -81,8 +81,7 @@ async function restGet(url, key, path) {
 const TABLE_PROBE_SELECT = "*";
 
 async function probeColumn(url, key, table, column) {
-  const limit = column === TABLE_PROBE_SELECT ? 0 : 1;
-  const r = await restGet(url, key, `${table}?select=${column}&limit=${limit}`);
+  const r = await restGet(url, key, `${table}?select=${column}&limit=0`);
   if (r.ok) return "present";
   if (/PGRST205|42P01|42703|does not exist/i.test(r.text)) return "absent";
   if (r.status === 401 || r.status === 403 || r.status === 0) return "unknown";

@@ -54,7 +54,7 @@ const toTaipei = (s: string) =>
 
 ### Cron Job
 
-`vercel.json` 設定 `"0 12 * * *"` = UTC 12:00 = **台灣時間 20:00**，每日自動推播明日訂位提醒到群組。Vercel Hobby **可能延遲至 20:59** 才觸發；21:00 後仍無訊息才異常。Cron 若遇「明日訂位皆已 is_notified」會推狀態句而非完全靜默。同日成功後再觸發（含 GitHub 備援）會 `duplicate_skip` 不重送；GitHub 備援若延遲跨過台北 00:00 會記錄 `schedule_window_skip` 並安全略過，不會把下一天的空查詢發成「沒訂位」。觀測：`job_runs.metadata`（trigger_source/result/sent_count/…）+ `GET /api/admin/reminders/verify`。
+`vercel.json` 設定 `"0 12 * * *"` = UTC 12:00 = **台灣時間 20:00**，每日處理明日訂位提醒。Vercel Hobby **可能延遲至 20:59** 才觸發。無待通知訂位時不發送貓咪或「皆已通知過」群組訊息，以減少訊息配額消耗；不是靠群組靜默判斷排程失敗，應查看 `job_runs.metadata` 與 `GET /api/admin/reminders/verify`。同日成功後再觸發（含 GitHub 備援）會 `duplicate_skip` 不重送；GitHub 備援若延遲跨過台北 00:00 會記錄 `schedule_window_skip` 並安全略過。
 
 ### 群組提醒為多分店
 
@@ -110,7 +110,7 @@ print-bridge/             # 本地列印服務（獨立部署，非 Vercel）
 - 適用對象：`status IN (pending, confirmed)` 且 `is_deposit_paid = false`（見 ADR-007）
 - 期限前 24 小時內且未提醒過 → 推播客人提醒一次（寫入 `deposit_reminder_sent_at`）
 - 期限 ≤6 小時且已發過首次提醒 → 再推迫近提醒一次（寫入 `deposit_urgent_reminder_sent_at`）
-- **超過期限：預設不取消**（Founder 2026-10-21）。回應的 `deadline_passed` 計數逾期筆數。只有 Vercel 環境變數 `DEPOSIT_DEADLINE_AUTO_CANCEL=true`（Redeploy 後）才恢復舊行為：改 `cancelled`、通知客人與群組、觸發等位通知
+- **超過期限不自動取消**（Founder 2026-11-01 再次確認）；舊 `DEPOSIT_DEADLINE_AUTO_CANCEL` 不再影響現行程式。回應的 `deadline_passed` 計數逾期筆數。歷史取消保留，舊失敗釋放通知不再由此工作補送；人工取消、候補通知與既有還原功能不變。舊部署／其他排程必須分別確認。
 - 已取消／沒來的訂位可在後台「歷史紀錄」一鍵還原（時段須仍空閒；不傳 LINE；稽核在 `ops_events`）；「只看未付訂金自動取消」篩選以 `line_reminder_deliveries` 釋放認領或 `ops_events` reason=deposit_deadline 辨識
 
 > **注意：** Vercel Hobby 禁止 `0 * * * *`（每小時）。升級 Pro 後可改回每小時。
