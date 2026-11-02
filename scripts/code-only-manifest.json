@@ -1,8 +1,9 @@
 {
   "approved_files": {
-    "docs/plans/2026-11-line-account-identity-check.md": "a5832623f1fd93a5a6744fcd6444102e8405a4cc",
-    "src/lib/line-account-audit.test.ts": "32c16dccad5ba63fec2b4dbd722cf4ea2d66a9a8",
-    "src/lib/line-account-audit.ts": "5391fa13bf37dc5c7fef8d36dee3ede02835929a"
+    ".github/workflows/artifact-v7-canary.yml": "48e4d5822661e133be0b8b8932dab92601fb8433",
+    "docs/plans/2026-11-artifact-v7-canary.md": "7c5ad894e8a19975c387b66b34b3b1f92db882c1",
+    "scripts/test_artifact_v7_canary.py": "fc46331b614c3e2bde871bbe08d733ef40c08a30",
+    "src/lib/artifact-v7-canary.test.ts": "fcbcfc4abb7bd43024839ac02e700e8bb2ff9544"
   },
-  "baseline": "22c41cc48348df7b2295569444d1ec27964aff56"
+  "baseline": "075dcc528dc545d728eb2c285fe48c07c34f9f25"
 }
