@@ -38,6 +38,16 @@ reported as unknown rather than retried or claimed successful.
 
 ## Operational limits
 
+### Subsequent guest booking and preorder candidate
+
+The guest booking and preorder candidate proposes baseline
+`f2f40918a771fc2199178484b3f7e1c5b5e4f8b2` and a replacement one-use
+manifest covering the 25 reviewed booking, preorder, policy, and test files.
+It does not authorize any migration or change the deployment, health, or
+rollback workflow. Release is conditional on the preceding admin list
+deployment's completed verification and on production still matching this
+baseline. This candidate is prepared locally and has not been deployed.
+
 ### Subsequent admin list candidate
 
 The admin list projection candidate proposes baseline

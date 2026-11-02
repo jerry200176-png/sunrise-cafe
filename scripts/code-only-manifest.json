@@ -1,12 +1,30 @@
 {
   "approved_files": {
-    "docs/plans/2026-11-admin-reservation-list-projection.md": "b7c83c9b385bdc4b10c3e426684368ff71062809",
-    "src/components/ReservationList.selection.test.tsx": "30243f2ca908253db651e136aa08dee10d7f8eab",
-    "src/components/ReservationList.tsx": "75b2ab2866939b8e7864c6467d8f4476a5cf0f8c",
-    "src/components/admin/DepositStatusControl.projection.test.tsx": "e0a2d1620c57afc3864a73434d71a53affd2235f",
-    "src/lib/reservation-list-query.test.ts": "44d6473ee2b4c989ed25aed6a846ae6fedd47e5f",
-    "src/lib/reservation-list-query.ts": "2dec4b651f0db5b6e15cb21f9d52d112479e0cfb",
-    "src/types/index.ts": "0e5841384d2e231ad8be24d5c72348da6ddfcadd"
+    "docs/plans/2026-11-01-refund-disclosure.md": "ae90e4d08caa9a3ba19e75f174b734c5e7ddcb67",
+    "docs/plans/2026-11-booking-reduced-motion.md": "e3b62dcca42df3140dc479875b115fbb93d9ebf8",
+    "docs/plans/2026-11-booking-uncertain-guard.md": "5a681360a435592d72e157b51c31b7c4203194a2",
+    "docs/plans/2026-11-guest-booking-integration.md": "2a24f4827834bf65589ce8a3564d9e6f0afbfcc1",
+    "docs/plans/2026-11-guest-booking-preorder-integration.md": "8def565f12ea804659e4c4ec33ec343211935211",
+    "docs/plans/2026-11-preorder-outcome-recovery.md": "1f1003a4860425e336c891915319a77786baf099",
+    "e2e/booking-flow.spec.ts": "41f74c76eaf834cb6a7bca3b28f69395fbc5fb42",
+    "e2e/booking-reduced-motion.spec.ts": "2f476eda86f60b3eba55801de87df96259b40ae4",
+    "e2e/payment-next-step.spec.ts": "c78f220de110dc3e119d2d3f7068a72c0f41dc64",
+    "e2e/preorder-recovery.spec.ts": "a281cfef79aff81ffa2207e9885e14377f913b24",
+    "playwright.config.ts": "ec5c2787c6546af4ab4b9b057b9ce33a11078b75",
+    "src/app/book/page.tsx": "e2256b860f8307aed622768da7c8a3f8778082a7",
+    "src/app/book/preorder/page.test.tsx": "08d610ff4506475cdf0b60d1f89b432425b8a16c",
+    "src/app/book/preorder/page.tsx": "e2fa1089add03133cffd243412d385fa4567c307",
+    "src/app/book/success/page.tsx": "823df7d68d4f925a059dc5d9776650583ae154fc",
+    "src/components/MenuPicker.tsx": "c849db972b4320ec3c5c99c833e58667695f7470",
+    "src/lib/booking-policy.test.ts": "569d51ab566981f31bdcfc4a0886521123d7b335",
+    "src/lib/booking-policy.ts": "e0f0223a2792783bc3ab1c7572494c54ebdc12df",
+    "src/lib/booking-submit-guard.test.ts": "a6c9985e0cb9991c137df8c30149c997f6b99ab4",
+    "src/lib/booking-submit-guard.ts": "d9559ec9776b4df76b53cb383d6518668cc61f93",
+    "src/lib/cancel-refund-policy.test.ts": "5a0d2fff4260a2d792ecf9aa9cd790684a072a81",
+    "src/lib/cancel-refund-policy.ts": "de7d4fb5691822d303590a712b066b13ca106d56",
+    "src/lib/i18n/translations.ts": "dc8e36ac998a7823e6e63db34404df2f1b748848",
+    "src/lib/interaction-scroll.test.ts": "565db7f36168baa12ea143a67291235ba87066a4",
+    "src/lib/interaction-scroll.ts": "5845923b9f0154aa834005c3fcdf8830c691ed36"
   },
-  "baseline": "1d08784952211716f4cb37cf99324958b7e2a8ff"
+  "baseline": "f2f40918a771fc2199178484b3f7e1c5b5e4f8b2"
 }
