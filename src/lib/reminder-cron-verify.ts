@@ -162,10 +162,10 @@ export async function verifyReminderCron(now = new Date()): Promise<ReminderCron
   const notified = total - pending;
 
   if (total === 0) {
-    diagnosis.push(`${range.date} 無有效訂位 — 20:00 Cron 應發貓咪訊息（若 sendCatOnEmpty）`);
+    diagnosis.push(`${range.date} 無有效訂位 — 排程不發空檔訊息；可在此查看執行紀錄`);
   } else if (pending === 0) {
     diagnosis.push(
-      `${range.date} 有 ${total} 筆訂位但全部 is_notified=true — Cron 會推「皆已通知過」狀態（不重送 digest）`
+      `${range.date} 有 ${total} 筆訂位但全部 is_notified=true — 排程不重送提醒或狀態訊息`
     );
   } else {
     diagnosis.push(`${range.date} 有 ${pending} 筆待通知 — 下次 Cron 應推播`);
@@ -173,7 +173,7 @@ export async function verifyReminderCron(now = new Date()): Promise<ReminderCron
 
   // Hobby: UTC 12:00 cron may fire anytime 20:00–20:59 Taipei
   diagnosis.push(
-    "Vercel Hobby：排程 20:00 可能延遲至 20:59 才觸發；若 21:00 後仍無訊息再查 job_runs / LINE"
+    "Vercel Hobby：排程 20:00 可能延遲至 20:59 才觸發；請以 job_runs 確認執行狀態，無待通知訂位時不會發送群組訊息"
   );
 
   if (lastSendLine?.status === "failed") {

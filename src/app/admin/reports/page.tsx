@@ -27,6 +27,30 @@ interface RoomRow { name: string; bookings: number; booked_amount: number; }
 interface HourRow { hour: number; label: string; count: number; }
 interface ReportData { summary: Summary; monthly: MonthlyRow[]; by_room: RoomRow[]; by_hour: HourRow[]; }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasFiniteNumbers(value: Record<string, unknown>, keys: string[]): boolean {
+  return keys.every((key) => typeof value[key] === "number" && Number.isFinite(value[key]));
+}
+
+// An HTTP 200 is not enough: malformed data would otherwise throw during render
+// or produce a misleading export. Validate the fields this page consumes.
+function isReportData(value: unknown): value is ReportData {
+  if (!isRecord(value) || !isRecord(value.summary)) return false;
+  const summary = value.summary;
+  if (!hasFiniteNumbers(summary, ["received_deposits", "received_orders", "expected_upcoming", "unpaid_deposits", "bookings", "cancellation_count", "cancellation_rate", "deposit_paid_count"])) return false;
+  if (summary.deposit_rate !== null && (typeof summary.deposit_rate !== "number" || !Number.isFinite(summary.deposit_rate))) return false;
+  return Array.isArray(value.monthly) && value.monthly.every((row) =>
+    isRecord(row) && typeof row.month === "string" && typeof row.label === "string"
+      && hasFiniteNumbers(row, ["bookings", "received_deposits", "received_orders"]))
+    && Array.isArray(value.by_room) && value.by_room.every((row) =>
+      isRecord(row) && typeof row.name === "string" && hasFiniteNumbers(row, ["bookings", "booked_amount"]))
+    && Array.isArray(value.by_hour) && value.by_hour.every((row) =>
+      isRecord(row) && typeof row.label === "string" && hasFiniteNumbers(row, ["hour", "count"]));
+}
+
 const PERIODS = [
   { label: "近 3 個月", value: 3 },
   { label: "近 6 個月", value: 6 },
@@ -92,10 +116,14 @@ export default function ReportsPage() {
     try {
       const res = await fetchWithTimeout(`/api/admin/reports?months=${period}${branchId ? `&branchId=${encodeURIComponent(branchId)}` : ""}`);
       if (!res.ok) throw new Error(await responseError(res));
-      const result = await readJsonWithTimeout<ReportData>(res);
+      const result = await readJsonWithTimeout<unknown>(res);
+      if (!isReportData(result)) throw new Error("報表資料格式錯誤，請重新整理");
       if (requestId === requestSequence.current) setStoredData({ key: queryKey, value: result });
     } catch (err) {
-      if (requestId === requestSequence.current) setError(thrownMessage(err, "報表暫時讀不到，請重試"));
+      if (requestId === requestSequence.current) {
+        setStoredData(null);
+        setError(thrownMessage(err, "報表暫時讀不到，請重試"));
+      }
     } finally {
       if (requestId === requestSequence.current) setLoading(false);
     }
@@ -164,7 +192,12 @@ export default function ReportsPage() {
         )}
 
         {loading && !data && <p className="py-20 text-center text-sm text-gray-400">載入中…</p>}
-        {error && <p className="rounded-xl bg-red-50 p-4 text-sm text-red-600">{error}</p>}
+        {error && (
+          <div role="alert" className="flex flex-wrap items-center gap-2 rounded-xl bg-red-50 p-4 text-sm text-red-600">
+            <span>{error}</span>
+            <button type="button" onClick={() => void load()} disabled={loading} className="min-h-[44px] px-2 underline disabled:opacity-50">重試載入報表</button>
+          </div>
+        )}
 
         {data && (
           <div className="space-y-6">

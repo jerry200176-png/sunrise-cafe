@@ -1,11 +1,14 @@
 import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import { responseError } from "@/lib/friendly-error";
 import type { Order, OrderStatus } from "@/types";
+import { projectAdminOrderList, type AdminOrderListRow } from "@/lib/admin-order-list";
 import { MAX_AGE_MS } from "@/lib/print-queue";
 
 /** Never return partial results: the caller keeps its previous state if any page fails. */
-export async function fetchAllAdminOrders(branchId: string, isCurrent: () => boolean = () => true, scope?: "active" | "printable"): Promise<Order[]> {
-  const all: Order[] = [];
+export function fetchAllAdminOrders(branchId: string, isCurrent: () => boolean, scope: "active" | "printable", contract: "v2"): Promise<AdminOrderListRow[]>;
+export function fetchAllAdminOrders(branchId: string, isCurrent?: () => boolean, scope?: "active" | "printable"): Promise<Order[]>;
+export async function fetchAllAdminOrders(branchId: string, isCurrent: () => boolean = () => true, scope?: "active" | "printable", contract?: "v2"): Promise<Order[] | AdminOrderListRow[]> {
+  const all: Array<Order | AdminOrderListRow> = [];
   const seen = new Set<string>();
   const seenOrders = new Set<string>();
   let cursor: string | null = null;
@@ -14,6 +17,7 @@ export async function fetchAllAdminOrders(branchId: string, isCurrent: () => boo
     if (!isCurrent()) throw new Error("分店已變更");
     const params = new URLSearchParams({ branchId, limit: "100" });
     if (scope) params.set("scope", scope);
+    if (contract) params.set("listContract", contract);
     if (since) params.set("since", since);
     if (cursor) params.set("cursor", cursor);
     const res = await fetchWithTimeout(`/api/admin/orders?${params}`, { credentials: "include" });
@@ -26,12 +30,17 @@ export async function fetchAllAdminOrders(branchId: string, isCurrent: () => boo
     if (!body || !Array.isArray(body.items) || (body.nextCursor !== null && (typeof body.nextCursor !== "string" || !body.nextCursor))) {
       throw new Error("訂單資料格式不正確，請重試");
     }
-    for (const order of body.items as Order[]) {
+    let items: Array<Order | AdminOrderListRow>;
+    if (contract === "v2") {
+      try { items = body.items.map(projectAdminOrderList); }
+      catch { throw new Error("訂單資料格式不正確，請聯絡管理者"); }
+    } else items = body.items as Order[];
+    for (const order of items) {
       if (!order || typeof order.id !== "string" || seenOrders.has(order.id)) throw new Error("訂單資料不一致，請重試");
       seenOrders.add(order.id);
       all.push(order);
     }
-    if (!body.nextCursor) return all;
+    if (!body.nextCursor) return contract ? all as AdminOrderListRow[] : all as Order[];
     if (seen.has(body.nextCursor)) throw new Error("訂單分頁重複，請重試");
     seen.add(body.nextCursor);
     cursor = body.nextCursor;

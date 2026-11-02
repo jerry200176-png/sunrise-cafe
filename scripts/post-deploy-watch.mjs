@@ -4,12 +4,14 @@
  * after the Vercel deploy and reports whether failures are sustained.
  *
  * Scope is RUNTIME HEALTH ONLY: version identity, public pages, booking-health
- * (DB reachability), auth smoke. It deliberately does NOT read migration drift
- * (Verify Production / deploy-health sha_parity), so a known drift issue can never
- * trigger a rollback.
+ * (DB reachability), auth smoke. This watcher does NOT read migration drift.
+ * A caller can separately run drift verification and initiate recovery if that
+ * verification or another release step fails.
  *
- * Exit codes: 0 healthy, 10 sustained runtime failure (workflow rolls back),
- *             11 not our deploy / superseded (workflow never rolls back).
+ * Exit codes: 0 healthy, 10 sustained probe failures (including unavailable
+ * observations), 11 identity unknown at the end or superseded.
+ * Recovery behavior depends on the calling workflow; code-only recovery can
+ * roll back a retained candidate on any non-successful release step.
  * Env: PRODUCTION_URL, EXPECTED_SHA, WATCH_MINUTES (15), INTERVAL_SECONDS (30), FAIL_ROUNDS (5)
  */
 
@@ -38,11 +40,14 @@ async function probe(base, p, fetchImpl) {
   }
 }
 
+const isSha = (value) => typeof value === "string" && /^[0-9a-f]{40}$/.test(value);
+
 export async function runRound({ base, expectedSha, fetchImpl }) {
   let version = null;
   try {
     const res = await fetchImpl(`${base}/api/version`, { signal: AbortSignal.timeout(15000) });
-    version = res.ok ? ((await res.json())?.commit ?? null) : null;
+    const commit = res.ok ? (await res.json())?.commit : null;
+    version = isSha(commit) ? commit : null;
   } catch { /* treated as unknown version */ }
   const probes = await Promise.all(PROBES.map((p) => probe(base, p, fetchImpl)));
   const failed = probes.filter((p) => !p.ok).map((p) => `${p.name}:${p.status}`);
@@ -59,13 +64,17 @@ export function decide(state, round, { failRounds }) {
 }
 
 export async function watch({ base, expectedSha, minutes = 15, intervalSeconds = 30, failRounds = 5, fetchImpl = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log }) {
+  if (!isSha(expectedSha)) return { exitCode: 11, verdict: "invalid_expected_sha", consecutive: 0, lastFailed: ["version:invalid_expected"], rounds: 0 };
   const rounds = Math.max(1, Math.floor((minutes * 60) / intervalSeconds));
   let state = { consecutive: 0, lastFailed: [], verdict: "continue" };
   let sawOurs = false;
+  let lastRound = null;
   for (let i = 1; i <= rounds; i++) {
     const round = await runRound({ base, expectedSha, fetchImpl });
+    lastRound = round;
     if (round.matches) sawOurs = true;
-    // Before the first match (propagation lag) or if production never serves our SHA: do not judge, never roll back.
+    // Before the first match, the watcher does not judge runtime health. If the
+    // window ends without a match it returns nonzero; the caller decides recovery.
     if (!sawOurs && !round.matches) {
       log(`round ${i}/${rounds}: production serves ${round.version ?? "unknown"} not ${expectedSha.slice(0, 7)} (not judged)`);
     } else {
@@ -77,6 +86,7 @@ export async function watch({ base, expectedSha, minutes = 15, intervalSeconds =
     if (i < rounds) await sleep(intervalSeconds * 1000);
   }
   if (!sawOurs) return { exitCode: 11, verdict: "never_served_expected_sha", consecutive: 0, lastFailed: [], rounds };
+  if (!lastRound?.matches) return { exitCode: 11, ...state, verdict: "identity_unknown", lastFailed: lastRound?.failed ?? ["version:unavailable"], rounds };
   return { exitCode: 0, ...state, verdict: "healthy", rounds };
 }
 

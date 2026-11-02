@@ -81,8 +81,8 @@ test("訂單看板倒序回應不會覆蓋目前分店的訂單", async ({ page,
     }
     const item = branchId === "b1" ? "甲店餐點" : "乙店餐點";
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [{
-      id: branchId, status: "pending", created_at: new Date().toISOString(), total_amount: 100,
-      table: { number: branchId === "b1" ? "1" : "2" }, order_items: [{ id: `i-${branchId}`, item_name: item, quantity: 1 }],
+      id: branchId, branch_id: branchId, status: "pending", is_printed: false, notes: null, created_at: new Date().toISOString(), total_amount: 100,
+      table: { number: branchId === "b1" ? "1" : "2" }, order_items: [{ id: `i-${branchId}`, item_name: item, quantity: 1, selected_options: null, special_notes: null }],
     }], nextCursor: null }) });
   });
   await page.goto("/admin/orders");
