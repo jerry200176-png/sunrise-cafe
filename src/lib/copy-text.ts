@@ -1,13 +1,13 @@
 /** Copy without treating a rejected or unsuccessful fallback as success. */
 export async function copyText(text: string): Promise<boolean> {
   if (!text) return false;
-  if (navigator.clipboard?.writeText) {
-    try {
+  try {
+    if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text);
       return true;
-    } catch {
-      // Try the synchronous fallback when clipboard permission is unavailable.
     }
+  } catch {
+    // Try the synchronous fallback when clipboard access is unavailable.
   }
   const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   let textarea: HTMLTextAreaElement | null = null;

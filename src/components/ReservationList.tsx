@@ -10,6 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { isDepositRequired, isWeekendDate } from "@/lib/booking-utils";
 import { buildPaymentMessage, type BranchPaymentConfig } from "@/lib/payment-message";
 import { copyText } from "@/lib/copy-text";
+import { messageCopyDigest } from "@/lib/message-copy-digest";
 import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import type { Reservation, ReservationStatus, Room } from "@/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -298,7 +299,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
   );
 
   const submitMessageAction = useCallback(
-    async (action: "copied" | "manual_sent") => {
+    async (action: "copied" | "manual_sent", digest?: string) => {
       if (!messageWorkbench) return false;
       const generation = branchGeneration.current;
       const previewId = messagePreviewRequest.current;
@@ -307,7 +308,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       setMessageSubmitting(true);
       try {
         const response = await fetchWithTimeout(
-          `${RESERVATIONS_API}/${messageWorkbench.id}/message-actions`,
+          `${RESERVATIONS_API}/${messageWorkbench.id}/message-actions/v2`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -315,14 +316,15 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
               template_key: messageTemplate,
               channel: "manual_line",
               action,
+              version: 2, digest,
             }),
           }
         );
         const data = (await readJsonWithTimeout(response)) as {
-          ok?: boolean; action_id?: string; text?: string;
+          ok?: boolean; action_id?: unknown; text?: unknown; version?: unknown; action?: unknown;
         };
         if (!isCurrent()) return false;
-        if (!response.ok || data.ok !== true || !data.action_id) throw new Error("結果未確認");
+        if (!response.ok || data.ok !== true || typeof data.action_id !== "string" || !data.action_id || data.version !== 2 || data.action !== action || data.text !== messageText) throw new Error("結果未確認");
         if (data.text) setMessageText(data.text);
         return true;
       } catch {
@@ -332,7 +334,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         if (isCurrent()) setMessageSubmitting(false);
       }
     },
-    [branchId, messageTemplate, messageWorkbench, showToast]
+    [branchId, messageTemplate, messageText, messageWorkbench, showToast]
   );
 
   const copyWorkbenchMessage = useCallback(async () => {
@@ -345,7 +347,13 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
       const copied = await copyText(messageText);
       if (!isCurrent()) return;
       if (!copied) { showToast("複製失敗，請手動選取訊息內容", "error"); return; }
-      const recorded = await submitMessageAction("copied");
+      let digest: string;
+      try { digest = await messageCopyDigest(messageText); } catch {
+        if (isCurrent()) showToast("文字已複製，無法驗證內容，未送出操作紀錄；請人工核對。", "error");
+        return;
+      }
+      if (!isCurrent()) return;
+      const recorded = await submitMessageAction("copied", digest);
       if (recorded && isCurrent()) {
         setMessageCopied(true);
         showToast("已複製訊息；請貼到客人的 LINE 對話", "success");
@@ -2103,8 +2111,17 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                 type="button"
                 onClick={async () => {
                   if (!beginCopy()) return;
+                  const generation = branchGeneration.current;
+                  const previewId = messagePreviewRequest.current;
+                  const isCurrent = () => currentBranch.current === branchId && branchGeneration.current === generation && messagePreviewRequest.current === previewId;
                   try {
-                    const recorded = await submitMessageAction("manual_sent");
+                    let digest: string;
+                    try { digest = await messageCopyDigest(messageText); } catch {
+                      if (isCurrent()) showToast("無法驗證訊息內容，未送出操作紀錄；請人工核對。", "error");
+                      return;
+                    }
+                    if (!isCurrent()) return;
+                    const recorded = await submitMessageAction("manual_sent", digest);
                     if (recorded) {
                       showToast("已記錄人工傳送；這不是 LINE 送達回執", "success");
                       setMessageCopied(false);

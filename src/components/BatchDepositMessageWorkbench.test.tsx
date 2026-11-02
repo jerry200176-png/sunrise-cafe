@@ -4,6 +4,8 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { BatchDepositMessageWorkbench } from "./BatchDepositMessageWorkbench";
 import type { BatchReservationMessageItem } from "@/lib/reservation-message-batch";
 
+vi.mock("@/lib/message-copy-digest", () => ({ messageCopyDigest: async () => "a".repeat(64) }));
+
 const item = { reservation_id: "synthetic", customer_name: "測試", booking_code: "A01", date_label: "測試日期", text: "合成訊息", deposit_amount: 10 } as BatchReservationMessageItem;
 function props() { return { reservationIds: ["synthetic"], batchId: "batch", items: [item], combinedText: item.text, canBatchCopy: true, warnings: [], onClose: vi.fn(), beginCopy: () => true, endCopy: vi.fn(), copyBusy: false, isCurrent: () => true }; }
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -57,11 +59,30 @@ it("treats a lost audit response as unknown and blocks another request", async (
 
 it("records exactly one successful copy and confirms its result", async () => {
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } });
-  const post = vi.fn().mockResolvedValue(Response.json({ batch_id: "batch", action_ids: ["synthetic-action"] }));
+  const post = vi.fn().mockResolvedValue(Response.json({ ok: true, version: 2, batch_id: "batch", action_ids: ["synthetic-action"] }));
   vi.stubGlobal("fetch", post);
   render(<BatchDepositMessageWorkbench {...props()} />);
   fireEvent.click(screen.getByRole("button", { name: "單獨複製" }));
   await screen.findByText(/已複製不等於已傳送/);
   expect(post).toHaveBeenCalledOnce();
   expect(JSON.parse(String(post.mock.calls[0][1].body)).action).toBe("copied");
+});
+
+it("falls back safely when the clipboard getter throws", async () => {
+  Object.defineProperty(navigator, "clipboard", { configurable: true, get() { throw Error("blocked"); } });
+  Object.defineProperty(document, "execCommand", { configurable: true, value: vi.fn(() => false) });
+  const post = vi.fn(); vi.stubGlobal("fetch", post);
+  const p = props(); render(<BatchDepositMessageWorkbench {...p} />);
+  fireEvent.click(screen.getByRole("button", { name: "複製全部" }));
+  await screen.findByText(/複製失敗/);
+  expect(post).not.toHaveBeenCalled(); expect(p.endCopy).toHaveBeenCalledOnce();
+});
+
+it("does not report a malformed successful audit response as recorded", async () => {
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } });
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ version: 2, batch_id: "batch", action_ids: ["id"] })));
+  render(<BatchDepositMessageWorkbench {...props()} />);
+  fireEvent.click(screen.getByRole("button", { name: "單獨複製" }));
+  await screen.findByText(/紀錄結果未確認/);
+  expect((screen.getByRole("button", { name: "單獨複製" }) as HTMLButtonElement).disabled).toBe(true);
 });
