@@ -49,11 +49,10 @@ reported as unknown rather than retried or claimed successful.
   and real notification delivery are not established by synthetic tests. The
   health probes do not create reservations or payments and cannot prove those
   flows end to end.
-- The existing migration drift diagnostics request up to one row when probing
-  whether a column exists. Values are not intentionally printed, but a real
-  column value may be transferred into the runner. Table-existence probes use
-  zero rows. A future change to zero-row column probes requires verification
-  against the actual PostgREST behavior as well as synthetic tests.
+- Migration drift diagnostics use `limit=0` for column and table existence
+  probes to avoid transferring customer rows. An isolated PostgREST 12.2.12
+  and PostgreSQL 17 test returned 200 for an existing column and 42703 for a
+  missing column; production's exact server version has not been verified.
 - A create request whose response is lost is never repeated. Recovery watches
   the alias for a bounded period and rolls back only the exact deployment ID
   retained from the create response as a commit-bound job output or artifact.
