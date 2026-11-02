@@ -10,7 +10,8 @@ import { responseError, thrownMessage } from "@/lib/friendly-error";
 import { useAdminBranches } from "@/lib/use-admin-branches";
 import { fetchAdminOrderStatus, fetchAllAdminOrders } from "@/lib/admin-orders-fetch";
 import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
-import type { Order, OrderStatus } from "@/types";
+import type { OrderStatus } from "@/types";
+import type { AdminOrderListRow } from "@/lib/admin-order-list";
 
 const ACTIVE_STATUSES: OrderStatus[] = ["pending", "preparing", "ready"];
 type Review = { branch: string; kind: "unknown" | "stale"; verified: boolean; status?: OrderStatus };
@@ -21,7 +22,7 @@ const STATUS_LABELS: Record<OrderStatus, string> = {
 export default function AdminOrdersPage() {
   const { branches, loading: branchesLoading, error: branchesError, retry: retryBranches } = useAdminBranches();
   const [branchId, setBranchId] = useState<string>("");
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<AdminOrderListRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -66,14 +67,14 @@ export default function AdminOrdersPage() {
     const reviewVersion = reviewGeneration.current;
     setLoading(true);
     try {
-      const data = await fetchAllAdminOrders(bid, () => seq === requestSeq.current && currentBranch.current === bid, "active");
+      const data = await fetchAllAdminOrders(bid, () => seq === requestSeq.current && currentBranch.current === bid, "active", "v2");
       if (seq !== requestSeq.current || currentBranch.current !== bid) return;
       if (version !== mutationVersion.current) {
         run.queued = true;
         return;
       }
       if (!Array.isArray(data)) throw new Error("訂單資料格式不正確，請重試");
-      let active = (Array.isArray(data) ? data : []).filter((o: Order) =>
+      let active = (Array.isArray(data) ? data : []).filter((o: AdminOrderListRow) =>
         ACTIVE_STATUSES.includes(o.status)
       );
       const toReview = [...reviews.current.entries()].filter(([, review]) => review.branch === bid);
@@ -390,7 +391,7 @@ function KanbanColumn({
   title: string;
   count: number;
   accentColor: "yellow" | "blue" | "green";
-  orders: Order[];
+  orders: AdminOrderListRow[];
   lockedOrders: Set<string>;
   onAction: (id: string) => void;
   actionLabel: string;
@@ -439,14 +440,14 @@ function OrderCard({
   btnColor,
   locked,
 }: {
-  order: Order;
+  order: AdminOrderListRow;
   onAction: (id: string) => void;
   actionLabel: string;
   actionIcon: React.ReactNode;
   btnColor: string;
   locked: boolean;
 }) {
-  const timeStr = format(parseISO(order.created_at), "HH:mm", { locale: zhTW });
+  const timeStr = order.created_at === null ? "時間未提供" : format(parseISO(order.created_at), "HH:mm", { locale: zhTW });
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm">

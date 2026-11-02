@@ -40,11 +40,14 @@ vi.mock("@/lib/supabase", () => ({
 }));
 
 import PrintStationPage from "./page";
+import { projectAdminOrderList } from "@/lib/admin-order-list";
 
 describe("print station delayed sweep lifecycle", () => {
   let orderReads: string[];
   let pendingReads: string[];
   let printRequests: string[];
+  let printBodies: string[];
+  let listOrder: unknown;
   let resolvePrinter: (() => void) | null;
   let rejectPrinter: ((error: Error) => void) | null;
   let hangPrinter = false;
@@ -59,6 +62,9 @@ describe("print station delayed sweep lifecycle", () => {
     orderReads = [];
     pendingReads = [];
     printRequests = [];
+    printBodies = [];
+    listOrder = { id: "old-shop-order", branch_id: "b1", status: "pending", is_printed: false, notes: null, table: null,
+      created_at: new Date().toISOString(), total_amount: 100, order_items: [{ id: "i1", item_name: "湯", quantity: 1, selected_options: null, special_notes: null }] };
     resolvePrinter = null;
     rejectPrinter = null;
     hangPrinter = false;
@@ -78,14 +84,12 @@ describe("print station delayed sweep lifecycle", () => {
       const url = String(input);
       if (url.includes("/api/admin/orders?")) {
         orderReads.push(url);
-        const rows = orderReads.length === 1 ? [] : [{
-          id: "old-shop-order", branch_id: "b1", status: "pending", is_printed: false,
-          created_at: new Date().toISOString(), total_amount: 100, order_items: [{ id: "i1", item_name: "湯", quantity: 1 }],
-        }];
+        const rows = orderReads.length === 1 ? [] : [listOrder];
         return { ok: true, status: 200, json: async () => ({ items: rows, nextCursor: null }) } as Response;
       }
       if (url.includes("localhost:22222")) {
         printRequests.push(url);
+        printBodies.push(String(init?.body ?? ""));
         if (hangPrinter) {
           return new Promise<Response>((resolve, reject) => {
             resolvePrinter = () => resolve({ ok: true, status: 200, text: async () => "<Response/>" } as Response);
@@ -193,6 +197,46 @@ describe("print station delayed sweep lifecycle", () => {
     expect(orderReads).toHaveLength(1);
     expect(printRequests).toHaveLength(0);
     expect((branchSelect as HTMLSelectElement).value).toBe("b2");
+  });
+
+  it("prints the projected v2 order with table, options and both kinds of notes", async () => {
+    listOrder = projectAdminOrderList({ id: "synthetic-order", branch_id: "b1", status: "pending", is_printed: false,
+      created_at: new Date().toISOString(), total_amount: 125, notes: "訂單備註", table: { number: "A1", private: "secret" },
+      order_items: [{ id: "item-1", item_name: "麵", quantity: 2, special_notes: "不加蔥", selected_options: [{ name: "大碗", internal: "secret" }] }] });
+    const user = userEvent.setup();
+    render(<PrintStationPage />);
+    const branchSelect = await screen.findByRole("combobox");
+    await waitFor(() => expect((branchSelect as HTMLSelectElement).value).toBe("b1"));
+    await user.click(screen.getByRole("button", { name: /開始監聽/ }));
+    await waitFor(() => expect(realtime.onStatus).not.toBeNull());
+    act(() => realtime.onStatus?.("SUBSCRIBED"));
+    await waitFor(() => expect(orderReads).toHaveLength(1));
+    act(() => realtime.onInsert?.());
+    await waitFor(() => expect(printRequests).toHaveLength(1));
+    expect(orderReads.every((url) => new URL(url, "http://localhost").searchParams.get("listContract") === "v2")).toBe(true);
+    expect(printBodies[0]).toContain("桌號：A1");
+    expect(printBodies[0]).toContain("x2 麵");
+    expect(printBodies[0]).toContain("大碗");
+    expect(printBodies[0]).toContain("不加蔥");
+    expect(printBodies[0]).toContain("訂單備註");
+    expect(printBodies[0]).toContain("合計 $125");
+    expect(printBodies[0]).not.toContain("secret");
+  });
+
+  it("does not print an old-server response containing malformed item notes", async () => {
+    listOrder = { id: "unsafe-order", branch_id: "b1", status: "pending", is_printed: false, notes: null, table: null,
+      created_at: new Date().toISOString(), total_amount: 100, order_items: [{ id: "i", item_name: "麵", quantity: 1, selected_options: null, special_notes: 0 }] };
+    const user = userEvent.setup();
+    render(<PrintStationPage />);
+    await waitFor(() => expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe("b1"));
+    await user.click(screen.getByRole("button", { name: /開始監聽/ }));
+    await waitFor(() => expect(realtime.onStatus).not.toBeNull());
+    act(() => realtime.onStatus?.("SUBSCRIBED"));
+    await waitFor(() => expect(orderReads).toHaveLength(1));
+    act(() => realtime.onInsert?.());
+    await waitFor(() => expect(screen.getByText(/讀取訂單失敗，稍後會再試/)).toBeTruthy());
+    expect(printRequests).toHaveLength(0);
+    expect(markWrites).toBe(0);
   });
 
   it("removes an unauthorized current branch before Start can read its orders", async () => {

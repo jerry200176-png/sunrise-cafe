@@ -113,6 +113,31 @@ describe("reservation selection visibility", () => {
   });
 });
 
+describe("message workbench binding compatibility", () => {
+  it.each([
+    [{ has_line_user: true }, "此訂位已綁定官方 LINE"],
+    [{ has_line_user: false }, "此訂位尚未綁定官方 LINE"],
+    [{ line_user_id: "legacy-id" }, "此訂位已綁定官方 LINE"],
+    [{ line_user_id: null }, "此訂位尚未綁定官方 LINE"],
+    [{}, "目前無法確認此訂位是否綁定官方 LINE"],
+  ])("shows the correct state across list contracts", async (binding, expected) => {
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      requests.push(url);
+      if (url === "/api/branches") return Response.json([{ id: "b1", name: "甲店", payment_info: "測試", line_pay_url: null }]);
+      if (url.includes("/message-actions?")) return Response.json({ text: "測試預覽" });
+      if (url.startsWith("/api/reservations?")) return list([{ ...rows[0], ...binding }]);
+      return Response.json([]);
+    }));
+    const user = userEvent.setup();
+    render(<ReservationList branchId="b1" rooms={[]} />);
+    await screen.findByRole("checkbox", { name: /選取 甲 A01/ });
+    await user.click(screen.getByRole("button", { name: /訊息工作台/ }));
+    expect(await screen.findByText(new RegExp(expected))).toBeTruthy();
+    expect(requests.some((url) => url.startsWith("/api/reservations?") && new URL(url, "http://localhost").searchParams.get("list_contract") === "v2")).toBe(true);
+  });
+});
+
 describe("branch-scoped reservation requests", () => {
   it.each(["inflight", "unknown"])("preserves a payment draft when the reservation is %s", async (outcome) => {
     mockFetch();

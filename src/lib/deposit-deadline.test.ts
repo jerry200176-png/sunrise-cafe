@@ -152,21 +152,11 @@ describe("formatDepositDeadlineLabel", () => {
   });
 });
 
-import { depositOverdueNote, isDepositAutoCancelEnabled } from "./deposit-deadline";
+import { depositOverdueNote } from "./deposit-deadline";
 
-describe("isDepositAutoCancelEnabled (ADR-012)", () => {
-  it("defaults to off when the env var is missing or not truthy", () => {
-    for (const v of [undefined, "", "false", "0", "off", "no", "maybe"]) {
-      expect(isDepositAutoCancelEnabled({ DEPOSIT_DEADLINE_AUTO_CANCEL: v })).toBe(false);
-    }
-  });
-  it("turns on only for explicit truthy values", () => {
-    for (const v of ["true", "TRUE", " 1 ", "on", "yes"]) {
-      expect(isDepositAutoCancelEnabled({ DEPOSIT_DEADLINE_AUTO_CANCEL: v })).toBe(true);
-    }
-  });
-  it("guest copy follows the switch", () => {
-    expect(depositOverdueNote(true)).toContain("自動釋放");
-    expect(depositOverdueNote(false)).not.toContain("自動");
+describe("deposit overdue customer explanation", () => {
+  it("does not say the reservation is automatically released", () => {
+    expect(depositOverdueNote()).not.toContain("自動釋放");
+    expect(depositOverdueNote()).toContain("店家可能取消");
   });
 });
