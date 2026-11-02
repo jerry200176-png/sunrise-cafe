@@ -9,6 +9,10 @@ import { GET } from "./route";
 const row = (n: number, created_at: string | null = "2026-10-31T10:00:00.123456+00:00") => ({
   id: `00000000-0000-0000-0000-${String(n).padStart(12, "0")}`, created_at,
 });
+const v2row = (n: number, created_at: string | null = "2026-10-31T10:00:00.123456+00:00") => ({
+  ...row(n, created_at), branch_id: "allowed", status: "pending", is_printed: false,
+  total_amount: 125, notes: null, reservation_id: null, table: null, order_items: [],
+});
 const req = (query: string) => new NextRequest(`http://localhost/api/admin/orders?${query}`);
 
 beforeEach(() => {
@@ -45,12 +49,12 @@ describe("admin orders pagination", () => {
     mocks.auth.mockResolvedValueOnce(NextResponse.json({ error: "denied" }, { status: 403 }));
     expect((await GET(req("branchId=other&limit=1&listContract=v2"))).status).toBe(403);
     expect(mocks.createClient).not.toHaveBeenCalled();
-    mocks.results.push({ data: [row(3), row(2)], count: 2, error: null });
+    mocks.results.push({ data: [v2row(3), v2row(2)], count: 2, error: null });
     const first = await (await GET(req("branchId=allowed&limit=1&scope=active&listContract=v2"))).json();
-    expect(first.items).toEqual([row(3)]);
-    mocks.results.push({ data: [row(2)], count: 1, error: null });
-    expect(await (await GET(req(`branchId=allowed&limit=1&scope=active&listContract=v2&cursor=${first.nextCursor}`))).json()).toEqual({ items: [row(2)], nextCursor: null });
-    mocks.results.push({ data: [{ ...row(1), order_items: [{ id: "i1", item_name: "麵", quantity: 1, selected_options: [{ name: null }] }] }], count: 1, error: null });
+    expect(first.items).toEqual([v2row(3)]);
+    mocks.results.push({ data: [v2row(2)], count: 1, error: null });
+    expect(await (await GET(req(`branchId=allowed&limit=1&scope=active&listContract=v2&cursor=${first.nextCursor}`))).json()).toEqual({ items: [v2row(2)], nextCursor: null });
+    mocks.results.push({ data: [{ ...v2row(1), order_items: [{ id: "i1", item_name: "麵", quantity: 1, special_notes: null, selected_options: [{ name: null }] }] }], count: 1, error: null });
     expect((await GET(req("branchId=allowed&limit=1&listContract=v2"))).status).toBe(503);
     mocks.results.push({ data: [], count: 0, error: null });
     expect(await (await GET(req("branchId=allowed&limit=1&listContract=v2"))).json()).toEqual({ items: [], nextCursor: null });
@@ -60,12 +64,45 @@ describe("admin orders pagination", () => {
     { table: ["invalid"], order_items: [] },
     { table: null, order_items: "invalid" },
     { table: null, order_items: [null] },
-    { table: null, order_items: [{ id: "i", item_name: "麵", quantity: 1, selected_options: "invalid" }] },
+    { table: null, order_items: [{ id: "i", item_name: "麵", quantity: 1, special_notes: null, selected_options: "invalid" }] },
   ])("fails closed for malformed v2 nested values without leaking their contents", async (nested) => {
-    mocks.results.push({ data: [{ ...row(1), internal: "private", ...nested }], count: 1, error: null });
+    mocks.results.push({ data: [{ ...v2row(1), internal: "private", ...nested }], count: 1, error: null });
     const response = await GET(req("branchId=allowed&limit=1&listContract=v2"));
     expect(response.status).toBe(503);
     expect(await response.text()).not.toContain("private");
+  });
+
+  it.each([
+    { label: "numeric item note", changes: { order_items: [{ id: "i", item_name: "麵", quantity: 1, selected_options: null, special_notes: 0 }] } },
+    { label: "object item note", changes: { order_items: [{ id: "i", item_name: "麵", quantity: 1, selected_options: null, special_notes: { text: "private" } }] } },
+    { label: "missing item note", changes: { order_items: [{ id: "i", item_name: "麵", quantity: 1, selected_options: null }] } },
+    { label: "missing selected options", changes: { order_items: [{ id: "i", item_name: "麵", quantity: 1, special_notes: null }] } },
+    { label: "fractional quantity", changes: { order_items: [{ id: "i", item_name: "麵", quantity: 1.5, special_notes: null, selected_options: null }] } },
+    { label: "numeric order note", changes: { notes: 0 } },
+    { label: "object order note", changes: { notes: { text: "private" } } },
+    { label: "bad table number", changes: { table: { number: { text: "private" } } } },
+    { label: "missing table number", changes: { table: {} } },
+    { label: "invalid time", changes: { created_at: "2026-02-30T00:00:00Z" } },
+    { label: "numeric time", changes: { created_at: 0 } },
+    { label: "null total", changes: { total_amount: null } },
+    { label: "object total", changes: { total_amount: { value: 125 } } },
+    { label: "invalid print flag", changes: { is_printed: null } },
+    { label: "invalid status", changes: { status: "unknown" } },
+  ])("v2 fails closed on $label while the old contract remains unchanged", async ({ changes }) => {
+    const invalid = { ...v2row(1), ...changes };
+    mocks.results.push({ data: [invalid], count: 1, error: null });
+    const response = await GET(req("branchId=allowed&limit=1&listContract=v2"));
+    expect(response.status).toBe(503);
+    mocks.results.push({ data: [invalid], count: 1, error: null });
+    expect((await (await GET(req("branchId=allowed&limit=1"))).json()).items).toEqual([invalid]);
+  });
+
+  it("accepts schema-legal null timestamp, notes, table and option values", async () => {
+    const valid = { ...v2row(1, null), order_items: [{ id: "i", item_name: "麵", quantity: 0, special_notes: null, selected_options: null }] };
+    mocks.results.push({ data: [valid], count: 1, error: null });
+    const response = await GET(req("branchId=allowed&limit=1&listContract=v2"));
+    expect(response.status).toBe(200);
+    expect((await response.json()).items).toEqual([valid]);
   });
   it("keeps branch authorization before creating a database client", async () => {
     mocks.auth.mockResolvedValue(NextResponse.json({ error: "denied" }, { status: 403 }));
