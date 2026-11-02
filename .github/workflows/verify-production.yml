@@ -9,8 +9,7 @@
 name: Verify Production
 
 on:
-  push:
-    branches: [main]
+  workflow_call:
   workflow_dispatch:
     inputs:
       schema_only:
@@ -26,7 +25,7 @@ on:
 
 # Latest main SHA wins; older in-flight verifies may cancel (superseded revision).
 concurrency:
-  group: verify-production-main
+  group: verify-production-${{ github.workflow }}-main
   cancel-in-progress: true
 
 jobs:
@@ -61,7 +60,7 @@ jobs:
             fi
             sleep 30
           done
-          echo "::error::Production ($ACTUAL) ≠ main ($EXPECTED_SHA) after polling. Production deploy and migrate is the sole deploy owner."
+          echo "::error::Production ($ACTUAL) ≠ main ($EXPECTED_SHA) after polling. Production code-only release is the deploy owner."
           exit 1
 
       - name: Smoke — auth on reservation PATCH

@@ -1,0 +1,12 @@
+{
+  "approved_files": {
+    "docs/plans/2026-11-admin-reservation-list-projection.md": "b7c83c9b385bdc4b10c3e426684368ff71062809",
+    "src/components/ReservationList.selection.test.tsx": "30243f2ca908253db651e136aa08dee10d7f8eab",
+    "src/components/ReservationList.tsx": "75b2ab2866939b8e7864c6467d8f4476a5cf0f8c",
+    "src/components/admin/DepositStatusControl.projection.test.tsx": "e0a2d1620c57afc3864a73434d71a53affd2235f",
+    "src/lib/reservation-list-query.test.ts": "44d6473ee2b4c989ed25aed6a846ae6fedd47e5f",
+    "src/lib/reservation-list-query.ts": "2dec4b651f0db5b6e15cb21f9d52d112479e0cfb",
+    "src/types/index.ts": "0e5841384d2e231ad8be24d5c72348da6ddfcadd"
+  },
+  "baseline": "1d08784952211716f4cb37cf99324958b7e2a8ff"
+}

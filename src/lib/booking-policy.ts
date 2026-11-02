@@ -1,6 +1,6 @@
 /**
  * Guest-facing booking policy copy (cancel / deposit / no-show).
- * Editable later via settings; defaults match ops reality (ADR-012: unpaid deposits are not auto-cancelled by default).
+ * Editable later via settings; defaults match ops reality (ADR-012: unpaid deposits are not auto-cancelled).
  */
 export type BookingPolicy = {
   depositRule: string;

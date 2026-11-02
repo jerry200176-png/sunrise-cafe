@@ -1,45 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   fetchUnpaidDepositDueReservations,
-  fetchFailedDepositReleaseGroupDeliveries,
   updateReservationAdmin,
   isAdminConfigured,
-  supabaseAdmin,
 } from "@/lib/supabase-admin";
 import { sendLineFlexMessage } from "@/lib/line";
 import {
   buildGuestDepositReminderFlex,
-  buildGuestDepositReleasedFlex,
 } from "@/lib/line-cards";
-import {
-  sendLineFlexBatch,
-  sendLineFlexBatchToGroup,
-  buildDepositReleasedGroupFlex,
-  type LineFlexMessage,
-  type LineSendOptions,
-} from "@/lib/line-notify";
-import { branchLineGroupIdForReservation } from "@/lib/branch-line-group";
 import {
   computeDepositDeadline,
   formatDepositDeadlineLabel,
   getDepositUrgency,
-  isDepositAutoCancelEnabled,
   shouldAutoRelease,
   shouldSendDepositReminder,
   shouldSendUrgentDepositReminder,
 } from "@/lib/deposit-deadline";
-import { transitionReservation } from "@/lib/reservation-lifecycle";
 import { toTaipei, taipeiDateString } from "@/lib/datetime";
 import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
-import { logPayment, logDepositStatusChange } from "@/lib/payment-log";
+import { logPayment } from "@/lib/payment-log";
 import { errorToDetail } from "@/lib/cron-alert";
 import { runCronJob } from "@/lib/job-runs";
 import { authorizeCronGet } from "@/lib/cron-request-auth";
 import { runBootstrapMigrations } from "@/lib/bootstrap-migrations";
 import {
   claimLineReminderDelivery,
-  claimFailedLineReminderDelivery,
   markLineReminderDelivery,
   safeLineDeliveryError,
 } from "@/lib/line-delivery";
@@ -87,19 +73,6 @@ async function sendDepositReminder(r: Row, urgency: "ok" | "soon") {
   );
 }
 
-function buildGroupReleaseNotice(r: Row) {
-  return {
-    altText: `訂金逾期釋放：${r.customer_name}`,
-    contents: buildDepositReleasedGroupFlex({
-      customerName: r.customer_name,
-      phone: r.phone,
-      bookingCode: r.booking_code,
-      startTime: r.start_time,
-      endTime: r.end_time,
-    }),
-  };
-}
-
 async function handleRun() {
   await runBootstrapMigrations();
   if (!isAdminConfigured()) {
@@ -108,137 +81,25 @@ async function handleRun() {
 
   try {
   const now = new Date();
-  // ADR-012（Founder 2026-10-21）：預設不因未付訂金取消訂位。
-  // 只有 DEPOSIT_DEADLINE_AUTO_CANCEL=true 才恢復逾期自動取消。
-  const autoCancel = isDepositAutoCancelEnabled();
+  // Overdue unpaid reservations remain active; old auto-cancel flags cannot change this policy.
   const rows = (await fetchUnpaidDepositDueReservations(
-    autoCancel ? {} : { startAfter: now.toISOString() }
+    { startAfter: now.toISOString() }
   )) as unknown as Row[];
-  let released = 0;
+  const released = 0;
   let deadlinePassed = 0;
   let reminded = 0;
   let urgentReminded = 0;
   let errors = 0;
   let messageCount = 0;
-  const pendingGroupReleases: {
-    deliveryId: string | null;
-    groupId: string | null;
-    altText: string;
-    contents: Record<string, unknown>;
-  }[] = [];
-
-  // Cancelled reservations are intentionally absent from the normal unpaid
-  // query. Recover only failed staff release alerts, with a CAS claim so two
-  // overlapping cron runs cannot resend the same delivery.
-  try {
-    const failedReleases = await fetchFailedDepositReleaseGroupDeliveries();
-    for (const failed of failedReleases) {
-      const claimed = await claimFailedLineReminderDelivery(failed.delivery_id);
-      if (!claimed) continue;
-      const notice = buildGroupReleaseNotice(failed.reservation as unknown as Row);
-      const groupId = await branchLineGroupIdForReservation(supabaseAdmin(), (failed.reservation as unknown as Row).id);
-      pendingGroupReleases.push({ deliveryId: failed.delivery_id, groupId, ...notice });
-    }
-  } catch (err) {
-    errors++;
-    console.error("[deposit-deadline] failed group release recovery unavailable:", safeLineDeliveryError(err));
-  }
-
-  logPayment("deposit_deadline.cron_run", { candidate_count: rows.length, auto_cancel_enabled: autoCancel });
+  // Historical failed release notices are retained, but are not retried here:
+  // the reservation may have been restored since the original cancellation.
+  logPayment("deposit_deadline.cron_run", { candidate_count: rows.length, auto_cancel_enabled: false });
 
   for (const r of rows) {
     const deadline = computeDepositDeadline(r.created_at, r.start_time);
-    const { branchName } = describe(r);
 
     if (shouldAutoRelease(deadline, now)) {
-      if (!autoCancel) {
-        // 逾期但不取消：訂位維持原狀態與未付，等店家決定。
-        deadlinePassed++;
-        continue;
-      }
-      try {
-        const guestClaim = r.line_user_id
-          ? await claimLineReminderDelivery({
-              reminderType: "deposit_release_guest",
-              reminderDate: taipeiDateString(new Date(r.start_time)),
-              reservationId: r.id,
-              recipientType: "guest",
-              recipientId: r.line_user_id,
-            })
-          : null;
-        const groupClaim = await claimLineReminderDelivery({
-          reminderType: "deposit_release_group",
-          reminderDate: taipeiDateString(new Date(r.start_time)),
-          reservationId: r.id,
-          recipientType: "group",
-          recipientId: "legacy-group",
-        });
-        if (
-          groupClaim.available &&
-          !groupClaim.id &&
-          (guestClaim === null || (guestClaim.available && !guestClaim.id))
-        ) {
-          // Another run claimed this release, or the reservation became paid/
-          // inactive between the candidate query and this atomic claim.
-          continue;
-        }
-        // Lifecycle owns status, preorder and waitlist; this job sends its own release cards below.
-        const cancelled = await transitionReservation(
-          r.id,
-          { type: "cancel", reason: "deposit_deadline" },
-          { kind: "system", job: "deposit_deadline" }
-        );
-        if (!cancelled.ok) throw new Error(cancelled.message);
-
-        if (r.line_user_id && (!guestClaim?.available || guestClaim.id)) {
-          try {
-            await sendLineFlexMessage(
-              r.line_user_id,
-              "訂位已釋放",
-              buildGuestDepositReleasedFlex({
-                branchName,
-                bookingCode: r.booking_code,
-                startTime: r.start_time,
-                endTime: r.end_time,
-              }),
-              { reservationId: r.id }
-            );
-            messageCount++;
-            if (guestClaim?.id) await markLineReminderDelivery(guestClaim.id, { status: "sent" });
-          } catch (err) {
-            errors++;
-            if (guestClaim?.id) {
-              await markLineReminderDelivery(guestClaim.id, {
-                status: "failed",
-                error: safeLineDeliveryError(err),
-              });
-            }
-            console.error("[deposit-deadline] 客人通知失敗:", safeLineDeliveryError(err));
-          }
-        }
-
-        if (!groupClaim.available || groupClaim.id) {
-          const groupId = await branchLineGroupIdForReservation(supabaseAdmin(), r.id);
-          pendingGroupReleases.push({ deliveryId: groupClaim.id, groupId, ...buildGroupReleaseNotice(r) });
-        }
-
-        released++;
-        logPayment("deposit_deadline.released", {
-          reservation_id: r.id,
-          booking_code: r.booking_code,
-        });
-        logDepositStatusChange({
-          action: "deposit.auto_released",
-          reservation_id: r.id,
-          booking_code: r.booking_code,
-          actor_type: "cron_deposit_deadline",
-          before: { is_deposit_paid: false, status: r.status },
-          after: { is_deposit_paid: false, status: "cancelled" },
-        });
-      } catch (err) {
-        errors++;
-        console.error(`[deposit-deadline] 釋放失敗 id=${r.id}:`, err);
-      }
+      deadlinePassed++;
       continue;
     }
 
@@ -340,75 +201,13 @@ async function handleRun() {
     }
   }
 
-  // A release cron can process several reservations at once. Keep each
-  // reservation as its own actionable Flex card, but send up to five cards in
-  // one push request so LINE counts the group recipient once per batch rather
-  // than once per reservation. Delivery ledger claims remain per reservation.
-  // Each branch's releases go to that branch's group (default group when unset).
-  const sendBatch = (groupId: string | null, messages: LineFlexMessage[], options: LineSendOptions) =>
-    groupId ? sendLineFlexBatchToGroup(messages, groupId, options) : sendLineFlexBatch(messages, options);
-  const releasesByGroup = new Map<string | null, typeof pendingGroupReleases>();
-  for (const release of pendingGroupReleases) {
-    releasesByGroup.set(release.groupId, [...(releasesByGroup.get(release.groupId) ?? []), release]);
-  }
-  const batches = [...releasesByGroup.values()].flatMap((releases) =>
-    Array.from({ length: Math.ceil(releases.length / 5) }, (_, i) => releases.slice(i * 5, i * 5 + 5))
-  );
-  for (const batch of batches) {
-    const groupId = batch[0].groupId;
-    const retryKey = crypto.randomUUID();
-    try {
-      await sendBatch(
-        groupId,
-        batch.map(({ altText, contents }) => ({ altText, contents })),
-        { retryKey },
-      );
-      await Promise.all(
-        batch
-          .filter(({ deliveryId }) => deliveryId)
-          .map(({ deliveryId }) => markLineReminderDelivery(deliveryId!, { status: "sent" }))
-      );
-      messageCount++;
-    } catch {
-      // Reuse the same provider retry key once. A timeout/5xx may have been
-      // accepted by LINE; a second request with the same key becomes a 409
-      // reconciliation instead of a duplicate push.
-      try {
-        await sendBatch(
-          groupId,
-          batch.map(({ altText, contents }) => ({ altText, contents })),
-          { retryKey },
-        );
-        await Promise.all(
-          batch
-            .filter(({ deliveryId }) => deliveryId)
-            .map(({ deliveryId }) => markLineReminderDelivery(deliveryId!, { status: "sent" }))
-        );
-        messageCount++;
-      } catch (retryError) {
-        errors++;
-        await Promise.all(
-          batch
-            .filter(({ deliveryId }) => deliveryId)
-            .map(({ deliveryId }) =>
-              markLineReminderDelivery(deliveryId!, {
-                status: "failed",
-                error: safeLineDeliveryError(retryError),
-              })
-            )
-        );
-        console.error("[deposit-deadline] 群組通知批次失敗:", safeLineDeliveryError(retryError));
-      }
-    }
-  }
-
   return NextResponse.json({
     ok: errors === 0,
     sent: messageCount,
     message_count: messageCount,
     accepted_count: messageCount,
     rejected_count: errors,
-    auto_cancel_enabled: autoCancel,
+    auto_cancel_enabled: false,
     released,
     deadline_passed: deadlinePassed,
     reminded,
