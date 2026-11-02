@@ -29,6 +29,7 @@ CONTROL_FILES = frozenset({
     '.github/workflows/production-deploy-migrate.yml', '.github/workflows/verify-production.yml',
     'docs/plans/2026-11-code-only-release.md', 'scripts/code-only-manifest.json',
     'scripts/code-only-release.py', 'scripts/code-only-source.py',
+    'scripts/production-identity.sh',
     'scripts/test_code_only_release.py', 'scripts/test_code_only_source.py',
     'scripts/verify-production-workflow-contract.mjs',
 })

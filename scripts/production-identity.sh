@@ -15,7 +15,9 @@ HEALTH_CODE="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "${PROD_URL
 
 # Latest successful production deployment via GitHub environments API if present
 DEPLOY_JSON="$(gh api "repos/${REPO}/deployments?environment=Production&per_page=1" 2>/dev/null || echo '[]')"
-VERIFY_JSON="$(gh run list -R "$REPO" --workflow=verify-production.yml --limit 1 --json databaseId,conclusion,status,headSha,createdAt,url 2>/dev/null || echo '[]')"
+# Verification is a required job of the production release workflow. Its
+# result is included in the parent run's conclusion, not a standalone run.
+VERIFY_JSON="$(gh run list -R "$REPO" --workflow=production-code-only.yml --limit 1 --json databaseId,conclusion,status,headSha,createdAt,url 2>/dev/null || echo '[]')"
 BI_JSON="$(gh run list -R "$REPO" --workflow=business-intelligence.yml --limit 1 --json databaseId,conclusion,createdAt,url 2>/dev/null || echo '[]')"
 LINE_BACKUP_JSON="$(gh run list -R "$REPO" --workflow=send-line-reminder-backup.yml --limit 1 --json databaseId,conclusion,createdAt,url,displayTitle 2>/dev/null || echo '[]')"
 
