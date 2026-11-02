@@ -110,6 +110,7 @@ describe("RoomCheckoutPanel add submission", () => {
 
   it("requires explicit acknowledgement before sending again after an unknown response", async () => {
     let postCount = 0;
+    let reads = 0;
     const confirm = vi.fn(() => false);
     vi.stubGlobal("confirm", confirm);
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
@@ -118,12 +119,16 @@ describe("RoomCheckoutPanel add submission", () => {
         postCount++;
         return Promise.resolve(postCount === 2 ? json({ error: "缺少餐點", add_outcome: "not_attempted" }, 400) : json({}));
       }
+      reads++;
       return Promise.resolve(json(view));
     }));
     renderPanel();
     const button = await screen.findByRole("button", { name: /拿鐵/ });
     fireEvent.click(button);
     await screen.findByText(/上次加點結果未確認，原請求可能稍後完成/);
+    fireEvent.click(screen.getByRole("button", { name: "重新載入訂單" }));
+    await waitFor(() => expect(reads).toBe(2));
+    expect(screen.getByText(/上次加點結果未確認，原請求可能稍後完成/)).toBeTruthy();
     fireEvent.click(button);
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(postCount).toBe(1);
@@ -196,7 +201,7 @@ describe("RoomCheckoutPanel add submission", () => {
       if (url.startsWith("/api/menu")) return Promise.resolve(json(menu));
       if (init?.method === "POST") return Promise.resolve(json({ ok: true, committed: true, refresh_failed: true }));
       getCount++;
-      return getCount === 1 ? Promise.resolve(json(view)) : Promise.reject(new Error("offline"));
+      return getCount === 1 || getCount >= 4 ? Promise.resolve(json(view)) : Promise.reject(new Error("offline"));
     }));
     renderPanel();
     fireEvent.click(await screen.findByRole("button", { name: /拿鐵/ }));
@@ -204,6 +209,9 @@ describe("RoomCheckoutPanel add submission", () => {
     expect(screen.queryByText(/上次加點結果未確認/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "重新載入訂單" }));
     await waitFor(() => expect(getCount).toBe(3));
+    expect(screen.getByText(/上次加點已完成，但畫面未更新/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "重新載入訂單" }));
+    await waitFor(() => expect(screen.queryByText(/上次加點已完成，但畫面未更新/)).toBeNull());
   });
 
   it("cannot dismiss the option picker while the add is being sent", async () => {

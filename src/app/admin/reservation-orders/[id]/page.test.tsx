@@ -138,6 +138,9 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
     vi.stubGlobal("confirm", confirm);
     await selectAndAdd();
     await screen.findByText(/上次加點結果未確認，原請求可能稍後完成/);
+    fireEvent.click(screen.getByRole("button", { name: "重新載入訂單" }));
+    await waitFor(() => expect(getCount).toBe(2));
+    expect(screen.getByText(/上次加點結果未確認，原請求可能稍後完成/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "加入訂單" }));
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(posts).toEqual([submitted]);
@@ -151,6 +154,19 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
     fireEvent.click(screen.getByRole("button", { name: "加入訂單" }));
     expect(confirm).toHaveBeenCalledTimes(3);
     expect(posts).toEqual([submitted, submitted]);
+  });
+
+  it("clears only committed-stale after a successful manual reload", async () => {
+    refreshFailure = "http";
+    await selectAndAdd();
+    await screen.findByText(/上次加點已完成，但畫面未更新/);
+    fireEvent.click(screen.getByRole("button", { name: "重新載入訂單" }));
+    await waitFor(() => expect(getCount).toBe(3));
+    expect(screen.getByText(/上次加點已完成，但畫面未更新/)).toBeTruthy();
+    refreshFailure = null;
+    fireEvent.click(screen.getByRole("button", { name: "重新載入訂單" }));
+    await waitFor(() => expect(screen.queryByText(/上次加點已完成，但畫面未更新/)).toBeNull());
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("keeps the existing refresh-failure behavior for other actions", async () => {

@@ -163,7 +163,11 @@ export default function ReservationOrderPage() {
         {view && <p className="mt-2 text-sm text-stone-600">{view.reservation.customer_name} · {room?.name ?? "包廂"} · 代碼 {view.reservation.booking_code} · {new Date(view.reservation.start_time).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}</p>}
       </header>
       <p role="status" aria-atomic="true" className={notice ? "rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900" : "sr-only"}>{notice}</p>
-      <AddOutcomeWarning warning={addWarning.warning} busy={busy} onReload={() => { load(addWarning.warning === "committed_stale").catch((cause) => setError(thrownMessage(cause))); }} />
+      <AddOutcomeWarning warning={addWarning.warning} busy={busy} onReload={() => {
+        load(addWarning.warning === "committed_stale").then((loaded) => {
+          if (loaded) { addWarning.refreshed(id); setError(""); setNotice(""); }
+        }).catch((cause) => setError(thrownMessage(cause)));
+      }} />
       {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-rose-800">{error}</p>}
       {menuError && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">{menuError}</p>}
       {!view && !error && <p>載入中…</p>}

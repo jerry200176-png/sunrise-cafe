@@ -249,7 +249,11 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
       </header>
 
       <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
-        <AddOutcomeWarning warning={addWarning.warning} busy={busy} onReload={() => { load(addWarning.warning === "committed_stale").catch((cause) => setError(thrownMessage(cause))); }} />
+        <AddOutcomeWarning warning={addWarning.warning} busy={busy} onReload={() => {
+          load(addWarning.warning === "committed_stale").then((loaded) => {
+            if (loaded) { addWarning.refreshed(reservationId); setError(""); }
+          }).catch((cause) => setError(thrownMessage(cause)));
+        }} />
         {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>}
         {!view && loadFailed && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
           <p>{loadFailed}</p>
