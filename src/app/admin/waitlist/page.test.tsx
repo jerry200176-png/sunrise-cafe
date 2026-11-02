@@ -121,6 +121,44 @@ describe('waitlist write uncertainty', () => {
     expect(writes).toBe(1);
   });
 
+  it('an unmounted earlier response cannot clear a newer identical action', async () => {
+    let resolveA!: (response: Response) => void;
+    let rejectB!: (error: Error) => void;
+    let writes = 0;
+    const first = new Promise<Response>((resolve) => { resolveA = resolve; });
+    const second = new Promise<Response>((_resolve, reject) => { rejectB = reject; });
+    vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, options?: RequestInit) => {
+      if (options?.method === 'PATCH') { writes++; return writes === 1 ? first : second; }
+      return listing();
+    }));
+    const user = userEvent.setup();
+    const firstPage = render(<AdminWaitlistPage />);
+    await user.click(await screen.findByRole('button', { name: '標記已來電' }));
+    const oldHold = sessionStorage.getItem(pendingKey);
+    expect(oldHold).toBeTruthy();
+    firstPage.unmount();
+    const secondPage = render(<AdminWaitlistPage />);
+    await screen.findByText(/上次等位操作的結果尚未確認/);
+    await screen.findByText('測試客');
+    await user.click(screen.getByRole('button', { name: '重新整理核對' }));
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await user.click(await screen.findByRole('button', { name: '已核對，解除本分頁限制' }));
+    await user.click(screen.getByRole('button', { name: '標記已來電' }));
+    const newHold = sessionStorage.getItem(pendingKey);
+    expect(newHold).toBeTruthy();
+    expect(newHold).not.toEqual(oldHold);
+    await act(async () => { resolveA(json({ ok: true, id: item.id, staff_called_at: '2026-10-31T10:00:00.000Z' })); });
+    expect(sessionStorage.getItem(pendingKey)).toEqual(newHold);
+    await act(async () => { rejectB(new Error('response lost')); });
+    expect(await screen.findByText(/上次等位操作的結果尚未確認/)).toBeTruthy();
+    secondPage.unmount();
+    render(<AdminWaitlistPage />);
+    expect(await screen.findByText(/上次等位操作的結果尚未確認/)).toBeTruthy();
+    await screen.findByText('測試客');
+    expect((screen.getByRole('button', { name: '標記已來電' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(writes).toBe(2);
+  });
+
   it('never applies a refresh started immediately before a successful write', async () => {
     let resolveRefresh!: (response: Response) => void;
     let resolveWrite!: (response: Response) => void;
@@ -154,5 +192,16 @@ describe('waitlist write uncertainty', () => {
     expect(await screen.findByText(/瀏覽器無法保存待核對狀態/)).toBeTruthy();
     expect(request).toHaveBeenCalledTimes(1);
     expect((button as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('does not send a write when a secure operation ID cannot be generated', async () => {
+    const request = vi.fn(async () => listing()); vi.stubGlobal('fetch', request);
+    const user = userEvent.setup(); render(<AdminWaitlistPage />);
+    const button = await screen.findByRole('button', { name: '標記已來電' });
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockImplementation(() => { throw new Error('unavailable'); });
+    await user.click(button);
+    expect(await screen.findByText(/無法建立操作識別/)).toBeTruthy();
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem(pendingKey)).toBeNull();
   });
 });

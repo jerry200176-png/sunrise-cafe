@@ -28,7 +28,7 @@ type WaitlistItem = {
 };
 
 type StatusFilter = "all" | "waiting" | "notified" | "needs_call";
-type PendingWrite = { id: string | null; action: "remove" | "call" | "uncall" | "unknown" };
+type PendingWrite = { id: string | null; action: "remove" | "call" | "uncall" | "unknown"; operationId: string | null };
 const PENDING_WRITE_KEY = "sunrise.waitlist.pending-write.v1";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -85,6 +85,7 @@ export default function AdminWaitlistPage() {
   const writeInFlight = useRef(false);
   const pendingRef = useRef<PendingWrite | null>(null);
   const pendingStoredRef = useRef<string | null>(null);
+  const componentGeneration = useRef(0);
 
   const showToast = useCallback((message: string, variant: ToastVariant = "info") => {
     const id = ++toastId.current;
@@ -121,16 +122,20 @@ export default function AdminWaitlistPage() {
   }, []);
 
   useEffect(() => {
+    const generationRef = componentGeneration;
+    const sequenceRef = loadSequence;
+    generationRef.current++;
     try {
       const raw = window.sessionStorage.getItem(PENDING_WRITE_KEY);
       if (raw !== null) {
         pendingStoredRef.current = raw;
-        let pending: PendingWrite = { id: null, action: "unknown" };
+        let pending: PendingWrite = { id: null, action: "unknown", operationId: null };
         try {
           const value: unknown = JSON.parse(raw);
           if (isRecord(value) && typeof value.id === "string" && value.id.length > 0 && value.id.length <= 200
+              && typeof value.operationId === "string" && /^[0-9a-f-]{36}$/i.test(value.operationId)
               && (value.action === "remove" || value.action === "call" || value.action === "uncall")) {
-            pending = { id: value.id, action: value.action };
+            pending = { id: value.id, action: value.action, operationId: value.operationId };
           }
         } catch { /* Unknown stored content stays locked until reviewed. */ }
         pendingRef.current = pending;
@@ -144,15 +149,27 @@ export default function AdminWaitlistPage() {
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void load();
     }, 60_000);
-    return () => window.clearInterval(timer);
+    return () => {
+      generationRef.current++;
+      sequenceRef.current++;
+      window.clearInterval(timer);
+    };
   }, [load]);
 
   const performWrite = async (id: string, action: "remove" | "call" | "uncall") => {
     if (!guardReady || storageUnavailable || pendingRef.current || writeInFlight.current || loading || error) return;
     writeInFlight.current = true;
-    const pending: PendingWrite = { id, action };
-    const serialized = JSON.stringify(pending);
+    const generation = componentGeneration.current;
     try {
+      let operationId: string;
+      try {
+        operationId = globalThis.crypto.randomUUID();
+      } catch {
+        showToast("無法建立操作識別，請檢查瀏覽器安全設定；操作未送出。", "error");
+        return;
+      }
+      const pending: PendingWrite = { id, action, operationId };
+      const serialized = JSON.stringify(pending);
       try {
         window.sessionStorage.setItem(PENDING_WRITE_KEY, serialized);
         if (window.sessionStorage.getItem(PENDING_WRITE_KEY) !== serialized) throw new Error("storage unavailable");
@@ -171,8 +188,10 @@ export default function AdminWaitlistPage() {
       const res = await fetchWithTimeout(`/api/admin/waitlist/${id}`, action === "remove"
         ? { method: "DELETE" }
         : { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ staff_called: action === "call" }) });
+      if (componentGeneration.current !== generation) return;
       if (!res.ok) throw new Error("unknown outcome");
       const data = await readJsonWithTimeout<unknown>(res);
+      if (componentGeneration.current !== generation) return;
       if (!isRecord(data) || data.ok !== true) throw new Error("unknown outcome");
       if (action !== "remove" && (data.id !== id || (action === "call"
         ? typeof data.staff_called_at !== "string" || !data.staff_called_at
@@ -202,13 +221,15 @@ export default function AdminWaitlistPage() {
         showToast("結果已回覆，但無法清除待核對狀態，請檢查瀏覽器儲存設定。", "error");
       }
     } catch {
-      showToast("操作結果尚未確認，請重新整理清單並核對。", "error");
+      if (componentGeneration.current === generation) showToast("操作結果尚未確認，請重新整理清單並核對。", "error");
     } finally {
       loadSequence.current++;
       writeInFlight.current = false;
-      setRemovingId(null);
-      setMarkingId(null);
-      setConfirmRemoveId(null);
+      if (componentGeneration.current === generation) {
+        setRemovingId(null);
+        setMarkingId(null);
+        setConfirmRemoveId(null);
+      }
     }
   };
 
