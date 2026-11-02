@@ -6,6 +6,7 @@ import DashboardPage from "./dashboard/page";
 import ExecutivePage from "./executive/page";
 import ReportsPage from "./reports/page";
 import { buildReport } from "@/lib/report-builder";
+import { LocaleProvider } from "@/lib/i18n/LocaleContext";
 
 const mocked = vi.hoisted(() => ({
   branchState: {
@@ -67,14 +68,14 @@ describe("analytics branch scope shrinks", () => {
       if (branch === "b1" && holdFallback) return never();
       return json(dashboard(branch === "b2" ? "乙店" : "甲店", branch === "b2" ? 92 : 33));
     });
-    const view = render(<DashboardPage />);
+    const view = render(<LocaleProvider><DashboardPage /></LocaleProvider>);
     await waitFor(() => expect((screen.getByLabelText("分店") as HTMLSelectElement).value).toBe("b1"));
     fireEvent.change(screen.getByLabelText("分店"), { target: { value: "b2" } });
     expect(await screen.findByText(/時間軸 · 乙店/)).toBeTruthy();
     expect(await screen.findByText(/僅乙店客人/)).toBeTruthy();
     holdFallback = true;
     mocked.branchState.branches = [{ id: "b1", name: "甲店" }];
-    view.rerender(<DashboardPage />);
+    view.rerender(<LocaleProvider><DashboardPage /></LocaleProvider>);
     expect(screen.queryByText(/時間軸 · 乙店/)).toBeNull();
     expect(screen.queryByText(/僅乙店客人/)).toBeNull();
     expect((screen.getByLabelText("分店") as HTMLSelectElement).value).toBe("b1");
@@ -157,11 +158,11 @@ describe("analytics branch scope shrinks", () => {
       }
       return json(dashboard("甲店", 33));
     });
-    const view = render(<DashboardPage />);
+    const view = render(<LocaleProvider><DashboardPage /></LocaleProvider>);
     expect(await screen.findByText(/僅甲店客人/)).toBeTruthy();
     holdReload = true;
     mocked.branchState.branches = [];
-    view.rerender(<DashboardPage />);
+    view.rerender(<LocaleProvider><DashboardPage /></LocaleProvider>);
     expect(screen.queryByText(/僅甲店客人/)).toBeNull();
     expect((screen.getByLabelText("分店") as HTMLSelectElement).value).toBe("");
     expect(screen.getByText("目前沒有可管理的分店。")).toBeTruthy();
