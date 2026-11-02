@@ -22,6 +22,7 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
   let getCount: number;
   let refreshFailure: "http" | "network" | null;
   let postStatus: number;
+  let postNotAttempted: boolean;
 
   beforeEach(() => {
     mockParams.id = "res-1";
@@ -29,6 +30,7 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
     getCount = 0;
     refreshFailure = null;
     postStatus = 200;
+    postNotAttempted = false;
     fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url.startsWith("/api/menu?")) return Response.json(menu);
       if (url !== api) throw new Error(`Unexpected request: ${url}`);
@@ -36,7 +38,7 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
         posts.push(JSON.parse(String(init.body)));
         return postStatus === 200
           ? Response.json({ ok: true, committed: true, refresh_failed: true })
-          : Response.json({ error: "加點失敗" }, { status: postStatus });
+          : Response.json({ error: "加點失敗", ...(postNotAttempted ? { add_outcome: "not_attempted" } : {}) }, { status: postStatus });
       }
       getCount++;
       if (getCount > 1 && refreshFailure === "network") throw new TypeError("Failed to fetch");
@@ -86,6 +88,23 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  it("shows committed-but-stale immediately while the reload is still pending", async () => {
+    let resolveReload!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { resolveReload = resolve; });
+    let reads = 0;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu?")) return Promise.resolve(Response.json(menu));
+      if (init?.method === "POST") return Promise.resolve(Response.json({ ok: true, committed: true, refresh_failed: true }));
+      reads++;
+      return reads === 1 ? Promise.resolve(Response.json(view)) : pending;
+    }));
+    await selectAndAdd();
+    await screen.findByText(/上次加點已完成，但畫面未更新/);
+    expect(reads).toBe(2);
+    await act(async () => { resolveReload(Response.json(view)); await pending; });
+    await waitFor(() => expect(screen.queryByText(/上次加點已完成，但畫面未更新/)).toBeNull());
+  });
+
   it.each([409, 500])("retains selection and reports an actual POST %s failure without refetching", async (status) => {
     postStatus = status;
     await selectAndAdd();
@@ -105,9 +124,16 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
     fireEvent.click(screen.getByRole("button", { name: "加入訂單" }));
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(posts).toEqual([submitted]);
+    postNotAttempted = true;
     confirm.mockReturnValue(true);
     fireEvent.click(screen.getByRole("button", { name: "加入訂單" }));
     await waitFor(() => expect(posts).toEqual([submitted, submitted]));
+    await screen.findByText(/上次加點結果未確認，原請求可能稍後完成/);
+    await waitFor(() => expect((screen.getByRole("button", { name: "加入訂單" }) as HTMLButtonElement).disabled).toBe(false));
+    confirm.mockReturnValue(false);
+    fireEvent.click(screen.getByRole("button", { name: "加入訂單" }));
+    expect(confirm).toHaveBeenCalledTimes(3);
+    expect(posts).toEqual([submitted, submitted]);
   });
 
   it("keeps the existing refresh-failure behavior for other actions", async () => {

@@ -14,7 +14,7 @@ import { PAYMENT_METHODS, type PaymentMethod } from "@/lib/room-settlement";
 import { readAddItemsOutcome } from "@/lib/add-items-outcome";
 import { useAddOutcomeWarning } from "@/lib/use-add-outcome-warning";
 import { AddOutcomeWarning } from "@/components/admin/AddOutcomeWarning";
-import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
 
 type View = {
   reservation: { customer_name: string; booking_code: string; start_time: string; status: string; guest_count?: number | null };
@@ -25,6 +25,36 @@ type View = {
   billing: { start_time: string; end_time: string; status: string; total_price: number | null; is_deposit_paid: boolean;
     next_start: string | null; bill: CheckoutBill | null };
 };
+
+function isPanelView(value: unknown): value is View {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  if (!v.reservation || typeof v.reservation !== "object" || !v.billing || typeof v.billing !== "object") return false;
+  const reservation = v.reservation as Record<string, unknown>;
+  const billing = v.billing as Record<string, unknown>;
+  const time = (x: unknown) => typeof x === "string" && Number.isFinite(Date.parse(x));
+  if (typeof reservation.customer_name !== "string" || !time(billing.start_time) || !time(billing.end_time) ||
+      typeof billing.status !== "string" || (billing.next_start !== null && !time(billing.next_start))) return false;
+  if (billing.bill !== null) {
+    if (!billing.bill || typeof billing.bill !== "object") return false;
+    const bill = billing.bill as Record<string, unknown>;
+    if (!["hours", "hourlyRate", "roomFee", "foodTotal", "depositCredit", "due", "refund"].every((key) => typeof bill[key] === "number" && Number.isFinite(bill[key])) ||
+        !["bookedRoomFee", "extensionFee"].every((key) => bill[key] === null || (typeof bill[key] === "number" && Number.isFinite(bill[key]))) ||
+        typeof bill.isWeekend !== "boolean" || typeof bill.foodSettled !== "boolean") return false;
+  }
+  if (v.order !== null) {
+    if (!v.order || typeof v.order !== "object") return false;
+    const order = v.order as Record<string, unknown>;
+    if (order.order_items != null && (!Array.isArray(order.order_items) || order.order_items.some((item: unknown) => {
+      if (!item || typeof item !== "object") return true;
+      const row = item as Record<string, unknown>;
+      return typeof row.id !== "string" || typeof row.item_name !== "string" || typeof row.quantity !== "number" ||
+        (row.selected_options != null && (!Array.isArray(row.selected_options) || row.selected_options.some((option: unknown) =>
+          !option || typeof option !== "object" || typeof (option as Record<string, unknown>).name !== "string")));
+    }))) return false;
+  }
+  return true;
+}
 
 const money = (n: number) => `NT$ ${Math.round(n).toLocaleString()}`;
 const durationText = (hours: number) => {
@@ -69,17 +99,19 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   // 每次請求一個遞增編號：A→B→A 切回來時，A 的舊請求端點相同，只比端點擋不住
   const requestGen = useRef(0);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<boolean> => {
     const requested = api;
     const gen = ++requestGen.current;
-    const response = await fetch(requested, { credentials: "include" });
+    const response = await fetchWithTimeout(requested, { credentials: "include" });
     // 逾時等情況回的是網頁不是 JSON：一樣要變成看得懂的錯誤
-    const data = response.ok ? await response.json() : null;
-    if (currentApi.current !== requested || gen !== requestGen.current) return;
+    const data: unknown = response.ok ? await readJsonWithTimeout<unknown>(response) : null;
+    if (currentApi.current !== requested || gen !== requestGen.current) return false;
     if (!response.ok) throw new Error(await responseError(response));
-    setView(data as View);
+    if (!isPanelView(data)) throw new Error("訂單資料不完整，請重新載入");
+    setView(data);
     setLoadFailed("");
-    setCustomEnd(fmtClock((data as View).billing.end_time));
+    setCustomEnd(fmtClock(data.billing.end_time));
+    return true;
   }, [api]);
 
   const firstLoad = useCallback(() => {
@@ -141,11 +173,14 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
       }
       // 回應已帶最新資料：直接套用。動作已成功，就不要因為之後的重新整理失敗而回報失敗（避免重按而重複加點）。
       if (currentApi.current !== requested || gen !== requestGen.current) { onChanged(); return true; }
-      // POST 回應帶 order／billing／preorder（沒有 reservation）：合併進目前畫面
-      if (data?.billing && data?.order) {
+      // Never merge an add response into a full view: reload and validate it.
+      if (action === "add_items") {
+        addWarning.mark(reservationId, "committed_stale");
+        await load().then((loaded) => { if (loaded) addWarning.refreshed(reservationId); }).catch(() => undefined);
+      } else if (data?.billing && data?.order) {
         setView((previous) => previous ? { ...previous, ...(data as Partial<View>) } : previous);
         setCustomEnd(fmtClock((data as View).billing.end_time));
-      } else await load().catch(() => { if (committed) addWarning.mark(reservationId, "committed_stale"); });
+      } else await load().catch(() => undefined);
       onChanged();
       return true;
     } catch (cause) {

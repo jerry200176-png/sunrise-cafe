@@ -109,8 +109,9 @@ export default function ReservationOrderPage() {
           return false;
         }
         committed = true;
+        addWarning.mark(id, "committed_stale");
         await load().then((loaded) => {
-          if (!loaded) addWarning.mark(id, "committed_stale");
+          if (loaded) addWarning.refreshed(id);
         }).catch(() => {
           addWarning.mark(id, "committed_stale");
           if (currentId.current === id) setNotice("已加入訂單，但畫面未能更新。請重新整理頁面確認，請勿再次加點。");

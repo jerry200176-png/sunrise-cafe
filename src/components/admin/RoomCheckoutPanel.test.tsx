@@ -114,7 +114,10 @@ describe("RoomCheckoutPanel add submission", () => {
     vi.stubGlobal("confirm", confirm);
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
       if (url.startsWith("/api/menu")) return Promise.resolve(json(menu));
-      if (init?.method === "POST") { postCount++; return Promise.resolve(json({})); }
+      if (init?.method === "POST") {
+        postCount++;
+        return Promise.resolve(postCount === 2 ? json({ error: "缺少餐點", add_outcome: "not_attempted" }, 400) : json({}));
+      }
       return Promise.resolve(json(view));
     }));
     renderPanel();
@@ -127,6 +130,45 @@ describe("RoomCheckoutPanel add submission", () => {
     confirm.mockReturnValue(true);
     fireEvent.click(button);
     await waitFor(() => expect(postCount).toBe(2));
+    await screen.findByText("缺少餐點");
+    expect(screen.getByText(/上次加點結果未確認，原請求可能稍後完成/)).toBeTruthy();
+    confirm.mockReturnValue(false);
+    fireEvent.click(button);
+    expect(confirm).toHaveBeenCalledTimes(3);
+    expect(postCount).toBe(2);
+  });
+
+  it("keeps a validated view and marks the committed add stale when its reload is incomplete", async () => {
+    let getCount = 0;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu")) return Promise.resolve(json(menu));
+      if (init?.method === "POST") return Promise.resolve(json({ ok: true, order: { id: "o1" }, billing: { end_time: view.billing.end_time } }));
+      getCount++;
+      return Promise.resolve(json(getCount === 1 ? view : { ...view, billing: { end_time: view.billing.end_time } }));
+    }));
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: /拿鐵/ }));
+    await screen.findByText(/上次加點已完成，但畫面未更新/);
+    expect(screen.getByRole("heading", { name: "王小明" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "重新載入訂單" })).toBeTruthy();
+  });
+
+  it("shows the committed warning before the following GET has resolved", async () => {
+    let getCount = 0;
+    let finish!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { finish = resolve; });
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu")) return Promise.resolve(json(menu));
+      if (init?.method === "POST") return Promise.resolve(json({ ok: true, committed: true, refresh_failed: true }));
+      getCount++;
+      return getCount === 1 ? Promise.resolve(json(view)) : pending;
+    }));
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: /拿鐵/ }));
+    await screen.findByText(/上次加點已完成，但畫面未更新/);
+    expect(getCount).toBe(2);
+    await act(async () => { finish(json(view)); await pending; });
+    await waitFor(() => expect(screen.queryByText(/上次加點已完成，但畫面未更新/)).toBeNull());
   });
 
   it("distinguishes a committed add from a failed subsequent reload", async () => {
