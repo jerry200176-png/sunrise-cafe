@@ -21,6 +21,7 @@ import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout"
 import { useAdminBranches } from "@/lib/use-admin-branches";
 import { reservationStatusLabel } from "@/lib/status-labels";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
+import { GuestCopyButton } from "@/components/GuestCopyButton";
 
 interface Stats {
   date: string;
@@ -783,29 +784,13 @@ export default function AdminDashboardPage() {
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            try {
-                              if (navigator.clipboard?.writeText) {
-                                await navigator.clipboard.writeText(message);
-                              } else {
-                                const textarea = document.createElement("textarea");
-                                textarea.value = message;
-                                document.body.appendChild(textarea);
-                                textarea.select();
-                                document.execCommand("copy");
-                                document.body.removeChild(textarea);
-                              }
-                              showToast("已複製提醒內容", "success");
-                            } catch {
-                              showToast("複製失敗，請手動複製。", "error");
-                            }
-                          }}
-                          className="min-h-11 rounded-lg border border-gray-300 px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                        >
-                          複製提醒
-                        </button>
+                        <GuestCopyButton
+                          identity={JSON.stringify([branchScopeKey, branchId, date, r.id, message])}
+                          getText={() => message}
+                          label="複製提醒"
+                          copiedLabel="已複製提醒內容"
+                          className="inline-flex min-h-11 items-center gap-1 rounded-lg border border-gray-300 px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                        />
                         <button
                           type="button"
                           disabled={r.is_notified || remindersUpdating === r.id}
