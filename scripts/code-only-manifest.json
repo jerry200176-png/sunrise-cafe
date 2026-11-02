@@ -1,7 +1,7 @@
 {
   "approved_files": {
-    "docs/plans/2026-11-backup-recipient-canary-draft.md": "956e6bd4d6688f2d7319a45ac6acd9ecfc6e99e0",
+    "docs/plans/2026-11-backup-recipient-canary-draft.md": "2849b5cda9a5731c5315a2cc3dae93cd4039072a",
     "docs/workflow-drafts/backup-recipient-canary.yml": "15c004b33157e525c07cbcae7ee508c464664df5"
   },
-  "baseline": "fea0eff3e76b77ee0866467564d19f7a2759a60e"
+  "baseline": "9e17b2a61b8b7934c05a4a678ed5f91d0dc34bd3"
 }

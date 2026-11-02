@@ -25,17 +25,18 @@ concurrency:
 
 jobs:
   guard:
-    name: Confirm intent
+    name: Migration paused
     runs-on: ubuntu-latest
+    timeout-minutes: 1
+    permissions: {}
     steps:
-      - name: Require APPLY confirmation
+      - name: Explain pause
         run: |
-          if [ "${{ inputs.confirm }}" != "APPLY" ]; then
-            echo "Refusing: confirm input must be exactly APPLY"
-            exit 1
-          fi
+          echo '::error::Migration is paused until an encrypted, retained backup and a reviewed migration path are verified.'
+          exit 1
 
   preflight:
+    if: ${{ false }}
     name: Preflight (deploy order + secrets)
     needs: guard
     runs-on: ubuntu-latest
@@ -60,6 +61,7 @@ jobs:
         run: node scripts/maturity-migrate-preflight.mjs
 
   apply:
+    if: ${{ false }}
     name: Apply migrations
     needs: preflight
     runs-on: ubuntu-latest
@@ -82,6 +84,7 @@ jobs:
         run: node scripts/apply-maturity-rls-refund.mjs
 
   probe:
+    if: ${{ false }}
     name: Negative + positive probes
     needs: apply
     runs-on: ubuntu-latest
@@ -105,7 +108,7 @@ jobs:
     name: Migration summary
     needs: [probe]
     runs-on: ubuntu-latest
-    if: always()
+    if: ${{ false }}
     steps:
       - name: Write result
         run: |

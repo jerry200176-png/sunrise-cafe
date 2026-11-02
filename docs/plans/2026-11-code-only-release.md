@@ -161,3 +161,8 @@ See `2026-11-add-items-ui-warning.md` for the limits of this partial mitigation.
 此候選保留舊 deploy/migrate workflow 的首個 job 固定停用及完整依賴鏈，不觸發正式遷移；變更僅準備未來可審查的 legacy 加密備份 gate、診斷收斂及測試。phase CLI 的本機 manifest 和 upload metadata 檢查不證明來源、實際保留或可還原；其他 runner 與歷史 ref 不在此 gate 範圍。此 legacy `.dump.age` 格式不等同 #521 的離線 v1 加密 tar 契約。
 
 本次 manifest 精確列出所有非 manifest 的變更，包括停用 workflow 的 blob。兩個備份 shell 檔改為 100644，repository workflow 和測試均以 `bash scripts/...` 呼叫；release verifier 維持全部 100644 並拒絕符號連結與未列路徑。已經在 repository 外直接執行舊 producer 的使用者必須改用 `bash scripts/pre-migration-backup.sh ...`；repo 無法盤點外部呼叫者。新 baseline 與檔案雜湊僅適用此候選，並不授權實際遷移或備份。
+
+
+## 暫停 maturity migration 入口
+
+此版本只暫停現有手動 maturity migration 入口：guard 以無權限固定訊息失敗，四個下游 job 固定停用；保留歷史腳本且不執行 SQL、資料庫寫入或正式備份。不能據此推論已驗證其他 migration 入口、備份來源或還原。manifest 包含 workflow 原文 blob、文件和合成測試，批准基準僅用於此版本；程式發布不授權執行 migration。

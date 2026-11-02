@@ -2,6 +2,8 @@
 
 Status: review draft only. Since this draft was prepared, separately reviewed code-only releases have proceeded under their own checks; do not treat the former blanket release hold as the current status of every release. This draft does not authorize a backup, SQL change, credential change, or deployment. Each proposed operation remains subject to the applicable current gates and independently verified evidence. The YAML is stored outside `.github/workflows` at [`docs/workflow-drafts/backup-recipient-canary.yml`](../workflow-drafts/backup-recipient-canary.yml); GitHub Actions will not discover it there. There is no evidence that this draft has been activated or dispatched.
 
+The proposed code-only baseline for this integration is `9e17b2a61b8b7934c05a4a678ed5f91d0dc34bd3`. Production identity and health, the final reviewed commit, and all release gates must be verified independently before any release; a proposed baseline or a green PR check does not establish those facts.
+
 ## Evidence and scope
 
 The user reports that the GitHub Repository secrets UI lists the name `BACKUP_AGE_RECIPIENT`. No secret value was read. Presence of the name does not establish the value is a valid age recipient, that any particular workflow can access it, or that a held private key can decrypt ciphertext encrypted to it.
