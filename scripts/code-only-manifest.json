@@ -1,19 +1,12 @@
 {
   "approved_files": {
-    "docs/plans/2026-11-admin-order-list-projection.md": "b2b7fe0d53e087da4a23ce4f6cbc504fa79fffb1",
-    "e2e/admin-operational-loading.spec.ts": "fd0bbe1da7781db06418b9db267e664a146a626d",
-    "src/app/admin/orders/page.refresh.test.tsx": "67a1f14659cf64d33f175e34e846fa2779c15557",
-    "src/app/admin/orders/page.tsx": "ed4b800de0a7624bdec480af7f834d7f15e4f8c1",
-    "src/app/admin/print-station/page.test.tsx": "50d756fcc04d92d435f2a882935b90334d827730",
-    "src/app/admin/print-station/page.tsx": "4eaed93affb159b76e25fe404b89673bafbb8b30",
-    "src/app/api/admin/orders/route.permissions.test.ts": "3bf51bb7f395693cd42ac77a117b3a99eaae3a94",
-    "src/app/api/admin/orders/route.test.ts": "05732a22b217a3cc094dc841200284f447923386",
-    "src/app/api/admin/orders/route.ts": "3e45a79efef53fd2733440840fd26e0fd0dc9060",
-    "src/lib/admin-order-list.ts": "af21a4fbf7a86ec76d3938a45ef9d92613bce85c",
-    "src/lib/admin-orders-fetch.test.ts": "dd43056ab8119b202b5cb8155db6e399cf85a394",
-    "src/lib/admin-orders-fetch.ts": "a405845bfaf7083eda6633930cd531cf2af54c37",
-    "src/lib/print-queue.test.ts": "84acec18c32abe519662f7ab7d0a841a5489aa8c",
-    "src/lib/print-queue.ts": "4888b2ab2f2120aea6cd95d35ba4155347fd22fc"
+    ".github/workflows/ops-linepay-vercel-env.yml": "c324e816a61a9135d8ca0d3c952511640423221d",
+    "docs/ops/LINE_PAY_SANDBOX_ENV.md": "3268aa4bb22d1db047b2c2f824931167a5f1cee5",
+    "docs/plans/2026-11-linepay-ci-isolation.md": "c01d83e20f4bb97603c3eabbaf7563bde788cfe6",
+    "scripts/lib/linepay-paused-contract.mjs": "230b1c084a7d73b7f1d79fc27892fe33e0fcb1c7",
+    "scripts/ops-linepay-vercel-env.sh": "dde1e1f839c87d66f11d06019f114a1758f83641",
+    "scripts/verify-production-workflow-contract.mjs": "e8942a521b43ad49f15597c3231ce91e273ba7a6",
+    "src/lib/ops-linepay-vercel-env.test.ts": "fb08584676449f2661ce94e76fa52e2d8b1e616f"
   },
-  "baseline": "197ce29c735f004cac37f89aa1ec31e73a759926"
+  "baseline": "1ac93b071dc1f7b9e721bbed2639db5fca8234a9"
 }

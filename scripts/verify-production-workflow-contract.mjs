@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertLinePayPaused } from "./lib/linepay-paused-contract.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (relativePath) => readFile(resolve(root, relativePath), "utf8");
@@ -71,7 +72,8 @@ assert.doesNotMatch(linePayWorkflow, directProductionDeploy);
 assert.doesNotMatch(linePayScript, directProductionDeploy);
 assert.doesNotMatch(linePayWorkflow, equivalentProductionDeploy);
 assert.doesNotMatch(linePayScript, equivalentProductionDeploy);
-assert.match(linePayWorkflow, /gh workflow run production-deploy-migrate\.yml/);
+// PR and manual paths must remain credential-free and fail closed.
+assertLinePayPaused(linePayWorkflow, linePayScript);
 assert.doesNotMatch(migrationWorkflow, /deploy-if-needed/);
 assert.doesNotMatch(migrationWorkflow, /if:\s*always\(\)/);
 assert.match(autonomousLoop, /deploy-gate\.sh/);
