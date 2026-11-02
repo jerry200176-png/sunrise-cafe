@@ -36,6 +36,17 @@ reported as unknown rather than retried or claimed successful.
   separates repeatable release processes from database migrations and makes
   rollback and release identity explicit. No external code was copied.
 
+## Subsequent same-tab add-item warning candidate
+
+This candidate proposes baseline `e9376a0d28f87b98b8bc03303645237d0dc8d7f8`
+and a replacement one-use manifest for its ten reviewed application, test,
+and research-document files. It makes no migration, verification, watch, or
+rollback behavior changes. Production must have completed verification and
+still match this baseline before release. It remains a draft pending CI and
+independent exact-head review; no deployment is authorized by preparing it.
+See `2026-11-anonymous-tab-add-warning-research.md` for its privacy,
+false-positive, storage-failure and recovery limits.
+
 ## Operational limits
 
 ### Subsequent guest booking and preorder candidate
@@ -68,6 +79,15 @@ change the deployment, health, or rollback workflow. The baseline must still
 be the healthy production version when this candidate is actually released;
 if production has changed, prepare a new reviewed baseline and manifest.
 This candidate is prepared locally and has not been deployed.
+
+### Add-items warning candidate
+
+The staff add-items warning candidate proposes baseline
+`6d7fd7d2be736f64e48c85cedfaa5da81ea38773` and a separately reviewed one-use
+manifest. Its code changes do not execute a migration or alter release,
+verification, watch or rollback behavior. The baseline must be the healthy
+production version at release; a different baseline requires new review.
+See `2026-11-add-items-ui-warning.md` for the limits of this partial mitigation.
 
 - Production deployment creation serves traffic when ready; unlike a staged
   production build, health verification occurs immediately after traffic moves.

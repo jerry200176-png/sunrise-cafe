@@ -1,12 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFileSync } from "fs";
-import { join } from "path";
 import { requirePermission } from "@/lib/admin-api-auth";
-
-const MIGRATION_SQL = readFileSync(
-  join(process.cwd(), "supabase/migration-market-parity-rounds-3-7.sql"),
-  "utf8"
-);
+import { migrationPaused } from "@/lib/migration-pause";
 
 const COLUMNS = [
   { table: "reservations", column: "guest_confirmed_at" },
@@ -34,13 +28,14 @@ async function probeColumn(
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return { exists: false, detail: "Supabase not configured" };
 
-  const res = await fetch(
-    `${url.replace(/\/$/, "")}/rest/v1/${table}?select=${column}&limit=1`,
-    { headers: { apikey: key, Authorization: `Bearer ${key}` } }
-  );
-  const text = await res.text();
-  if (res.status === 200) return { exists: true };
-  return { exists: false, detail: text.slice(0, 200) };
+  try {
+    const res = await fetch(
+      `${url.replace(/\/$/, "")}/rest/v1/${table}?select=${column}&limit=1`,
+      { headers: { apikey: key, Authorization: `Bearer ${key}` } }
+    );
+    if (res.status === 200) return { exists: true };
+  } catch { /* Expose only a fixed status, not upstream connection details. */ }
+  return { exists: false, detail: "無法確認欄位狀態" };
 }
 
 async function probeAll() {
@@ -52,29 +47,13 @@ async function probeAll() {
   return { all, results };
 }
 
-async function applyViaPostgres(): Promise<void> {
-  const conn = pgConnectionString();
-  if (!conn) {
-    throw new Error(
-      "No Postgres URL. Set SUPABASE_DB_URL or POSTGRES_URL_NON_POOLING on Vercel."
-    );
-  }
-  const { default: postgres } = await import("postgres");
-  const sql = postgres(conn, { max: 1, idle_timeout: 10 });
-  try {
-    await sql.unsafe(MIGRATION_SQL);
-  } finally {
-    await sql.end({ timeout: 10 });
-  }
-}
-
 function isCronAuthorized(request: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
   if (!secret) return false;
   return request.headers.get("authorization") === `Bearer ${secret}`;
 }
 
-/** GET: check Round 3–7 columns · POST: apply (admin or CRON_SECRET) */
+/** GET: check Round 3–7 columns · POST: authenticated migration pause notice */
 export async function GET() {
   const probe = await probeAll();
   return NextResponse.json({
@@ -90,31 +69,5 @@ export async function POST(request: NextRequest) {
     if (denied) return denied;
   }
 
-  const before = await probeAll();
-  if (before.all) {
-    return NextResponse.json({
-      ok: true,
-      already_applied: true,
-      columns: before.results,
-    });
-  }
-
-  try {
-    await applyViaPostgres();
-    const after = await probeAll();
-    if (!after.all) {
-      return NextResponse.json(
-        { error: "Migration ran but columns still missing", columns: after.results },
-        { status: 500 }
-      );
-    }
-    return NextResponse.json({
-      ok: true,
-      applied: true,
-      columns: after.results,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
+  return migrationPaused();
 }
