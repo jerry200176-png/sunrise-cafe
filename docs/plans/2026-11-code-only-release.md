@@ -40,7 +40,7 @@ reported as unknown rather than retried or claimed successful.
 
 ### Subsequent report-only candidate
 
-The report recovery candidate uses the separately reviewed production baseline
+The report recovery candidate proposes the separately reviewed baseline
 `b5c44d5b002276148cfea82708b740ac1b01825a` and a replacement one-use manifest
 covering the three report PR files. It does not authorize any migration or
 change the deployment, health, or rollback workflow. The baseline must still
