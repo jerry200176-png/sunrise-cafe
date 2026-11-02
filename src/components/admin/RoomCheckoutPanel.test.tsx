@@ -20,9 +20,9 @@ const menu = {
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 const html = (status: number) => new Response("<html>An error occurred</html>", { status, headers: { "Content-Type": "text/html" } });
 
-function renderPanel() {
+function renderPanel(onClose: () => void = () => undefined) {
   return render(<RoomCheckoutPanel reservationId="r1" roomName="A 廳" branchId="b1" nowMs={Date.parse("2026-10-21T07:00:00Z")}
-    onClose={() => undefined} onChanged={() => undefined} />);
+    onClose={onClose} onChanged={() => undefined} />);
 }
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -101,10 +101,73 @@ describe("RoomCheckoutPanel add submission", () => {
     renderPanel();
     const button = await screen.findByRole("button", { name: /拿鐵/ });
     fireEvent.click(button);
-    await screen.findByText(/加點結果未確認，可能已送出。請先核對訂單，避免重複加點。/);
+    await screen.findByText(/上次加點結果未確認，原請求可能稍後完成/);
     await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    vi.stubGlobal("confirm", vi.fn(() => true));
     fireEvent.click(button);
     await waitFor(() => expect(postCount).toBe(2));
+  });
+
+  it("requires explicit acknowledgement before sending again after an unknown response", async () => {
+    let postCount = 0;
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirm);
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu")) return Promise.resolve(json(menu));
+      if (init?.method === "POST") { postCount++; return Promise.resolve(json({})); }
+      return Promise.resolve(json(view));
+    }));
+    renderPanel();
+    const button = await screen.findByRole("button", { name: /拿鐵/ });
+    fireEvent.click(button);
+    await screen.findByText(/上次加點結果未確認，原請求可能稍後完成/);
+    fireEvent.click(button);
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(postCount).toBe(1);
+    confirm.mockReturnValue(true);
+    fireEvent.click(button);
+    await waitFor(() => expect(postCount).toBe(2));
+  });
+
+  it("distinguishes a committed add from a failed subsequent reload", async () => {
+    let getCount = 0;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu")) return Promise.resolve(json(menu));
+      if (init?.method === "POST") return Promise.resolve(json({ ok: true, committed: true, refresh_failed: true }));
+      getCount++;
+      return getCount === 1 ? Promise.resolve(json(view)) : Promise.reject(new Error("offline"));
+    }));
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: /拿鐵/ }));
+    await screen.findByText(/上次加點已完成，但畫面未更新/);
+    expect(screen.queryByText(/上次加點結果未確認/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "重新載入訂單" }));
+    await waitFor(() => expect(getCount).toBe(3));
+  });
+
+  it("cannot dismiss the option picker while the add is being sent", async () => {
+    let finish!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { finish = resolve; });
+    const onClose = vi.fn();
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirm);
+    const menuWithOption = { ...menu, items: [{ ...menu.items[0], options: [{ id: "op1", option_name: "冰", price_delta: 0 }] }] };
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu")) return Promise.resolve(json(menuWithOption));
+      return init?.method === "POST" ? pending : Promise.resolve(json(view));
+    }));
+    renderPanel(onClose);
+    fireEvent.click(await screen.findByRole("button", { name: /拿鐵/ }));
+    fireEvent.click(screen.getByRole("button", { name: "加入" }));
+    expect((screen.getByRole("button", { name: "取消" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "送出中…" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "關閉" }));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("不會取消"));
+    expect(onClose).not.toHaveBeenCalled();
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "關閉" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    await act(async () => { finish(json({ ok: true, ...view })); await pending; });
   });
 });
 

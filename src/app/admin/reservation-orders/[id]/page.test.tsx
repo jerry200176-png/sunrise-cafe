@@ -61,8 +61,8 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
     await waitFor(() => expect((screen.getByRole("checkbox", { name: "選擇咖啡" }) as HTMLInputElement).checked).toBe(false));
     expect((screen.getByRole("button", { name: "加入訂單" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByRole("status").textContent).toBe("已加入訂單，但畫面未能更新。請重新整理頁面確認，請勿再次加點。");
-    expect(screen.getByRole("status").getAttribute("aria-atomic")).toBe("true");
+    const notice = screen.getByText("已加入訂單，但畫面未能更新。請重新整理頁面確認，請勿再次加點。");
+    expect(notice.getAttribute("aria-atomic")).toBe("true");
     expect(getCount).toBe(2);
     expect(posts).toEqual([submitted]);
     // An additional click without a new selection cannot repeat the committed add.
@@ -72,7 +72,7 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
     // even if that new action fails. It must not mask a genuine POST error.
     postStatus = 500;
     fireEvent.click(screen.getByRole("button", { name: "記錄現場已結帳" }));
-    expect(screen.getByRole("status").textContent).toBe("");
+    expect(notice.textContent).toBe("");
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(posts).toEqual([submitted, { action: "settle" }]);
   });
@@ -94,6 +94,20 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
     expect((screen.getByRole("button", { name: "加入訂單" }) as HTMLButtonElement).disabled).toBe(false);
     expect(getCount).toBe(1);
     expect(posts).toEqual([submitted]);
+  });
+
+  it("asks for explicit acknowledgement before retrying an unknown add", async () => {
+    postStatus = 409; // No machine-readable proof of a pre-write rejection.
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirm);
+    await selectAndAdd();
+    await screen.findByText(/上次加點結果未確認，原請求可能稍後完成/);
+    fireEvent.click(screen.getByRole("button", { name: "加入訂單" }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(posts).toEqual([submitted]);
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "加入訂單" }));
+    await waitFor(() => expect(posts).toEqual([submitted, submitted]));
   });
 
   it("keeps the existing refresh-failure behavior for other actions", async () => {

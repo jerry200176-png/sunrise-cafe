@@ -135,6 +135,38 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
       expect(await response.json()).toEqual({ error: "cannot order unavailable item" });
       expect(inserts()).toHaveLength(0);
     });
+
+    it("marks a proven pre-insert rejection without changing the error contract", async () => {
+      const response = await post({ action: "add_items", items: [] });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "缺少餐點", add_outcome: "not_attempted" });
+      expect(inserts()).toHaveLength(0);
+      const oldClient = await post({ action: "replace_item" });
+      expect(await oldClient.json()).toEqual({ error: "缺少餐點" });
+    });
+
+    it.each(["no order", "not checked in", "paid"])("marks %s only before any insert", async (reason) => {
+      if (reason === "paid") order.paid_at = new Date().toISOString();
+      if (reason === "not checked in") mocks.getReservationForPreorder.mockResolvedValue({ id: "res-1", status: "completed", room: { branch_id: "b1" } });
+      if (reason === "no order") {
+        const base = mocks.respond;
+        mocks.respond = (call) => call.table === "orders" && !hasOp(call, "update") ? { data: null, error: null } : base(call);
+      }
+      const response = await post(body);
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual(expect.objectContaining({ add_outcome: "not_attempted", error: expect.any(String) }));
+      expect(inserts()).toHaveLength(0);
+    });
+
+    it("never marks a failed insert as not attempted, even when it produces 409", async () => {
+      const base = mocks.respond;
+      mocks.respond = (call) => call.table === "order_items" && hasOp(call, "insert")
+        ? { data: null, error: new Error("cannot write") } : base(call);
+      const response = await post(body);
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ error: "cannot write" });
+      expect(inserts()).toHaveLength(1);
+    });
   });
 
   it("extends the end time within the next group's start and returns the recomputed bill", async () => {

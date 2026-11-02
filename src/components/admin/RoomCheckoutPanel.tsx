@@ -11,6 +11,10 @@ import type { MenuCategory, MenuItem, Order, OrderItem } from "@/types";
 import { EXTEND_STEPS_MINUTES, addMinutes, foodStillOwed, newEndProblem, overtimeSettledEnd, resolveClockNear, type CheckoutBill } from "@/lib/room-checkout";
 import { fmtClock, minutesText } from "@/components/admin/RoomFloor3D";
 import { PAYMENT_METHODS, type PaymentMethod } from "@/lib/room-settlement";
+import { readAddItemsOutcome } from "@/lib/add-items-outcome";
+import { useAddOutcomeWarning } from "@/lib/use-add-outcome-warning";
+import { AddOutcomeWarning } from "@/components/admin/AddOutcomeWarning";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 
 type View = {
   reservation: { customer_name: string; booking_code: string; start_time: string; status: string; guest_count?: number | null };
@@ -57,6 +61,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   const [loadFailed, setLoadFailed] = useState("");
   const [menuState, setMenuState] = useState<"loading" | "ready" | "error">("loading");
   const api = `/api/admin/reservation-orders/${encodeURIComponent(reservationId)}`;
+  const addWarning = useAddOutcomeWarning(reservationId);
 
   // 目前顯示的是哪一組：切換組別後，舊組晚回來的回應一律丟掉，避免畫面是 A 組、按鈕卻送到 B 組
   const currentApi = useRef(api);
@@ -111,27 +116,42 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
 
   async function act(action: string, extra: Record<string, unknown> = {}) {
     if (mutationInFlight.current) return false;
+    if (action === "add_items" && !addWarning.confirmBeforeAdd(reservationId)) return false;
     mutationInFlight.current = true;
     setBusy(true); setError("");
     const requested = api;
     const gen = ++requestGen.current;
+    let committed = false;
     try {
-      const response = await fetch(requested, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+      const response = await (action === "add_items" ? fetchWithTimeout : fetch)(requested, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, ...extra }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(friendlyMessage(data.error, response.status));
+      let data: Record<string, unknown>;
+      if (action === "add_items") {
+        const outcome = await readAddItemsOutcome(response);
+        if (outcome.kind !== "committed") {
+          if (outcome.kind === "unknown") addWarning.mark(reservationId, "unknown");
+          if (currentApi.current === requested) setError(outcome.message);
+          return false;
+        }
+        committed = true;
+        data = outcome.data;
+      } else {
+        data = await response.json();
+        if (!response.ok) throw new Error(friendlyMessage(typeof data.error === "string" ? data.error : undefined, response.status));
+      }
       // 回應已帶最新資料：直接套用。動作已成功，就不要因為之後的重新整理失敗而回報失敗（避免重按而重複加點）。
       if (currentApi.current !== requested || gen !== requestGen.current) { onChanged(); return true; }
       // POST 回應帶 order／billing／preorder（沒有 reservation）：合併進目前畫面
-      if (data?.billing) {
+      if (data?.billing && data?.order) {
         setView((previous) => previous ? { ...previous, ...(data as Partial<View>) } : previous);
         setCustomEnd(fmtClock((data as View).billing.end_time));
-      } else await load().catch(() => undefined);
+      } else await load().catch(() => { if (committed) addWarning.mark(reservationId, "committed_stale"); });
       onChanged();
       return true;
     } catch (cause) {
       const detail = thrownMessage(cause);
-      setError(action === "add_items" ? `加點結果未確認，可能已送出。請先核對訂單，避免重複加點。（${detail}）` : detail);
+      if (action === "add_items") addWarning.mark(reservationId, committed ? "committed_stale" : "unknown");
+      if (currentApi.current === requested) setError(detail);
       return false;
     }
     finally { mutationInFlight.current = false; setBusy(false); }
@@ -184,12 +204,13 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
             {view.reservation.guest_count ? `${view.reservation.guest_count} 位 · ` : ""}訂位代號 {view.reservation.booking_code}
           </p>}
         </div>
-        <button type="button" onClick={onClose} aria-label="關閉" className="flex h-11 w-11 items-center justify-center rounded-xl hover:bg-paper-deep">
+        <button type="button" onClick={() => { if (!mutationInFlight.current || window.confirm("關閉面板不會取消正在送出的操作，操作仍可能完成。確定關閉？")) onClose(); }} aria-label="關閉" className="flex h-11 w-11 items-center justify-center rounded-xl hover:bg-paper-deep">
           <X className="h-5 w-5" strokeWidth={1.5} />
         </button>
       </header>
 
       <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
+        <AddOutcomeWarning warning={addWarning.warning} busy={busy} onReload={() => { load().catch((cause) => setError(thrownMessage(cause))); }} />
         {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>}
         {!view && loadFailed && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
           <p>{loadFailed}</p>
@@ -277,8 +298,8 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
               <div className="mt-3 flex gap-2">
                 <button type="button" disabled={busy || picking.length !== 1 || Boolean(selectionProblem(menu, picking))}
                   onClick={async () => { if (await act("add_items", { items: picking })) setPicking(null); }}
-                  className="h-11 rounded-xl bg-ink px-4 text-sm font-semibold text-paper disabled:opacity-40">加入</button>
-                <button type="button" onClick={() => setPicking(null)} className="h-11 rounded-xl border border-ink/15 px-4 text-sm">取消</button>
+                  className="h-11 rounded-xl bg-ink px-4 text-sm font-semibold text-paper disabled:opacity-40">{busy ? "送出中…" : "加入"}</button>
+                <button type="button" disabled={busy} onClick={() => setPicking(null)} className="h-11 rounded-xl border border-ink/15 px-4 text-sm disabled:opacity-50">取消</button>
               </div>
             </div> : <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {shown.map((item) => <button key={item.id} type="button" disabled={busy} onClick={() => tapItem(item)}
