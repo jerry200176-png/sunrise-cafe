@@ -50,6 +50,8 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   const [discount, setDiscount] = useState("");
   const [discountReason, setDiscountReason] = useState("");
   const [busy, setBusy] = useState(false);
+  // State updates render asynchronously; guard synchronous repeat clicks too.
+  const mutationInFlight = useRef(false);
   const [error, setError] = useState("");
   /** 第一次載入就失敗：沒有畫面可顯示，要給「重試」而不是一直顯示載入中 */
   const [loadFailed, setLoadFailed] = useState("");
@@ -108,6 +110,8 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   useEffect(() => { loadMenu(); }, [loadMenu]);
 
   async function act(action: string, extra: Record<string, unknown> = {}) {
+    if (mutationInFlight.current) return false;
+    mutationInFlight.current = true;
     setBusy(true); setError("");
     const requested = api;
     const gen = ++requestGen.current;
@@ -125,8 +129,12 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
       } else await load().catch(() => undefined);
       onChanged();
       return true;
-    } catch (cause) { setError(thrownMessage(cause)); return false; }
-    finally { setBusy(false); }
+    } catch (cause) {
+      const detail = thrownMessage(cause);
+      setError(action === "add_items" ? `加點結果未確認，可能已送出。請先核對訂單，避免重複加點。（${detail}）` : detail);
+      return false;
+    }
+    finally { mutationInFlight.current = false; setBusy(false); }
   }
 
   const shown = useMemo(() => menu.filter((item) => category === "all" || item.category_id === category), [menu, category]);

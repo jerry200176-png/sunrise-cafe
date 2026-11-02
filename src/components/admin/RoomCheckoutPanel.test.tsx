@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { RoomCheckoutPanel } from "./RoomCheckoutPanel";
 import { FallbackBoundary } from "./FallbackBoundary";
 
@@ -62,6 +62,49 @@ describe("RoomCheckoutPanel load failures", () => {
     renderPanel();
     expect(await screen.findByText(/這間分店還沒有可以點的品項/)).toBeTruthy();
     expect(screen.queryByRole("tablist", { name: "菜單種類" })).toBeNull();
+  });
+});
+
+describe("RoomCheckoutPanel add submission", () => {
+  it("sends one request for repeated clicks before rendering, then permits a deliberate second order", async () => {
+    let finish: (response: Response) => void = () => { throw new Error("not initialized"); };
+    const first = new Promise<Response>((resolve) => { finish = resolve; });
+    let postCount = 0;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu")) return Promise.resolve(json(menu));
+      if (init?.method === "POST") {
+        postCount += 1;
+        return postCount === 1 ? first : Promise.resolve(json({ ok: true, ...view }));
+      }
+      return Promise.resolve(json(view));
+    }));
+    renderPanel();
+    const button = await screen.findByRole("button", { name: /拿鐵/ });
+    act(() => { fireEvent.click(button); fireEvent.click(button); });
+    expect(postCount).toBe(1);
+    await act(async () => { finish(json({ ok: true, ...view })); await first; });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() => expect(postCount).toBe(2));
+  });
+
+  it("releases the in-flight guard when a request fails", async () => {
+    let postCount = 0;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu")) return Promise.resolve(json(menu));
+      if (init?.method === "POST") {
+        postCount += 1;
+        return postCount === 1 ? Promise.reject(new Error("offline")) : Promise.resolve(json({ ok: true, ...view }));
+      }
+      return Promise.resolve(json(view));
+    }));
+    renderPanel();
+    const button = await screen.findByRole("button", { name: /拿鐵/ });
+    fireEvent.click(button);
+    await screen.findByText(/加點結果未確認，可能已送出。請先核對訂單，避免重複加點。/);
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() => expect(postCount).toBe(2));
   });
 });
 
