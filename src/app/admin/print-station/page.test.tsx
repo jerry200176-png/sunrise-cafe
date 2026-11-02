@@ -63,8 +63,8 @@ describe("print station delayed sweep lifecycle", () => {
     pendingReads = [];
     printRequests = [];
     printBodies = [];
-    listOrder = { id: "old-shop-order", branch_id: "b1", status: "pending", is_printed: false,
-      created_at: new Date().toISOString(), total_amount: 100, order_items: [{ id: "i1", item_name: "湯", quantity: 1 }] };
+    listOrder = { id: "old-shop-order", branch_id: "b1", status: "pending", is_printed: false, notes: null, table: null,
+      created_at: new Date().toISOString(), total_amount: 100, order_items: [{ id: "i1", item_name: "湯", quantity: 1, selected_options: null, special_notes: null }] };
     resolvePrinter = null;
     rejectPrinter = null;
     hangPrinter = false;
@@ -221,6 +221,22 @@ describe("print station delayed sweep lifecycle", () => {
     expect(printBodies[0]).toContain("訂單備註");
     expect(printBodies[0]).toContain("合計 $125");
     expect(printBodies[0]).not.toContain("secret");
+  });
+
+  it("does not print an old-server response containing malformed item notes", async () => {
+    listOrder = { id: "unsafe-order", branch_id: "b1", status: "pending", is_printed: false, notes: null, table: null,
+      created_at: new Date().toISOString(), total_amount: 100, order_items: [{ id: "i", item_name: "麵", quantity: 1, selected_options: null, special_notes: 0 }] };
+    const user = userEvent.setup();
+    render(<PrintStationPage />);
+    await waitFor(() => expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe("b1"));
+    await user.click(screen.getByRole("button", { name: /開始監聽/ }));
+    await waitFor(() => expect(realtime.onStatus).not.toBeNull());
+    act(() => realtime.onStatus?.("SUBSCRIBED"));
+    await waitFor(() => expect(orderReads).toHaveLength(1));
+    act(() => realtime.onInsert?.());
+    await waitFor(() => expect(screen.getByText(/讀取訂單失敗，稍後會再試/)).toBeTruthy());
+    expect(printRequests).toHaveLength(0);
+    expect(markWrites).toBe(0);
   });
 
   it("removes an unauthorized current branch before Start can read its orders", async () => {

@@ -1,7 +1,7 @@
 import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import { responseError } from "@/lib/friendly-error";
 import type { Order, OrderStatus } from "@/types";
-import type { AdminOrderListRow } from "@/lib/admin-order-list";
+import { projectAdminOrderList, type AdminOrderListRow } from "@/lib/admin-order-list";
 import { MAX_AGE_MS } from "@/lib/print-queue";
 
 /** Never return partial results: the caller keeps its previous state if any page fails. */
@@ -30,7 +30,12 @@ export async function fetchAllAdminOrders(branchId: string, isCurrent: () => boo
     if (!body || !Array.isArray(body.items) || (body.nextCursor !== null && (typeof body.nextCursor !== "string" || !body.nextCursor))) {
       throw new Error("訂單資料格式不正確，請重試");
     }
-    for (const order of body.items as Array<Order | AdminOrderListRow>) {
+    let items: Array<Order | AdminOrderListRow>;
+    if (contract === "v2") {
+      try { items = body.items.map(projectAdminOrderList); }
+      catch { throw new Error("訂單資料格式不正確，請聯絡管理者"); }
+    } else items = body.items as Order[];
+    for (const order of items) {
       if (!order || typeof order.id !== "string" || seenOrders.has(order.id)) throw new Error("訂單資料不一致，請重試");
       seenOrders.add(order.id);
       all.push(order);

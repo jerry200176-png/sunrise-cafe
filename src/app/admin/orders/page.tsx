@@ -447,7 +447,7 @@ function OrderCard({
   btnColor: string;
   locked: boolean;
 }) {
-  const timeStr = format(parseISO(order.created_at), "HH:mm", { locale: zhTW });
+  const timeStr = order.created_at === null ? "時間未提供" : format(parseISO(order.created_at), "HH:mm", { locale: zhTW });
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm">

@@ -54,7 +54,7 @@ const THIN = "------------------------------";
 
 function buildXml(order: AdminOrderListRow): string {
   const tableNum = order.table?.number ?? "—";
-  const now = new Date(order.created_at).toLocaleTimeString("zh-TW", {
+  const now = order.created_at === null ? "時間未提供" : new Date(order.created_at).toLocaleTimeString("zh-TW", {
     hour: "2-digit",
     minute: "2-digit",
     timeZone: "Asia/Taipei",
