@@ -65,6 +65,8 @@ describe("buildHealthBlock", () => {
         deposit_reminders_7d: 1,
         tomorrow_reminders_pending: 0,
         auto_releases_7d: 0,
+        job_runs_ready: true,
+        jobs: [],
       },
       deployment: {
         commit: "abc1234",

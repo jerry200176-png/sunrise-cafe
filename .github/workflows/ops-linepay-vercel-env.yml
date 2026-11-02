@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "inspect is read-only; set-sandbox-url writes sandbox host; restore-fixed-link removes sandbox/dynamic LINE Pay env"
+        description: "All LINE Pay environment operations are temporarily paused pending a reviewed safe path."
         required: true
         default: inspect
         type: choice
@@ -25,76 +25,35 @@ concurrency:
 
 permissions:
   contents: read
-  actions: write
 
 jobs:
-  operate:
-    name: ${{ github.event_name }} LINE Pay Vercel env
+  validate:
+    name: pull_request LINE Pay workflow checks
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
       - run: npm ci
-      - name: Resolve mode
-        id: scope
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_MODE: ${{ inputs.mode }}
-          HEAD_REF: ${{ github.head_ref }}
+      - name: Validate workflow isolation
+        run: npx vitest run src/lib/ops-linepay-vercel-env.test.ts
+
+  operate:
+    name: LINE Pay environment operations paused
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    permissions: {}
+    steps:
+      - name: Explain paused operations
         run: |
-          set -euo pipefail
-          MODE=inspect
-          if [ "$EVENT_NAME" = workflow_dispatch ]; then
-            MODE="${INPUT_MODE:-inspect}"
-          elif [ "$EVENT_NAME" = pull_request ] && [ "$HEAD_REF" = "chore/task-linepay-sandbox-land-20260815" ]; then
-            MODE=set-sandbox-url
-          fi
-          case "$MODE" in
-            inspect|set-sandbox-url|restore-fixed-link) ;;
-            *) echo "::error::mode not allowlisted"; exit 1 ;;
-          esac
-          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
-      - name: Inspect or set sandbox base URL
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          MODE: ${{ steps.scope.outputs.mode }}
-          PROD_URL: https://sunrise-cafe-six.vercel.app
-        run: |
-          set -euo pipefail
-          mkdir -p out
-          bash scripts/ops-linepay-vercel-env.sh | tee out/linepay-vercel-env.txt
-          if grep -E 'LINE_PAY_CHANNEL_(ID|SECRET)=[^[:space:]]{8,}' out/linepay-vercel-env.txt; then
-            echo "::error::refusing to publish channel secret or id values"
-            exit 1
-          fi
-      - name: Route production activation through canonical workflow
-        if: steps.scope.outputs.mode != 'inspect'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh workflow run production-deploy-migrate.yml \
-            --repo "$GITHUB_REPOSITORY" \
-            --ref main
-          echo "Canonical production workflow dispatched after env operation."
-      - name: Upload evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: linepay-vercel-env-${{ steps.scope.outputs.mode }}-${{ github.run_id }}
-          path: out/linepay-vercel-env.txt
-          if-no-files-found: error
-          retention-days: 30
-      - name: Job summary
-        if: always()
-        run: |
-          {
-            echo '### LINE Pay Vercel env'
-            echo '```text'
-            cat out/linepay-vercel-env.txt 2>/dev/null || echo 'No output captured.'
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo '::error::LINE Pay environment operations are paused until a reviewed safe path is available.'
+          exit 1

@@ -7,7 +7,20 @@ on:
   workflow_dispatch:
 
 jobs:
+  paused:
+    name: Migration paused — backup protection required
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    permissions: {}
+    steps:
+      - name: Explain why migration cannot run
+        run: |
+          echo '::error::Migration is paused until an encrypted, retained backup and a reviewed migration path are verified.'
+          exit 1
+
   apply:
+    # Keep the legacy definition for review, but never run it without a backup gate.
+    if: ${{ false }}
     name: Add reservations.is_reminded_7d
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -15,7 +28,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
       - run: npm ci
       - name: Apply migration

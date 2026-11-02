@@ -18,3 +18,8 @@
 - 現有後台 `RoomFloorScene.tsx` 及 `floor-plan.ts`：使用既有平面配置、按需繪製與控制。
 - [React Three Fiber](https://github.com/pmndrs/react-three-fiber)（MIT）：沿用現有 React／three.js 整合，不複製外部素材。
 - 根因：客人缺少可理解空間配置的資訊；卡片沒有示意只是症狀。實景精度需現場資料，示意不替代實景核對。
+
+## 會議室電視位置修正
+依使用者提供的畫面與更正，原始模型生成器把螢幕放在會議室左端；根因是示意模型對方位的假設與現場不符。沿用既有 Blender 房間與整店組裝腳本，將螢幕移到右端，採剖面牆並稍微朝向室內，讓訂位頁預設角度仍能看到；其他包廂模型不重新產生。此為可辨識方位的示意，仍以現場照片為準。替代方案是完整右牆，但測試視角會遮住螢幕；另一方案是只修改整店 GLB，但會使房間模型及重建腳本不一致。
+
+參考 [Blender glTF 匯出文件](https://docs.blender.org/manual/en/latest/addons/import_export/scene_gltf2.html)，保留 GLB 模型及既有 Three.js 預覽；上方 OpenTable 與 model-viewer 參考繼續適用。驗證重新匯出後兩個模型的螢幕位置、整店示意與照片入口；回復本次模型和生成器變更即可。

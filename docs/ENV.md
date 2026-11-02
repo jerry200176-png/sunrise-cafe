@@ -104,7 +104,7 @@
 | 變數 | 說明 |
 |------|------|
 | `CRON_SECRET` | Vercel Cron 呼叫 send-line 時的驗證 token，未設定則跳過驗證 |
-| `DEPOSIT_DEADLINE_AUTO_CANCEL` | 訂金逾期是否自動取消訂位（ADR-012）。**未設定＝不取消**；設 `true`（或 1/on/yes）並 Redeploy 才恢復自動取消 |
+| `DEPOSIT_DEADLINE_AUTO_CANCEL` | 舊版自動取消開關，現行程式不再讀取；未付訂金不自動取消。舊部署不受此變更影響，切換時須確認舊工作已停止。 |
 
 ## Deploy-health source of truth
 

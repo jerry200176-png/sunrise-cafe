@@ -51,9 +51,9 @@ test("桌位切店後較慢的舊回應不覆蓋新分店", async ({ page, conte
     const url = new URL(route.request().url());
     if (url.searchParams.get("branchId") === "b1") {
       await oldResponse;
-      return route.fulfill({ json: [{ id: "t-old", branch_id: "b1", number: "舊店桌" }] });
+      return route.fulfill({ json: [{ id: "t-old", branch_id: "b1", number: "舊店桌", is_active: true }] });
     }
-    return route.fulfill({ json: [{ id: "t-new", branch_id: "b2", number: "新店桌" }] });
+    return route.fulfill({ json: [{ id: "t-new", branch_id: "b2", number: "新店桌", is_active: true }] });
   });
 
   await page.goto("/admin/tables");

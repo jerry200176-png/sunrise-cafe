@@ -179,3 +179,28 @@ test("不同聯絡資料只顯示警告並阻止複製全部", async ({ page, co
   await expect(page.getByRole("button", { name: "單獨複製" }).first()).toBeEnabled();
   expect(actions).toHaveLength(0);
 });
+
+test("部分選取與隱藏項目在鍵盤操作和篩選後保持清楚", async ({ page, context }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedAdminSession(context);
+  const actions: Array<Record<string, unknown>> = [];
+  await mockReservationApis(page, actions, [reservation, reservation2]);
+  await page.goto("/admin");
+  const first = page.getByRole("checkbox", { name: /未綁 LINE 客人 MSG001/ });
+  await first.focus();
+  await page.keyboard.press("Space");
+  const all = page.getByRole("checkbox", { name: "選取目前列表訂位" });
+  await expect(all).toHaveJSProperty("indeterminate", true);
+  await expect(page.getByText("目前清單 1 筆", { exact: true })).toBeVisible();
+  await page.getByRole("textbox", { name: "搜尋訂位" }).fill("MSG002");
+  await expect(page.getByText(/目前清單 0 筆，清單外 1 筆/)).toBeVisible();
+  await all.focus();
+  await page.keyboard.press("Space");
+  await expect(page.getByText(/目前清單 1 筆，清單外 1 筆/)).toBeVisible();
+  await page.keyboard.press("Space");
+  await page.getByRole("button", { name: "批次複製訂金訊息" }).click();
+  await expect(page.getByRole("heading", { name: "批次複製訂金訊息" })).toBeVisible();
+  await expect(page.getByText("訂位碼：MSG001")).toBeVisible();
+  await expect(page.getByText("訂位碼：MSG002")).toHaveCount(0);
+  expect(actions).toHaveLength(0);
+});

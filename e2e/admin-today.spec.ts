@@ -182,9 +182,9 @@ test.describe("今日場控 /admin/today", () => {
   test("empty / loading 狀態", async ({ page, context }) => {
     await seedAdminSession(context);
     await mockBranches(page);
-    let resolveToday: ((v: unknown) => void) | null = null;
-    const todayPromise = new Promise((r) => {
-      resolveToday = r;
+    let resolveToday!: (value: unknown) => void;
+    const todayPromise = new Promise<unknown>((resolve) => {
+      resolveToday = resolve;
     });
     await page.route("**/api/admin/today**", async (route) => {
       await todayPromise;
@@ -212,7 +212,7 @@ test.describe("今日場控 /admin/today", () => {
     });
     await page.goto("/admin/today");
     await expect(page.getByLabel("載入今日場控")).toBeVisible();
-    resolveToday?.(null);
+    resolveToday(null);
     await expect(page.getByText("今日尚無訂位")).toBeVisible();
     await expect(page.getByText("目前沒有等位")).toBeVisible();
   });
