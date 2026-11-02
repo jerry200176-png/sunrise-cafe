@@ -293,7 +293,7 @@ function SuccessContent() {
           <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
             <p className="text-sm font-semibold text-gray-900">{t("book.form.policyTitle")}</p>
             <ul className="mt-2 space-y-1 text-xs text-gray-700">
-              {formatBookingPolicyLines().map((line) => (
+              {formatBookingPolicyLines(undefined, t("book.form.cancelPolicy")).map((line) => (
                 <li key={line}>{line}</li>
               ))}
             </ul>

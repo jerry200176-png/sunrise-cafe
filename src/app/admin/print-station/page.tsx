@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { Order } from "@/types";
+import type { AdminOrderListRow } from "@/lib/admin-order-list";
 import { pickUnprinted, reconnectDelayMs } from "@/lib/print-queue";
 import { thrownMessage } from "@/lib/friendly-error";
 import { useAdminBranches } from "@/lib/use-admin-branches";
@@ -51,9 +52,9 @@ function readPendingPrints(): { prints: Map<string, PendingPrint>; error: string
 const LINE = "==============================";
 const THIN = "------------------------------";
 
-function buildXml(order: Order): string {
+function buildXml(order: AdminOrderListRow): string {
   const tableNum = order.table?.number ?? "—";
-  const now = new Date(order.created_at).toLocaleTimeString("zh-TW", {
+  const now = order.created_at === null ? "時間未提供" : new Date(order.created_at).toLocaleTimeString("zh-TW", {
     hour: "2-digit",
     minute: "2-digit",
     timeZone: "Asia/Taipei",
@@ -200,7 +201,7 @@ export default function PrintStationPage() {
     return true;
   }, [persistPendingPrintIds]);
 
-  const reconcilePendingPrintIds = useCallback((orders: Order[]) => {
+  const reconcilePendingPrintIds = useCallback((orders: Pick<Order, "id" | "is_printed">[]) => {
     const cleared: PendingPrint[] = [];
     for (const order of orders) {
       const pending = pendingPrintIds.current.get(order.id);
@@ -298,7 +299,7 @@ export default function PrintStationPage() {
     sweeping.current = true;
     setSweepingNow(true);
     try {
-      const data = await fetchAllAdminOrders(requestedBranch, () => isCurrentSession(requestedBranch, epoch), "printable");
+      const data = await fetchAllAdminOrders(requestedBranch, () => isCurrentSession(requestedBranch, epoch), "printable", "v2");
       if (!isCurrentSession(requestedBranch, epoch)) return;
       setSessionExpired(false);
       const orders = data;

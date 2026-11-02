@@ -21,15 +21,18 @@ on:
 permissions:
   contents: read
 
-# Serialize the sole repository-controlled production deploy writer.
-# Verification is intentionally read-only and never competes for Vercel quota.
+# This disabled legacy workflow must not occupy or replace pending runs in the
+# active deployment workflow's concurrency group.
 concurrency:
-  group: production-deploy-main
+  group: production-deploy-migrate-disabled
   cancel-in-progress: false
 
 jobs:
   predeploy_migrate:
     name: Apply predeploy migrations
+    # The reviewed code-only release workflow owns main deployments.  Historical
+    # SQL is paused; a separate reviewed migration path must be prepared first.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:

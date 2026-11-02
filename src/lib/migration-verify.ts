@@ -207,9 +207,8 @@ export async function probeRestReadable(
   table: string,
   select: string
 ): Promise<boolean | null> {
-  // limit=0 for table-existence probes: no row data is transferred.
-  const limit = select === TABLE_PROBE_SELECT ? 0 : 1;
-  const result = await restGet<unknown[]>(`${table}?select=${select}&limit=${limit}`, {
+  // Resolve the requested column without transferring customer values.
+  const result = await restGet<unknown[]>(`${table}?select=${select}&limit=0`, {
     retries: 1,
   });
   if (result.ok) return true;
