@@ -38,6 +38,17 @@ reported as unknown rather than retried or claimed successful.
 
 ## Operational limits
 
+### Subsequent admin list candidate
+
+The admin list projection candidate proposes baseline
+`1d08784952211716f4cb37cf99324958b7e2a8ff` and a replacement one-use manifest
+covering only the seven reviewed admin list files. It does not authorize any
+migration or change the deployment, health, or rollback workflow. Release is
+conditional on the preceding report deployment's completed verification and
+on the production version still matching this baseline. The v2 projection is
+opt-in; old clients and realtime retain their existing contract. This candidate
+is prepared locally and has not been deployed.
+
 ### Subsequent report-only candidate
 
 The report recovery candidate proposes the separately reviewed baseline

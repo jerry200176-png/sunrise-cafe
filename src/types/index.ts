@@ -52,6 +52,8 @@ export interface Reservation {
   is_notified?: boolean;
   is_deposit_paid?: boolean;
   line_user_id?: string | null;
+  /** The v2 admin list provides binding presence without the LINE identifier. */
+  has_line_user?: boolean;
   deposit_payment_note?: string | null;
   deposit_paid_on?: string | null;
   deposit_last_five?: string | null;

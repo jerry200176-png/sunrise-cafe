@@ -56,6 +56,8 @@ export interface ReservationListParams {
   cursor: ReservationCursor | null;
   limit: number;
   id: string | null;
+  /** Opt-in until old tabs and external callers can safely migrate. */
+  listContract?: "v2";
 }
 
 export interface ReservationRow {
@@ -75,6 +77,37 @@ export interface ReservationListResult {
   total: number | null;
   /** 不擋畫面的警告（補充資料載入失敗、筆數達上限…），後台以提示列顯示。 */
   warnings: string[];
+}
+
+// Keep the admin list contract explicit: selecting `*` accommodates older
+// schemas, but newly added database bookkeeping must not reach the browser.
+const LIST_FIELDS = [
+  "id", "room_id", "customer_name", "phone", "start_time", "end_time", "status",
+  "total_price", "guest_count", "notes", "booking_code", "created_at", "is_notified",
+  "is_deposit_paid", "deposit_payment_note", "deposit_paid_on", "deposit_last_five", "deposit_approved_notified_at",
+  "guest_confirmed_at", "pending_payment_reviews", "visit_count", "deposit_auto_cancelled",
+] as const;
+
+function pickFields(value: unknown, fields: readonly string[]): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const source = value as Record<string, unknown>;
+  return Object.fromEntries(fields.filter((field) => Object.hasOwn(source, field)).map((field) => [field, source[field]]));
+}
+
+/** Project only fields used by ReservationList and its payment dialog. */
+function projectReservationListRow(row: ReservationRow): ReservationRow {
+  const result = pickFields(row, LIST_FIELDS) as ReservationRow;
+  if (typeof row.line_user_id === "string") result.has_line_user = row.line_user_id.length > 0;
+  else if (row.line_user_id === null) result.has_line_user = false;
+  if (Object.hasOwn(row, "room_with_branch")) {
+    const room = pickFields(row.room_with_branch, ["id", "name", "branch"]);
+    if (room && Object.hasOwn(room, "branch")) room.branch = pickFields(room.branch, ["name"]);
+    result.room_with_branch = room;
+  }
+  if (Object.hasOwn(row, "preorder")) {
+    result.preorder = pickFields(row.preorder, ["status", "requires_reconfirmation", "item_summary", "guest_notes"]);
+  }
+  return result;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -150,6 +183,7 @@ export function parseReservationListParams(
       cursor,
       limit,
       id: id || null,
+      ...(sp.get("list_contract") === "v2" ? { listContract: "v2" as const } : {}),
     },
   };
 }
@@ -499,7 +533,7 @@ export async function listReservationsForAdmin(
   const enriched = await enrichReservationRows(page.items, options.enrichDeps ?? defaultEnrichDeps(db, roomIds));
   return {
     scope: params.scope,
-    items: enriched.rows,
+    items: params.listContract === "v2" ? enriched.rows.map(projectReservationListRow) : enriched.rows,
     nextCursor: page.nextCursor,
     total: page.total,
     warnings: [...warnings, ...enriched.warnings],
