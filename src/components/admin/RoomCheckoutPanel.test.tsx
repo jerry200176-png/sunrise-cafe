@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { RoomCheckoutPanel } from "./RoomCheckoutPanel";
 import { FallbackBoundary } from "./FallbackBoundary";
@@ -25,6 +25,7 @@ function renderPanel(onClose: () => void = () => undefined) {
     onClose={onClose} onChanged={() => undefined} />);
 }
 
+beforeEach(() => { sessionStorage.removeItem("sunrise:add-outcomes:v1"); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("RoomCheckoutPanel load failures", () => {
@@ -67,6 +68,8 @@ describe("RoomCheckoutPanel load failures", () => {
 
 describe("RoomCheckoutPanel add submission", () => {
   it("sends one request for repeated clicks before rendering, then permits a deliberate second order", async () => {
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirm);
     let finish: (response: Response) => void = () => { throw new Error("not initialized"); };
     const first = new Promise<Response>((resolve) => { finish = resolve; });
     let postCount = 0;
@@ -86,6 +89,7 @@ describe("RoomCheckoutPanel add submission", () => {
     await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(button);
     await waitFor(() => expect(postCount).toBe(2));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("不一定屬於目前訂位"));
   });
 
   it("releases the in-flight guard when a request fails", async () => {
@@ -247,5 +251,64 @@ describe("FallbackBoundary", () => {
     render(<FallbackBoundary fallback={<p>平面圖</p>}><Boom /></FallbackBoundary>);
     expect(screen.getByText("平面圖")).toBeTruthy();
     spy.mockRestore();
+  });
+});
+
+
+describe("anonymous same-tab warning", () => {
+  it("survives panel unmount while a request is pending and blocks an unconfirmed resend", async () => {
+    let finish!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { finish = resolve; });
+    let posts = 0;
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirm);
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu")) return Promise.resolve(json(menu));
+      if (init?.method === "POST") { posts++; return pending; }
+      return Promise.resolve(json(view));
+    }));
+    const first = renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: /拿鐵/ }));
+    expect(posts).toBe(1);
+    const stored = sessionStorage.getItem("sunrise:add-outcomes:v1")!;
+    expect(stored).toContain("pending");
+    expect(stored).not.toMatch(/王小明|ABC123|r1|A 廳|拿鐵/);
+    first.unmount();
+    renderPanel();
+    expect(await screen.findByText(/不一定屬於目前訂位；原請求可能稍後完成/)).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: /拿鐵/ }));
+    expect(confirm).toHaveBeenCalled();
+    expect(posts).toBe(1);
+    await act(async () => { finish(json({})); await pending; });
+    await waitFor(() => expect(sessionStorage.getItem("sunrise:add-outcomes:v1")).toContain("unknown"));
+  });
+  it("clears only confirmed entries after explicit review, preserving pending", async () => {
+    const { createSessionAddWarningResearch } = await import("@/lib/session-add-warning-research");
+    const store = createSessionAddWarningResearch(sessionStorage);
+    const a = store.begin(), b = store.begin();
+    if (!a.ok || !b.ok) throw new Error("setup");
+    store.mark(a.operation, "committed");
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => url.startsWith("/api/menu") ? json(menu) : json(view)));
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: "已核對所有可能相關的已提交加點" }));
+    expect(store.snapshot()).toEqual({ ok: true, value: { version: 1, entries: [{ n: b.operation, status: "pending" }] } });
+    expect(screen.getByText(/原請求可能稍後完成/)).toBeTruthy();
+  });
+  it("requires acknowledgement when the marker cannot be saved", async () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("quota"); });
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirm);
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") throw new Error("unexpected POST");
+      return url.startsWith("/api/menu") ? json(menu) : json(view);
+    });
+    vi.stubGlobal("fetch", fetch);
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: /拿鐵/ }));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("無法保存分頁提醒"));
+    expect(fetch.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "POST")).toHaveLength(0);
+    expect(await screen.findByText(/無法保存分頁提醒/)).toBeTruthy();
+    vi.restoreAllMocks();
   });
 });

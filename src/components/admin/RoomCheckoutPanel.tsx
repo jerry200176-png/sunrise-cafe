@@ -14,6 +14,8 @@ import { PAYMENT_METHODS, type PaymentMethod } from "@/lib/room-settlement";
 import { readAddItemsOutcome } from "@/lib/add-items-outcome";
 import { useAddOutcomeWarning } from "@/lib/use-add-outcome-warning";
 import { AddOutcomeWarning } from "@/components/admin/AddOutcomeWarning";
+import { useTabAddWarning } from "@/lib/use-tab-add-warning";
+import { TabAddWarning } from "@/components/admin/TabAddWarning";
 import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
 
 type View = {
@@ -96,6 +98,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
   const [menuState, setMenuState] = useState<"loading" | "ready" | "error">("loading");
   const api = `/api/admin/reservation-orders/${encodeURIComponent(reservationId)}`;
   const addWarning = useAddOutcomeWarning(reservationId);
+  const tabWarning = useTabAddWarning();
 
   // 目前顯示的是哪一組：切換組別後，舊組晚回來的回應一律丟掉，避免畫面是 A 組、按鈕卻送到 B 組
   const currentApi = useRef(api);
@@ -152,7 +155,13 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
 
   async function act(action: string, extra: Record<string, unknown> = {}) {
     if (mutationInFlight.current) return false;
-    if (action === "add_items" && !addWarning.confirmBeforeAdd(reservationId)) return false;
+    let tabOperation: ReturnType<typeof tabWarning.begin> = null;
+    if (action === "add_items") {
+      const tabMessage = tabWarning.confirmationMessage();
+      if (!addWarning.confirmBeforeAdd(reservationId, tabMessage)) return false;
+      tabOperation = tabWarning.begin();
+      if (!tabOperation && !tabMessage.includes("無法保存分頁提醒") && !window.confirm("本次無法保存分頁提醒；關閉或重新整理後提示可能消失。你仍要送出嗎？")) return false;
+    }
     mutationInFlight.current = true;
     setBusy(true); setError("");
     const requested = api;
@@ -165,11 +174,13 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
       if (action === "add_items") {
         const outcome = await readAddItemsOutcome(response);
         if (outcome.kind !== "committed") {
+          tabWarning.mark(tabOperation, outcome.kind);
           if (outcome.kind === "unknown") addWarning.mark(reservationId, "unknown");
           if (currentApi.current === requested) setError(outcome.message);
           return false;
         }
         committed = true;
+        tabWarning.mark(tabOperation, "committed");
         data = outcome.data;
       } else {
         data = await response.json();
@@ -189,7 +200,10 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
       return true;
     } catch (cause) {
       const detail = thrownMessage(cause);
-      if (action === "add_items") addWarning.mark(reservationId, committed ? "committed_stale" : "unknown");
+      if (action === "add_items") {
+        if (!committed) tabWarning.mark(tabOperation, "unknown");
+        addWarning.mark(reservationId, committed ? "committed_stale" : "unknown");
+      }
       if (currentApi.current === requested) setError(detail);
       return false;
     }
@@ -249,6 +263,7 @@ export function RoomCheckoutPanel({ reservationId, roomName, branchId, nowMs, on
       </header>
 
       <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
+        <TabAddWarning guard={tabWarning} />
         <AddOutcomeWarning warning={addWarning.warning} busy={busy} onReload={() => {
           load(addWarning.warning === "committed_stale").then((loaded) => {
             if (loaded) { addWarning.refreshed(reservationId); setError(""); }

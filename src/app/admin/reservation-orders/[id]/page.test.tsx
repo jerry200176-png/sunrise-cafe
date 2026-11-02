@@ -25,6 +25,7 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
   let postNotAttempted: boolean;
 
   beforeEach(() => {
+    sessionStorage.removeItem("sunrise:add-outcomes:v1");
     mockParams.id = "res-1";
     posts = [];
     getCount = 0;
@@ -234,4 +235,56 @@ describe("standalone reservation orders — route id race", () => {
     expect(screen.getByText(/新訂位.*NEW/)).toBeTruthy();
     expect(screen.queryByText(/舊訂位|OLD/)).toBeNull();
   });
+});
+
+
+describe("standalone same-tab warning", () => {
+  beforeEach(() => { sessionStorage.removeItem("sunrise:add-outcomes:v1"); mockParams.id = "res-1"; });
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+  it("retains an unresolved warning after unmount and asks before another send", async () => {
+    let finish!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { finish = resolve; });
+    let posts = 0;
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirm);
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu?")) return Promise.resolve(Response.json(menu));
+      if (init?.method === "POST") { posts++; return pending; }
+      return Promise.resolve(Response.json(view));
+    }));
+    const first = render(<ReservationOrderPage />);
+    fireEvent.click(await screen.findByRole("checkbox", { name: "選擇咖啡" }));
+    fireEvent.click(screen.getByRole("button", { name: "加入訂單" }));
+    expect(posts).toBe(1);
+    const stored = sessionStorage.getItem("sunrise:add-outcomes:v1")!;
+    expect(stored).toContain("pending");
+    expect(stored).not.toMatch(/res-1|Guest|ABC123|咖啡/);
+    first.unmount();
+    render(<ReservationOrderPage />);
+    expect(await screen.findByText(/不一定屬於目前訂位；原請求可能稍後完成/)).toBeTruthy();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "選擇咖啡" }));
+    fireEvent.click(screen.getByRole("button", { name: "加入訂單" }));
+    expect(confirm).toHaveBeenCalled();
+    expect(posts).toBe(1);
+    await act(async () => { finish(Response.json({})); await pending; });
+    await waitFor(() => expect(sessionStorage.getItem("sunrise:add-outcomes:v1")).toContain("unknown"));
+  });
+  it("discloses unavailable storage and does not send when the user declines", async () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("quota"); });
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirm);
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu?")) return Response.json(menu);
+      if (init?.method === "POST") throw new Error("unexpected POST");
+      return Response.json(view);
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<ReservationOrderPage />);
+    fireEvent.click(await screen.findByRole("checkbox", { name: "選擇咖啡" }));
+    fireEvent.click(screen.getByRole("button", { name: "加入訂單" }));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("無法保存分頁提醒"));
+    expect(fetch.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+    expect(await screen.findByText(/無法保存分頁提醒/)).toBeTruthy();
+  });
+
 });
