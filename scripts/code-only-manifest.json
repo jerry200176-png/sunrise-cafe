@@ -1,11 +1,26 @@
 {
   "approved_files": {
-    ".github/workflows/inspect-linepay-env-metadata.yml": "0e08c9451e8770fcbe883fec8b383926e1ae9fe6",
-    "docs/plans/2026-11-linepay-env-metadata-diagnostic.md": "ad83f2720ea7fd15143aa8d74b259a9e3d465f46",
-    "scripts/code-only-release.py": "e5f42c669ba3981e0a9846a8f06c7ce88f77b038",
-    "scripts/inspect-linepay-env-metadata.mjs": "a0498fbae82d251ddb7864b7ccefa7501c2696cc",
-    "scripts/test-fixtures/linepay-metadata-synthetic-fetch.mjs": "4d56c6be3bcc63fdd0494645b9ca3e06bbe7d110",
-    "src/lib/linepay-env-metadata.test.ts": "86a037ea1e1503524ffc18bb5addcfd12c9f7d3d"
+    "docs/plans/2026-11-admin-order-no-store.md": "0086728492f111082c9e4634cb41d236e0d459f9",
+    "docs/plans/2026-11-guest-copy-feedback.md": "a6b8881e300f5603eba5d41e9eeb3568aa81abb4",
+    "docs/plans/2026-11-waitlist-uncertain-writes.md": "57c93f7332399a15271574c948777b80629eacc5",
+    "scripts/code-only-release.py": "2f6d1724333ef70cb6d3011f2da05e7a8aabed5f",
+    "src/app/admin/reservation-orders/[id]/page.test.tsx": "52b9e1a6c377aeafaf8267bb2cc85118ed8bb18c",
+    "src/app/admin/reservation-orders/[id]/page.tsx": "9a44ff07e13a26e659c65a88915b209c6691b453",
+    "src/app/admin/waitlist/page.test.tsx": "b387ca68c147218f4c2fb443d02cc77b15dca170",
+    "src/app/admin/waitlist/page.tsx": "0b1b58916ea6bfebd9a98542a1a8f326941d0c8e",
+    "src/app/api/admin/reservation-orders/[id]/route.test.ts": "619ff992e4bd6fd3598abd3ab2caa3bfd741376f",
+    "src/app/api/admin/reservation-orders/[id]/route.ts": "d72d9a064c7673addc51da7de6ffc41ea267b3d0",
+    "src/app/book/guest-copy.integration.test.tsx": "c3d754e4408cbaaac1b8f8b911cb8c614c0011c3",
+    "src/app/book/query/page.tsx": "7f5832f1775ce0b8b5c3e29a02eaa634c09f14df",
+    "src/app/book/success/page.tsx": "646c7f6ac900efba56fb3ed628b2695151dbe1cb",
+    "src/components/CopyBookingCodeButton.tsx": "13faa8aaeb5f9e4abe681cfd32adebbc3bdd2866",
+    "src/components/GuestCopyButton.test.tsx": "7be3f36367161acee65ec9e14df6163ea4be127b",
+    "src/components/GuestCopyButton.tsx": "113a463b74e1aca72e9fdd36082ff42e6b168e5f",
+    "src/components/admin/RoomCheckoutPanel.test.tsx": "bcee4aa86bf7944fa92da1c87b18e4749694a709",
+    "src/components/admin/RoomCheckoutPanel.tsx": "93d1b21991a1cd6b43c9ef5cce947f0b7a1ff59e",
+    "src/lib/i18n/translations.ts": "aaa30db78e889df37edb1c466fbf6a4c0f553923",
+    "src/middleware.private-order-cache.test.ts": "cb81037b98ecb8746b48b1067e20a6b3d09017f5",
+    "src/middleware.ts": "801f45054e069fe95f7433a9bd2ca315f8628c8e"
   },
-  "baseline": "8717e62c5ca4030414e05034c8b3a97a0b0ae492"
+  "baseline": "14aa253bd724cb4b03124198dc83dd834234eea0"
 }
