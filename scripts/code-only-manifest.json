@@ -1,8 +1,8 @@
 {
   "approved_files": {
-    ".github/workflows/ci.yml": "ffc48f2e553d50eb255d21d9610c9abb466f5169",
-    ".github/workflows/dependency-review.yml": "11b6b635f2375f90d2608422b94043004b8c00d2",
-    "docs/plans/2026-11-actions-ci-pin-subset.md": "855e96c97190464b393e2d72d331d7d87563a7b3"
+    "docs/plans/2026-11-line-account-identity-check.md": "a5832623f1fd93a5a6744fcd6444102e8405a4cc",
+    "src/lib/line-account-audit.test.ts": "32c16dccad5ba63fec2b4dbd722cf4ea2d66a9a8",
+    "src/lib/line-account-audit.ts": "5391fa13bf37dc5c7fef8d36dee3ede02835929a"
   },
-  "baseline": "fc17229b2d36acca1552b3931c57bf9ac6ad9b85"
+  "baseline": "22c41cc48348df7b2295569444d1ec27964aff56"
 }

@@ -27,6 +27,19 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 const env = (over: Record<string, string | undefined>) => ({ ...over }) as unknown as NodeJS.ProcessEnv;
 
 describe("auditLineAccounts", () => {
+  it("uses only the existing read endpoints and sends no message", async () => {
+    await auditLineAccounts(env({ LINE_CHANNEL_ACCESS_TOKEN: "tok-group", LINE_CUSTOMER_ACCESS_TOKEN: "tok-customer" }));
+    const calls = vi.mocked(globalThis.fetch).mock.calls;
+    expect(calls).toHaveLength(8);
+    const paths = new Set(["/v2/bot/info", "/v2/bot/message/quota/consumption", "/v2/bot/message/quota", "/v2/bot/message/delivery/push"]);
+    for (const [input, init] of calls) {
+      const url = new URL(String(input));
+      expect(url.origin).toBe("https://api.line.me");
+      expect(paths.has(url.pathname)).toBe(true);
+      expect(init?.method ?? "GET").toBe("GET");
+    }
+  });
+
   it("names the account and quota behind every token, without returning token values", async () => {
     const audit = await auditLineAccounts(env({
       LINE_CHANNEL_ACCESS_TOKEN: "tok-group",
@@ -74,9 +87,102 @@ describe("auditLineAccounts", () => {
     expect(audit.collisions).toEqual([]);
     expect(audit.identityComplete).toBe(false);
   });
+
+  it("reports a provider outage as unknown without claiming the token is invalid", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("provider detail", { status: 503 })));
+    const audit = await auditLineAccounts(env({ LINE_CUSTOMER_ACCESS_TOKEN: "customer-token" }));
+    const customer = audit.accounts.find((account) => account.role === "customer");
+    expect(customer?.error).toContain("503");
+    expect(customer?.error).toContain("無法確認");
+    expect(customer?.error).not.toContain("無效");
+    expect(audit.identityComplete).toBe(false);
+    expect(JSON.stringify(audit)).not.toMatch(/customer-token|provider detail/);
+  });
+
+  it("treats an aborted account identity request as unknown", async () => {
+    const controller = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(controller.signal);
+    const original = lineFetch();
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (!url.endsWith("/v2/bot/info")) return original(url, init);
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+      });
+    }));
+    const pending = auditLineAccounts(env({ LINE_CUSTOMER_ACCESS_TOKEN: "tok-customer" }));
+    controller.abort();
+    const audit = await pending;
+    expect(timeout).toHaveBeenCalledWith(10_000);
+    expect(audit.identityComplete).toBe(false);
+    expect(audit.accounts.find((account) => account.role === "customer")?.error).toBe("連不上 LINE");
+  });
+
+  it.each([123, {}, [], null, "", " \t "])("does not infer a collision from an invalid identity (%s)", async (userId) => {
+    const original = lineFetch();
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) =>
+      url.endsWith("/v2/bot/info")
+        ? Promise.resolve(new Response(JSON.stringify({ userId }), { status: 200 }))
+        : original(url, init)));
+    const settings = env({ LINE_CHANNEL_ACCESS_TOKEN: "tok-group", LINE_CUSTOMER_ACCESS_TOKEN: "tok-customer" });
+    const audit = await auditLineAccounts(settings);
+    expect(audit.identityComplete).toBe(false);
+    expect(audit.collisions).toEqual([]);
+    const send = vi.fn(async () => undefined);
+    await expect(checkLineAccountsAndAlert(send, settings)).resolves.toEqual({ collisions: 0, alerted: false });
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("accepts nonempty identity strings without assuming a provider-specific format", async () => {
+    const original = lineFetch();
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) =>
+      url.endsWith("/v2/bot/info")
+        ? Promise.resolve(new Response(JSON.stringify({ userId: "synthetic-id" }), { status: 200 }))
+        : original(url, init)));
+    const audit = await auditLineAccounts(env({ LINE_CHANNEL_ACCESS_TOKEN: "tok-group", LINE_CUSTOMER_ACCESS_TOKEN: "tok-customer" }));
+    expect(audit.identityComplete).toBe(true);
+    expect(audit.collisions).toHaveLength(1);
+  });
 });
 
 describe("checkLineAccountsAndAlert", () => {
+  it("alerts a confirmed collision after an unrelated identity request times out", async () => {
+    const controller = new AbortController();
+    vi.spyOn(AbortSignal, "timeout").mockReturnValue(controller.signal);
+    const original = lineFetch();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      const authorization = (init?.headers as Record<string, string> | undefined)?.Authorization;
+      if (!url.endsWith("/v2/bot/info") || authorization !== "Bearer tok-branch") return original(url, init);
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const send = vi.fn(async (text: string) => { expect(text).toContain("LINE"); });
+    const pending = checkLineAccountsAndAlert(send, env({
+      LINE_CHANNEL_ACCESS_TOKEN: "tok-group",
+      LINE_CUSTOMER_ACCESS_TOKEN: "tok-group",
+      LINE_BRANCH_CUSTOMER_BOTS: JSON.stringify([{ branch_id: BRANCH, name: "測試店", secret: "s", token: "tok-branch" }]),
+    }));
+    expect(fetchMock.mock.calls.some(([url, init]) =>
+      url.endsWith("/v2/bot/info") && (init?.headers as Record<string, string> | undefined)?.Authorization === "Bearer tok-branch")).toBe(true);
+    expect(send).not.toHaveBeenCalled();
+    controller.abort();
+    await expect(pending).resolves.toEqual({ collisions: 1, alerted: true });
+    expect(send).toHaveBeenCalledOnce();
+    expect(send.mock.calls[0][0]).not.toContain("tok-");
+  });
+
+  it("does not send a collision alert when account identity is unknown", async () => {
+    const original = lineFetch();
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) =>
+      url.endsWith("/v2/bot/info") ? Promise.resolve(new Response("unavailable", { status: 503 })) : original(url, init)));
+    const send = vi.fn(async () => undefined);
+    await expect(checkLineAccountsAndAlert(send, env({
+      LINE_CHANNEL_ACCESS_TOKEN: "tok-group", LINE_CUSTOMER_ACCESS_TOKEN: "tok-customer",
+    }))).resolves.toEqual({ collisions: 0, alerted: false });
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it("alerts the staff group only when a customer token is the group bot", async () => {
     const send = vi.fn(async () => undefined);
     expect(await checkLineAccountsAndAlert(send, env({ LINE_CHANNEL_ACCESS_TOKEN: "tok-group", LINE_CUSTOMER_ACCESS_TOKEN: "tok-customer" })))
