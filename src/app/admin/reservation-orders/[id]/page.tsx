@@ -19,6 +19,26 @@ type PreorderView = { status: string; guest_notes: string | null; draft_items: D
   requires_reconfirmation: boolean; reservation_preorder_items: Array<{ id: string; item_name_snapshot: string; quantity: number; selected_options_snapshot: Array<{ name: string }>; special_notes: string | null }> };
 type View = { reservation: ReservationView; preorder: PreorderView | null; order: Order | null };
 
+function isReservationView(value: unknown): value is View {
+  if (!value || typeof value !== "object") return false;
+  const data = value as Record<string, unknown>;
+  if (!data.reservation || typeof data.reservation !== "object") return false;
+  const reservation = data.reservation as Record<string, unknown>;
+  if (typeof reservation.customer_name !== "string" || typeof reservation.status !== "string" ||
+      typeof reservation.start_time !== "string" || !Number.isFinite(Date.parse(reservation.start_time))) return false;
+  if (data.order === null) return true;
+  if (!data.order || typeof data.order !== "object") return false;
+  const order = data.order as Record<string, unknown>;
+  return typeof order.id === "string" && Array.isArray(order.order_items) && order.order_items.every((item: unknown) => {
+    if (!item || typeof item !== "object") return false;
+    const row = item as Record<string, unknown>;
+    return typeof row.id === "string" && typeof row.item_name === "string" && typeof row.quantity === "number" &&
+      Number.isFinite(row.quantity) && (typeof row.unit_price === "number" || typeof row.unit_price === "string") &&
+      Number.isFinite(Number(row.unit_price)) && (row.selected_options == null || (Array.isArray(row.selected_options) &&
+        row.selected_options.every((option: unknown) => option && typeof option === "object" && typeof (option as Record<string, unknown>).name === "string")));
+  });
+}
+
 export default function ReservationOrderPage() {
   const id = String(useParams().id);
   const currentId = useRef(id);
@@ -50,9 +70,10 @@ export default function ReservationOrderPage() {
       if (!isCurrent()) return false;
       throw new Error(message);
     }
-    const data = await readJsonWithTimeout<View>(response);
+    const data = await readJsonWithTimeout<unknown>(response);
     if (!isCurrent()) return false;
-    const next = data as View;
+    if (!isReservationView(data)) throw new Error("訂單資料不完整，請重新載入");
+    const next = data;
     const room = Array.isArray(next.reservation.room) ? next.reservation.room[0] : next.reservation.room;
     setView(next);
     setMenu([]);

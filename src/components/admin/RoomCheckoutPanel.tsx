@@ -33,8 +33,11 @@ function isPanelView(value: unknown): value is View {
   const reservation = v.reservation as Record<string, unknown>;
   const billing = v.billing as Record<string, unknown>;
   const time = (x: unknown) => typeof x === "string" && Number.isFinite(Date.parse(x));
-  if (typeof reservation.customer_name !== "string" || !time(billing.start_time) || !time(billing.end_time) ||
-      typeof billing.status !== "string" || (billing.next_start !== null && !time(billing.next_start))) return false;
+  if (typeof reservation.customer_name !== "string" ||
+      (reservation.booking_code !== null && typeof reservation.booking_code !== "string") ||
+      !time(billing.start_time) || !time(billing.end_time) || typeof billing.status !== "string" ||
+      (billing.total_price !== null && (typeof billing.total_price !== "number" || !Number.isFinite(billing.total_price))) ||
+      typeof billing.is_deposit_paid !== "boolean" || (billing.next_start !== null && !time(billing.next_start))) return false;
   if (billing.bill !== null) {
     if (!billing.bill || typeof billing.bill !== "object") return false;
     const bill = billing.bill as Record<string, unknown>;
@@ -45,13 +48,14 @@ function isPanelView(value: unknown): value is View {
   if (v.order !== null) {
     if (!v.order || typeof v.order !== "object") return false;
     const order = v.order as Record<string, unknown>;
-    if (order.order_items != null && (!Array.isArray(order.order_items) || order.order_items.some((item: unknown) => {
+    if (typeof order.id !== "string" || (order.paid_at !== null && !time(order.paid_at)) || !Array.isArray(order.order_items) || order.order_items.some((item: unknown) => {
       if (!item || typeof item !== "object") return true;
       const row = item as Record<string, unknown>;
-      return typeof row.id !== "string" || typeof row.item_name !== "string" || typeof row.quantity !== "number" ||
+      return typeof row.id !== "string" || typeof row.item_name !== "string" || typeof row.quantity !== "number" || !Number.isFinite(row.quantity) ||
+        (typeof row.unit_price !== "number" && typeof row.unit_price !== "string") || !Number.isFinite(Number(row.unit_price)) ||
         (row.selected_options != null && (!Array.isArray(row.selected_options) || row.selected_options.some((option: unknown) =>
           !option || typeof option !== "object" || typeof (option as Record<string, unknown>).name !== "string")));
-    }))) return false;
+    })) return false;
   }
   return true;
 }

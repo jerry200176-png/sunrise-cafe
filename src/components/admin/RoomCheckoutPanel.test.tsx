@@ -153,6 +153,25 @@ describe("RoomCheckoutPanel add submission", () => {
     expect(screen.getByRole("button", { name: "重新載入訂單" })).toBeTruthy();
   });
 
+  it.each(["missing", "null"])("does not replace known items when reloaded order_items is %s", async (kind) => {
+    let reads = 0;
+    const original = { ...view, order: { ...view.order, order_items: [{ id: "item1", item_name: "已點蛋糕", quantity: 1,
+      unit_price: 120, served_at: null, selected_options: [] }] } };
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/menu")) return Promise.resolve(json(menu));
+      if (init?.method === "POST") return Promise.resolve(json({ ok: true, committed: true, refresh_failed: true }));
+      reads++;
+      return Promise.resolve(json(reads === 1 ? original : { ...view, order: { id: "o1", paid_at: null,
+        ...(kind === "null" ? { order_items: null } : {}) } }));
+    }));
+    renderPanel();
+    expect(await screen.findByText("已點蛋糕")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: /拿鐵/ }));
+    await screen.findByText(/上次加點已完成，但畫面未更新/);
+    expect(screen.getByText("已點蛋糕")).toBeTruthy();
+    expect(screen.queryByText(/還沒點餐/)).toBeNull();
+  });
+
   it("shows the committed warning before the following GET has resolved", async () => {
     let getCount = 0;
     let finish!: (response: Response) => void;
