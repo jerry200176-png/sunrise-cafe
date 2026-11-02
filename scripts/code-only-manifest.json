@@ -1,18 +1,16 @@
 {
   "approved_files": {
-    ".github/workflows/apply-migration-line-reminder-deliveries.yml": "4909e98dc6d7a410633aa3c6aaec8508b42b82b3",
-    ".github/workflows/apply-migration-market-parity.yml": "5032f000c924604cef7d81963ada0a3c276c0fd6",
-    ".github/workflows/apply-migration-ops-events.yml": "3210fe15180963edd623dac76c5436190fb64741",
-    ".github/workflows/apply-migration-reminded-7d.yml": "dd3b49937b5106f48d20bdaa46d05456625294d2",
-    ".github/workflows/apply-migration-reservation-preorder.yml": "be6402a9338431b16d2a771618dd6fa3a920b0d1",
-    "docs/plans/2026-11-pause-legacy-migrations.md": "63bd42058ca826998e93b647b5f3d905d615d7b7",
-    "src/app/admin/system/page.tsx": "e78620257c5701b457a9d33572ece8e62b8f60da",
-    "src/app/api/admin/migrations/apply-market-parity/route.ts": "d496a8970258c58047ea00edd01069898719aa69",
-    "src/app/api/admin/migrations/apply-ops-events/route.ts": "e452041cb469c40465b3d7bc0f02e26fd8b2d0f8",
-    "src/app/api/admin/migrations/apply-reminded-7d/route.ts": "a5e2ebe5667eb6eb503a3a340e077ec26913e894",
-    "src/app/api/admin/migrations/migration-pause.test.ts": "339e502a730625bf0a83eae2cf57cee5e2945786",
-    "src/lib/legacy-migration-workflows.test.ts": "7d0105a833e6356b9bc442fd3e7829151894efa6",
-    "src/lib/migration-pause.ts": "103a4ba475fb9f4844c67752128f13171490b04b"
+    "docs/plans/2026-11-add-items-ui-warning.md": "9c3a1de6169de1b35fedcc1d3b141e16d00b8dbc",
+    "src/app/admin/reservation-orders/[id]/page.test.tsx": "995a0abdc18ff47d859eb6e8e5c77c6253c9897d",
+    "src/app/admin/reservation-orders/[id]/page.tsx": "dd60b782c791fe13a19b8d418a0c945c57a6dd13",
+    "src/app/api/admin/reservation-orders/[id]/route.test.ts": "009148ce8cba8ad1e95a7b9e951824e5c40f14b7",
+    "src/app/api/admin/reservation-orders/[id]/route.ts": "4880992d5985d0273e3b09c9c9349fbd08247b4e",
+    "src/components/admin/AddOutcomeWarning.tsx": "d132f99b70d245a31061397842ddb90c44e8a1ba",
+    "src/components/admin/RoomCheckoutPanel.test.tsx": "860795c00a5067ab8f8f0e7ccace8619e975a1db",
+    "src/components/admin/RoomCheckoutPanel.tsx": "b9193e30df05a69b1e67866d65c1eaac9d864556",
+    "src/lib/add-items-outcome.test.ts": "68970908b5a030d38cbdf7644c18f728bd28e7f1",
+    "src/lib/add-items-outcome.ts": "24aac946d0789b32d3890f048f32828f19e2b121",
+    "src/lib/use-add-outcome-warning.ts": "fc7fab10620705bce26e0c31b7b70ce77d843abd"
   },
-  "baseline": "6ad95b652bde85452d2de962815f881fa744c21f"
+  "baseline": "6d7fd7d2be736f64e48c85cedfaa5da81ea38773"
 }
