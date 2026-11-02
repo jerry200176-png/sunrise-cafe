@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -195,11 +196,48 @@ class Tests(unittest.TestCase):
             with self.assertRaises(r.Unknown): r.verify_code_only(r.APPROVED_BASELINE, SHA, git=git, manifest_path=manifest)
             with self.assertRaises(r.Unknown): r.verify_code_only(OLD, SHA, git=git, manifest_path=manifest)
 
-    def test_reviewed_report_release_tree_matches_manifest(self):
-        # Exercise the real Git tree: later unrelated application or migration
-        # changes must not become deployable merely by passing mock fixtures.
-        head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-        r.verify_code_only(r.APPROVED_BASELINE, head)
+    def test_manifest_against_isolated_git_history(self):
+        # Validate actual Git objects without binding the test suite to this
+        # one-time release's HEAD or the files changed by a future PR.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = root / 'repo'
+            repo.mkdir()
+            env = {'PATH': os.defpath, 'LC_ALL': 'C', 'GIT_CONFIG_NOSYSTEM': '1',
+                   'GIT_CONFIG_GLOBAL': os.devnull, 'GIT_TERMINAL_PROMPT': '0'}
+
+            def git(*args):
+                result = subprocess.run(['git', '-C', str(repo), '-c', 'user.name=Test',
+                                         '-c', 'user.email=test@example.invalid',
+                                         '-c', 'core.hooksPath=/dev/null', *args],
+                                        env=env, stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE, check=True)
+                return result.stdout
+
+            git('init', '-q')
+            (repo / 'base.txt').write_text('base\n')
+            git('add', 'base.txt')
+            git('commit', '-qm', 'baseline')
+            baseline = git('rev-parse', 'HEAD').decode().strip()
+            (repo / 'src').mkdir()
+            (repo / 'src' / 'app.ts').write_text('reviewed\n')
+            git('add', 'src/app.ts')
+            git('commit', '-qm', 'reviewed change')
+            reviewed = git('rev-parse', 'HEAD').decode().strip()
+            blob = git('rev-parse', 'HEAD:src/app.ts').decode().strip()
+            manifest = root / 'manifest.json'
+            manifest.write_text(json.dumps({'baseline': baseline,
+                                            'approved_files': {'src/app.ts': blob}}))
+
+            with mock.patch.object(r, 'APPROVED_BASELINE', baseline):
+                r.verify_code_only(baseline, reviewed, git=git, manifest_path=manifest)
+                (repo / 'supabase').mkdir()
+                (repo / 'supabase' / 'migration-unreviewed.sql').write_text('-- synthetic\n')
+                git('add', 'supabase/migration-unreviewed.sql')
+                git('commit', '-qm', 'unreviewed change')
+                changed = git('rev-parse', 'HEAD').decode().strip()
+                with self.assertRaises(r.Unknown):
+                    r.verify_code_only(baseline, changed, git=git, manifest_path=manifest)
 
 
 if __name__ == '__main__': unittest.main()
