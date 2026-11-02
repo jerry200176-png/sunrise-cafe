@@ -1,7 +1,33 @@
 {
   "approved_files": {
-    "docs/plans/2026-11-backup-recipient-canary-draft.md": "2849b5cda9a5731c5315a2cc3dae93cd4039072a",
-    "docs/workflow-drafts/backup-recipient-canary.yml": "15c004b33157e525c07cbcae7ee508c464664df5"
+    ".github/workflows/activate-reservation-preorder.yml": "0abcb43abb15592f8f519f12eca51e6c0b9b636e",
+    ".github/workflows/apply-migration-line-reminder-deliveries.yml": "b5c31d25b54f930fd95a5a5d7739fdd3df9491e1",
+    ".github/workflows/apply-migration-market-parity.yml": "a61f97cedf8d081be9526aab868f5d1743d40bef",
+    ".github/workflows/apply-migration-ops-events.yml": "5acf54bdec22f8564fbbc0d967b2c334fdf20194",
+    ".github/workflows/apply-migration-reminded-7d.yml": "823e2f7681762d22125b87ec05c78a7399efd38c",
+    ".github/workflows/apply-migration-reservation-preorder.yml": "56be37d87b59dd1f628b83562f0a99e277e48db3",
+    ".github/workflows/autonomous-canary.yml": "f4216963f17d0b61dc7a70311a8be2e0bf951ab6",
+    ".github/workflows/autonomous-loop.yml": "b7d56d8d46ae21f2a103af3590ee001e4d006605",
+    ".github/workflows/business-intelligence.yml": "78738c84d6ab14cf60a466a4be8b461fab2c2462",
+    ".github/workflows/github-hygiene.yml": "c2f2a972f38b88cf7a81f76cd2ee1945190d7c5f",
+    ".github/workflows/governance.yml": "ddc6927197206ede5e4bbe641f433385c4b88ec1",
+    ".github/workflows/identity-recovery-canary.yml": "4ca46c676557dd78737ebdaa0dc7664612be2054",
+    ".github/workflows/incident-line-readonly.yml": "970a146f8c9650838f4c310bd3a8bf97cb98ba93",
+    ".github/workflows/ops-linepay-vercel-env.yml": "b53da08ff5d898fd98ecd48829fc68b3dd4c9dbe",
+    ".github/workflows/orchestrator.yml": "1c29f3e3f2b7e20a7d7524beaa03d9d2cee46373",
+    ".github/workflows/production-code-only.yml": "d78b9caa120abd05dfd93aa6f2e8bfc793ddb11c",
+    ".github/workflows/production-deploy-migrate.yml": "e23ffc34d6a62664be421ff84f79ac09bf86fa50",
+    ".github/workflows/production-maturity-migrate.yml": "809be49df09dd386d3d24a6c7e868fb8b44b4053",
+    ".github/workflows/send-line-reminder-backup.yml": "8bc60c80593cac583ccdc6ad23fd6e06d5e82b41",
+    ".github/workflows/verify-production.yml": "f9eebc9f85233d934f5428daf7b6fe07cded8e9b",
+    "docs/plans/2026-11-actions-full-489-research.md": "9234c60c39995ad2c29613bca03c02b60b8415f5",
+    "docs/plans/2026-11-artifact-recovery-canary.md": "71666cb265742f263ab53a11ba18d66d8e9424cf",
+    "docs/plans/2026-11-code-only-release.md": "6b0de00e96e1da8ff0013abca00617b271d66bb7",
+    "scripts/code-only-release.py": "a9f3d2e3304a9bccff970a8063c20cf3b0eedf5f",
+    "scripts/identity-recovery-canary.py": "856169e75182f2e9b8898be030768252437a5d65",
+    "scripts/test_identity_recovery_canary.py": "db4b2da565b9c5d047920998e5026a37b81728b2",
+    "src/lib/actions-upgrade-contract.test.ts": "3d4b29ad7bd0369b4efef79416a094b6dd785d48",
+    "src/lib/identity-recovery-canary.test.ts": "78be800894b8d9216fd09e4c415055664494111b"
   },
-  "baseline": "9e17b2a61b8b7934c05a4a678ed5f91d0dc34bd3"
+  "baseline": "94244f785ccfd1a6fe82651edbb6753c4d436af7"
 }

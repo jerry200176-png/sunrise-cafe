@@ -1,0 +1,92 @@
+name: Synthetic identity and recovery artifact canary
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/identity-recovery-canary.yml'
+      - '.github/workflows/production-code-only.yml'
+      - 'scripts/code-only-release.py'
+      - 'scripts/code-only-source.py'
+      - 'scripts/identity-recovery-canary.py'
+      - 'scripts/test_identity_recovery_canary.py'
+      - 'src/lib/identity-recovery-canary.test.ts'
+      - 'docs/plans/2026-11-artifact-recovery-canary.md'
+
+# The upload job gets no repository permissions. The verifier receives only
+# contents:read for a checkout that does not persist its token, not actions:read or user secrets.
+permissions: {}
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      baseline-id: ${{ steps.baseline.outputs.artifact-id }}
+      baseline-digest: ${{ steps.baseline.outputs.artifact-digest }}
+      candidate-id: ${{ steps.candidate.outputs.artifact-id }}
+      candidate-digest: ${{ steps.candidate.outputs.artifact-digest }}
+      candidate-output: ${{ steps.fixtures.outputs.candidate }}
+      candidate-commit: ${{ steps.fixtures.outputs.commit }}
+    steps:
+      - name: Create only synthetic identity records
+        id: fixtures
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'identity-recovery-fixtures'
+          root.mkdir()
+          sha, old = 'a' * 40, 'b' * 40
+          candidate = 'dpl_syntheticcandidate'
+          (root / 'sunrise-code-only-baseline.json').write_text(json.dumps({'baseline':'dpl_syntheticbaseline','previous':old,'commit':sha}))
+          (root / 'sunrise-code-only-candidate.json').write_text(json.dumps({'deployment':candidate,'commit':sha}))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              print('candidate=' + candidate, file=output)
+              print('commit=' + sha, file=output)
+          PY
+      - name: Upload synthetic baseline
+        id: baseline
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: identity-canary-baseline-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/identity-recovery-fixtures/sunrise-code-only-baseline.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Upload synthetic candidate
+        id: candidate
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: identity-canary-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/identity-recovery-fixtures/sunrise-code-only-candidate.json
+          retention-days: 7
+          if-no-files-found: error
+
+  verify:
+    needs: upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download synthetic baseline
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: identity-canary-baseline-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/identity-recovery-downloaded
+      - name: Download synthetic candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: identity-canary-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/identity-recovery-downloaded
+      - name: Verify downloaded identities with offline fake API
+        env:
+          BASELINE_ID: ${{ needs.upload.outputs.baseline-id }}
+          BASELINE_DIGEST: ${{ needs.upload.outputs.baseline-digest }}
+          CANDIDATE_ID: ${{ needs.upload.outputs.candidate-id }}
+          CANDIDATE_DIGEST: ${{ needs.upload.outputs.candidate-digest }}
+          CANARY_OUTPUT_ID: ${{ needs.upload.outputs.candidate-output }}
+          CANARY_OUTPUT_COMMIT: ${{ needs.upload.outputs.candidate-commit }}
+        run: python3 -B scripts/identity-recovery-canary.py
