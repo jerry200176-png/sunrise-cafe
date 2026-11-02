@@ -1233,3 +1233,76 @@ describe("branch-scoped reservation requests", () => {
     expect(screen.getByText(/訂位碼：A01/)).toBeTruthy();
   });
 });
+
+describe("copy result integrity", () => {
+  function setupCopyFetch() {
+    const posts: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/branches") return Response.json([{ id: "b1", name: "測試店", payment_info: "測試", line_pay_url: null }]);
+      if (url.includes("/message-actions?") && !init?.method) return Response.json({ text: "合成訊息" });
+      if (url.includes("/message-actions") && init?.method === "POST") { posts.push(String(init.body)); return Response.json({ ok: true, action_id: "synthetic", text: "合成訊息" }); }
+      if (url.startsWith("/api/reservations?")) return list([rows[0]]);
+      return Response.json([]);
+    }));
+    return posts;
+  }
+
+  it("does not record a failed copy and leaves the preview selectable", async () => {
+    const posts = setupCopyFetch();
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    Object.defineProperty(document, "execCommand", { configurable: true, value: vi.fn(() => false) });
+    render(<ReservationList branchId="b1" rooms={[]} />);
+    fireEvent.click(await screen.findByRole("button", { name: /訊息工作台/ }));
+    await screen.findByDisplayValue("合成訊息");
+    fireEvent.click(screen.getByRole("button", { name: /產生並複製/ }));
+    await screen.findByText(/複製失敗，請手動選取/);
+    expect(posts).toEqual([]);
+    expect((screen.getByRole("button", { name: /標記已傳送/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByLabelText(/預覽/) as HTMLTextAreaElement).readOnly).toBe(true);
+    vi.restoreAllMocks();
+  });
+
+  it("exposes quick payment text when fallback fails", async () => {
+    const posts = setupCopyFetch();
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    Object.defineProperty(document, "execCommand", { configurable: true, value: vi.fn(() => false) });
+    render(<ReservationList branchId="b1" rooms={[]} />);
+    const button = await screen.findByRole("button", { name: /複製繳費通知/ });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button);
+    expect(await screen.findByRole("textbox", { name: "可手動選取的繳費通知" })).toBeTruthy();
+    expect(screen.queryByText("已複製通知內容")).toBeNull();
+    expect(posts).toEqual([]);
+  });
+
+  it("locks further actions when the audit response is unknown", async () => {
+    setupCopyFetch();
+    const original = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("/message-actions") && init?.method === "POST") return Promise.reject(new Error("network"));
+      return original(url, init);
+    }));
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } });
+    render(<ReservationList branchId="b1" rooms={[]} />);
+    fireEvent.click(await screen.findByRole("button", { name: /訊息工作台/ }));
+    await screen.findByDisplayValue("合成訊息");
+    fireEvent.click(screen.getByRole("button", { name: /產生並複製/ }));
+    expect((await screen.findByRole("alert")).textContent).toContain("結果未確認");
+    expect((screen.getByRole("button", { name: /產生並複製/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("suppresses stale copied actions after a branch change", async () => {
+    const posts = setupCopyFetch();
+    const pending = deferred<void>();
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: () => pending.promise } });
+    const view = render(<ReservationList branchId="b1" rooms={[]} />);
+    fireEvent.click(await screen.findByRole("button", { name: /訊息工作台/ }));
+    await screen.findByDisplayValue("合成訊息");
+    fireEvent.click(screen.getByRole("button", { name: /產生並複製/ }));
+    expect((screen.getByRole("button", { name: /產生並複製/ }) as HTMLButtonElement).disabled).toBe(true);
+    view.rerender(<ReservationList branchId="b2" rooms={[]} />);
+    await act(async () => { pending.resolve(); await pending.promise; });
+    expect(posts).toEqual([]);
+    expect(screen.queryByText(/已複製訊息；/)).toBeNull();
+  });
+});

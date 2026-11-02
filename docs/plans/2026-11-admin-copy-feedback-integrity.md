@@ -1,0 +1,15 @@
+# 後台訊息複製結果與操作紀錄
+
+## 問題與範圍
+
+訂位訊息和批次訂金訊息使用瀏覽器剪貼簿。舊版 fallback 未判斷 `execCommand` 回傳值，可能將失敗記為成功；例外也可能留下暫存文字或卡住按鈕。本變更只處理這些複製入口，維持既有伺服器權限與付款、LINE 行為。
+
+## 設計與參考
+
+- [MDN Clipboard.writeText](https://developer.mozilla.org/en-US/docs/Web/API/Clipboard/writeText) 以 promise 表示結果；[MDN execCommand](https://developer.mozilla.org/en-US/docs/Web/API/Document/execCommand) 回傳布林值。共用 helper 檢查結果並在所有路徑移除暫存欄位、適當恢復焦點。
+- 參考 [clipboard.js](https://github.com/zenorocha/clipboard.js)（MIT）處理複製結果與 fallback；保留專案現有實作，避免為單一 helper 新增依賴。
+- 複製明確失敗時不送操作紀錄，提供可選取的文字。複製和紀錄期間序列化操作，失效的分店或已關閉工作台不更新介面或開始紀錄。紀錄請求結果不明時提示先核對，避免盲目重送。
+
+## 邊界與驗證
+
+瀏覽器已開始的剪貼簿寫入無法取消；切換分店後仍可能完成實體寫入，但不顯示過期成功訊息或開始紀錄。已送出的紀錄請求無法撤回；重載、跨分頁或跨裝置不提供去重保證。以合成資料測試複製失敗、例外、清理、併發與切分店競態，不使用正式客資。
