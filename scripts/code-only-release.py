@@ -27,9 +27,11 @@ APPROVED_BASELINE = '11f6d0308e46607414e4c33d596561a49ab9c5de'
 CONTROL_FILES = frozenset({
     '.github/workflows/ci.yml', '.github/workflows/production-code-only.yml',
     '.github/workflows/production-deploy-migrate.yml', '.github/workflows/verify-production.yml',
-    'docs/plans/2026-11-code-only-release.md', 'scripts/code-only-manifest.json',
+    'docs/plans/2026-11-code-only-release.md', 'docs/plans/2026-11-production-identity-unknown.md',
+    'scripts/code-only-manifest.json',
     'scripts/code-only-release.py', 'scripts/code-only-source.py',
-    'scripts/production-identity.sh',
+    'scripts/production-identity.sh', 'scripts/production-identity-evaluate.py',
+    'scripts/test_production_identity.py',
     'scripts/test_code_only_release.py', 'scripts/test_code_only_source.py',
     'scripts/verify-production-workflow-contract.mjs',
 })
