@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import os
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -57,6 +58,24 @@ class SafePaths(unittest.TestCase):
                 with self.subTest(opener=opener.__name__, kind=path.name):
                     with self.assertRaises((SystemExit, wrapper.Abort)):
                         opener(str(path))
+
+    def test_non_executable_shell_entrypoint_fails_before_calling_helpers(self):
+        fakebin = self.root / 'bin'
+        fakebin.mkdir()
+        marker = self.root / 'invoked'
+        for name in ('docker', 'age'):
+            command = fakebin / name
+            command.write_text('#!/bin/sh\nprintf called > "' + str(marker) + '"\nexit 1\n')
+            command.chmod(0o700)
+        result = subprocess.run(
+            ['/bin/bash', str(ROOT / 'restore-legacy-local.sh')],
+            input=('/missing/synthetic.zip\nsha256:' + '0' * 64 + '\n/missing/synthetic-identity\n'),
+            text=True, capture_output=True, timeout=5,
+            env={'PATH': str(fakebin) + ':/usr/bin:/bin'}, check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Local input paths are unavailable', result.stderr)
+        self.assertFalse(marker.exists())
 
     def test_rejects_untrusted_input_path_components(self):
         for opener in (secure.secure_open, wrapper.open_regular_nofollow):
