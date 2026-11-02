@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isWeekendDate } from "@/lib/booking-utils";
+import { isWeekendDate, taipeiDateForInstant } from "@/lib/booking-utils";
 import { SlotConflictError } from "@/lib/slot-conflict";
 import { createClient } from "@supabase/supabase-js";
 import { hasSlotConflict, insertReservationAdmin, isAdminConfigured } from "@/lib/supabase-admin";
@@ -134,7 +134,8 @@ export async function POST(request: NextRequest) {
 
     let totalPrice: number | null = null;
     if (room) {
-      const dateStr = entry.start_time.slice(0, 10);
+      if (typeof entry.start_time !== "string") throw new TypeError("Invalid start time");
+      const dateStr = taipeiDateForInstant(entry.start_time) ?? "";
       const pricePerHour = Number(
         isWeekendDate(dateStr) ? room.price_weekend : room.price_weekday
       ) || 0;

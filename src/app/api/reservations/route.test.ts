@@ -19,7 +19,6 @@ vi.mock("@/lib/reservation-preorder", () => ({
   isReservationPreorderEnabled: () => true,
   fetchPreorderSummaries: vi.fn(),
 }));
-vi.mock("@/lib/booking-utils", () => ({ computeReservationTotalPrice: () => 600 }));
 vi.mock("@/lib/line-notify", () => ({ sendLineFlexToBranchGroup: mocks.sendLineFlexToBranchGroup, buildNewBookingFlex: () => ({}) }));
 vi.mock("@/lib/branch-line-group", () => ({ branchLineGroupIdForRoom: (_db: unknown, roomId: string) => mocks.fetchBranchLineGroupIdForRoom(roomId) }));
 vi.mock("@/lib/ops-log", () => ({ logOps: mocks.logOps }));
@@ -44,7 +43,7 @@ function request(extra: object) {
 describe("booking meals submit", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.fetchRoom.mockResolvedValue({ id: base.room_id, branch_id: "branch-1" });
+    mocks.fetchRoom.mockResolvedValue({ id: base.room_id, branch_id: "branch-1", price_weekday: 200, price_weekend: 300 });
     mocks.checkBookable.mockResolvedValue({ ok: true });
     mocks.rpc.mockResolvedValue({ data: { id: "reservation-1", booking_code: "ABC123" }, error: null });
     mocks.insertReservationAdmin.mockResolvedValue({ id: "reservation-2", booking_code: "DEF456" });
@@ -69,6 +68,13 @@ describe("booking meals submit", () => {
     expect(response.status).toBe(200);
     expect(mocks.insertReservationAdmin).toHaveBeenCalledOnce();
     expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("uses Taipei weekend for the server price with meals=%s", async (meals) => {
+    const response = await POST(request({ start_time: "2026-10-30T17:00:00Z", end_time: "2026-10-30T19:00:00Z", meal_items: meals ? [{ menu_item_id: "synthetic", quantity: 1 }] : [] }));
+    expect(response.status).toBe(200);
+    if (meals) expect(mocks.rpc).toHaveBeenCalledWith("create_booking_with_meals", expect.objectContaining({ p_booking: expect.objectContaining({ total_price: 600 }) }));
+    else expect(mocks.insertReservationAdmin).toHaveBeenCalledWith(expect.objectContaining({ total_price: 600 }));
   });
 
   it("does not create a separate reservation after an atomic RPC error", async () => {

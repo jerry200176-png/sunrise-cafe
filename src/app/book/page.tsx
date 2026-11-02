@@ -8,7 +8,7 @@ import type { Branch, Room, RentalNoteSection, MenuItem } from "@/types";
 import type { DraftItemInput } from "@/lib/reservation-preorder";
 import { MenuPicker } from "@/components/MenuPicker";
 import { selectionProblem } from "@/lib/option-sets";
-import { getDurationOptions, getDepositAmount, isWeekendDate } from "@/lib/booking-utils";
+import { getDurationOptions, getDepositAmount, isWeekendDate, taipeiDateForInstant } from "@/lib/booking-utils";
 import { normalizePhone } from "@/lib/phone-utils";
 import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import { scrollIntoViewForInteraction, scrollToTopForInteraction } from "@/lib/interaction-scroll";
@@ -511,14 +511,16 @@ export default function BookPage() {
   const canSelectDuration = (slotStart: string): boolean =>
     canSelectStart(slots, slotStart, duration);
 
+  // Overnight availability may include slots after midnight on the next Taipei day.
+  const pricingDate = selectedStart ? taipeiDateForInstant(selectedStart) : date;
   const getTotalPrice = (): number | null => {
     if (branchLoading || branchLoadError || !branches.some((branch) => branch.id === branchId)) return null;
     const room = rooms.find((r) => r.id === roomId && r.branch_id === branchId) ?? roomCatalog.find((r) => r.id === roomId && r.branch_id === branchId);
-    if (!room || !date) return null;
+    if (!room || !pricingDate) return null;
     const capacity = Number(room.capacity);
     const minimum = room.min_capacity == null ? null : Number(room.min_capacity);
     if (!Number.isInteger(capacity) || capacity < 1 || (minimum !== null && (!Number.isInteger(minimum) || minimum < 1 || minimum > capacity))) return null;
-    const pricePerHour = isWeekendDate(date)
+    const pricePerHour = isWeekendDate(pricingDate)
       ? room.price_weekend
       : room.price_weekday;
     if (pricePerHour == null || String(pricePerHour).trim() === "" || !Number.isFinite(Number(pricePerHour)) || Number(pricePerHour) < 0) return null;
@@ -542,12 +544,12 @@ export default function BookPage() {
 
   // UX Helper: 計算選擇摘要
   const getSelectedSummary = () => {
-    if (!selectedStart || !date) return null;
+    if (!selectedStart || !pricingDate) return null;
     const start = new Date(selectedStart);
     const end = new Date(start.getTime() + duration * 60 * 60 * 1000);
 
     // 簡單格式化（時段強制 Asia/Taipei，避免裝置在 UTC/海外時顯示偏移）
-    const dateLabel = new Date(`${date}T12:00:00+08:00`).toLocaleDateString("zh-TW", {
+    const dateLabel = new Date(`${pricingDate}T12:00:00+08:00`).toLocaleDateString("zh-TW", {
       month: "numeric",
       day: "numeric",
       weekday: "short",
@@ -789,7 +791,7 @@ export default function BookPage() {
           return;
         }
 
-        const weekendFlag = isWeekendDate(date) ? "1" : "0";
+        const weekendFlag = isWeekendDate(pricingDate ?? "") ? "1" : "0";
         const tokenParam = lookupToken ? `&token=${encodeURIComponent(lookupToken)}` : "";
         window.location.href = `/book/success?code=${encodeURIComponent(code)}&weekend=${weekendFlag}${lineUserId ? "&line_bound=1" : ""}${tokenParam}`;
         completed = true;
@@ -824,17 +826,17 @@ export default function BookPage() {
   const handlePaymentComplete = useCallback((_paymentIntentId: string) => {
     // 延遲一小段讓使用者看到成功畫面後再跳轉
     setTimeout(() => {
-      const weekendFlag = isWeekendDate(date) ? "1" : "0";
+      const weekendFlag = isWeekendDate(pricingDate ?? "") ? "1" : "0";
       window.location.href = `/book/success?code=${encodeURIComponent(pendingReservationCode)}&weekend=${weekendFlag}&paid=1${lineUserId ? "&line_bound=1" : ""}`;
     }, 1500);
-  }, [date, pendingReservationCode, lineUserId]);
+  }, [pricingDate, pendingReservationCode, lineUserId]);
 
   const handlePaymentClose = useCallback(() => {
     setPaymentModalOpen(false);
     // 使用者選擇稍後再付 → 直接跳到成功頁
-    const weekendFlag = isWeekendDate(date) ? "1" : "0";
+    const weekendFlag = isWeekendDate(pricingDate ?? "") ? "1" : "0";
     window.location.href = `/book/success?code=${encodeURIComponent(pendingReservationCode)}&weekend=${weekendFlag}${lineUserId ? "&line_bound=1" : ""}`;
-  }, [date, pendingReservationCode, lineUserId]);
+  }, [pricingDate, pendingReservationCode, lineUserId]);
 
   const depositAmount = (() => {
     const totalPrice = getTotalPrice();
@@ -1384,7 +1386,7 @@ export default function BookPage() {
             </button>
             <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/80 p-4">
               <p className="text-sm text-gray-700">
-                {branchName} · {roomName} · {date}{" "}
+                {branchName} · {roomName} · {pricingDate}{" "}
                 {selectedStart &&
                   `${formatSlotTime(selectedStart)}–${formatSlotTime(endIsoForDuration(selectedStart, duration))}`}{" "}
                 {t("book.form.startFor", { duration })}

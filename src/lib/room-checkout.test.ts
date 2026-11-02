@@ -62,6 +62,14 @@ describe("roomFloorState", () => {
 });
 
 describe("computeCheckoutBill", () => {
+  it("uses Taipei day for a UTC instant while preserving booked and extension amounts", () => {
+    const base = { room: { price_weekday: 200, price_weekend: 300 }, startTime: "2026-10-30T17:00:00Z", endTime: "2026-10-30T19:00:00Z", isDepositPaid: false, foodTotal: 0 };
+    const legacy = computeCheckoutBill({ ...base, bookedTotal: null });
+    expect(legacy).toMatchObject({ isWeekend: true, hourlyRate: 300, roomFee: 600, due: 600 });
+    const stored = computeCheckoutBill({ ...base, bookedTotal: 400, extensions: { minutes: 30, fee: 150 } });
+    expect(stored).toMatchObject({ isWeekend: true, hourlyRate: 300, bookedRoomFee: 400, extensionFee: 150, roomFee: 550, due: 550 });
+  });
+
   it("with extension records, bills the booked total plus the recorded fees (rate changes don't matter)", () => {
     const input = { startTime: at("14:00"), endTime: at("17:00"), bookedTotal: 400, isDepositPaid: true, foodTotal: 120,
       extensions: { minutes: 60, fee: 230 } };
