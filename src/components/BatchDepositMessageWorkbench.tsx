@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { copyText } from "@/lib/copy-text";
+import { messageCopyDigest } from "@/lib/message-copy-digest";
 import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import { X } from "lucide-react";
 import type { BatchReservationMessageItem } from "@/lib/reservation-message-batch";
@@ -23,19 +24,19 @@ type Props = {
   onCompleted?: () => void;
 };
 
-async function recordCopied(reservationIds: string[], batchId: string): Promise<void> {
-  const response = await fetchWithTimeout("/api/reservations/message-actions/batch", {
+async function recordCopied(reservationIds: string[], batchId: string, mode: "all" | "single", digests: Array<{ id: string; digest: string }>, combinedDigest?: string): Promise<void> {
+  const response = await fetchWithTimeout("/api/reservations/message-actions/batch/v2", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       reservation_ids: reservationIds,
       template_key: "deposit_request",
       action: "copied",
-      batch_id: batchId,
+      batch_id: batchId, version: 2, mode, digests, ...(combinedDigest ? { combined_digest: combinedDigest } : {}),
     }),
   });
-  const data = (await readJsonWithTimeout(response)) as { action_ids?: unknown; batch_id?: string };
-  if (!response.ok || data.batch_id !== batchId || !Array.isArray(data.action_ids) || data.action_ids.length !== reservationIds.length || !data.action_ids.every((id) => typeof id === "string" && id.length > 0)) throw new Error("結果未確認");
+  const data = (await readJsonWithTimeout(response)) as { action_ids?: unknown; batch_id?: string; ok?: unknown; version?: unknown };
+  if (!response.ok || data.ok !== true || data.version !== 2 || data.batch_id !== batchId || !Array.isArray(data.action_ids) || data.action_ids.length !== reservationIds.length || !data.action_ids.every((id) => typeof id === "string" && id.length > 0)) throw new Error("結果未確認");
 }
 
 export function BatchDepositMessageWorkbench({
@@ -58,7 +59,7 @@ export function BatchDepositMessageWorkbench({
   const [unknown, setUnknown] = useState(false);
   const valid = () => mounted.current && isCurrent();
 
-  const copy = async (text: string, ids: string[], label: string, update: (state: CopyState) => void) => {
+  const copy = async (text: string, ids: string[], label: string, mode: "all" | "single", update: (state: CopyState) => void) => {
     if (unknown || !beginCopy()) return;
     update("copying");
     setMessage(null);
@@ -70,8 +71,20 @@ export function BatchDepositMessageWorkbench({
         setMessage("複製失敗，請手動選取訊息；未送出操作紀錄。");
         return;
       }
+      let digests: Array<{ id: string; digest: string }>;
+      let combinedDigest: string | undefined;
       try {
-        await recordCopied(ids, batchId);
+        const selected = items.filter((item) => ids.includes(item.reservation_id));
+        if (selected.length !== ids.length) throw new Error("missing item");
+        digests = await Promise.all(selected.map(async (item) => ({ id: item.reservation_id, digest: await messageCopyDigest(item.text) })));
+        if (mode === "all") combinedDigest = await messageCopyDigest(text);
+      } catch {
+        if (valid()) { update("error"); setMessage("文字已複製，無法驗證內容，未送出操作紀錄；請人工核對。"); }
+        return;
+      }
+      if (!valid()) return;
+      try {
+        await recordCopied(ids, batchId, mode, digests, combinedDigest);
         if (!valid()) return;
         update("copied");
         setMessage(`${label}已複製；已複製不等於已傳送。`);
@@ -89,11 +102,11 @@ export function BatchDepositMessageWorkbench({
 
   const copyAll = () => {
     if (!canBatchCopy) return;
-    void copy(combinedText, reservationIds, "全部訊息", setBatchState);
+    void copy(combinedText, reservationIds, "全部訊息", "all", setBatchState);
   };
   const copyOne = (item: BatchReservationMessageItem) => {
     if (item.error) return;
-    void copy(item.text, [item.reservation_id], `「${item.booking_code ?? item.date_label}」`,
+    void copy(item.text, [item.reservation_id], `「${item.booking_code ?? item.date_label}」`, "single",
       (state) => setItemStates((current) => ({ ...current, [item.reservation_id]: state })));
   };
 
