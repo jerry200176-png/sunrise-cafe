@@ -176,7 +176,7 @@ for (const copyResponse of ["mismatch", "missing"] as const) {
     await page.getByRole("button", { name: "訊息工作台" }).click();
     await expect(page.locator("#reservation-message-preview")).toHaveValue("canonical message");
     await page.getByRole("button", { name: "產生並複製" }).click();
-    await expect(page.getByRole("alert")).toContainText("結果未確認");
+    await expect(page.getByRole("alert").filter({ hasText: "操作紀錄結果未確認" })).toBeVisible();
     await expect(page.getByRole("button", { name: "標記已傳送" })).toBeDisabled();
     expect(paths).toEqual(["/api/reservations/r-message-1/message-actions/v2"]);
     expect(actions).toHaveLength(1);

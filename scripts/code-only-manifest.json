@@ -3,7 +3,7 @@
     "docs/plans/2026-11-admin-copy-feedback-integrity.md":
       "f29975fd10d157b49b48128cfe13d1c8e66bc13d",
     "e2e/reservation-message-workbench.spec.ts":
-      "6069e79353d048d9393faf439d692e2eb5927507",
+      "27d831adac99133082991b2ca511321082f0a337",
     "scripts/code-only-release.py":
       "39f92db37e3022bde9def6e50715468b14598fb1",
     "src/app/api/reservations/[id]/message-actions/handler.ts":
