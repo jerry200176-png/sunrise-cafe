@@ -2,7 +2,7 @@
   "approved_files": {
     ".github/workflows/ci.yml": "ffc48f2e553d50eb255d21d9610c9abb466f5169",
     ".github/workflows/dependency-review.yml": "11b6b635f2375f90d2608422b94043004b8c00d2",
-    "docs/plans/2026-11-actions-ci-pin-subset.md": "995985067408cf018282ad9cc7a563793f067cbe"
+    "docs/plans/2026-11-actions-ci-pin-subset.md": "855e96c97190464b393e2d72d331d7d87563a7b3"
   },
   "baseline": "fc17229b2d36acca1552b3931c57bf9ac6ad9b85"
 }

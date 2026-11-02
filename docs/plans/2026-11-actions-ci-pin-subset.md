@@ -11,7 +11,8 @@ triggers, steps, permissions, caching, inputs, secrets, and assertions are not
 changed. No production deployment, backup, secret, or environment workflow is
 modified. The upload-artifact upgrade is deliberately deferred: in this repo it
 also handles recovery-point artifacts and needs independent compatibility and
-restore evidence. This does not resolve the grouped update or the release hold.
+restore evidence. This does not resolve the grouped update; release restrictions
+recorded when this plan was written must be assessed against current evidence.
 
 ## 參考做法
 
@@ -37,7 +38,8 @@ LINE Pay PR job also passed without a production operation. That prior run is
 not CI evidence for this candidate, does not test all event types, and does not
 validate a real Vercel CLI, API, credentials, backup or restoration.
 
-Before use, exact-head GitHub CI and independent review are required. The
-existing release hold continues; do not merge or deploy while it remains.
+Before use, exact-head GitHub CI and independent review are required. A release
+hold applied when this plan was originally prepared; check the current release
+gates and production evidence before any merge or deployment.
 Rollback is a revert of this CI-only change, subject to the existing dependency
 runtime and security requirements; no production data or secret is touched.
