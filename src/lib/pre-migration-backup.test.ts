@@ -35,7 +35,7 @@ exit 2
   );
   chmodSync(runner, 0o755);
   const age = join(dir, "age");
-  writeFileSync(age, `#!/usr/bin/env bash\nif [[ "\${FAKE_AGE_FAIL:-}" == 1 ]]; then echo partial > "$4"; exit 1; fi\nprintf 'synthetic ciphertext' > "$4"\n`);
+  writeFileSync(age, `#!/usr/bin/env bash\nif [[ "\${FAKE_AGE_FAIL:-}" == 1 ]]; then echo "recipient diagnostic: $2" >&2; echo partial > "$4"; exit 1; fi\nprintf 'synthetic ciphertext' > "$4"\n`);
   chmodSync(age, 0o755);
   return { dir, runner };
 }
@@ -74,6 +74,7 @@ describe("pre-migration-backup.sh", () => {
     const r = run("ok", { FAKE_AGE_FAIL: "1" });
     expect(r.res.status).toBe(1);
     expect(r.all).toMatch(/age encryption failed/);
+    expect(r.all).not.toContain("synthetic-recipient");
     expect(readdirSync(r.out).filter((f) => f.endsWith(".dump") || f.endsWith(".age"))).toEqual([]);
     expect(existsSync(join(r.dir, "gh-output"))).toBe(false);
   });
@@ -114,6 +115,21 @@ describe("pre-migration-backup.sh", () => {
     const plain = execFileSync("age", ["-d", "-i", keyPath, encrypted]);
     const manifest = JSON.parse(readFileSync(join(r.out, "manifest.json"), "utf8"));
     expect(createHash("sha256").update(plain).digest("hex")).toBe(manifest.sha256);
+
+    const otherKeyPath = join(dir, "other-synthetic-key.txt");
+    expect(spawnSync("age-keygen", ["-o", otherKeyPath]).status).toBe(0);
+    expect(spawnSync("age", ["-d", "-i", otherKeyPath, encrypted]).status).not.toBe(0);
+    const tampered = readFileSync(encrypted);
+    tampered[tampered.length - 1] ^= 1;
+    expect(spawnSync("age", ["-d", "-i", keyPath], { input: tampered }).status).not.toBe(0);
+  });
+
+  it.skipIf(!hasRealAge)("suppresses real age diagnostics for an invalid recipient", () => {
+    const r = run("ok", { BACKUP_AGE_RECIPIENT: "synthetic-invalid-recipient" }, false);
+    expect(r.res.status).toBe(1);
+    expect(r.all).toContain("age encryption failed");
+    expect(r.all).not.toContain("synthetic-invalid-recipient");
+    expect(readdirSync(r.out).filter((f) => f.endsWith(".dump") || f.endsWith(".age"))).toEqual([]);
   });
 });
 

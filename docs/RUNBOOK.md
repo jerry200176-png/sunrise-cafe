@@ -147,11 +147,11 @@ npm run lint
 
 ## Pre-migration backup（Gap #4）
 
-`production-deploy-migrate.yml` 的 predeploy / postdeploy migration 與 verification jobs 都會執行 migration runner，
-因此四個 job 在各自執行 runner 前都執行
+下列內容描述舊 `production-deploy-migrate.yml` 的備份設計；目前該 workflow 的首個 job 已停用，不能據此推定正式 migration 已啟用。若將來經審查恢復，predeploy / postdeploy migration 與 verification jobs 都會執行 migration runner，
+四個 job 的設計是在各自執行 runner 前先執行
 `scripts/pre-migration-backup.sh`：`pg_dump`（custom 格式、壓縮、`public` schema 結構+資料，postgres:17 容器，
 使用 runner 既有的 `SUPABASE_DB_URL`），再用 `pg_restore --list` 驗證並確認含 `public.reservations` 資料。
-任何一步失敗即 fail closed：migration 不會啟動。
+在此 workflow 內，任一步失敗即停止後續 migration 步驟；直接執行其他腳本或歷史版本不受此 workflow 保護。manifest 和 artifact ID / digest 是流程輸出，不能單獨證明備份來源或 artifact 可還原。
 
 - 傾印含客人個資：不印出、不明文上傳。`BACKUP_AGE_RECIPIENT`（age **公鑰**）為必要設定；未設定、加密失敗、上傳失敗或無有效 artifact ID / digest 時停止該 job，migration 不會啟動。順序為備份 → 加密 → 上傳 → 確認 → migration。明文即刪，密文與 manifest 上傳為 3 天保留的 artifact（`db-backup-<job>-<run_id>-<run_attempt>`）；summary 記錄 dump SHA-256、artifact ID 和 artifact SHA-256。這些證據不能代替解密及隔離還原演練。
 - 範圍：`public` schema（auth/storage 不在內）。完整還原演練見 PR #466（`db-backup-restore-drill`）與 `docs/ops/BACKUP_RESTORE_DRILL.md`。

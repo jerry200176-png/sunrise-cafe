@@ -10,3 +10,7 @@
 - [GitHub actions/upload-artifact v4.6.2](https://github.com/actions/upload-artifact/tree/v4.6.2)（MIT）：`if-no-files-found: error`、artifact ID 與 SHA-256 digest；使用固定 commit，不把成功輸出當作 restore 證明。
 - [PostgreSQL pg_restore](https://www.postgresql.org/docs/current/app-pgrestore.html)（PostgreSQL License）：custom archive 的 list 可檢查可解析目錄，但需要 restore 測試才能驗證可復原。
 - 根因是缺少強制加密和可留存證據及可寫 verify 旁路；刪除警告或只改顯示文字不能建立 recovery point。
+
+## 現況與邊界
+
+舊 deploy/migrate workflow 現已停用；本候選不重新啟用它，亦不處理其他入口或歷史 ref。phase CLI 的 gate 檢查同一程序可見的本機 manifest、密文及 upload 輸出格式，並非獨立驗證 artifact 存在、上傳內容、資料來源身分、recipient 可用性或可還原性；程式內部匯出的 helper 及直接 runner 呼叫也不能假定受此 CLI gate 保護。恢復正式 migration 前另須審核所有執行入口、備份與資料庫身分、金鑰及隔離還原證據。

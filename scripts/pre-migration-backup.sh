@@ -57,7 +57,8 @@ rm -f "$LIST"
 
 SHA="$(sha256sum "$DUMP" | cut -d' ' -f1)"
 command -v age >/dev/null 2>&1 || fail "age missing"
-age -r "$BACKUP_AGE_RECIPIENT" -o "$DUMP.age" "$DUMP" || { rm -f "$DUMP.age"; fail "age encryption failed"; }
+# age diagnostics can echo a malformed recipient; log a fixed error instead.
+age -r "$BACKUP_AGE_RECIPIENT" -o "$DUMP.age" "$DUMP" 2>/dev/null || { rm -f "$DUMP.age"; fail "age encryption failed"; }
 [[ -s "$DUMP.age" ]] || { rm -f "$DUMP.age"; fail "encrypted dump missing or empty"; }
 rm -f "$DUMP"
 ENCRYPTED="true"

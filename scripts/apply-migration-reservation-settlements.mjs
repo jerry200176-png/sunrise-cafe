@@ -75,8 +75,8 @@ function parseStamp(stamp) {
 }
 
 /**
- * Proves scripts/pre-migration-backup.sh ran and verified a dump in this job, and that the
- * dump left the runner (age-encrypted copy uploaded, artifact id confirmed). Returns safe metadata only.
+ * Checks the expected local backup manifest, encrypted file and upload metadata.
+ * This does not independently authenticate the artifact or prove a successful restore.
  * @param {{ env?: Record<string, string | undefined>, now?: Date, phase?: string }} [options]
  */
 export function assertRecoveryPoint({ env = process.env, now = new Date(), phase = PHASE } = {}) {
