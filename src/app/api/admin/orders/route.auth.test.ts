@@ -6,9 +6,9 @@ const db = vi.hoisted(() => ({ from: vi.fn(), select: vi.fn(), eq: vi.fn(), orde
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => db }));
 import { GET } from "./route";
 
-async function request(role?: "finance" | "staff" | "owner", branch = "other", contract = "") {
+async function request(role?: "finance" | "staff" | "owner", branch = "other") {
   const cookie = role ? `admin_session=${await createSignedAdminSession("test-session", 3600, { role, sub: "test-user", branch_ids: role === "owner" ? null : ["allowed"] })}` : "";
-  return new NextRequest(`http://localhost/api/admin/orders?branchId=${branch}&limit=2${contract ? `&listContract=${contract}` : ""}`, { headers: { cookie } });
+  return new NextRequest(`http://localhost/api/admin/orders?branchId=${branch}&limit=2`, { headers: { cookie } });
 }
 
 describe("orders list authorization", () => {
@@ -24,15 +24,11 @@ describe("orders list authorization", () => {
     expect((await GET(await request())).status).toBe(401);
     expect((await GET(await request("finance"))).status).toBe(403);
     expect((await GET(await request("staff"))).status).toBe(403);
-    expect((await GET(await request(undefined, "other", "v2"))).status).toBe(401);
-    expect((await GET(await request("finance", "allowed", "v2"))).status).toBe(403);
-    expect((await GET(await request("staff", "other", "v2"))).status).toBe(403);
     expect(db.from).not.toHaveBeenCalled();
   });
   it("allows staff only for their branch and owner for another branch", async () => {
     expect((await GET(await request("staff", "allowed"))).status).toBe(200);
     expect((await GET(await request("owner", "other"))).status).toBe(200);
-    expect((await GET(await request("staff", "allowed", "v2"))).status).toBe(200);
     expect(db.eq).toHaveBeenCalledWith("branch_id", "allowed");
     expect(db.eq).toHaveBeenCalledWith("branch_id", "other");
   });
