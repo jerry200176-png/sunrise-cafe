@@ -2,16 +2,23 @@ name: Apply migration ops_events
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - supabase/migration-ops-events.sql
-      - scripts/apply-migration-ops-events.mjs
-      - scripts/vercel-production-env.sh
-      - src/lib/bootstrap-migrations.ts
 
 jobs:
+  paused:
+    name: Migration paused — backup protection required
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    permissions: {}
+    steps:
+      - name: Explain why migration cannot run
+        run: |
+          echo '::error::Migration is paused until an encrypted, retained backup and a reviewed migration path are verified.'
+          exit 1
+
   apply:
+    # Paused until a reviewed path proves an encrypted, retained backup before
+    # any migration. Keep the runner for a future controlled recovery path.
+    if: ${{ false }}
     name: Create ops_events table
     runs-on: ubuntu-latest
     timeout-minutes: 15
