@@ -70,7 +70,7 @@ export default function ReservationOrderPage() {
     if (currentId.current !== id) return false;
     const sequence = ++requestSequence.current;
     const isCurrent = () => sequence === requestSequence.current && currentId.current === id;
-    const response = await fetchWithTimeout(`/api/admin/reservation-orders/${encodeURIComponent(id)}`);
+    const response = await fetchWithTimeout(`/api/admin/reservation-orders/${encodeURIComponent(id)}`, { cache: "no-store" });
     if (!isCurrent()) return false;
     if (!response.ok) {
       const message = await responseError(response);

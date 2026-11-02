@@ -58,6 +58,14 @@ describe("standalone reservation orders — acknowledged add versus refresh (#46
     fireEvent.click(screen.getByRole("button", { name: "加入訂單" }));
   }
 
+  it("uses no-store for initial and post-add order reads", async () => {
+    await selectAndAdd();
+    await waitFor(() => expect(getCount).toBe(2));
+    const reads = fetchMock.mock.calls.filter(([url, init]) => url === api && init?.method !== "POST");
+    expect(reads).toHaveLength(2);
+    for (const [, init] of reads) expect(init).toEqual(expect.objectContaining({ cache: "no-store" }));
+  });
+
   it.each(["http", "network"] as const)("clears submitted selection after an acknowledged POST even when GET fails (%s)", async (failure) => {
     refreshFailure = failure;
     await selectAndAdd();
