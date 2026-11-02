@@ -47,6 +47,19 @@ independent exact-head review; no deployment is authorized by preparing it.
 See `2026-11-anonymous-tab-add-warning-research.md` for its privacy,
 false-positive, storage-failure and recovery limits.
 
+## Subsequent terminal identity observation candidate
+
+This candidate proposes baseline `5b364a477552c8f54fe2a9c2ba3fe23320436d5d`
+and a separately reviewed one-use manifest for the watcher, its test, and
+research evidence. A final unknown version now fails the watch, which can
+trigger the existing code-only recovery; this is a release behavior change,
+not just a display change. Recovery checks the retained candidate identity,
+but its alias check and subsequent rollback are not atomic. See
+`2026-11-watch-terminal-unknown-research.md` for the observed race, effects,
+and limits. The previous deployment must have completed verification and
+production must still match this baseline before release. Preparing this
+candidate does not deploy it or authorize a migration.
+
 ## Operational limits
 
 ### Subsequent guest booking and preorder candidate

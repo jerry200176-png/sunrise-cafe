@@ -1,12 +1,9 @@
 {
   "approved_files": {
-    ".github/workflows/ops-linepay-vercel-env.yml": "c324e816a61a9135d8ca0d3c952511640423221d",
-    "docs/ops/LINE_PAY_SANDBOX_ENV.md": "3268aa4bb22d1db047b2c2f824931167a5f1cee5",
-    "docs/plans/2026-11-linepay-ci-isolation.md": "c01d83e20f4bb97603c3eabbaf7563bde788cfe6",
-    "scripts/lib/linepay-paused-contract.mjs": "230b1c084a7d73b7f1d79fc27892fe33e0fcb1c7",
-    "scripts/ops-linepay-vercel-env.sh": "dde1e1f839c87d66f11d06019f114a1758f83641",
-    "scripts/verify-production-workflow-contract.mjs": "e8942a521b43ad49f15597c3231ce91e273ba7a6",
-    "src/lib/ops-linepay-vercel-env.test.ts": "fb08584676449f2661ce94e76fa52e2d8b1e616f"
+    "docs/plans/2026-11-watch-terminal-unknown-research.md": "9170dea11e033ad5fc2b38fd5c8f3599ca63112a",
+    "scripts/post-deploy-watch.mjs": "c3efed2fb83bd72f042e9e49fe04832de0d73c8a",
+    "scripts/test-watch-recovery-synthetic.py": "9fb1e3ff4e0b74837e24b39f001beadc7637e585",
+    "src/lib/post-deploy-watch.test.ts": "89627fd919e2687f7593df15131918598af5ecd3"
   },
-  "baseline": "1ac93b071dc1f7b9e721bbed2639db5fca8234a9"
+  "baseline": "5b364a477552c8f54fe2a9c2ba3fe23320436d5d"
 }
