@@ -499,7 +499,7 @@ function OrderCard({
           type="button"
           disabled={locked}
           aria-busy={locked && !needsReview}
-          aria-label={locked ? `${actionLabel}，${needsReview ? "待核對" : "處理中"}` : undefined}
+          aria-label={locked ? `訂單操作${needsReview ? "待核對" : "處理中"}` : undefined}
           onClick={() => onAction(order.id)}
           className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-lg px-4 text-sm font-medium text-white disabled:opacity-50 ${btnColor}`}
         >
