@@ -284,9 +284,12 @@ def recover(api, http, record, candidate=None, *, clock=time.monotonic, sleep=ti
     raise Unknown('deployment still in flight; immediate manual recovery may be required')
 
 
-def create_candidate(api, record, *, on_candidate=lambda _value: None):
+def create_candidate(api, record, *, on_candidate=lambda _value: None, on_attempt=lambda: None):
     baseline, sha = record['baseline'], record['commit']
     if api.alias() != baseline: raise Unknown('production baseline changed before deploy')
+    # This marks a conservative boundary: create may fail locally before its
+    # HTTP request is sent. It never proves the provider received the request.
+    on_attempt()
     candidate = api.create(sha)  # Never retry an unknown create response.
     on_candidate(candidate)
     return candidate
@@ -365,6 +368,18 @@ def recovery_candidate(path, sha, ident, commit):
 def main():
     if len(sys.argv) != 2 or sys.argv[1] not in ('prepare', 'create', 'verify', 'recover'):
         raise SystemExit('invalid release phase')
+    create_attempted = False
+    def mark_create_attempt():
+        nonlocal create_attempted
+        create_attempted = True
+
+    def log_create_boundary():
+        if sys.argv[1] == 'create':
+            if create_attempted:
+                print('Create diagnostic: request may have been attempted; outcome unknown', file=sys.stderr)
+            else:
+                print('Create diagnostic: request not attempted by this process', file=sys.stderr)
+
     try:
         sha, ref = os.environ.get('GITHUB_SHA', ''), os.environ.get('GITHUB_REF', '')
         if not SHA.fullmatch(sha) or ref != 'refs/heads/main': raise Unknown('not a main release')
@@ -389,7 +404,7 @@ def main():
                 def retain(ident):
                     output_candidate(os.environ['GITHUB_OUTPUT'], ident, sha)
                     write_candidate(candidate_path, ident, sha)
-                create_candidate(api, record, on_candidate=retain)
+                create_candidate(api, record, on_candidate=retain, on_attempt=mark_create_attempt)
             elif sys.argv[1] == 'verify':
                 candidate = read_candidate(candidate_path, sha)
                 if candidate is None: raise Unknown('candidate record unavailable')
@@ -400,10 +415,15 @@ def main():
                 recover(api, http, record, candidate)
         print('Release phase complete:', sys.argv[1])
     except CreateStatusUnknown as exc:
+        # The real CreateStatusUnknown is raised only inside api.create. Even
+        # if an unexpected path produces it, never label it not attempted.
+        create_attempted = True
+        log_create_boundary()
         category = exc.category if type(exc.category) is str and exc.category in HTTP_CATEGORIES else 'unclassified'
         print('Deployment create outcome unknown; HTTP status category:', category, file=sys.stderr)
         raise SystemExit('Release failed or outcome unknown; follow documented rollback procedure') from None
     except Exception:
+        log_create_boundary()
         raise SystemExit('Release failed or outcome unknown; follow documented rollback procedure') from None
 
 

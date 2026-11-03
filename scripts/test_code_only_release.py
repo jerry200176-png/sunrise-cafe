@@ -312,6 +312,7 @@ class CreateDiagnosticTests(unittest.TestCase):
             with self.subTest(code=code):
                 calls, _state, output = self.run_create(code)
                 self.assertIn('Deployment create outcome unknown; HTTP status category: ' + category, output)
+                self.assertIn('Create diagnostic: request may have been attempted; outcome unknown', output)
                 self.assertNotIn('synthetic-status-canary', output)
                 self.assertEqual(sum(method == 'POST' for _host, _path, method in calls), 1)
 
@@ -320,6 +321,7 @@ class CreateDiagnosticTests(unittest.TestCase):
             with self.subTest(stage=stage):
                 calls, _state, output = self.run_create(429, stage=stage)
                 self.assertNotIn('HTTP status category:', output)
+                self.assertIn('Create diagnostic: request not attempted by this process', output)
                 self.assertEqual(sum(method == 'POST' for _host, _path, method in calls), 0)
 
     def test_network_error_and_redirect_remain_unknown_without_status_or_retry(self):
@@ -327,6 +329,7 @@ class CreateDiagnosticTests(unittest.TestCase):
             with self.subTest(response_type=type(response).__name__):
                 calls, _state, output = self.run_create(response)
                 self.assertNotIn('HTTP status category:', output)
+                self.assertIn('Create diagnostic: request may have been attempted; outcome unknown', output)
                 self.assertEqual(sum(method == 'POST' for _host, _path, method in calls), 1)
 
     def test_unusable_2xx_response_is_still_unknown(self):
@@ -338,6 +341,7 @@ class CreateDiagnosticTests(unittest.TestCase):
             with self.subTest(response_type=type(response[1]).__name__):
                 calls, _state, output = self.run_create(response)
                 self.assertIn('Deployment create outcome unknown; HTTP status category: http_2xx', output)
+                self.assertIn('Create diagnostic: request may have been attempted; outcome unknown', output)
                 self.assertEqual(sum(method == 'POST' for _host, _path, method in calls), 1)
 
     def test_accepted_then_error_is_not_retried_or_inferred_recoverable(self):
@@ -352,6 +356,21 @@ class CreateDiagnosticTests(unittest.TestCase):
                     r.recover(api, fake_http, {'baseline': BASE, 'previous': OLD, 'commit': SHA}, None,
                               clock=FakeClock(), sleep=lambda _seconds: None, seconds=1)
                 self.assertEqual(api.rollbacks, [])
+
+    def test_candidate_retention_failure_remains_attempted_unknown(self):
+        calls, _state, output = self.run_create((200, json.dumps({'id': NEW}).encode()))
+        self.assertEqual(sum(method == 'POST' for _host, _path, method in calls), 1)
+        self.assertIn('Create diagnostic: request may have been attempted; outcome unknown', output)
+        self.assertNotIn('request not attempted', output)
+
+    def test_no_credentials_fail_before_attempt_without_printing_values(self):
+        env = {'GITHUB_SHA': SHA, 'GITHUB_REF': 'refs/heads/main', 'VERCEL_TOKEN': 'synthetic-token-canary'}
+        stderr = io.StringIO()
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(r.sys, 'argv', ['release', 'create']), \
+             contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            r.main()
+        self.assertIn('Create diagnostic: request not attempted by this process', stderr.getvalue())
+        self.assertNotIn('synthetic-token-canary', stderr.getvalue())
 
     def test_invalid_category_and_exception_text_cannot_reach_output(self):
         fake = r.CreateStatusUnknown('synthetic-category-canary')
