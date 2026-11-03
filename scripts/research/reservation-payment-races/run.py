@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 """Isolated research fixture only; never talks to Sunrise, Stripe, LINE, or production."""
+if not __debug__:
+    raise SystemExit('Python optimization is unsupported; run without -O or PYTHONOPTIMIZE')
+
 import json
 import os
 import queue

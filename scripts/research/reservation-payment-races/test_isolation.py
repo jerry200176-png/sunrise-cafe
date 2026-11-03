@@ -1,7 +1,10 @@
 """Unit checks for the synthetic harness's Docker isolation contract."""
 import os
 import stat
+import subprocess
+import sys
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -9,6 +12,21 @@ import run as fixture
 
 
 class IsolationTest(unittest.TestCase):
+    def test_optimized_python_fails_before_fixture_execution(self):
+        script = str(Path(fixture.__file__).resolve())
+        for args, optimize in ((['-O'], None), ([], '1'), ([], '2')):
+            with self.subTest(args=args, optimize=optimize):
+                env = {'PATH': '/usr/local/bin:/usr/bin:/bin', 'LANG': 'C.UTF-8',
+                       'PYTHONDONTWRITEBYTECODE': '1'}
+                if optimize is not None:
+                    env['PYTHONOPTIMIZE'] = optimize
+                result = subprocess.run([sys.executable, *args, script], env=env,
+                                        capture_output=True, text=True, timeout=5)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, '')
+                self.assertEqual(result.stderr.strip(),
+                    'Python optimization is unsupported; run without -O or PYTHONOPTIMIZE')
+
     def test_non_socket_and_non_root_socket_fail_closed(self):
         with self.assertRaises(RuntimeError):
             fixture.validate_socket_info(SimpleNamespace(st_mode=stat.S_IFREG, st_uid=0))
