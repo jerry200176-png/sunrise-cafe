@@ -2,6 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatMergePlan, type LegacyOptionRow, type MergePlan } from "../../src/lib/option-set-merge";
 
 const PAGE_SIZE = 500;
+const MAX_PAGES = 1000;
+const MAX_ROWS = 100_000;
 type Identified = { id: string };
 
 export function renderOptionPreview(plan: MergePlan, names: Record<string, string>, json: boolean): string {
@@ -15,9 +17,12 @@ async function readPages<T extends Identified>(
 ): Promise<T[]> {
   const all: T[] = [];
   let after: string | undefined;
-  for (;;) {
+  for (let pageCount = 0; pageCount < MAX_PAGES; pageCount++) {
     const page = await readPage(after);
     if (!page.length) return all;
+    if (all.length + page.length > MAX_ROWS) {
+      throw new Error("預覽超過筆數上限；沒有產生部分結果，請使用 SQL 核對");
+    }
     for (const row of page) {
       if (typeof row.id !== "string" || (after !== undefined && row.id <= after)) {
         throw new Error("預覽排序不一致，結果可能不完整；請重新執行並使用 SQL 核對");
@@ -26,6 +31,7 @@ async function readPages<T extends Identified>(
       all.push(row);
     }
   }
+  throw new Error("預覽超過分頁上限；沒有產生部分結果，請使用 SQL 核對");
 }
 
 export async function readOptionPreview(db: SupabaseClient): Promise<{

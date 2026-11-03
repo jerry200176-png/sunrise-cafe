@@ -55,4 +55,17 @@ describe("option preview reads", () => {
     const plan = planOptionSetMerge(rows);
     expect(JSON.parse(renderOptionPreview(plan, names, true))).toEqual(plan);
   });
+
+  it("stops without a partial result if pages never reach the end", async () => {
+    let calls = 0;
+    const fetcher: typeof fetch = async () => {
+      calls++;
+      return new Response(JSON.stringify([option(String(calls).padStart(6, "0"))]), {
+        status: 200, headers: { "Content-Type": "application/json" },
+      });
+    };
+    const db = createClient("http://127.0.0.1:1", "placeholder", { global: { fetch: fetcher } });
+    await expect(readOptionPreview(db)).rejects.toThrow("超過分頁上限");
+    expect(calls).toBe(1000);
+  });
 });

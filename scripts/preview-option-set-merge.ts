@@ -1,7 +1,8 @@
 /**
  * 唯讀預覽：既有的餐點選項會被合併成哪些選項組。不寫入任何資料。
  *   npx tsx scripts/preview-option-set-merge.ts
- * 需要環境變數 NEXT_PUBLIC_SUPABASE_URL 與 SUPABASE_SERVICE_ROLE_KEY（只做 SELECT）。
+ * 查詢只執行 SELECT；service-role 憑證本身仍可能具有寫入權限。
+ * 需要環境變數 NEXT_PUBLIC_SUPABASE_URL 與 SUPABASE_SERVICE_ROLE_KEY。
  * 沒有金鑰時，可改在 Supabase SQL Editor 貼上 supabase/preview-menu-option-set-merge.sql。
  */
 import { createClient } from "@supabase/supabase-js";
@@ -11,7 +12,7 @@ import { readOptionPreview, renderOptionPreview } from "./lib/option-preview-rea
 async function main() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("請設定 NEXT_PUBLIC_SUPABASE_URL 與 SUPABASE_SERVICE_ROLE_KEY（只讀）");
+  if (!url || !key) throw new Error("請設定 NEXT_PUBLIC_SUPABASE_URL 與 SUPABASE_SERVICE_ROLE_KEY；憑證本身可能具寫入權限");
   const db = createClient(url, key);
   const { rows, names } = await readOptionPreview(db);
   const plan = planOptionSetMerge(rows);
