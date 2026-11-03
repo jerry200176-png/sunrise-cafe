@@ -1,6 +1,6 @@
 # #437／#506：訂位與付款競態的隔離契約研究
 
-**僅是合成 PostgreSQL 契約研究，不是應用功能、正式 migration、付款政策、部署或問題已解決。** #506 現有 reservation snapshot CAS 對 stale 狀態有保護，但訂金付款、provider 請求、預點單與通知沒有因此成為同一筆交易；LINE Pay 既有付款與 reservation 鎖順序也需另行確認及協調。自動逾期取消目前依既有 ADR 預設關閉，本研究不更動設定。
+**僅是合成 PostgreSQL 契約研究，不是應用功能、正式 migration、付款政策、部署或問題已解決。** #506 現有 reservation snapshot CAS 對 stale 狀態有保護，但訂金付款、provider 請求、預點單與通知沒有因此成為同一筆交易；LINE Pay 既有付款與 reservation 鎖順序也需另行確認及協調。依 Founder 2026-11-01 決策，逾期未付訂金不會自動取消；本研究不變更此行為。
 
 ## 研究假設
 
