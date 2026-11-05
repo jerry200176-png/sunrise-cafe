@@ -197,6 +197,13 @@ class Tests(unittest.TestCase):
             state['blob'] = blob; state['mode'] = '120000'
             with self.assertRaises(r.Unknown): r.verify_code_only(r.APPROVED_BASELINE, SHA, git=git, manifest_path=manifest)
             with self.assertRaises(r.Unknown): r.verify_code_only(OLD, SHA, git=git, manifest_path=manifest)
+            state['mode'] = '100644'
+            for bad in ('scripts/__pycache__/x.cpython-312.pyc', 'scripts/x.pyc'):
+                state['paths'].append(bad)
+                with self.assertRaises(r.Unknown): r.verify_code_only(r.APPROVED_BASELINE, SHA, git=git, manifest_path=manifest)
+                state['paths'].pop()
+                manifest.write_text(json.dumps({'baseline': r.APPROVED_BASELINE, 'approved_files': {bad: blob}}))
+                with self.assertRaises(r.Unknown): r.verify_code_only(r.APPROVED_BASELINE, SHA, git=git, manifest_path=manifest)
 
     def test_manifest_against_isolated_git_history(self):
         # Validate actual Git objects without binding the test suite to this

@@ -214,6 +214,10 @@ def verify_code_only(previous, sha, *, git=None, manifest_path=None):
             raise ValueError('invalid approved manifest')
         git('merge-base', '--is-ancestor', previous, sha)
         changes = git('diff', '--name-only', '--no-renames', '-z', previous, sha).decode('utf-8').split('\0')
+        # Python may load a committed .pyc even with -B; never accept one.
+        for path in (*filter(None, changes), *approved):
+            if '__pycache__' in str(path) or str(path).endswith('.pyc'):
+                raise ValueError('bytecode in code-only release')
         for path in filter(None, changes):
             if path not in approved and path not in CONTROL_FILES:
                 raise ValueError('unreviewed file in code-only release')
