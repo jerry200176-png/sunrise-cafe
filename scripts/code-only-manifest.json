@@ -6,7 +6,9 @@
     "docs/plans/2026-11-code-only-create-diagnostics.md": "41c274432360c049c6987c6b96630009d51ae792",
     "docs/plans/2026-11-option-preview-pagination.md": "74e4c6a985646aa14442c1a26844f273d3d1b532",
     "docs/plans/2026-11-order-board-action-feedback.md": "53e1e8a72bd8d21f98401dfb62029965808bec12",
-    "scripts/code-only-release.py": "dbe5ee8c8df19b32b20873cee7a011dbabc67a20",
+    "package-lock.json": "688aa3c917af8c1ede93ce51962eec4588512772",
+    "package.json": "d31f800df9042c0d9cb02023d989be1329f1d21e",
+    "scripts/code-only-release.py": "57cd1b17c65a3b33c216852e6dd753e7cf2b2fc5",
     "scripts/lib/option-preview-reader.ts": "05710419d32a95cd1fd49e423780c3c884e516dd",
     "scripts/preview-option-set-merge.ts": "1e8d5e5ee9f85de5b8b030b5e44ee8f40aca34b4",
     "scripts/verify-production-workflow-contract.mjs": "2b9130c8a4e16e1744e00b3150e3c7419eeb77d6",
@@ -20,5 +22,5 @@
     "src/lib/reservation-lifecycle.test.ts": "3d81445158a2fe38e86c204c9724a4ff22c29517",
     "src/lib/reservation-lifecycle.ts": "0e6822ca285e4e6b384debfd8536cabf598e664f"
   },
-  "baseline": "9d92aef84bd95fdecd4922555a4117fdd0c377b4"
+  "baseline": "b884f86a7b35458cd70abbb071d6167e1d2c541b"
 }
