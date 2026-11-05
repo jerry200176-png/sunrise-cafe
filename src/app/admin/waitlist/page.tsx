@@ -28,6 +28,8 @@ type WaitlistItem = {
 };
 
 type StatusFilter = "all" | "waiting" | "notified" | "needs_call";
+type PendingWrite = { id: string | null; action: "remove" | "call" | "uncall" | "unknown"; operationId: string | null };
+const PENDING_WRITE_KEY = "sunrise.waitlist.pending-write.v1";
 
 const STATUS_LABEL: Record<string, string> = {
   waiting: "等候中",
@@ -73,9 +75,17 @@ export default function AdminWaitlistPage() {
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const [pendingWrite, setPendingWrite] = useState<PendingWrite | null>(null);
+  const [storageUnavailable, setStorageUnavailable] = useState(false);
+  const [guardReady, setGuardReady] = useState(false);
+  const [reviewReady, setReviewReady] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const toastId = useRef(0);
   const loadSequence = useRef(0);
+  const writeInFlight = useRef(false);
+  const pendingRef = useRef<PendingWrite | null>(null);
+  const pendingStoredRef = useRef<string | null>(null);
+  const componentGeneration = useRef(0);
 
   const showToast = useCallback((message: string, variant: ToastVariant = "info") => {
     const id = ++toastId.current;
@@ -86,18 +96,21 @@ export default function AdminWaitlistPage() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (manualReview = false) => {
+    if (writeInFlight.current) return;
     const sequence = ++loadSequence.current;
+    if (pendingRef.current) setReviewReady(false);
     setLoading(true);
     setError(null);
     try {
       const res = await fetchWithTimeout("/api/admin/waitlist");
       if (!res.ok) throw new Error(await boundedError(res));
       const data = await readJsonWithTimeout<unknown>(res);
-      if (sequence !== loadSequence.current) return;
+      if (sequence !== loadSequence.current || writeInFlight.current) return;
       if (!isWaitlistPayload(data)) throw new Error("等位清單資料格式錯誤，請重新整理");
       setItems(data.items ?? []);
       setNeedsCallCount(data.needs_call_count ?? 0);
+      if (manualReview && pendingRef.current) setReviewReady(true);
       setUpdatedAt(
         new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Taipei" })
       );
@@ -109,60 +122,114 @@ export default function AdminWaitlistPage() {
   }, []);
 
   useEffect(() => {
+    const generationRef = componentGeneration;
+    const sequenceRef = loadSequence;
+    generationRef.current++;
+    try {
+      const raw = window.sessionStorage.getItem(PENDING_WRITE_KEY);
+      if (raw !== null) {
+        pendingStoredRef.current = raw;
+        let pending: PendingWrite = { id: null, action: "unknown", operationId: null };
+        try {
+          const value: unknown = JSON.parse(raw);
+          if (isRecord(value) && typeof value.id === "string" && value.id.length > 0 && value.id.length <= 200
+              && typeof value.operationId === "string" && /^[0-9a-f-]{36}$/i.test(value.operationId)
+              && (value.action === "remove" || value.action === "call" || value.action === "uncall")) {
+            pending = { id: value.id, action: value.action, operationId: value.operationId };
+          }
+        } catch { /* Unknown stored content stays locked until reviewed. */ }
+        pendingRef.current = pending;
+        setPendingWrite(pending);
+      }
+    } catch {
+      setStorageUnavailable(true);
+    }
+    setGuardReady(true);
     load();
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void load();
     }, 60_000);
-    return () => window.clearInterval(timer);
+    return () => {
+      generationRef.current++;
+      sequenceRef.current++;
+      window.clearInterval(timer);
+    };
   }, [load]);
 
-  const remove = async (id: string) => {
-    loadSequence.current++;
-    setLoading(false);
-    setRemovingId(id);
+  const performWrite = async (id: string, action: "remove" | "call" | "uncall") => {
+    if (!guardReady || storageUnavailable || pendingRef.current || writeInFlight.current || loading || error) return;
+    writeInFlight.current = true;
+    const generation = componentGeneration.current;
     try {
-      const res = await fetch(`/api/admin/waitlist/${id}`, { method: "DELETE" });
-      const data = await res.json();
-      if (!res.ok) {
-        showToast(friendlyMessage(data.error, res.status), "error");
+      let operationId: string;
+      try {
+        operationId = globalThis.crypto.randomUUID();
+      } catch {
+        showToast("無法建立操作識別，請檢查瀏覽器安全設定；操作未送出。", "error");
         return;
       }
-      setItems((prev) => prev.filter((i) => i.id !== id));
-      showToast("已移除等位紀錄", "success");
-    } finally {
-      setRemovingId(null);
-      setConfirmRemoveId(null);
-    }
-  };
-
-  const markCalled = async (id: string, staff_called = true) => {
-    loadSequence.current++;
-    setLoading(false);
-    setMarkingId(id);
-    try {
-      const res = await fetch(`/api/admin/waitlist/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ staff_called }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        showToast(friendlyMessage(data.error, res.status), "error");
+      const pending: PendingWrite = { id, action, operationId };
+      const serialized = JSON.stringify(pending);
+      try {
+        window.sessionStorage.setItem(PENDING_WRITE_KEY, serialized);
+        if (window.sessionStorage.getItem(PENDING_WRITE_KEY) !== serialized) throw new Error("storage unavailable");
+      } catch {
+        setStorageUnavailable(true);
+        showToast("無法保存待核對狀態，操作未送出。請檢查瀏覽器儲存設定。", "error");
         return;
       }
-      setItems((prev) => {
-        const next = prev.map((i) => {
-          if (i.id !== id) return i;
-          const staff_called_at = (data.staff_called_at as string | null) ?? null;
-          const needs_call = i.status === "waiting" && !i.has_line && !staff_called_at;
-          return { ...i, staff_called_at, needs_call };
-        });
-        setNeedsCallCount(next.filter((i) => i.needs_call).length);
-        return next;
-      });
-      showToast(staff_called ? "已標記來電完成" : "已取消來電標記", "success");
+      pendingRef.current = pending;
+      pendingStoredRef.current = serialized;
+      setPendingWrite(pending);
+      setReviewReady(false);
+      loadSequence.current++;
+      setLoading(false);
+      if (action === "remove") setRemovingId(id); else setMarkingId(id);
+      const res = await fetchWithTimeout(`/api/admin/waitlist/${id}`, action === "remove"
+        ? { method: "DELETE" }
+        : { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ staff_called: action === "call" }) });
+      if (componentGeneration.current !== generation) return;
+      if (!res.ok) throw new Error("unknown outcome");
+      const data = await readJsonWithTimeout<unknown>(res);
+      if (componentGeneration.current !== generation) return;
+      if (!isRecord(data) || data.ok !== true) throw new Error("unknown outcome");
+      if (action !== "remove" && (data.id !== id || (action === "call"
+        ? typeof data.staff_called_at !== "string" || !data.staff_called_at
+        : data.staff_called_at !== null))) throw new Error("unknown outcome");
+      const previous = items.find((item) => item.id === id);
+      if (action === "remove") {
+        setItems((prev) => prev.filter((item) => item.id !== id));
+        if (previous?.needs_call) setNeedsCallCount((count) => Math.max(0, count - 1));
+      } else {
+        const stamp = data.staff_called_at as string | null;
+        const needsCall = previous?.status === "waiting" && !previous.has_line && !stamp;
+        setItems((prev) => prev.map((item) => item.id === id ? { ...item, staff_called_at: stamp, needs_call: needsCall } : item));
+        if (previous && Boolean(previous.needs_call) !== Boolean(needsCall)) {
+          setNeedsCallCount((count) => Math.max(0, count + (needsCall ? 1 : -1)));
+        }
+      }
+      try {
+        if (window.sessionStorage.getItem(PENDING_WRITE_KEY) !== serialized) throw new Error("storage changed");
+        window.sessionStorage.removeItem(PENDING_WRITE_KEY);
+        if (window.sessionStorage.getItem(PENDING_WRITE_KEY) !== null) throw new Error("storage unavailable");
+        pendingRef.current = null;
+        pendingStoredRef.current = null;
+        setPendingWrite(null);
+        showToast(action === "remove" ? "已移除等位紀錄" : action === "call" ? "已標記來電完成" : "已取消來電標記", "success");
+      } catch {
+        setStorageUnavailable(true);
+        showToast("結果已回覆，但無法清除待核對狀態，請檢查瀏覽器儲存設定。", "error");
+      }
+    } catch {
+      if (componentGeneration.current === generation) showToast("操作結果尚未確認，請重新整理清單並核對。", "error");
     } finally {
-      setMarkingId(null);
+      loadSequence.current++;
+      writeInFlight.current = false;
+      if (componentGeneration.current === generation) {
+        setRemovingId(null);
+        setMarkingId(null);
+        setConfirmRemoveId(null);
+      }
     }
   };
 
@@ -174,6 +241,7 @@ export default function AdminWaitlistPage() {
       : filter === "needs_call"
         ? items.filter((i) => i.needs_call)
         : items.filter((i) => i.status === filter);
+  const writesBlocked = !guardReady || storageUnavailable || Boolean(pendingWrite) || loading || Boolean(error) || removingId !== null || markingId !== null;
 
   return (
     <>
@@ -187,7 +255,8 @@ export default function AdminWaitlistPage() {
       actions={
         <button
           type="button"
-          onClick={() => void load()}
+          onClick={() => void load(Boolean(pendingRef.current))}
+          disabled={removingId !== null || markingId !== null}
           className="flex h-10 w-10 items-center justify-center rounded-xl text-stone-500 transition-[background-color] duration-200 hover:bg-stone-100"
           aria-label="重新整理"
         >
@@ -196,6 +265,36 @@ export default function AdminWaitlistPage() {
       }
     >
       <div className="space-y-4">
+        {storageUnavailable && (
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">
+            瀏覽器無法保存待核對狀態，等位操作已暫停。請檢查儲存設定並重新載入。
+          </div>
+        )}
+        {pendingWrite && !removingId && !markingId && (
+          <div className="rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" role="alert">
+            <p>上次等位操作的結果尚未確認。請重新整理清單，核對原紀錄後再決定是否繼續。</p>
+            <p className="mt-1">{pendingWrite.id && items.some((item) => item.id === pendingWrite.id)
+              ? `請核對「${items.find((item) => item.id === pendingWrite.id)?.customer_name}」的紀錄。`
+              : "原紀錄目前不在清單中；請依實際情況核對。"}</p>
+            <p className="mt-1">原請求仍可能稍後完成；這項限制只適用目前分頁，其他分頁或裝置不受保護。</p>
+            <button type="button" disabled={loading || storageUnavailable} onClick={() => void load(true)} className="mt-2 min-h-[44px] rounded-lg border border-amber-700 px-3 disabled:opacity-50">重新整理核對</button>
+            {reviewReady && !storageUnavailable && <button type="button" className="ml-2 mt-2 min-h-[44px] rounded-lg border border-amber-700 px-3" onClick={() => {
+              if (!window.confirm("原請求仍可能稍後完成。已核對紀錄並了解再次操作的風險嗎？")) return;
+              try {
+                if (window.sessionStorage.getItem(PENDING_WRITE_KEY) !== pendingStoredRef.current) throw new Error("storage changed");
+                window.sessionStorage.removeItem(PENDING_WRITE_KEY);
+                if (window.sessionStorage.getItem(PENDING_WRITE_KEY) !== null) throw new Error("storage unavailable");
+                pendingStoredRef.current = null;
+                pendingRef.current = null;
+                setPendingWrite(null);
+                setReviewReady(false);
+              } catch {
+                setStorageUnavailable(true);
+                showToast("無法清除待核對狀態，請檢查瀏覽器儲存設定。", "error");
+              }
+            }}>已核對，解除本分頁限制</button>}
+          </div>
+        )}
         {error && (
           <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">
             {error}{updatedAt ? "（畫面是上一次的資料）" : ""}
@@ -324,8 +423,8 @@ export default function AdminWaitlistPage() {
                     {!item.has_line && item.status === "waiting" && (
                       <button
                         type="button"
-                        disabled={markingId === item.id}
-                        onClick={() => void markCalled(item.id, !item.staff_called_at)}
+                        disabled={writesBlocked}
+                        onClick={() => void performWrite(item.id, item.staff_called_at ? "uncall" : "call")}
                         className="inline-flex min-h-[44px] items-center gap-1 rounded-lg border border-orange-300 bg-white px-3 py-1.5 text-sm font-medium text-orange-900 hover:bg-orange-50 disabled:opacity-50"
                       >
                         {item.staff_called_at ? "取消來電標記" : "標記已來電"}
@@ -333,7 +432,7 @@ export default function AdminWaitlistPage() {
                     )}
                     <button
                       type="button"
-                      disabled={removingId === item.id}
+                      disabled={writesBlocked}
                       onClick={() => setConfirmRemoveId(item.id)}
                       className="inline-flex min-h-[44px] items-center gap-1 rounded border border-gray-300 text-gray-600 px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
                     >
@@ -361,7 +460,7 @@ export default function AdminWaitlistPage() {
         message="確定移除此等位紀錄？客人將不再收到此時段的通知。"
         confirmLabel="移除"
         variant="danger"
-        onConfirm={() => confirmRemoveId && void remove(confirmRemoveId)}
+        onConfirm={() => confirmRemoveId && void performWrite(confirmRemoveId, "remove")}
         onCancel={() => setConfirmRemoveId(null)}
       />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />

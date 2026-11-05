@@ -8,13 +8,15 @@ import type { Branch, Room, RentalNoteSection, MenuItem } from "@/types";
 import type { DraftItemInput } from "@/lib/reservation-preorder";
 import { MenuPicker } from "@/components/MenuPicker";
 import { selectionProblem } from "@/lib/option-sets";
-import { getDurationOptions, getDepositAmount, isWeekendDate } from "@/lib/booking-utils";
+import { getDurationOptions, getDepositAmount, isWeekendDate, taipeiDateForInstant } from "@/lib/booking-utils";
 import { normalizePhone } from "@/lib/phone-utils";
-import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
+import { scrollIntoViewForInteraction, scrollToTopForInteraction } from "@/lib/interaction-scroll";
+import { readBookingSubmitGuards, writeBookingSubmitGuards } from "@/lib/booking-submit-guard";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { CustomerShell } from "@/components/customer/CustomerShell";
 import { BookingStepProgress } from "@/components/customer/BookingStepProgress";
-import { RoomPreview } from "@/components/customer/RoomPreview";
+import { StorePreview } from "@/components/customer/StorePreview";
 import { EmptyState } from "@/components/customer/EmptyState";
 import { PaymentModal } from "@/components/payment/PaymentModal";
 import { getBranchDepositConfig } from "@/lib/constants";
@@ -34,6 +36,7 @@ import { resolveBranchGuestSettings } from "@/lib/branch-guest-settings";
 import {
   canSelectStart,
   endIsoForDuration,
+  MIN_DURATION_HOURS,
 } from "@/lib/slot-grid";
 import { slotPanelMode } from "@/lib/booking-slot-ui";
 
@@ -47,17 +50,47 @@ interface SlotItem {
   available: boolean;
 }
 
+interface AvailableRoom {
+  roomId: string;
+  roomName: string;
+  roomType?: string | null;
+  min_capacity?: number;
+  capacity: number;
+  price_weekday: number;
+  price_weekend: number;
+  slots: SlotItem[];
+  image_url?: string | null;
+}
+
+function isSlotList(value: unknown): value is SlotItem[] {
+  return Array.isArray(value) && value.every((slot) => {
+    if (!slot || typeof slot !== "object" || typeof slot.start !== "string" || typeof slot.end !== "string" || typeof slot.available !== "boolean") return false;
+    const start = Date.parse(slot.start);
+    const end = Date.parse(slot.end);
+    return Number.isFinite(start) && Number.isFinite(end) && end > start;
+  });
+}
+
 export default function BookPage() {
   const { t } = useLocale();
-  const [step, setStep] = useState<Step>("branch");
+  const submittingRef = useRef(false);
+  // Increment synchronously for user edits/navigation while an older submit is
+  // in flight, even if the customer later changes the values back.
+  const submissionRevisionRef = useRef(0);
+  const [step, setStepState] = useState<Step>("branch");
+  const setStep = useCallback((next: Step) => {
+    if (submittingRef.current) submissionRevisionRef.current += 1;
+    setStepState(next);
+  }, []);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [roomCatalog, setRoomCatalog] = useState<Room[]>([]);
   const [branchId, setBranchId] = useState("");
   const [mealCatalog, setMealCatalog] = useState<MenuItem[]>([]);
   const [mealFeatureEnabled, setMealFeatureEnabled] = useState(false);
   const [mealItems, setMealItems] = useState<DraftItemInput[]>([]);
   const [mealNotes, setMealNotes] = useState("");
-  const bookingRequestKey = useRef<string | null>(null);
+  const bookingRequestKey = useRef<{ selection: string; key: string } | null>(null);
   const [roomId, setRoomId] = useState("");
   const [previewRoomId, setPreviewRoomId] = useState<string | null>(null);
   const [date, setDate] = useState("");
@@ -75,6 +108,7 @@ export default function BookPage() {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [guestCount, setGuestCount] = useState<number | "">("");
+  const invalidGuestCount = guestCount !== "" && (!Number.isInteger(guestCount) || guestCount < 1 || guestCount > 100);
   const [agreeToTerms, setAgreeToTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -89,12 +123,31 @@ export default function BookPage() {
   const [lineUserId, setLineUserId] = useState<string | null>(null);
   const [draftHydrated, setDraftHydrated] = useState(false);
   const [availabilityRetry, setAvailabilityRetry] = useState(0);
+  const [branchRetry, setBranchRetry] = useState(0);
+  const [branchLoading, setBranchLoading] = useState(true);
+  const [branchLoadError, setBranchLoadError] = useState(false);
+  const [catalogRetry, setCatalogRetry] = useState(0);
+  const [catalogLoading, setCatalogLoading] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  /** Booking (room|start|duration) whose submit ended without a readable response — it may or may not exist. */
-  const [uncertainSubmitKey, setUncertainSubmitKey] = useState<string | null>(null);
-  const currentSubmitKey = `${roomId}|${selectedStart}|${duration}`;
-  const submitUncertain = uncertainSubmitKey === currentSubmitKey;
+  /** Keep every potentially submitted selection locked for this browser tab. */
+  const uncertainSubmitKeysRef = useRef<Set<string>>(new Set());
+  const [uncertainSubmitKeys, setUncertainSubmitKeys] = useState<Set<string>>(() => new Set());
+  const [submitGuardReady, setSubmitGuardReady] = useState(false);
+  const [submitGuardUnavailable, setSubmitGuardUnavailable] = useState(false);
+  const currentSubmitKey = JSON.stringify([branchId, roomId, selectedStart, duration]);
+  const activeSubmitKeyRef = useRef(currentSubmitKey);
+  activeSubmitKeyRef.current = currentSubmitKey;
+  const activeStepRef = useRef(step);
+  activeStepRef.current = step;
+  const mountedRef = useRef(true);
+  const submitUncertain = uncertainSubmitKeys.has(currentSubmitKey);
+  const hasOtherUncertainSubmit = uncertainSubmitKeys.size > 0 && !submitUncertain;
+  const branchPhone = branches.find((branch) => branch.id === branchId)?.phone?.trim() ?? "";
+  const telephone = branchPhone.replace(/[^+\d]/g, "");
+  const contactHref = /^[+()\d\s.-]+$/.test(branchPhone) && /^\+?\d{5,15}$/.test(telephone) ? `tel:${telephone}` : null;
   const errorBannerRef = useRef<HTMLDivElement>(null);
+  const [submissionErrorScroll, setSubmissionErrorScroll] = useState(0);
+  const handledSubmissionErrorScroll = useRef(0);
   const stepPanelRef = useRef<HTMLDivElement>(null);
 
   // ── Stripe 支付 Modal 狀態（僅當 server 報告 stripe_enabled 才開啟）──
@@ -105,6 +158,15 @@ export default function BookPage() {
   const paymentModalTriggered = useRef(false);
   const funnelEntered = useRef(false);
 
+  // A submission error banner is conditional; scroll only after React mounts it.
+  // Do not focus it: the guest may already have moved focus to another control.
+  useEffect(() => {
+    if (!error || submissionErrorScroll === 0 || handledSubmissionErrorScroll.current === submissionErrorScroll) return;
+    handledSubmissionErrorScroll.current = submissionErrorScroll;
+    const frame = requestAnimationFrame(() => scrollIntoViewForInteraction(errorBannerRef.current, { block: "start" }));
+    return () => cancelAnimationFrame(frame);
+  }, [error, submissionErrorScroll]);
+
   const focusStepPanel = useCallback(() => {
     requestAnimationFrame(() => {
       stepPanelRef.current?.focus({ preventScroll: true });
@@ -114,9 +176,9 @@ export default function BookPage() {
   const scrollToField = useCallback((fieldId: string) => {
     requestAnimationFrame(() => {
       const el = document.getElementById(fieldId);
-      el?.scrollIntoView({ block: "center", behavior: "smooth" });
+      scrollIntoViewForInteraction(el, { block: "center" });
       if (el instanceof HTMLInputElement || el instanceof HTMLSelectElement) {
-        el.focus();
+        el.focus({ preventScroll: true });
       }
     });
   }, []);
@@ -125,13 +187,38 @@ export default function BookPage() {
     setStep(next);
     setError(null);
     setFieldErrors({});
-    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
+    requestAnimationFrame(scrollToTopForInteraction);
     focusStepPanel();
-  }, [focusStepPanel]);
+  }, [focusStepPanel, setStep]);
 
   const clearFormErrors = useCallback(() => {
     setError(null);
     setFieldErrors({});
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  useEffect(() => {
+    const syncGuards = () => {
+      try {
+        const previous = readBookingSubmitGuards(sessionStorage);
+        uncertainSubmitKeysRef.current = previous;
+        setUncertainSubmitKeys(new Set(previous));
+      } catch {
+        // Without tab-local storage we cannot reliably recover an unanswered submit.
+        setSubmitGuardUnavailable(true);
+      } finally {
+        setSubmitGuardReady(true);
+      }
+    };
+    // Same-tab storage writes do not emit a native storage event. An older,
+    // unmounted page can still receive a definite rejection after we return.
+    window.addEventListener("booking-submit-guards-changed", syncGuards);
+    syncGuards();
+    return () => window.removeEventListener("booking-submit-guards-changed", syncGuards);
   }, []);
 
   // 手機重整／返回後恢復未完成訂位草稿（6 小時內）
@@ -154,7 +241,7 @@ export default function BookPage() {
       }
     }
     setDraftHydrated(true);
-  }, []);
+  }, [setStep]);
 
   useEffect(() => {
     setMealItems([]);
@@ -203,17 +290,7 @@ export default function BookPage() {
 
   // 這裡確保介面包含 image_url
   const [branchRoomsAvailability, setBranchRoomsAvailability] = useState<{
-    rooms: {
-      roomId: string;
-      roomName: string;
-      roomType?: string | null;
-      min_capacity?: number;
-      capacity: number;
-      price_weekday: number;
-      price_weekend: number;
-      slots: SlotItem[];
-      image_url?: string | null;
-    }[];
+    rooms: AvailableRoom[];
     branchName: string;
   } | null>(null);
 
@@ -225,17 +302,37 @@ export default function BookPage() {
   // }, [branchRoomsAvailability]);
 
   useEffect(() => {
+    if (!draftHydrated) return;
+    let current = true;
+    setBranchLoading(true);
+    setBranchLoadError(false);
     fetchWithTimeout("/api/branches")
-      .then((r) => r.json())
-      .then((d) => {
-        const branchesData = Array.isArray(d) ? d : [];
+      .then(async (r) => {
+        if (!r.ok) throw new Error("branches unavailable");
+        const data: unknown = await readJsonWithTimeout(r);
+        if (!Array.isArray(data) || !data.every((item) => item && typeof item.id === "string" && typeof item.name === "string")) throw new Error("invalid branches");
+        return data as Branch[];
+      })
+      .then((branchesData) => {
+        if (!current) return;
         setBranches(branchesData);
-        if (branchesData.length === 1 && !branchId) {
+        if (branchId && !branchesData.some((branch) => branch.id === branchId)) {
+          const replacement = branchesData.length === 1 ? branchesData[0] : null;
+          setBranchId(replacement?.id ?? "");
+          setBranchName(replacement?.name ?? "");
+          setRoomId("");
+          setRoomName("");
+          setSelectedStart("");
+          setPreviewRoomId(null);
+          changeStep(replacement ? "date" : "branch");
+          setError(t("book.branch.noLongerAvailable"));
+        } else if (branchesData.length === 1 && !branchId) {
           setBranchId(branchesData[0].id);
-          changeStep("date");
+          if (step === "branch") changeStep("date");
         }
       })
-      .catch(() => setBranches([]));
+      .catch(() => { if (current) { setBranches([]); setBranchLoadError(true); } })
+      .finally(() => { if (current) setBranchLoading(false); });
     fetchWithTimeout("/api/settings")
       .then((r) => r.json())
       .then((d) => {
@@ -243,7 +340,10 @@ export default function BookPage() {
         if (d?.deposit_info) setSharedDepositInfo(d.deposit_info);
       })
       .catch(() => { });
-  }, [branchId, changeStep]);
+    return () => { current = false; };
+    // step is read only for the initial one-branch transition.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [branchId, changeStep, branchRetry, draftHydrated]);
 
   useEffect(() => {
     if (funnelEntered.current) return;
@@ -261,21 +361,33 @@ export default function BookPage() {
       .catch(() => setStripeLiveEnabled(false));
   }, []);
 
+  useEffect(() => { setRooms([]); }, [branchId]);
+
   useEffect(() => {
     if (!branchId) {
-      setRooms([]);
+      setRoomCatalog([]);
+      setCatalogLoading(false);
       return;
     }
-    setLoading(true);
+    setRoomCatalog([]);
+    setCatalogLoading(true);
+    let current = true;
     fetchWithTimeout(`/api/rooms?branchId=${encodeURIComponent(branchId)}`)
-      .then((r) => r.json())
-      .then((d) => setRooms(Array.isArray(d) ? d : []))
-      .catch(() => setRooms([]))
-      .finally(() => setLoading(false));
-  }, [branchId]);
+      .then(async (r) => {
+        if (!r.ok) throw new Error("rooms unavailable");
+        const data: unknown = await readJsonWithTimeout(r);
+        if (!Array.isArray(data) || !data.every((item) => item && typeof item === "object" && typeof item.id === "string" && typeof item.branch_id === "string")) throw new Error("invalid room catalog");
+        return data as Room[];
+      })
+      .then((d) => { if (current) setRoomCatalog(d); })
+      .catch(() => { if (current) setRoomCatalog([]); })
+      .finally(() => { if (current) setCatalogLoading(false); });
+    return () => { current = false; };
+  }, [branchId, catalogRetry]);
 
   useEffect(() => {
     if (step !== "room" || !branchId || !date) return;
+    let current = true;
     setLoading(true);
     setError(null);
     setBranchRoomsAvailability(null);
@@ -283,19 +395,21 @@ export default function BookPage() {
       `/api/availability?branchId=${encodeURIComponent(branchId)}&date=${encodeURIComponent(date)}`,
       { cache: "no-store" }
     )
-      .then((r) => r.json())
+      .then(async (r) => { if (!r.ok) throw new Error(t("book.error.loadAvailabilityFailed")); return readJsonWithTimeout<{ closed?: boolean; error?: string; rooms?: AvailableRoom[]; branchName?: string }>(r); })
       .then((d) => {
+        if (!current) return;
         if (d.closed) {
           setError(t("book.error.closedDay"));
           setStep("date");
           return;
         }
         if (d.error) throw new Error(d.error);
+        if (!Array.isArray(d.rooms) || !d.rooms.every((room) => typeof room?.roomId === "string" && typeof room.roomName === "string" && isSlotList(room.slots))) throw new Error(t("book.error.loadAvailabilityFailed"));
         setBranchRoomsAvailability({
           rooms: d.rooms ?? [],
           branchName: d.branchName ?? "",
         });
-        if (Array.isArray(d.rooms) && d.rooms.length > 0) {
+        {
           setRooms(
             d.rooms.map(
               (r: {
@@ -321,15 +435,18 @@ export default function BookPage() {
         }
       })
       .catch((e) => {
+        if (!current) return;
         setError(e instanceof Error ? e.message : t("book.error.loadAvailabilityFailed"));
         setBranchRoomsAvailability(null);
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (current) setLoading(false); });
+    return () => { current = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, branchId, date, availabilityRetry]);
 
   useEffect(() => {
     if (step !== "slot" || !branchId || !roomId || !date) return;
+    let current = true;
     setLoading(true);
     setError(null);
     setSlots([]);
@@ -339,9 +456,11 @@ export default function BookPage() {
       `/api/availability?branchId=${encodeURIComponent(branchId)}&roomId=${encodeURIComponent(roomId)}&date=${encodeURIComponent(date)}`,
       { cache: "no-store" }
     )
-      .then((r) => r.json())
+      .then(async (r) => { if (!r.ok) throw new Error(t("book.error.loadSlotsFailed")); return readJsonWithTimeout<{ error?: string; slots?: SlotItem[]; roomName?: string; branchName?: string }>(r); })
       .then((d) => {
+        if (!current) return;
         if (d.error) throw new Error(d.error);
+        if (!isSlotList(d.slots)) throw new Error(t("book.error.loadSlotsFailed"));
         setSlots(d.slots ?? []);
         setSelectedStart("");
         setRoomName(d.roomName ?? "");
@@ -349,11 +468,13 @@ export default function BookPage() {
         setSlotsFetchState("ready");
       })
       .catch((e) => {
+        if (!current) return;
         setError(e instanceof Error ? e.message : t("book.error.loadSlotsFailed"));
         setSlots([]);
         setSlotsFetchState("error");
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (current) setLoading(false); });
+    return () => { current = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, branchId, roomId, date, slotsRetry]);
 
@@ -377,7 +498,7 @@ export default function BookPage() {
       if (saved.step && BOOKING_STEP_ORDER.includes(saved.step as Step)) setStep(saved.step as Step);
     }
     window.history.replaceState({}, "", "/book");
-  }, []);
+  }, [setStep]);
 
   useEffect(() => {
     if (step === "form") {
@@ -390,12 +511,19 @@ export default function BookPage() {
   const canSelectDuration = (slotStart: string): boolean =>
     canSelectStart(slots, slotStart, duration);
 
+  // Overnight availability may include slots after midnight on the next Taipei day.
+  const pricingDate = selectedStart ? taipeiDateForInstant(selectedStart) : date;
   const getTotalPrice = (): number | null => {
-    const room = rooms.find((r) => r.id === roomId);
-    if (!room || !date) return null;
-    const pricePerHour = isWeekendDate(date)
+    if (branchLoading || branchLoadError || !branches.some((branch) => branch.id === branchId)) return null;
+    const room = rooms.find((r) => r.id === roomId && r.branch_id === branchId) ?? roomCatalog.find((r) => r.id === roomId && r.branch_id === branchId);
+    if (!room || !pricingDate) return null;
+    const capacity = Number(room.capacity);
+    const minimum = room.min_capacity == null ? null : Number(room.min_capacity);
+    if (!Number.isInteger(capacity) || capacity < 1 || (minimum !== null && (!Number.isInteger(minimum) || minimum < 1 || minimum > capacity))) return null;
+    const pricePerHour = isWeekendDate(pricingDate)
       ? room.price_weekend
       : room.price_weekday;
+    if (pricePerHour == null || String(pricePerHour).trim() === "" || !Number.isFinite(Number(pricePerHour)) || Number(pricePerHour) < 0) return null;
     return Math.round(Number(pricePerHour) * duration);
   };
 
@@ -416,12 +544,12 @@ export default function BookPage() {
 
   // UX Helper: 計算選擇摘要
   const getSelectedSummary = () => {
-    if (!selectedStart || !date) return null;
+    if (!selectedStart || !pricingDate) return null;
     const start = new Date(selectedStart);
     const end = new Date(start.getTime() + duration * 60 * 60 * 1000);
 
     // 簡單格式化（時段強制 Asia/Taipei，避免裝置在 UTC/海外時顯示偏移）
-    const dateLabel = new Date(`${date}T12:00:00+08:00`).toLocaleDateString("zh-TW", {
+    const dateLabel = new Date(`${pricingDate}T12:00:00+08:00`).toLocaleDateString("zh-TW", {
       month: "numeric",
       day: "numeric",
       weekday: "short",
@@ -435,6 +563,16 @@ export default function BookPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // React state updates are asynchronous; the ref also protects Enter and rapid re-entry.
+    if (submittingRef.current) return;
+    if (!submitGuardReady || submitGuardUnavailable) {
+      setError(t("book.error.submitGuardUnavailable"));
+      return;
+    }
+    if (uncertainSubmitKeysRef.current.has(currentSubmitKey)) {
+      setError(t("book.error.submitUncertain"));
+      return;
+    }
     if (!selectedStart) return;
     const mealProblem = selectionProblem(mealCatalog, mealItems);
     if (mealProblem) { setError(mealProblem); return; }
@@ -461,70 +599,152 @@ export default function BookPage() {
 
     const start = new Date(selectedStart);
     const end = new Date(start.getTime() + duration * 60 * 60 * 1000);
-    setSubmitting(true);
     clearFormErrors();
+
+    if (getTotalPrice() === null) {
+      setError(t("book.room.priceUnavailable"));
+      return;
+    }
 
     // Validate guest count against room capacity
     if (guestCount !== "") {
       const gC = Number(guestCount);
-      const rm = rooms.find((r) => r.id === roomId);
+      if (!Number.isInteger(gC) || gC < 1 || gC > 100) {
+        setFieldErrors({ "booking-guest-count": t("book.room.partyInvalid") });
+        setError(t("book.room.partyInvalid"));
+        scrollToField("booking-guest-count");
+        return;
+      }
+      const rm = rooms.find((r) => r.id === roomId && r.branch_id === branchId) ?? roomCatalog.find((r) => r.id === roomId && r.branch_id === branchId);
       if (rm) {
         if (rm.min_capacity && gC < rm.min_capacity) {
           setFieldErrors({ "booking-guest-count": t("book.error.minCapacity", { min: rm.min_capacity }) });
           setError(t("book.error.minCapacity", { min: rm.min_capacity }));
           scrollToField("booking-guest-count");
-          setSubmitting(false);
           return;
         }
         if (gC > rm.capacity) {
           setFieldErrors({ "booking-guest-count": t("book.error.maxCapacity", { max: rm.capacity }) });
           setError(t("book.error.maxCapacity", { max: rm.capacity }));
           scrollToField("booking-guest-count");
-          setSubmitting(false);
           return;
         }
       }
     }
 
+    // Prepare the request before recording it: a local serialization/UUID error
+    // cannot have created a booking and should not create an unknown-result lock.
+    let requestBody: string;
+    try {
+      if (bookingRequestKey.current?.selection !== currentSubmitKey) {
+        bookingRequestKey.current = { selection: currentSubmitKey, key: crypto.randomUUID() };
+      }
+      requestBody = JSON.stringify({
+        room_id: roomId,
+        customer_name: name.trim(),
+        phone: phone.trim(),
+        email: email.trim() || null,
+        start_time: start.toISOString(),
+        end_time: end.toISOString(),
+        total_price: getTotalPrice(),
+        guest_count: guestCount === "" ? null : Number(guestCount),
+        notes: null,
+        line_user_id: lineUserId || null,
+        meal_items: mealItems,
+        meal_notes: mealNotes.trim() || null,
+        booking_request_key: bookingRequestKey.current.key,
+      });
+    } catch {
+      setError(t("book.error.bookingFailed"));
+      return;
+    }
+
+    // Record before dispatch so a refresh, LINE redirect or navigation during
+    // the in-flight request does not silently erase the tab-local guard.
+    let pending: Set<string>;
+    try {
+      // Another mounted/unmounted instance in this tab may have settled while
+      // this one was open. Read the current guard before every change.
+      pending = readBookingSubmitGuards(sessionStorage);
+      if (pending.has(currentSubmitKey)) {
+        uncertainSubmitKeysRef.current = pending;
+        setUncertainSubmitKeys(new Set(pending));
+        setError(t("book.error.submitUncertain"));
+        return;
+      }
+      pending.add(currentSubmitKey);
+      writeBookingSubmitGuards(sessionStorage, pending);
+    } catch {
+      setSubmitGuardUnavailable(true);
+      setError(t("book.error.submitGuardUnavailable"));
+      return;
+    }
+    uncertainSubmitKeysRef.current = pending;
+    setUncertainSubmitKeys(new Set(pending));
+    submittingRef.current = true;
+    const submissionRevision = submissionRevisionRef.current;
+    setSubmitting(true);
+    let completed = false;
+    const isActiveSubmission = () => mountedRef.current && activeStepRef.current === "form" &&
+      activeSubmitKeyRef.current === currentSubmitKey && submissionRevisionRef.current === submissionRevision;
+    const clearRejectedGuard = () => {
+      try {
+        // Preserve selections added by a newer page instance while this request
+        // was still in flight; stale snapshots must not unlock those requests.
+        const next = readBookingSubmitGuards(sessionStorage);
+        next.delete(currentSubmitKey);
+        writeBookingSubmitGuards(sessionStorage, next);
+        window.dispatchEvent(new Event("booking-submit-guards-changed"));
+        uncertainSubmitKeysRef.current = next;
+        setUncertainSubmitKeys(new Set(next));
+      } catch {
+        // Keep the prior guard in memory/storage; do not silently unlock.
+        setSubmitGuardUnavailable(true);
+      }
+    };
+    const markUncertain = () => {
+      if (isActiveSubmission()) {
+        setError(t("book.error.submitUncertain"));
+        setSubmissionErrorScroll((value) => value + 1);
+      }
+    };
     try {
       const res = await fetchWithTimeout("/api/reservations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          room_id: roomId,
-          customer_name: name.trim(),
-          phone: phone.trim(),
-          email: email.trim() || null,
-          start_time: start.toISOString(),
-          end_time: end.toISOString(),
-          total_price: getTotalPrice(),
-          guest_count: guestCount === "" ? null : Number(guestCount),
-          notes: null,
-          line_user_id: lineUserId || null,
-          meal_items: mealItems,
-          meal_notes: mealNotes.trim() || null,
-          booking_request_key: bookingRequestKey.current ??= crypto.randomUUID(),
-        }),
+        body: requestBody,
       }, 20000);
-      const data = await res.json();
-      setSubmitting(false);
+      const data = await readJsonWithTimeout<unknown>(res);
       if (res.status === 409) {
-        // Without meals the server has no idempotent replay: a retry after an
-        // unanswered submit can collide with the guest's own booking.
-        setError(submitUncertain ? t("book.error.slotTakenAfterUncertain") : (data as { error?: string })?.error ?? t("book.error.slotTaken"));
-        errorBannerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+        clearRejectedGuard();
+        if (isActiveSubmission()) {
+          setError((data as { error?: string })?.error ?? t("book.error.slotTaken"));
+          setSubmissionErrorScroll((value) => value + 1);
+        }
+        return;
+      }
+      // An upstream/server failure can occur after the reservation was written.
+      if (res.status === 408 || res.status >= 500) {
+        markUncertain();
         return;
       }
       if (!res.ok) {
-        setError((data as { error?: string })?.error ?? t("book.error.bookingFailed"));
-        errorBannerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+        clearRejectedGuard();
+        if (isActiveSubmission()) {
+          setError((data as { error?: string })?.error ?? t("book.error.bookingFailed"));
+          setSubmissionErrorScroll((value) => value + 1);
+        }
         return;
       }
-      const code = (data as { booking_code?: string; id?: string; lookup_token?: string })?.booking_code;
+      const rawCode = (data as { booking_code?: unknown; id?: string; lookup_token?: string })?.booking_code;
+      const code = typeof rawCode === "string" && rawCode.trim() ? rawCode : null;
       const reservationId = (data as { id?: string })?.id;
       const lookupToken = (data as { lookup_token?: string })?.lookup_token;
 
       if (code) {
+        // A late success for an abandoned selection must not overwrite a newer
+        // draft or navigate the customer away; the tab guard directs them to query.
+        if (!isActiveSubmission()) return;
         sessionStorage.setItem("booking_success_phone", phone.trim());
         clearBookingDraft();
         const endIso =
@@ -563,6 +783,7 @@ export default function BookPage() {
           reservationId &&
           !paymentModalTriggered.current
         ) {
+          completed = true;
           paymentModalTriggered.current = true;
           setPendingReservationId(reservationId);
           setPendingReservationCode(code);
@@ -570,18 +791,22 @@ export default function BookPage() {
           return;
         }
 
-        const weekendFlag = isWeekendDate(date) ? "1" : "0";
+        const weekendFlag = isWeekendDate(pricingDate ?? "") ? "1" : "0";
         const tokenParam = lookupToken ? `&token=${encodeURIComponent(lookupToken)}` : "";
         window.location.href = `/book/success?code=${encodeURIComponent(code)}&weekend=${weekendFlag}${lineUserId ? "&line_bound=1" : ""}${tokenParam}`;
+        completed = true;
       } else {
-        setError(t("book.error.noBookingCode"));
+        // The server may have inserted the reservation despite an incomplete response.
+        markUncertain();
       }
     } catch {
       // Timeout, dropped connection or unreadable body: the request may still have been saved.
-      setSubmitting(false);
-      setUncertainSubmitKey(currentSubmitKey);
-      setError(t("book.error.submitUncertain"));
-      requestAnimationFrame(() => errorBannerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }));
+      markUncertain();
+    } finally {
+      if (!completed) {
+        submittingRef.current = false;
+        setSubmitting(false);
+      }
     }
   };
 
@@ -601,17 +826,17 @@ export default function BookPage() {
   const handlePaymentComplete = useCallback((_paymentIntentId: string) => {
     // 延遲一小段讓使用者看到成功畫面後再跳轉
     setTimeout(() => {
-      const weekendFlag = isWeekendDate(date) ? "1" : "0";
+      const weekendFlag = isWeekendDate(pricingDate ?? "") ? "1" : "0";
       window.location.href = `/book/success?code=${encodeURIComponent(pendingReservationCode)}&weekend=${weekendFlag}&paid=1${lineUserId ? "&line_bound=1" : ""}`;
     }, 1500);
-  }, [date, pendingReservationCode, lineUserId]);
+  }, [pricingDate, pendingReservationCode, lineUserId]);
 
   const handlePaymentClose = useCallback(() => {
     setPaymentModalOpen(false);
     // 使用者選擇稍後再付 → 直接跳到成功頁
-    const weekendFlag = isWeekendDate(date) ? "1" : "0";
+    const weekendFlag = isWeekendDate(pricingDate ?? "") ? "1" : "0";
     window.location.href = `/book/success?code=${encodeURIComponent(pendingReservationCode)}&weekend=${weekendFlag}${lineUserId ? "&line_bound=1" : ""}`;
-  }, [date, pendingReservationCode, lineUserId]);
+  }, [pricingDate, pendingReservationCode, lineUserId]);
 
   const depositAmount = (() => {
     const totalPrice = getTotalPrice();
@@ -648,7 +873,7 @@ export default function BookPage() {
     setStep(target);
     setError(null);
     setFieldErrors({});
-    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
+    requestAnimationFrame(scrollToTopForInteraction);
     focusStepPanel();
   };
 
@@ -672,18 +897,27 @@ export default function BookPage() {
         aria-label={`${t("book.headerTitle")} — ${t(`book.steps.${step}` as "book.steps.branch")}`}
         className={`outline-none ${step === "form" || step === "slot" ? "pb-sticky-form" : ""}`}
       >
-        {error && (
+        {(error || (step === "form" && (submitGuardUnavailable || (submitUncertain && !submitting)))) && (
           <div
             ref={errorBannerRef}
             role="alert"
             className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
           >
-            {error}
-            {submitUncertain && step === "form" && (
+            {step === "form" && submitGuardUnavailable ? t("book.error.submitGuardUnavailable") : submitUncertain && step === "form" && !submitting ? t("book.error.submitUncertain") : error}
+            {(submitGuardUnavailable || (submitUncertain && !submitting)) && step === "form" && (
+              <>
               <Link href="/book/query" className="mt-2 block font-medium text-red-900 underline underline-offset-2">
                 {t("book.error.goToQuery")}
               </Link>
+              {contactHref && <a href={contactHref} className="mt-2 block font-medium text-red-900 underline underline-offset-2">{t("book.error.callStore", { phone: branchPhone })}</a>}
+              </>
             )}
+          </div>
+        )}
+        {hasOtherUncertainSubmit && !submitGuardUnavailable && step === "form" && (
+          <div role="status" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            {t("book.error.otherSubmitUncertain")}
+            <Link href="/book/query" className="mt-2 block font-medium underline underline-offset-2">{t("book.error.goToQuery")}</Link>
           </div>
         )}
 
@@ -709,7 +943,11 @@ export default function BookPage() {
                 </li>
               ))}
             </ul>
-            {branches.length === 0 && !loading && (
+            {branchLoading && <p role="status" className="text-sm text-gray-500">{t("common.loading")}</p>}
+            {branchLoadError && <div role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">
+              {t("book.branch.loadError")} <button type="button" className="ml-2 min-h-11 underline" onClick={() => setBranchRetry((n) => n + 1)}>{t("common.retry")}</button>
+            </div>}
+            {branches.length === 0 && !branchLoading && !branchLoadError && (
               <p className="text-sm text-gray-500">{t("book.branch.empty")}</p>
             )}
           </>
@@ -763,6 +1001,14 @@ export default function BookPage() {
             <p className="mb-3 text-xs text-gray-500">
               {t("book.room.subtitle", { date })}
             </p>
+            <div className="mb-4 rounded-xl border border-gray-200 bg-white p-3">
+              <label htmlFor="booking-room-guest-count" className="block text-sm font-medium text-gray-800">{t("book.room.partySize")}</label>
+              <p id="booking-room-guest-hint" className="mt-1 text-xs text-gray-600">{t("book.room.partySizeHint")}</p>
+              <input id="booking-room-guest-count" type="number" inputMode="numeric" min="1" max="100" value={guestCount}
+                aria-describedby="booking-room-guest-hint" aria-invalid={invalidGuestCount} onChange={(event) => setGuestCount(event.target.value === "" ? "" : Number(event.target.value))}
+                className="mt-2 w-28 rounded-lg border border-gray-300 px-3 py-2 text-base" />
+              {invalidGuestCount && <p role="alert" className="mt-1 text-sm text-rose-700">{t("book.room.partyInvalid")}</p>}
+            </div>
             {loading ? (
               <ul className="space-y-3" aria-busy="true" aria-live="polite">
                 {[1, 2, 3].map((n) => (
@@ -774,14 +1020,33 @@ export default function BookPage() {
                 ))}
               </ul>
             ) : branchRoomsAvailability ? (
+              <>
+              <StorePreview branch={branchRoomsAvailability.branchName}
+                rooms={branchRoomsAvailability.rooms.map((room) => ({ roomId: room.roomId, roomName: room.roomName, available: room.slots.some((slot) => canSelectStart(room.slots, slot.start, MIN_DURATION_HOURS)),
+                  partial: room.slots.some((slot) => slot.available),
+                  partyStatus: invalidGuestCount ? "invalid" : guestCount !== "" && (guestCount > room.capacity || Boolean(room.min_capacity && guestCount < room.min_capacity)) ? "mismatch" : null }))}
+                selectedId={previewRoomId}
+                onSelect={(id) => {
+                  setPreviewRoomId(id);
+                  requestAnimationFrame(() => {
+                    const card = document.getElementById(`booking-room-card-${id}`);
+                    scrollIntoViewForInteraction(card, { block: "center" });
+                    card?.focus({ preventScroll: true });
+                  });
+                }} />
               <ul className="space-y-3">
+                {branchRoomsAvailability.rooms.length === 0 && <li className="rounded-xl border border-gray-200 bg-white p-4 text-sm text-gray-600">{t("book.room.empty")}</li>}
                 {branchRoomsAvailability.rooms.map((r) => {
                   const freeCount = r.slots.filter((s) => s.available).length;
+                  const bookable = r.slots.some((slot) => canSelectStart(r.slots, slot.start, MIN_DURATION_HOURS));
                   const ranges: string[] = [];
                   const imageUrl =
                     r.image_url ??
-                    rooms.find((rm) => rm.id === r.roomId)?.image_url ??
+                    roomCatalog.find((rm) => rm.id === r.roomId)?.image_url ??
                     null;
+                  const partyMismatch = guestCount !== "" && !invalidGuestCount &&
+                    (guestCount > r.capacity || Boolean(r.min_capacity && guestCount < r.min_capacity));
+                  const capacityRange = r.min_capacity && r.min_capacity < r.capacity ? `${r.min_capacity}–${r.capacity}` : `${r.capacity}`;
                   let i = 0;
                   while (i < r.slots.length) {
                     if (r.slots[i].available) {
@@ -794,17 +1059,19 @@ export default function BookPage() {
                     } else i++;
                   }
                   return (
-                    <li key={r.roomId}>
-                      {freeCount > 0 ? (
+                    <li key={r.roomId} id={`booking-room-card-${r.roomId}`} tabIndex={-1} aria-label={r.roomName}
+                      className={previewRoomId === r.roomId ? "rounded-xl outline outline-2 outline-amber-500" : ""}>
+                      {bookable ? (
                         <button
                           type="button"
+                          disabled={partyMismatch || invalidGuestCount}
                           onClick={() => {
                             setRoomId(r.roomId);
                             setRoomName(r.roomName);
                             setBranchName(branchRoomsAvailability.branchName);
                             changeStep("slot");
                           }}
-                          className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-sm hover:border-amber-400 hover:bg-amber-50/50"
+                          className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-sm hover:border-amber-400 hover:bg-amber-50/50 disabled:cursor-not-allowed disabled:opacity-70"
                         >
                           <div className="mb-2 overflow-hidden rounded-lg">
                             <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-gray-100 flex items-center justify-center text-xs text-gray-500">
@@ -838,6 +1105,7 @@ export default function BookPage() {
                           <p className="mt-1.5 text-xs text-gray-600">
                             {t("book.room.availableRanges", { ranges: `${ranges.slice(0, 3).join("、")}${ranges.length > 3 ? " …" : ""}` })}
                           </p>
+                          {partyMismatch && <p className="mt-2 text-sm text-rose-700">{t("book.room.partyMismatch", { range: capacityRange })}</p>}
                           <div className="mt-2 flex flex-wrap gap-0.5">
                             {r.slots.slice(0, 12).map((s) => (
                               <span
@@ -850,6 +1118,9 @@ export default function BookPage() {
                         </button>
                       ) : (
                         <div className="w-full rounded-xl border border-rose-100 bg-white px-4 py-3 text-left shadow-sm">
+                          <div className="relative mb-2 aspect-video w-full overflow-hidden rounded-lg bg-gray-100 flex items-center justify-center text-xs text-gray-500">
+                            {imageUrl ? <Image src={imageUrl} alt={r.roomName} fill sizes="(max-width: 640px) 100vw, 512px" className="object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} /> : <span>{t("book.room.noImage")}</span>}
+                          </div>
                           <div className="flex items-center gap-2">
                             <span className="font-medium text-gray-900">{r.roomName}</span>
                             {r.roomType && (
@@ -858,21 +1129,24 @@ export default function BookPage() {
                               </span>
                             )}
                           </div>
-                          <p className="mt-1.5 text-sm text-rose-600">{t("book.room.full")}</p>
+                          <p className="mt-1.5 text-sm text-rose-600">{t(freeCount > 0 ? "book.room.noMinimum" : "book.room.full")}</p>
                           <p className="mt-1 text-xs text-gray-500">{t("book.waitlistHint")}</p>
+                          {partyMismatch && <p className="mt-2 text-sm text-rose-700">{t("book.room.partyMismatch", { range: capacityRange })}</p>}
+                          {!partyMismatch && !invalidGuestCount && (
                           <Link
                             href={buildWaitlistHref(r.roomId)}
                             className="mt-3 flex w-full items-center justify-center rounded-lg bg-amber-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-amber-700"
                           >
                             {t("book.waitlistCta")}
                           </Link>
+                          )}
                         </div>
                       )}
-                      <RoomPreview branch={branchRoomsAvailability.branchName} room={r.roomName} open={previewRoomId === r.roomId} onToggle={() => setPreviewRoomId((id) => id === r.roomId ? null : r.roomId)} />
                     </li>
                   );
                 })}
               </ul>
+              </>
             ) : (
               <div className="space-y-3">
                 <p className="text-sm text-gray-500">{t("book.room.loadError")}</p>
@@ -1098,6 +1372,11 @@ export default function BookPage() {
         {step === "form" && (
           <>
             <h2 id="booking-step-form-heading" className="sr-only">{t("book.steps.form")}</h2>
+            {getTotalPrice() === null && <div role="status" className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+              {branchLoading ? t("common.loading") : branchLoadError ? t("book.branch.loadError") : catalogLoading ? t("book.room.priceLoading") : t("book.room.priceUnavailable")}
+              {!branchLoading && branchLoadError && <button type="button" onClick={() => setBranchRetry((n) => n + 1)} className="ml-2 min-h-11 underline">{t("common.retry")}</button>}
+              {!branchLoading && !branchLoadError && !catalogLoading && <button type="button" onClick={() => setCatalogRetry((n) => n + 1)} className="ml-2 min-h-11 underline">{t("common.retry")}</button>}
+            </div>}
             <button
               type="button"
               onClick={() => setStep("slot")}
@@ -1107,7 +1386,7 @@ export default function BookPage() {
             </button>
             <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/80 p-4">
               <p className="text-sm text-gray-700">
-                {branchName} · {roomName} · {date}{" "}
+                {branchName} · {roomName} · {pricingDate}{" "}
                 {selectedStart &&
                   `${formatSlotTime(selectedStart)}–${formatSlotTime(endIsoForDuration(selectedStart, duration))}`}{" "}
                 {t("book.form.startFor", { duration })}
@@ -1130,7 +1409,9 @@ export default function BookPage() {
               )}
               <p className="mt-2 text-xs text-amber-900/90">{t("book.form.summaryHint")}</p>
             </div>
-            <form id="booking-form" noValidate onSubmit={handleSubmit} className="space-y-4">
+            <form id="booking-form" noValidate onSubmit={handleSubmit} onChangeCapture={() => {
+              if (submittingRef.current) submissionRevisionRef.current += 1;
+            }} className="space-y-4">
               <div>
                 <label htmlFor="booking-name" className="mb-1 block text-sm font-medium text-gray-700">{t("book.form.name")}</label>
                 <input
@@ -1236,7 +1517,7 @@ export default function BookPage() {
               <div className="mt-6 rounded-xl border border-gray-200 bg-gray-50 p-4">
                 <h3 className="mb-2 text-sm font-bold text-gray-900">{t("book.form.policyTitle")}</h3>
                 <ul className="space-y-1.5 text-xs leading-relaxed text-gray-700">
-                  {formatBookingPolicyLines().map((line) => (
+                  {formatBookingPolicyLines(undefined, t("book.form.cancelPolicy")).map((line) => (
                     <li key={line}>{line}</li>
                   ))}
                 </ul>
@@ -1350,7 +1631,7 @@ export default function BookPage() {
           <button
             type="submit"
             form="booking-form"
-            disabled={submitting}
+            disabled={submitting || !submitGuardReady || submitGuardUnavailable || submitUncertain || getTotalPrice() === null}
             className="w-full rounded-lg bg-amber-600 py-3.5 text-base font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
           >
             {submitting ? t("book.form.submitting") : t("book.form.submit")}

@@ -1,0 +1,13 @@
+{
+  "approved_files": {
+    ".github/workflows/production-code-only.yml":
+      "d1cb1dbf21756745eb8c0e6b3184867a5e1b7326",
+    "docs/ENV.md":
+      "7447880984e428ef9342cfe9d3abc89fa476ce6f",
+    "scripts/code-only-release.py":
+      "18737ffccfcac3fa23b817821456b2984d85e0a3",
+    "scripts/verify-production-workflow-contract.mjs":
+      "2b9130c8a4e16e1744e00b3150e3c7419eeb77d6"
+  },
+  "baseline": "4c182c9d584992c1c3dd9df9aa485347043bba24"
+}

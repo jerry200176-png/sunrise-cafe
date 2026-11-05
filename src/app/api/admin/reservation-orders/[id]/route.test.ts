@@ -46,7 +46,7 @@ vi.mock("@/lib/reservation-lifecycle", () => ({
 }));
 vi.mock("@/lib/ops-log", () => ({ logOps: mocks.logOps }));
 
-import { POST } from "./route";
+import { GET, POST } from "./route";
 
 const at = (hhmm: string) => new Date(`2026-10-14T${hhmm}:00+08:00`).toISOString();
 const reservationRow = { id: "res-1", room_id: "room-a", start_time: at("14:00"), end_time: at("16:00"), status: "checked_in",
@@ -60,6 +60,11 @@ function post(body: Record<string, unknown>) {
   return POST(new NextRequest("http://localhost/api/admin/reservation-orders/res-1", {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
   }), { params: Promise.resolve({ id: "res-1" }) });
+}
+
+function get() {
+  return GET(new NextRequest("http://localhost/api/admin/reservation-orders/res-1"),
+    { params: Promise.resolve({ id: "res-1" }) });
 }
 
 describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => {
@@ -85,6 +90,49 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
       if (call.table === "reservation_extensions") return { data: null, error: { code: "PGRST205", message: "missing" } };
       return { data: null, error: null };
     };
+  });
+
+  describe("private order GET cache policy", () => {
+    it("marks a successful authorized response private and non-storable", async () => {
+      const response = await get();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+    });
+
+    it("retains authentication denial without loading a reservation", async () => {
+      mocks.requirePermission.mockResolvedValueOnce(Response.json({ error: "unauthorized" }, { status: 401 }));
+      const response = await get();
+      expect(response.status).toBe(401);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(mocks.getReservationForPreorder).not.toHaveBeenCalled();
+      expect(mocks.calls).toEqual([]);
+    });
+
+    it("retains cross-branch denial without loading an order", async () => {
+      mocks.requirePermission.mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(Response.json({ error: "forbidden" }, { status: 403 }));
+      const response = await get();
+      expect(response.status).toBe(403);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(mocks.requirePermission).toHaveBeenNthCalledWith(2, expect.anything(), "orders:read", "b1");
+      expect(mocks.calls).toEqual([]);
+    });
+
+    it.each(["not found", "load error"])("marks %s responses non-storable", async (reason) => {
+      if (reason === "not found") mocks.getReservationForPreorder.mockResolvedValueOnce(null);
+      else mocks.getReservationForPreorder.mockRejectedValueOnce(new Error("synthetic failure"));
+      const response = await get();
+      expect(response.status).toBe(reason === "not found" ? 404 : 500);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+    });
+
+    it("marks parameter-resolution failures non-storable", async () => {
+      const response = await GET(new NextRequest("http://localhost/api/admin/reservation-orders/res-1"),
+        { params: Promise.reject(new Error("synthetic params failure")) });
+      expect(response.status).toBe(500);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(mocks.calls).toEqual([]);
+    });
   });
 
   describe("add_items committed response (#441)", () => {
@@ -134,6 +182,38 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
       expect(response.status).toBe(409);
       expect(await response.json()).toEqual({ error: "cannot order unavailable item" });
       expect(inserts()).toHaveLength(0);
+    });
+
+    it("marks a proven pre-insert rejection without changing the error contract", async () => {
+      const response = await post({ action: "add_items", items: [] });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "缺少餐點", add_outcome: "not_attempted" });
+      expect(inserts()).toHaveLength(0);
+      const oldClient = await post({ action: "replace_item" });
+      expect(await oldClient.json()).toEqual({ error: "缺少餐點" });
+    });
+
+    it.each(["no order", "not checked in", "paid"])("marks %s only before any insert", async (reason) => {
+      if (reason === "paid") order.paid_at = new Date().toISOString();
+      if (reason === "not checked in") mocks.getReservationForPreorder.mockResolvedValue({ id: "res-1", status: "completed", room: { branch_id: "b1" } });
+      if (reason === "no order") {
+        const base = mocks.respond;
+        mocks.respond = (call) => call.table === "orders" && !hasOp(call, "update") ? { data: null, error: null } : base(call);
+      }
+      const response = await post(body);
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual(expect.objectContaining({ add_outcome: "not_attempted", error: expect.any(String) }));
+      expect(inserts()).toHaveLength(0);
+    });
+
+    it("never marks a failed insert as not attempted, even when it produces 409", async () => {
+      const base = mocks.respond;
+      mocks.respond = (call) => call.table === "order_items" && hasOp(call, "insert")
+        ? { data: null, error: new Error("cannot write") } : base(call);
+      const response = await post(body);
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ error: "cannot write" });
+      expect(inserts()).toHaveLength(1);
     });
   });
 

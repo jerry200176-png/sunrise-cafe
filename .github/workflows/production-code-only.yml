@@ -1,0 +1,122 @@
+name: Production code-only release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  statuses: read
+  pull-requests: read
+
+concurrency:
+  group: production-deploy-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      candidate: ${{ steps.create.outputs.candidate }}
+      candidate_commit: ${{ steps.create.outputs.candidate_commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Check reviewed source and production baseline
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: python3 -B scripts/code-only-release.py prepare
+      - name: Retain baseline before creating a deployment
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          archive: true
+          name: code-only-baseline-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sunrise-code-only-baseline.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Create production deployment
+        id: create
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: python3 -B scripts/code-only-release.py create
+      - name: Retain candidate identity when available
+        if: ${{ always() && steps.create.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          archive: true
+          name: code-only-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sunrise-code-only-candidate.json
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Verify production deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: python3 -B scripts/code-only-release.py verify
+      - name: Watch production runtime health for 15 minutes
+        env:
+          PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
+          EXPECTED_SHA: ${{ github.sha }}
+        run: node scripts/post-deploy-watch.mjs
+
+  verify-production:
+    needs: release
+    uses: ./.github/workflows/verify-production.yml
+    secrets: inherit
+
+  recovery:
+    needs: [release, verify-production]
+    if: ${{ always() && (needs.release.result != 'success' || needs.verify-production.result != 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Recover retained baseline
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: code-only-baseline-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}
+      - name: Recover candidate identity when available
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: code-only-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}
+      - name: Verify production and restore prior deployment if needed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          CANDIDATE_ID: ${{ needs.release.outputs.candidate }}
+          CANDIDATE_COMMIT: ${{ needs.release.outputs.candidate_commit }}
+        run: python3 -B scripts/code-only-release.py recover
+
+  # deploy-health compares /api/version against this record. Recorded on every
+  # main push, even if the release fails, so a failed release shows as drift.
+  record-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Record trusted main head for deploy-health
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_WORKFLOW: ${{ github.workflow }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/record-deploy-health-head.mjs

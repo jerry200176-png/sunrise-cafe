@@ -1,6 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { copyText } from "@/lib/copy-text";
+import { messageCopyDigest } from "@/lib/message-copy-digest";
+import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import { X } from "lucide-react";
 import type { BatchReservationMessageItem } from "@/lib/reservation-message-batch";
 
@@ -14,48 +17,26 @@ type Props = {
   canBatchCopy: boolean;
   warnings: string[];
   onClose: () => void;
+  beginCopy: () => boolean;
+  endCopy: () => void;
+  copyBusy: boolean;
+  isCurrent: () => boolean;
   onCompleted?: () => void;
 };
 
-async function copyText(text: string): Promise<boolean> {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // Continue to the synchronous fallback below.
-    }
-  }
-
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "");
-  textarea.style.position = "fixed";
-  textarea.style.opacity = "0";
-  document.body.appendChild(textarea);
-  textarea.select();
-  let copied = false;
-  try {
-    copied = document.execCommand("copy");
-  } finally {
-    document.body.removeChild(textarea);
-  }
-  return copied;
-}
-
-async function recordCopied(reservationIds: string[], batchId: string): Promise<void> {
-  const response = await fetch("/api/reservations/message-actions/batch", {
+async function recordCopied(reservationIds: string[], batchId: string, mode: "all" | "single", digests: Array<{ id: string; digest: string }>, combinedDigest?: string): Promise<void> {
+  const response = await fetchWithTimeout("/api/reservations/message-actions/batch/v2", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       reservation_ids: reservationIds,
       template_key: "deposit_request",
       action: "copied",
-      batch_id: batchId,
+      batch_id: batchId, version: 2, mode, digests, ...(combinedDigest ? { combined_digest: combinedDigest } : {}),
     }),
   });
-  const data = (await response.json().catch(() => ({}))) as { error?: string; warnings?: string[] };
-  if (!response.ok) throw new Error(data.error ?? data.warnings?.join(" ") ?? "操作紀錄失敗");
+  const data = (await readJsonWithTimeout(response)) as { action_ids?: unknown; batch_id?: string; ok?: unknown; version?: unknown };
+  if (!response.ok || data.ok !== true || data.version !== 2 || data.batch_id !== batchId || !Array.isArray(data.action_ids) || data.action_ids.length !== reservationIds.length || !data.action_ids.every((id) => typeof id === "string" && id.length > 0)) throw new Error("結果未確認");
 }
 
 export function BatchDepositMessageWorkbench({
@@ -67,59 +48,66 @@ export function BatchDepositMessageWorkbench({
   warnings,
   onClose,
   onCompleted,
+  beginCopy, endCopy, copyBusy, isCurrent,
 }: Props) {
   const [batchState, setBatchState] = useState<CopyState>("idle");
   const [itemStates, setItemStates] = useState<Record<string, CopyState>>({});
   const [message, setMessage] = useState<string | null>(null);
 
-  const copyAll = async () => {
-    if (!canBatchCopy || batchState === "copying") return;
-    setBatchState("copying");
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const [unknown, setUnknown] = useState(false);
+  const valid = () => mounted.current && isCurrent();
+
+  const copy = async (text: string, ids: string[], label: string, mode: "all" | "single", update: (state: CopyState) => void) => {
+    if (unknown || !beginCopy()) return;
+    update("copying");
     setMessage(null);
-    const copied = await copyText(combinedText);
-    if (!copied) {
-      setBatchState("error");
-      setMessage("複製全部失敗；請改用每筆單獨複製或手動選取文字。未記錄為已複製。");
-      return;
-    }
     try {
-      await recordCopied(reservationIds, batchId);
-      setBatchState("copied");
-      setMessage("已複製全部訊息；請貼到同一位客人的 LINE 對話。已複製不等於已傳送。");
-      onCompleted?.();
-    } catch (error) {
-      setBatchState("error");
-      setMessage(
-        `文字已複製，但操作紀錄失敗：${error instanceof Error ? error.message : "請稍後重試"}`
-      );
+      const copied = await copyText(text);
+      if (!valid()) return;
+      if (!copied) {
+        update("error");
+        setMessage("複製失敗，請手動選取訊息；未送出操作紀錄。");
+        return;
+      }
+      let digests: Array<{ id: string; digest: string }>;
+      let combinedDigest: string | undefined;
+      try {
+        const selected = items.filter((item) => ids.includes(item.reservation_id));
+        if (selected.length !== ids.length) throw new Error("missing item");
+        digests = await Promise.all(selected.map(async (item) => ({ id: item.reservation_id, digest: await messageCopyDigest(item.text) })));
+        if (mode === "all") combinedDigest = await messageCopyDigest(text);
+      } catch {
+        if (valid()) { update("error"); setMessage("文字已複製，無法驗證內容，未送出操作紀錄；請人工核對。"); }
+        return;
+      }
+      if (!valid()) return;
+      try {
+        await recordCopied(ids, batchId, mode, digests, combinedDigest);
+        if (!valid()) return;
+        update("copied");
+        setMessage(mode === "all" ? "已複製全部訊息；已複製不等於已傳送。" : `${label}已複製；已複製不等於已傳送。`);
+        onCompleted?.();
+      } catch {
+        if (!valid()) return;
+        update("error");
+        setUnknown(true);
+        setMessage("文字已複製，但操作紀錄結果未確認；請先核對，勿重複操作。");
+      }
+    } finally {
+      endCopy();
     }
   };
 
-  const copyOne = async (item: BatchReservationMessageItem) => {
-    if (item.error) {
-      setMessage(`「${item.booking_code ?? item.date_label}」目前無法複製：${item.error}`);
-      return;
-    }
-    if (itemStates[item.reservation_id] === "copying") return;
-    setItemStates((current) => ({ ...current, [item.reservation_id]: "copying" }));
-    setMessage(null);
-    const copied = await copyText(item.text);
-    if (!copied) {
-      setItemStates((current) => ({ ...current, [item.reservation_id]: "error" }));
-      setMessage(`「${item.booking_code ?? item.date_label}」複製失敗，請手動選取訊息。`);
-      return;
-    }
-    try {
-      await recordCopied([item.reservation_id], batchId);
-      setItemStates((current) => ({ ...current, [item.reservation_id]: "copied" }));
-      setMessage(`「${item.booking_code ?? item.date_label}」已複製；已複製不等於已傳送。`);
-      onCompleted?.();
-    } catch (error) {
-      setItemStates((current) => ({ ...current, [item.reservation_id]: "error" }));
-      setMessage(
-        `「${item.booking_code ?? item.date_label}」文字已複製，但操作紀錄失敗：${error instanceof Error ? error.message : "請稍後重試"}`
-      );
-    }
+  const copyAll = () => {
+    if (!canBatchCopy) return;
+    void copy(combinedText, reservationIds, "全部訊息", "all", setBatchState);
+  };
+  const copyOne = (item: BatchReservationMessageItem) => {
+    if (item.error) return;
+    void copy(item.text, [item.reservation_id], `「${item.booking_code ?? item.date_label}」`, "single",
+      (state) => setItemStates((current) => ({ ...current, [item.reservation_id]: state })));
   };
 
   return (
@@ -174,13 +162,13 @@ export function BatchDepositMessageWorkbench({
                     <button
                       type="button"
                       onClick={() => void copyOne(item)}
-                      disabled={state === "copying" || Boolean(item.error)}
+                      disabled={copyBusy || unknown || Boolean(item.error)}
                       className="min-h-11 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
                     >
                       {item.error ? "無法複製" : state === "copying" ? "複製中…" : state === "copied" ? "已複製" : "單獨複製"}
                     </button>
                   </div>
-                  <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-sm leading-6 text-gray-800">{item.error ? `此筆無法產生訊息：${item.error}` : item.text}</pre>
+                  <textarea aria-label={`${item.booking_code ?? item.date_label} 訊息內容，可手動選取`} readOnly rows={6} value={item.error ? `此筆無法產生訊息：${item.error}` : item.text} className="mt-3 w-full rounded-lg bg-gray-50 p-3 text-sm leading-6 text-gray-800" />
                 </article>
               );
             })}
@@ -194,7 +182,7 @@ export function BatchDepositMessageWorkbench({
             <button
               type="button"
               onClick={() => void copyAll()}
-              disabled={!canBatchCopy || batchState === "copying"}
+              disabled={!canBatchCopy || copyBusy || unknown}
               className="min-h-11 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {batchState === "copying" ? "複製中…" : batchState === "copied" ? "已複製全部" : "複製全部"}

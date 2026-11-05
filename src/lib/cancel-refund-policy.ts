@@ -45,7 +45,7 @@ export const DEFAULT_CANCEL_REFUND_POLICY: CancelRefundPolicy = {
   guest_copy: {
     unpaid_locked: "預約時間 24 小時內不可自行取消，請來電店家",
     paid_contact:
-      "已付訂金的訂位請來電或透過查詢頁提出退訂申請，由店家依政策審核（不保證自動退款）",
+      "已付訂金無法線上自行取消。訂位開始前至少 48 小時可來電或以 LINE 申請退訂／退款；不足 48 小時請聯繫店員審核。退款金額與結果由店家確認，非自動退款。",
     refund_request_ack:
       "已收到退訂／退費申請，店家審核後會以 LINE 或電話通知結果",
   },

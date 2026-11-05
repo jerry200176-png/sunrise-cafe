@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextFetchEvent, NextRequest, NextResponse } from "next/server";
 import { rateLimit, getClientIp, guestRateLimitId, getRateLimitMode } from "@/lib/rate-limit";
 import { logOps } from "@/lib/ops-log";
 import { getSessionSecret } from "@/lib/admin-auth";
@@ -26,8 +26,20 @@ function withRateLimitMode(response: NextResponse): NextResponse {
   return response;
 }
 
-function tooManyRequests(reset: number, path: string, limiter: string) {
-  logOps("guest", "guest.lookup_denied_rate_limit", { path, limiter });
+function withPrivateOrderNoStore(request: NextRequest, response: NextResponse): NextResponse {
+  if (request.method === "GET" && /^\/api\/admin\/reservation-orders\/[^/]+\/?$/.test(request.nextUrl.pathname)) {
+    response.headers.set("Cache-Control", "private, no-store");
+  }
+  return response;
+}
+
+function tooManyRequests(reset: number, path: string, limiter: string, event: NextFetchEvent) {
+  logOps(
+    "guest",
+    "guest.lookup_denied_rate_limit",
+    { path, limiter },
+    (work) => event.waitUntil(work())
+  );
   return withRateLimitMode(
     NextResponse.json(
       { error: "Too Many Requests" },
@@ -39,35 +51,35 @@ function tooManyRequests(reset: number, path: string, limiter: string) {
   );
 }
 
-export async function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest, event: NextFetchEvent) {
   const { pathname } = request.nextUrl;
   const ip = getClientIp(request);
 
   // ── Rate Limiting ──────────────────────────────────────────────────
   if (pathname === "/api/admin/login" && request.method === "POST") {
     const { success, reset } = await rateLimit(ip, "login");
-    if (!success) return tooManyRequests(reset, pathname, "login");
+    if (!success) return tooManyRequests(reset, pathname, "login", event);
   } else if (pathname === "/api/reservations" && request.method === "POST") {
     const { success, reset } = await rateLimit(ip, "booking");
-    if (!success) return tooManyRequests(reset, pathname, "booking");
+    if (!success) return tooManyRequests(reset, pathname, "booking", event);
   } else if (pathname === "/api/availability") {
     const { success, reset } = await rateLimit(ip, "availability");
-    if (!success) return tooManyRequests(reset, pathname, "availability");
+    if (!success) return tooManyRequests(reset, pathname, "availability", event);
   } else if (pathname === "/api/my-bookings" && request.method === "GET") {
     const phone = request.nextUrl.searchParams.get("phone");
     const { success, reset } = await rateLimit(guestRateLimitId(ip, phone), "guestLookup");
-    if (!success) return tooManyRequests(reset, pathname, "guestLookup");
+    if (!success) return tooManyRequests(reset, pathname, "guestLookup", event);
   } else if (pathname === "/api/waitlist" && request.method === "GET") {
     const phone = request.nextUrl.searchParams.get("phone");
     const { success, reset } = await rateLimit(guestRateLimitId(ip, phone), "guestLookup");
-    if (!success) return tooManyRequests(reset, pathname, "guestLookup");
+    if (!success) return tooManyRequests(reset, pathname, "guestLookup", event);
   } else if (
     (pathname === "/api/my-bookings" && request.method === "POST") ||
     (pathname === "/api/cancel-booking" && request.method === "POST") ||
     (pathname === "/api/reschedule-booking" && request.method === "POST")
   ) {
     const { success, reset } = await rateLimit(guestRateLimitId(ip, null), "guestLookup");
-    if (!success) return tooManyRequests(reset, pathname, "guestLookup");
+    if (!success) return tooManyRequests(reset, pathname, "guestLookup", event);
   } else if (
     pathname.startsWith("/api/") &&
     !pathname.startsWith("/api/webhooks/") &&
@@ -75,7 +87,7 @@ export async function middleware(request: NextRequest) {
   ) {
     // webhooks / Vercel Cron 不套用一般 API 限流，避免排程被 429 擋下
     const { success, reset } = await rateLimit(ip, "api");
-    if (!success) return tooManyRequests(reset, pathname, "api");
+    if (!success) return withPrivateOrderNoStore(request, tooManyRequests(reset, pathname, "api", event));
   }
 
   // ── CTO / Ops evidence（Bearer CTO_OUTCOME_SECRET / CRON_SECRET）────────
@@ -105,12 +117,12 @@ export async function middleware(request: NextRequest) {
       const cronSecret = process.env.CRON_SECRET;
       const authHeader = request.headers.get("authorization");
       if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
-        return withRateLimitMode(NextResponse.next());
+        return withPrivateOrderNoStore(request, withRateLimitMode(NextResponse.next()));
       }
     }
     const denied = await requireAdminApiAuth(request);
-    if (denied) return withRateLimitMode(denied);
-    return withRateLimitMode(NextResponse.next());
+    if (denied) return withPrivateOrderNoStore(request, withRateLimitMode(denied));
+    return withPrivateOrderNoStore(request, withRateLimitMode(NextResponse.next()));
   }
 
   // ── Admin-only API（訂位讀取/變更、分店/設定變更等）────────────────

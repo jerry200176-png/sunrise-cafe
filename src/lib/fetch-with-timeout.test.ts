@@ -26,6 +26,11 @@ describe("readJsonWithTimeout", () => {
     expect(cancelled).toBe(true);
   });
 
+  it("also bounds JSON parsing when no readable body is exposed", async () => {
+    const response = { body: null, json: () => new Promise(() => {}) } as unknown as Response;
+    await expect(readJsonWithTimeout(response, 20)).rejects.toThrow("讀取資料逾時，請重試");
+  });
+
   it("keeps fetchWithTimeout returning the original Response", async () => {
     const response = new Response('{"ok":true}', { headers: { "content-type": "application/json" } });
     const originalFetch = globalThis.fetch;

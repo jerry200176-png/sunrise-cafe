@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertLinePayPaused } from "./lib/linepay-paused-contract.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (relativePath) => readFile(resolve(root, relativePath), "utf8");
 
 const verifyWorkflow = await read(".github/workflows/verify-production.yml");
 const deployWorkflow = await read(".github/workflows/production-deploy-migrate.yml");
+const codeOnlyWorkflow = await read(".github/workflows/production-code-only.yml");
 const deployScript = await read("scripts/orchestrator/deploy.sh");
 const autonomousWorkflow = await read(".github/workflows/autonomous-loop.yml");
 const migrationWorkflow = await read(".github/workflows/apply-migration-ops-events.yml");
@@ -15,17 +17,32 @@ const autonomousLoop = await read("scripts/orchestrator/loop.sh");
 const linePayWorkflow = await read(".github/workflows/ops-linepay-vercel-env.yml");
 const linePayScript = await read("scripts/ops-linepay-vercel-env.sh");
 const ignoredBuild = await read("scripts/vercel-ignored-build.sh");
+const identityScript = await read("scripts/production-identity.sh");
 const vercelConfig = JSON.parse(await read("vercel.json"));
 
-assert.match(verifyWorkflow, /group:\s*verify-production-main/);
+assert.match(verifyWorkflow, /workflow_call:/);
+assert.match(verifyWorkflow, /group:\s*verify-production-\$\{\{ github\.workflow \}\}-main/);
 assert.match(verifyWorkflow, /cancel-in-progress:\s*true/);
 assert.match(verifyWorkflow, /timeout-minutes:\s*25/);
 assert.match(verifyWorkflow, /for i in \$\(seq 1 40\)/);
 assert.doesNotMatch(verifyWorkflow, /VERCEL_TOKEN/);
 assert.doesNotMatch(verifyWorkflow, /scripts\/orchestrator\/deploy\.sh/);
-assert.match(verifyWorkflow, /Production deploy and migrate is the sole deploy owner/);
+assert.match(verifyWorkflow, /Production code-only release is the deploy owner/);
 
-assert.match(deployWorkflow, /group:\s*production-deploy-main/);
+assert.match(deployWorkflow, /group:\s*production-deploy-migrate-disabled/);
+assert.match(deployWorkflow, /predeploy_migrate:\s*\n(?:[^\n]*\n){0,4}\s*if:\s*\$\{\{\s*false\s*\}\}/);
+assert.match(codeOnlyWorkflow, /group:\s*production-deploy-main/);
+assert.match(codeOnlyWorkflow, /cancel-in-progress:\s*false/);
+assert.match(codeOnlyWorkflow, /code-only-release\.py prepare[\s\S]*upload-artifact@[a-f0-9]{40}[\s\S]*code-only-release\.py create[\s\S]*upload-artifact@[a-f0-9]{40}[\s\S]*code-only-release\.py verify/);
+assert.match(codeOnlyWorkflow, /verify-production:\s*\n\s*needs:\s*release\s*\n\s*uses:\s*\.\/\.github\/workflows\/verify-production\.yml\s*\n\s*secrets:\s*inherit/);
+assert.match(codeOnlyWorkflow, /needs:\s*\[release, verify-production\][\s\S]*needs\.release\.result != 'success' \|\| needs\.verify-production\.result != 'success'/);
+assert.match(codeOnlyWorkflow, /candidate:\s*\$\{\{ steps\.create\.outputs\.candidate \}\}/);
+assert.match(codeOnlyWorkflow, /CANDIDATE_ID:\s*\$\{\{ needs\.release\.outputs\.candidate \}\}/);
+// deploy-health reads the main head this job records; production-deploy-migrate is disabled.
+assert.match(codeOnlyWorkflow.split("record-head:")[1] ?? "", /run: node scripts\/record-deploy-health-head\.mjs/);
+assert.doesNotMatch(codeOnlyWorkflow.split("record-head:")[0], /SUPABASE_SERVICE_ROLE_KEY/);
+assert.match(identityScript, /--workflow=production-code-only\.yml/);
+assert.match(codeOnlyWorkflow, /recovery:[\s\S]*always\(\)[\s\S]*download-artifact@[a-f0-9]{40}[\s\S]*code-only-release\.py recover/);
 assert.match(deployWorkflow, /cancel-in-progress:\s*false/);
 assert.match(deployWorkflow, /name:\s*Vercel production deploy/);
 assert.match(deployWorkflow, /one immediate deploy attempt/);
@@ -43,9 +60,9 @@ assert.notDeepEqual(vercelConfig.git?.deploymentEnabled, false);
 assert.deepEqual(Object.keys(vercelConfig.git?.deploymentEnabled ?? {}), ["main"]);
 assert.equal(vercelConfig.ignoreCommand, "bash scripts/vercel-ignored-build.sh");
 
-// The canonical workflow is the only repository-controlled application
-// production deploy caller. Auxiliary automation may prepare or verify work,
-// but must route activation through this migration-first workflow.
+// Historical migration-first automation is disabled above. The code-only
+// workflow is the repository-controlled production deploy owner; other
+// automations must not introduce a separate deployment path.
 const directProductionDeploy =
   /(?:npx\s+)?vercel\s+deploy\s+--prod|(?:bash\s+)?(?:scripts\/orchestrator\/deploy\.sh|\$SCRIPT_DIR\/deploy\.sh)/;
 const equivalentProductionDeploy =
@@ -58,7 +75,8 @@ assert.doesNotMatch(linePayWorkflow, directProductionDeploy);
 assert.doesNotMatch(linePayScript, directProductionDeploy);
 assert.doesNotMatch(linePayWorkflow, equivalentProductionDeploy);
 assert.doesNotMatch(linePayScript, equivalentProductionDeploy);
-assert.match(linePayWorkflow, /gh workflow run production-deploy-migrate\.yml/);
+// PR and manual paths must remain credential-free and fail closed.
+assertLinePayPaused(linePayWorkflow, linePayScript);
 assert.doesNotMatch(migrationWorkflow, /deploy-if-needed/);
 assert.doesNotMatch(migrationWorkflow, /if:\s*always\(\)/);
 assert.match(autonomousLoop, /deploy-gate\.sh/);

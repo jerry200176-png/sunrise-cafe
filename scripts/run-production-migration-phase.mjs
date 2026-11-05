@@ -5,6 +5,8 @@ import { resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { assertPlanSqlGate } from "./lib/sql-additive-lint.mjs";
+import { VERIFIERS, assertHistoricalVerifierPlan, assertVerifierFiles } from "./lib/historical-verifiers.mjs";
+import { assertRecoveryPoint } from "./apply-migration-reservation-settlements.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const PLAN_PATH = resolve(ROOT, "scripts/production-migration-plan.json");
@@ -20,7 +22,9 @@ export function validateMigrationPlan(plan) {
     if (!entry || typeof entry.file !== "string" || !entry.file) {
       throw new Error("Migration plan entry is missing file");
     }
-    if (entry.runner) {
+    if (entry.runner && entry.verifier) throw new Error(`Migration ${entry.file} cannot have both runner and verifier`);
+    if (entry.runner || entry.verifier) {
+      if (entry.verifier && !Object.hasOwn(VERIFIERS, entry.verifier)) throw new Error(`Unknown verifier for ${entry.file}`);
       if (!PHASES.has(entry.phase)) {
         throw new Error(`Executable migration ${entry.file} has no valid phase`);
       }
@@ -52,8 +56,9 @@ export function phaseEntries(plan, phase) {
 export function phaseExecutionUnits(plan, phase) {
   const seen = new Set();
   return phaseEntries(plan, phase).filter((entry) => {
-    if (seen.has(entry.runner)) return false;
-    seen.add(entry.runner);
+    const identity = entry.runner ?? `verifier:${entry.verifier}`;
+    if (seen.has(identity)) return false;
+    seen.add(identity);
     return true;
   });
 }
@@ -61,13 +66,27 @@ export function phaseExecutionUnits(plan, phase) {
 export async function executePhase(plan, phase, execute = executeRunner) {
   const units = phaseExecutionUnits(plan, phase);
   for (const entry of units) {
-    await execute(entry.runner, entry);
+    await execute(entry.runner ?? VERIFIERS[entry.verifier], entry);
   }
   return {
     phase,
     migrations: phaseEntries(plan, phase).map((entry) => entry.version ?? entry.file),
-    runners: units.map((entry) => entry.runner),
+    runners: units.map((entry) => entry.runner ?? VERIFIERS[entry.verifier]),
   };
+}
+
+/**
+ * All executable phases require this job's encrypted and uploaded backup.
+ * @param {string} phase
+ * @param {Record<string, string | undefined>} env
+ * @param {Date} now
+ */
+export function validatePhaseBackup(phase, env = process.env, now = new Date()) {
+  const recovery = assertRecoveryPoint({ phase, env, now });
+  if (!/^[0-9a-f]{64}$/i.test(String(env.BACKUP_ARTIFACT_DIGEST ?? ""))) {
+    throw new Error("Encrypted backup artifact SHA-256 missing; refusing to migrate");
+  }
+  return recovery;
 }
 
 function executeRunner(runner) {
@@ -88,6 +107,10 @@ function executeRunner(runner) {
 async function main() {
   const phase = process.argv[2];
   const plan = JSON.parse(readFileSync(PLAN_PATH, "utf8"));
+  // Protected history cannot regain an automatic SQL writer or an unpinned verifier.
+  validateMigrationPlan(plan);
+  assertHistoricalVerifierPlan(plan);
+  assertVerifierFiles(ROOT);
   // Refuse to run any runner whose SQL is not marked (and, if additive, proven) additive-only.
   assertPlanSqlGate(plan, (file) => readFileSync(resolve(ROOT, "supabase", file), "utf8"), phase);
   if (phase === "--check") {
@@ -97,6 +120,14 @@ async function main() {
     console.log(JSON.stringify({ status: "plan_gate_ok", entries: plan.entries.length }));
     return;
   }
+  if (phase === "--verify") {
+    const id = process.argv[3];
+    if (!Object.hasOwn(VERIFIERS, id) || process.argv.length !== 4) throw new Error("Unknown historical verifier");
+    await executeRunner(VERIFIERS[id]);
+    console.log(JSON.stringify({ verifier: id, status: "complete" }));
+    return;
+  }
+  validatePhaseBackup(phase);
   const result = await executePhase(plan, phase);
   console.log(JSON.stringify({ ...result, status: result.runners.length ? "complete" : "no_op" }));
 }

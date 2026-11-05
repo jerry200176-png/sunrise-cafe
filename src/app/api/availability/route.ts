@@ -73,24 +73,29 @@ export async function GET(request: NextRequest) {
   const isToday = date === taiwanTodayStr;
 
   try {
-    const [settings, branchForClosed] = await Promise.all([
+    const [settings, branch] = await Promise.all([
       fetchSettings(),
       fetchBranch(branchId),
     ]);
+    if (!branch) {
+      return NextResponse.json({ error: "分店不存在" }, { status: 404 });
+    }
+    if (branch.archived_at) {
+      return NextResponse.json({ error: "該分店已停止接受線上預約" }, { status: 410 });
+    }
     // Same day rules (closed dates, weekly hours, window) as checkBookable.
-    const day = resolveDay(branchForClosed, settings.closed_dates, date);
+    const day = resolveDay(branch, settings.closed_dates, date);
     if (day.closed) {
       return NextResponse.json({ closed: true });
     }
 
     if (roomId) {
-      const [branch, room, blockedRaw] = await Promise.all([
-        fetchBranch(branchId),
+      const [room, blockedRaw] = await Promise.all([
         fetchRoom(roomId),
         getBlockedSlots(branchId, date),
       ]);
       const blocked = blockedRaw as BlockedSlot[];
-      if (!branch || !room || room.branch_id !== branchId) {
+      if (!room || room.branch_id !== branchId) {
         return NextResponse.json({ error: "分店或包廂不存在" }, { status: 404 });
       }
       const roomBlocked = blocked.filter((b) => b.room_id === roomId);
@@ -108,16 +113,12 @@ export async function GET(request: NextRequest) {
         image_url: room.image_url,
       }, { headers: { "Cache-Control": "no-store" } });
     }
-    const [branch, roomsRaw, blockedRaw] = await Promise.all([
-      fetchBranch(branchId),
+    const [roomsRaw, blockedRaw] = await Promise.all([
       fetchRoomsWithDetails(branchId),
       getBlockedSlots(branchId, date),
     ]);
     const rooms = roomsRaw as RoomDetails[];
     const blocked = blockedRaw as BlockedSlot[];
-    if (!branch) {
-      return NextResponse.json({ error: "分店不存在" }, { status: 404 });
-    }
 
     const roomList = rooms.map((room) => {
       const roomBlocked = blocked.filter((b) => b.room_id === room.id);

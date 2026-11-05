@@ -28,7 +28,7 @@ const rows: UsageRow[] = [
   { source: "reschedule/attendance/waitlist group", priority: "actionable", channel: "group", baselineRequests: 36, optimizedRequests: 36, note: "immediate staff action" },
   { source: "waitlist guest", priority: "actionable", channel: "guest", baselineRequests: 6, optimizedRequests: 6, note: "confirmation window preserved" },
   { source: "review invite guest", priority: "informational", channel: "guest", baselineRequests: 10, optimizedRequests: 10, note: "existing one-shot stamp" },
-  { source: "empty/already-notified heartbeat", priority: "informational", channel: "group", baselineRequests: 30, optimizedRequests: 15, note: "36h unchanged-state cooldown; heartbeat retained" },
+  { source: "empty/already-notified heartbeat", priority: "informational", channel: "group", baselineRequests: 30, optimizedRequests: 0, note: "illustrative fixture; scheduled informational heartbeat disabled" },
   { source: "cron failure alert", priority: "critical", channel: "group", baselineRequests: 1, optimizedRequests: 1, note: "failure handling preserved" },
   { source: "webhook replies", priority: "actionable", channel: "reply", baselineRequests: 30, optimizedRequests: 30, note: "LINE reply messages are not quota-counted" },
 ];

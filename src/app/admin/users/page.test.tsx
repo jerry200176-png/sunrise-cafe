@@ -1,0 +1,287 @@
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import AdminUsersPage from "./page";
+
+vi.mock("@/lib/fetch-with-timeout", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/fetch-with-timeout")>();
+  return {
+    fetchWithTimeout: (input: string, init?: RequestInit) => actual.fetchWithTimeout(input, init, 30),
+    readJsonWithTimeout: (response: Response) => actual.readJsonWithTimeout(response, 30),
+  };
+});
+
+const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
+const me = { role: "owner", permissions: { users_manage: true } };
+const users = [{ id: "u1", email: "test@example.test", display_name: "Test", role: "staff", is_active: true, branch_ids: ["b1"] }];
+
+afterEach(() => { cleanup(); sessionStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+async function setup(post: (init: RequestInit) => Promise<Response>) {
+  const calls: string[] = [];
+  let failList = false;
+  let denyList = false;
+  vi.stubGlobal("fetch", vi.fn(async (input: string, init: RequestInit = {}) => {
+    if (init.method === "POST") { calls.push(String(init.body)); return post(init); }
+    if (input === "/api/admin/me") return json(me);
+    if (denyList) return json({ error: "Forbidden" }, 403);
+    if (failList) return json({ error: "unavailable" }, 503);
+    return json({ users });
+  }));
+  render(<AdminUsersPage />);
+  fireEvent.change(await screen.findByPlaceholderText("Email"), { target: { value: "new@example.test" } });
+  fireEvent.change(screen.getByPlaceholderText("密碼（至少 8 字）"), { target: { value: "test-password" } });
+  fireEvent.change(screen.getByPlaceholderText("分店 UUID（逗號分隔，owner 可留空）"), { target: { value: "b1" } });
+  return { calls, failList: (value: boolean) => { failList = value; }, denyList: (value: boolean) => { denyList = value; } };
+}
+
+describe("admin user creation recovery", () => {
+  it("submits once during a fast double click and refreshes only after confirmed success", async () => {
+    let finish!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { finish = resolve; });
+    const { calls } = await setup(() => pending);
+    const button = screen.getByRole("button", { name: "建立" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(calls).toHaveLength(1);
+    expect((screen.getByRole("button", { name: "建立中…" }) as HTMLButtonElement).disabled).toBe(true);
+    finish(json({ ok: true, id: "created" }));
+    expect(await screen.findByText(/帳號已建立，請確認清單/)).toBeTruthy();
+    expect((screen.getByPlaceholderText("密碼（至少 8 字）") as HTMLInputElement).value).toBe("");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("shows a confirmed validation rejection without treating it as an unknown creation", async () => {
+    const { calls } = await setup(async () => json({ error: "非 owner 角色須指定至少一個分店" }, 400));
+    fireEvent.click(screen.getByRole("button", { name: "建立" }));
+    expect(await screen.findByText("非 owner 角色須指定至少一個分店")).toBeTruthy();
+    expect(screen.queryByText(/建立結果尚未確認/)).toBeNull();
+    expect((screen.getByRole("button", { name: "建立" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(calls).toHaveLength(1);
+    expect(sessionStorage.length).toBe(0);
+  });
+
+  it("locks the original account details during a delayed request and preserves its password-free summary if unknown", async () => {
+    let fail!: (error: Error) => void;
+    const pending = new Promise<Response>((_resolve, reject) => { fail = reject; });
+    const { calls } = await setup(() => pending);
+    fireEvent.change(screen.getByPlaceholderText("顯示名稱"), { target: { value: "Original User" } });
+    fireEvent.click(screen.getByRole("button", { name: "建立" }));
+    expect((screen.getByPlaceholderText("Email") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByPlaceholderText("顯示名稱") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByPlaceholderText("分店 UUID（逗號分隔，owner 可留空）") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole("combobox") as HTMLSelectElement).disabled).toBe(true);
+    expect((screen.getByPlaceholderText("密碼（至少 8 字）") as HTMLInputElement).value).toBe("");
+    const summary = screen.getByLabelText("原送出申請摘要");
+    expect(summary.textContent).toContain("new@example.test");
+    expect(summary.textContent).toContain("Original User");
+    expect(summary.textContent).toContain("branch_manager");
+    expect(summary.textContent).toContain("b1");
+    expect(summary.textContent).not.toContain("test-password");
+    fail(new TypeError("network lost"));
+    expect(await screen.findByText(/建立結果尚未確認/)).toBeTruthy();
+    expect((screen.getByPlaceholderText("Email") as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByLabelText("原送出申請摘要").textContent).toContain("new@example.test");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("keeps the hold after reload without storing account details", async () => {
+    const { calls } = await setup(async () => { throw new TypeError("network lost"); });
+    fireEvent.click(screen.getByRole("button", { name: "建立" }));
+    expect(await screen.findByText(/建立結果尚未確認/)).toBeTruthy();
+    expect(sessionStorage.getItem("sunrise.admin-user-create.pending.v1")).toBe("1");
+    expect(JSON.stringify(sessionStorage)).not.toContain("new@example.test");
+    expect(JSON.stringify(sessionStorage)).not.toContain("test-password");
+    cleanup();
+    render(<AdminUsersPage />);
+    expect(await screen.findByText(/建立結果尚未確認/)).toBeTruthy();
+    expect(screen.getByText(/原申請內容未保存在瀏覽器/)).toBeTruthy();
+    expect(screen.queryByLabelText("原送出申請摘要")).toBeNull();
+    expect((await screen.findByRole("button", { name: "建立" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("does not send a creation request if it cannot persist the hold", async () => {
+    const { calls } = await setup(async () => json({ ok: true, id: "created" }));
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("storage unavailable"); });
+    fireEvent.click(screen.getByRole("button", { name: "建立" }));
+    expect(await screen.findByText(/尚未送出請求/)).toBeTruthy();
+    expect(calls).toHaveLength(0);
+  });
+
+  it("holds a confirmed creation if the subsequent user list cannot be refreshed", async () => {
+    const { calls, failList } = await setup(async () => json({ ok: true, id: "created" }));
+    failList(true);
+    fireEvent.click(screen.getByRole("button", { name: "建立" }));
+    expect(await screen.findByText(/帳號已建立，但清單未能更新/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "建立" })).toBeNull();
+    expect(sessionStorage.getItem("sunrise.admin-user-create.pending.v1")).toBe("1");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("revokes verification when a later ordinary list refresh fails", async () => {
+    const { failList } = await setup(async () => { throw new TypeError("network lost"); });
+    fireEvent.click(screen.getByRole("button", { name: "建立" }));
+    expect(await screen.findByText(/建立結果尚未確認/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "重新整理並核對清單" }));
+    expect(await screen.findByRole("button", { name: "已核對，允許重新操作" })).toBeTruthy();
+    failList(true);
+    fireEvent.click(screen.getByRole("button", { name: "重新整理使用者清單" }));
+    expect(await screen.findByText(/無法確認使用者清單/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "已核對，允許重新操作" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "建立" })).toBeNull();
+  });
+
+  it("clears the previous owner form and user list when refresh is denied", async () => {
+    const { denyList } = await setup(async () => json({ ok: true, id: "created" }));
+    expect(screen.getByText("test@example.test · staff")).toBeTruthy();
+    denyList(true);
+    fireEvent.click(screen.getByRole("button", { name: "重新整理使用者清單" }));
+    expect(await screen.findByText("僅 Owner 可管理使用者")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Email")).toBeNull();
+    expect(screen.queryByText("test@example.test · staff")).toBeNull();
+  });
+
+  it.each(["me", "users"])("clears owner data when %s denies access and the other list request fails", async (deniedEndpoint) => {
+    let denied = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: string, init: RequestInit = {}) => {
+      if (init.method === "POST") throw new TypeError("network lost");
+      if (denied) {
+        if (input === `/api/admin/${deniedEndpoint}`) return json({ error: "Forbidden" }, 403);
+        throw new TypeError("network lost");
+      }
+      return input === "/api/admin/me" ? json(me) : json({ users });
+    }));
+    render(<AdminUsersPage />);
+    fireEvent.change(await screen.findByPlaceholderText("Email"), { target: { value: "new@example.test" } });
+    fireEvent.change(screen.getByPlaceholderText("密碼（至少 8 字）"), { target: { value: "test-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "建立" }));
+    expect(await screen.findByText(/建立結果尚未確認/)).toBeTruthy();
+    denied = true;
+    fireEvent.click(screen.getByRole("button", { name: "重新整理並核對清單" }));
+    await waitFor(() => expect(screen.queryByPlaceholderText("Email")).toBeNull());
+    expect(screen.queryByText("test@example.test · staff")).toBeNull();
+    expect(screen.queryByLabelText("原送出申請摘要")).toBeNull();
+    expect(screen.queryByRole("button", { name: "已核對，允許重新操作" })).toBeNull();
+    expect(sessionStorage.getItem("sunrise.admin-user-create.pending.v1")).toBe("1");
+  });
+
+  it.each([401, 403])("clears old owner data when account creation returns %s", async (status) => {
+    await setup(async () => json({ error: "Forbidden" }, status));
+    fireEvent.click(screen.getByRole("button", { name: "建立" }));
+    expect(await screen.findByText("登入或權限已失效，請重新登入")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Email")).toBeNull();
+    expect(screen.queryByText("test@example.test · staff")).toBeNull();
+    await waitFor(() => expect(sessionStorage.getItem("sunrise.admin-user-create.pending.v1")).toBeNull());
+  });
+
+  it("does not let an older successful refresh restore access after POST is denied", async () => {
+    let finishPost!: (response: Response) => void;
+    let finishUsers!: (response: Response) => void;
+    let delayed = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: string, init: RequestInit = {}) => {
+      if (init.method === "POST") return new Promise<Response>((resolve) => { finishPost = resolve; });
+      if (input === "/api/admin/me") return json(me);
+      if (delayed) return new Promise<Response>((resolve) => { finishUsers = resolve; });
+      return json({ users });
+    }));
+    render(<AdminUsersPage />);
+    fireEvent.change(await screen.findByPlaceholderText("Email"), { target: { value: "new@example.test" } });
+    fireEvent.change(screen.getByPlaceholderText("密碼（至少 8 字）"), { target: { value: "test-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "建立" }));
+    delayed = true;
+    fireEvent.click(screen.getByRole("button", { name: "重新整理使用者清單" }));
+    await act(async () => { finishPost(json({ error: "Forbidden" }, 403)); });
+    expect(await screen.findByText("登入或權限已失效，請重新登入")).toBeTruthy();
+    await act(async () => { finishUsers(json({ users })); });
+    expect(screen.queryByPlaceholderText("Email")).toBeNull();
+    expect(screen.queryByText("test@example.test · staff")).toBeNull();
+  });
+
+  it("preserves the hold when an access-denied creation response has an unreadable body", async () => {
+    await setup(async () => new Response("unreadable", { status: 403 }));
+    fireEvent.click(screen.getByRole("button", { name: "建立" }));
+    expect(await screen.findByText(/建立結果尚未確認/)).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Email")).toBeNull();
+    expect(screen.queryByText("test@example.test · staff")).toBeNull();
+    expect(sessionStorage.getItem("sunrise.admin-user-create.pending.v1")).toBe("1");
+  });
+
+  it("clears stale owner data when access is revoked and the users JSON is malformed", async () => {
+    let revoked = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+      if (input === "/api/admin/me") return json(revoked ? { role: "staff", permissions: { users_manage: false } } : me);
+      return revoked ? new Response("not json") : json({ users });
+    }));
+    render(<AdminUsersPage />);
+    expect(await screen.findByText("test@example.test · staff")).toBeTruthy();
+    revoked = true;
+    fireEvent.click(screen.getByRole("button", { name: "重新整理使用者清單" }));
+    await waitFor(() => expect(screen.queryByPlaceholderText("Email")).toBeNull());
+    expect(screen.queryByText("test@example.test · staff")).toBeNull();
+  });
+
+  it("clearly labels a non-owner user with missing branch associations", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => input === "/api/admin/me"
+      ? json(me) : json({ users: [{ ...users[0], branch_ids: [] }] })));
+    render(<AdminUsersPage />);
+    expect(await screen.findByText("未設定分店，請核對")).toBeTruthy();
+  });
+
+  it("ignores an older successful verification after a newer list refresh fails", async () => {
+    let requestCount = 0;
+    let resolveOlder!: (response: Response) => void;
+    const older = new Promise<Response>((resolve) => { resolveOlder = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: string, init: RequestInit = {}) => {
+      if (init.method === "POST") throw new TypeError("network lost");
+      if (input === "/api/admin/me") return json(me);
+      requestCount++;
+      if (requestCount === 2) return older;
+      if (requestCount === 3) return json({ error: "unavailable" }, 503);
+      return json({ users });
+    }));
+    render(<AdminUsersPage />);
+    fireEvent.change(await screen.findByPlaceholderText("Email"), { target: { value: "new@example.test" } });
+    fireEvent.change(screen.getByPlaceholderText("密碼（至少 8 字）"), { target: { value: "test-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "建立" }));
+    expect(await screen.findByText(/建立結果尚未確認/)).toBeTruthy();
+    const verify = screen.getByRole("button", { name: "重新整理並核對清單" });
+    const refresh = screen.getByRole("button", { name: "重新整理使用者清單" });
+    act(() => { verify.click(); refresh.click(); });
+    expect(await screen.findByText(/無法確認使用者清單/)).toBeTruthy();
+    await act(async () => { resolveOlder(json({ users })); });
+    expect(screen.queryByRole("button", { name: "已核對，允許重新操作" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "建立" })).toBeNull();
+  });
+
+  it.each(["network", "header timeout", "body timeout", "non-json", "non-json success", "server error"])("holds a %s outcome for manual verification without resending", async (failure) => {
+    const { calls, failList } = await setup(async (init) => {
+      if (failure === "network") throw new TypeError("network lost");
+      if (failure === "header timeout") return new Promise<Response>((_resolve, reject) => {
+        init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+      });
+      if (failure === "body timeout") return new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('{"ok":')); } }));
+      if (failure === "non-json") return new Response("upstream failure", { status: 502 });
+      if (failure === "non-json success") return new Response("unexpected success page", { status: 200 });
+      return json({ error: "audit write failed" }, 500);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "建立" }));
+    expect(await screen.findByText(/建立結果尚未確認/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "建立" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByPlaceholderText("密碼（至少 8 字）") as HTMLInputElement).value).toBe("");
+    expect(calls).toHaveLength(1);
+    failList(true);
+    fireEvent.click(screen.getByRole("button", { name: "重新整理並核對清單" }));
+    expect(await screen.findByText(/無法確認使用者清單/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "已核對，允許重新操作" })).toBeNull();
+    failList(false);
+    fireEvent.click(screen.getByRole("button", { name: "重新整理並核對清單" }));
+    const unlock = await screen.findByRole("button", { name: "已核對，允許重新操作" });
+    vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    fireEvent.click(unlock);
+    expect((screen.getByRole("button", { name: "建立" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(unlock);
+    await waitFor(() => expect((screen.getByRole("button", { name: "建立" }) as HTMLButtonElement).disabled).toBe(false));
+    expect(calls).toHaveLength(1);
+  });
+});

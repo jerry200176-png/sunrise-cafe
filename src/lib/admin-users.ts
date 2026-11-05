@@ -38,22 +38,29 @@ export async function findAdminUserByEmail(email: string) {
 }
 
 export async function listAdminUsers(): Promise<AdminUserRow[]> {
-  const { data: users, error } = await db()
+  const { data: users, error, count: userCount } = await db()
     .from("admin_users")
-    .select("id, email, display_name, role, is_active, created_at")
+    .select("id, email, display_name, role, is_active, created_at", { count: "exact" })
     .order("created_at", { ascending: true });
-  if (error) throw error;
+  if (error || !Array.isArray(users) || userCount == null || users.length !== userCount) {
+    throw new Error("無法確認完整使用者清單");
+  }
 
-  const { data: links } = await db().from("admin_user_branches").select("user_id, branch_id");
+  const { data: links, error: linksError, count: linkCount } = await db().from("admin_user_branches")
+    .select("user_id, branch_id", { count: "exact" });
+  if (linksError || !Array.isArray(links) || linkCount == null || links.length !== linkCount ||
+      links.some((row) => typeof row.user_id !== "string" || typeof row.branch_id !== "string")) {
+    throw new Error("無法確認完整使用者分店關聯");
+  }
 
   const byUser = new Map<string, string[]>();
-  for (const row of links ?? []) {
+  for (const row of links) {
     const list = byUser.get(row.user_id as string) ?? [];
     list.push(row.branch_id as string);
     byUser.set(row.user_id as string, list);
   }
 
-  return (users ?? []).map((u) => ({
+  return users.map((u) => ({
     id: u.id as string,
     email: u.email as string,
     display_name: u.display_name as string,

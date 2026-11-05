@@ -19,14 +19,16 @@ export async function GET(request: NextRequest) {
   const denied = await requirePermission(request, "orders:read", branchId);
   if (denied) return denied;
 
-  const { data, error } = await adminClient()
+  const { data, error, count } = await adminClient()
     .from("tables")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("branch_id", branchId)
     .order("number");
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json(data ?? []);
+  if (error || !Array.isArray(data) || count === null || data.length !== count) {
+    return NextResponse.json({ error: "無法確認完整桌位清單，請稍後再試" }, { status: 503 });
+  }
+  return NextResponse.json(data);
 }
 
 export async function POST(request: NextRequest) {

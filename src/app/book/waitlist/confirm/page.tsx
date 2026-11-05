@@ -4,8 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle2, Clock, XCircle } from "lucide-react";
-import { format, parseISO } from "date-fns";
-import { enUS, ja, zhTW } from "date-fns/locale";
+import { formatWaitlistRange } from "@/lib/waitlist-time";
 import { CopyBookingCodeButton } from "@/components/CopyBookingCodeButton";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
@@ -18,16 +17,6 @@ interface WaitlistDetail {
   end_time: string;
   room_name: string;
   branch_name: string;
-}
-
-function formatRange(startIso: string, endIso: string, locale: "zh-TW" | "en" | "ja") {
-  const dateFnsLocale = locale === "en" ? enUS : locale === "ja" ? ja : zhTW;
-  const start = parseISO(startIso);
-  const end = parseISO(endIso);
-  const dateLabel = format(start, "M/d (EEE)", { locale: dateFnsLocale });
-  const startLabel = format(start, "HH:mm");
-  const endLabel = format(end, "HH:mm");
-  return `${dateLabel} ${startLabel}–${endLabel}`;
 }
 
 function ConfirmContent() {
@@ -144,7 +133,7 @@ function ConfirmContent() {
               <div className="mt-5 space-y-1 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">
                 <p>👤 {detail.customer_name}</p>
                 <p>🏠 {detail.branch_name} — {detail.room_name}</p>
-                <p>📅 {formatRange(detail.start_time, detail.end_time, locale)}</p>
+                <p>📅 {formatWaitlistRange(detail.start_time, detail.end_time, locale)}</p>
               </div>
               <p className="mt-4 text-center text-xs text-gray-500">{t("waitlistConfirm.pendingNote")}</p>
               <button

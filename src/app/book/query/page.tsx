@@ -3,11 +3,12 @@
 import { useState, useEffect, useCallback, useRef, Suspense, useMemo } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Calendar, Clock, Search, Copy, CalendarPlus, MapPin, Phone, ExternalLink } from "lucide-react";
+import { Calendar, Clock, Search, CalendarPlus, MapPin, Phone, ExternalLink } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { enUS, ja, zhTW } from "date-fns/locale";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { CustomerShell } from "@/components/customer/CustomerShell";
+import { GuestCopyButton } from "@/components/GuestCopyButton";
 import { EmptyState } from "@/components/customer/EmptyState";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { computeDepositDeadline, getDepositUrgency } from "@/lib/deposit-deadline";
@@ -18,6 +19,7 @@ import {
 } from "@/lib/slot-grid";
 import { buildGoogleCalendarUrl } from "@/lib/booking-ics";
 import { getPaymentDisplayState } from "@/lib/payment-display";
+import { scrollIntoViewForInteraction } from "@/lib/interaction-scroll";
 
 const PREORDER_ENABLED = process.env.NEXT_PUBLIC_RESERVATION_PREORDER_ENABLED === "1";
 
@@ -108,31 +110,13 @@ function BookQueryContent() {
   const [rescheduleSubmitting, setRescheduleSubmitting] = useState(false);
   const [rescheduleError, setRescheduleError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
-  const [paymentInfoCopiedId, setPaymentInfoCopiedId] = useState<string | null>(null);
   const [transferReports, setTransferReports] = useState<Record<string, { lastFive: string; amount: string }>>({});
   const [reportingDepositId, setReportingDepositId] = useState<string | null>(null);
   const [paymentReportErrors, setPaymentReportErrors] = useState<Record<string, string>>({});
-  const [copiedBookingId, setCopiedBookingId] = useState<string | null>(null);
   const depositViewedRef = useRef<Set<string>>(new Set());
   const stickyViewedRef = useRef(false);
 
-  const copyPaymentInfo = useCallback((id: string, text: string) => {
-    if (!text.trim()) return;
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(text);
-    } else {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-    }
-    setPaymentInfoCopiedId(id);
-    window.setTimeout(() => setPaymentInfoCopiedId(null), 2000);
-  }, []);
-
-  const copyBookingDetails = useCallback((item: BookingItem) => {
+  const bookingDetailsText = useCallback((item: BookingItem) => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
     const effectiveToken = item.lookup_token || lookupToken;
     const manageUrl = origin
@@ -153,19 +137,7 @@ function BookQueryContent() {
       item.branch_address ? `地址：${item.branch_address}` : null,
       `查詢或修改訂位：${manageUrl}`,
     ].filter(Boolean) as string[];
-    const text = lines.join("\n");
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(text);
-    } else {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-    }
-    setCopiedBookingId(item.id);
-    window.setTimeout(() => setCopiedBookingId(null), 2000);
+    return lines.join("\n");
   }, [lookupToken]);
 
   const unpaidDepositItems = useMemo(
@@ -453,7 +425,7 @@ function BookQueryContent() {
 
   useEffect(() => {
     if (!reschedulingItem) return;
-    reschedulePanelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    scrollIntoViewForInteraction(reschedulePanelRef.current, { block: "nearest" });
     const input = document.getElementById(`reschedule-date-${reschedulingItem.id}`);
     if (input instanceof HTMLInputElement) {
       input.focus();
@@ -711,14 +683,13 @@ function BookQueryContent() {
                       <p className="font-medium text-gray-900">
                         {item.branch_display_name || item.branch_name} · {item.room_name}
                       </p>
-                      <button
-                        type="button"
-                        onClick={() => copyBookingDetails(item)}
+                      <GuestCopyButton
+                        identity={JSON.stringify([item, lookupToken])}
+                        getText={() => bookingDetailsText(item)}
+                        label={t("query.copyReceipt")}
+                        copiedLabel={t("query.receiptCopied")}
                         className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-900 border border-gray-200 px-2 py-0.5 rounded hover:bg-gray-50"
-                      >
-                        <Copy className="h-3 w-3" />
-                        {copiedBookingId === item.id ? t("query.receiptCopied") : t("query.copyReceipt")}
-                      </button>
+                      />
                     </div>
                     <p className="mt-0.5 text-sm text-gray-500">
                       {t("query.bookingCode")}<span className="font-mono">{item.booking_code}</span>
@@ -960,14 +931,13 @@ function BookQueryContent() {
                                   {item.payment_info.trim()}
                                 </div>
                                 <div className="flex justify-end pt-2 border-t border-gray-100">
-                                  <button
-                                    type="button"
-                                    onClick={() => copyPaymentInfo(item.id, item.payment_info!.trim())}
+                                  <GuestCopyButton
+                                    identity={item.payment_info!.trim()}
+                                    getText={() => item.payment_info!.trim()}
+                                    label={t("query.copyPaymentInfo")}
+                                    copiedLabel={t("query.paymentInfoCopied")}
                                     className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100 transition"
-                                  >
-                                    <Copy className="h-3.5 w-3.5" />
-                                    {paymentInfoCopiedId === item.id ? t("query.paymentInfoCopied") : t("query.copyPaymentInfo")}
-                                  </button>
+                                  />
                                 </div>
                               </div>
                             ) : (
@@ -1339,7 +1309,7 @@ function BookQueryContent() {
             )}
             <button
               type="button"
-              onClick={() => document.getElementById(`transfer-report-${unpaidDepositItem.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" })}
+              onClick={() => scrollIntoViewForInteraction(document.getElementById(`transfer-report-${unpaidDepositItem.id}`), { block: "center" })}
               className="flex flex-1 items-center justify-center rounded-lg border-2 border-amber-700 bg-amber-50 px-3 py-3 text-sm font-bold text-amber-900 hover:bg-amber-100"
             >
               {t("query.paymentReportCta")}

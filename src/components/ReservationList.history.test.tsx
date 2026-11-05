@@ -139,7 +139,7 @@ describe("ReservationList server-scoped lists", () => {
     );
     renderList();
     expect(await screen.findByText("P1")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toContain("付款待審核標記暫時無法載入");
+    expect(screen.getByText(/部分資料暫時無法載入/).textContent).toContain("付款待審核標記暫時無法載入");
   });
 
   it("uses the server's branch-wide visit count for the 熟客 badge", async () => {

@@ -5,7 +5,7 @@
  * - 結帳：包廂費（依目前起訖時間，含延時）＋ 餐費 − 已付訂金 = 現場應收。
  * - 延時：新結束時間不得早於開始、不得壓到同包廂下一組（DB exclusion constraint 仍是最後防線）。
  */
-import { getDepositAmount, isWeekendDate } from "@/lib/booking-utils";
+import { getDepositAmount, isWeekendDate, taipeiDateForInstant } from "@/lib/booking-utils";
 import { SLOT_STEP_MS } from "@/lib/slot-grid";
 
 /** 快到時間提醒（分鐘） */
@@ -42,9 +42,6 @@ export type RoomFloorState = {
 
 const WAITING = new Set(["pending", "confirmed"]);
 const ms = (iso: string) => new Date(iso).getTime();
-/** 台北日曆日（YYYY-MM-DD）。DB 回 UTC 時間，台北 08:00 前用 slice 會差一天。 */
-const taipeiDay = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(new Date(iso));
-
 export function roomFloorState(
   reservations: FloorReservation[],
   nowMs: number,
@@ -109,7 +106,9 @@ export function computeCheckoutBill(input: {
   /** 延長紀錄加總（#444）。有給就照「預約總價＋延長差額」算，和 settle_reservation_checkout 一致 */
   extensions?: { minutes: number; fee: number } | null;
 }): CheckoutBill {
-  const isWeekend = isWeekendDate(taipeiDay(input.startTime));
+  const startDate = taipeiDateForInstant(input.startTime);
+  if (!startDate) throw new RangeError("Invalid time value");
+  const isWeekend = isWeekendDate(startDate);
   const hourlyRate = Number(isWeekend ? input.room.price_weekend : input.room.price_weekday) || 0;
   const hours = Math.max(0, (ms(input.endTime) - ms(input.startTime)) / 3_600_000);
   const ext = input.extensions ?? null;

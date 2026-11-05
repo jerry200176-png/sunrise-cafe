@@ -21,6 +21,14 @@ describe("pickUnprinted", () => {
     ];
     expect(pickUnprinted(orders, new Set(["session"]), NOW).map((o) => o.id)).toEqual(["old-ok", "new"]);
   });
+  it("prints an initially empty order after its delayed items appear", () => {
+    const order = mk({ id: "delayed", order_items: [] });
+    expect(pickUnprinted([order], new Set(), NOW)).toEqual([]);
+    expect(pickUnprinted([{ ...order, order_items: [{ id: "item" } as never] }], new Set(), NOW + 1000).map((item) => item.id)).toEqual(["delayed"]);
+  });
+  it("does not print an order whose schema-legal creation time is null", () => {
+    expect(pickUnprinted([{ ...mk({ id: "unknown-time" }), created_at: null }], new Set(), NOW)).toEqual([]);
+  });
 });
 
 describe("reconnectDelayMs", () => {
