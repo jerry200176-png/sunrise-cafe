@@ -38,6 +38,9 @@ assert.match(codeOnlyWorkflow, /verify-production:\s*\n\s*needs:\s*release\s*\n\
 assert.match(codeOnlyWorkflow, /needs:\s*\[release, verify-production\][\s\S]*needs\.release\.result != 'success' \|\| needs\.verify-production\.result != 'success'/);
 assert.match(codeOnlyWorkflow, /candidate:\s*\$\{\{ steps\.create\.outputs\.candidate \}\}/);
 assert.match(codeOnlyWorkflow, /CANDIDATE_ID:\s*\$\{\{ needs\.release\.outputs\.candidate \}\}/);
+// deploy-health reads the main head this job records; production-deploy-migrate is disabled.
+assert.match(codeOnlyWorkflow.split("record-head:")[1] ?? "", /run: node scripts\/record-deploy-health-head\.mjs/);
+assert.doesNotMatch(codeOnlyWorkflow.split("record-head:")[0], /SUPABASE_SERVICE_ROLE_KEY/);
 assert.match(identityScript, /--workflow=production-code-only\.yml/);
 assert.match(codeOnlyWorkflow, /recovery:[\s\S]*always\(\)[\s\S]*download-artifact@[a-f0-9]{40}[\s\S]*code-only-release\.py recover/);
 assert.match(deployWorkflow, /cancel-in-progress:\s*false/);
