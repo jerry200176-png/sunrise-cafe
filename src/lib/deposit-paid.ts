@@ -210,7 +210,10 @@ export async function updateDepositInfo(
 
 export type StripeIntentFacts = {
   id: string;
+  object: string;
+  status: string;
   amount: number;
+  amount_received: number;
   currency: string;
   metadata?: Record<string, string> | null;
 };
@@ -223,11 +226,13 @@ export type StripeBindingEffects = {
 
 const supabaseBindingEffects: StripeBindingEffects = {
   async intentReservationId(piId) {
-    const { data } = await db().from("payment_intents").select("reservation_id").eq("stripe_pi_id", piId).maybeSingle();
+    const { data, error } = await db().from("payment_intents").select("reservation_id").eq("stripe_pi_id", piId).maybeSingle();
+    if (error) throw new Error("Stripe payment binding unavailable");
     return (data?.reservation_id as string | undefined) ?? null;
   },
   async totalPrice(id) {
-    const { data } = await db().from("reservations").select("total_price").eq("id", id).maybeSingle();
+    const { data, error } = await db().from("reservations").select("total_price").eq("id", id).maybeSingle();
+    if (error) throw new Error("Reservation amount unavailable");
     return data?.total_price == null ? null : Number(data.total_price);
   },
 };
@@ -241,14 +246,34 @@ export async function verifyStripeIntentForReservation(
   pi: StripeIntentFacts,
   reservationId: string,
   fx: StripeBindingEffects = supabaseBindingEffects
-): Promise<{ ok: true } | { ok: false; status: 403 | 409; error: string }> {
-  const bound = await fx.intentReservationId(pi.id);
-  if (pi.metadata?.reservationId !== reservationId || (bound !== null && bound !== reservationId)) {
+): Promise<{ ok: true } | { ok: false; status: 403 | 409 | 503; error: string }> {
+  if (!pi || pi.object !== "payment_intent" || typeof pi.id !== "string" || !pi.id || pi.status !== "succeeded") {
+    return { ok: false, status: 409, error: "付款狀態無法確認" };
+  }
+  if (pi.metadata?.reservationId !== reservationId) {
     return { ok: false, status: 403, error: "付款與此預約不符" };
   }
-  const total = await fx.totalPrice(reservationId);
-  const required = total == null ? 0 : getDepositAmount(total);
-  if (pi.currency.toLowerCase() !== "twd" || !(pi.amount > 0) || pi.amount < required) {
+  let bound: string | null;
+  let total: number | null;
+  try {
+    bound = await fx.intentReservationId(pi.id);
+    if (bound === null) return { ok: false, status: 503, error: "付款資料暫時無法確認，請聯繫店家" };
+    if (bound !== reservationId) return { ok: false, status: 403, error: "付款與此預約不符" };
+    total = await fx.totalPrice(reservationId);
+  } catch {
+    return { ok: false, status: 503, error: "付款資料暫時無法確認，請聯繫店家" };
+  }
+  if (total === null || !Number.isFinite(total) || total <= 0) {
+    return { ok: false, status: 503, error: "訂位金額暫時無法確認，請聯繫店家" };
+  }
+  // Stripe TWD charge amounts are minor units; our booking prices are TWD.
+  const required = getDepositAmount(total) * 100;
+  if (!Number.isSafeInteger(required) || required <= 0) {
+    return { ok: false, status: 503, error: "訂位金額暫時無法確認，請聯繫店家" };
+  }
+  if (typeof pi.currency !== "string" || pi.currency.toLowerCase() !== "twd" ||
+      !Number.isSafeInteger(pi.amount) || !Number.isSafeInteger(pi.amount_received) ||
+      pi.amount <= 0 || pi.amount_received < required || pi.amount_received > pi.amount) {
     return { ok: false, status: 409, error: "付款金額不足" };
   }
   return { ok: true };

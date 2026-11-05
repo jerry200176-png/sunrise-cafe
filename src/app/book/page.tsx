@@ -154,6 +154,8 @@ export default function BookPage() {
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [pendingReservationId, setPendingReservationId] = useState("");
   const [pendingReservationCode, setPendingReservationCode] = useState("");
+  const [pendingLookupToken, setPendingLookupToken] = useState<string | null>(null);
+  const [pendingPaymentPhone, setPendingPaymentPhone] = useState("");
   const [stripeLiveEnabled, setStripeLiveEnabled] = useState(false);
   const paymentModalTriggered = useRef(false);
   const funnelEntered = useRef(false);
@@ -787,6 +789,8 @@ export default function BookPage() {
           paymentModalTriggered.current = true;
           setPendingReservationId(reservationId);
           setPendingReservationCode(code);
+          setPendingLookupToken(lookupToken ?? null);
+          setPendingPaymentPhone(phone.trim());
           setPaymentModalOpen(true);
           return;
         }
@@ -1648,6 +1652,9 @@ export default function BookPage() {
           reservationId={pendingReservationId}
           branchId={branchId}
           amount={depositAmount}
+          lookupToken={pendingLookupToken}
+          phone={pendingPaymentPhone}
+          bookingCode={pendingReservationCode}
           onClose={handlePaymentClose}
           onPaymentComplete={handlePaymentComplete}
         />

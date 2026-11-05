@@ -114,7 +114,7 @@ describe("verifyStripeIntentForReservation (binding + amount)", () => {
     intentReservationId: async () => boundTo,
     totalPrice: async () => total,
   });
-  const pi = (over = {}) => ({ id: "pi_1", amount: 500, currency: "twd", metadata: { reservationId: "r1" }, ...over });
+  const pi = (over = {}) => ({ id: "pi_1", object: "payment_intent", status: "succeeded", amount: 50000, amount_received: 50000, currency: "twd", metadata: { reservationId: "r1" }, ...over });
   const check = (p: ReturnType<typeof pi>, f = fx("r1", 1000)) => verifyStripeIntentForReservation(p, "r1", f);
 
   it("correct, sufficient intent is accepted", async () => {
@@ -130,7 +130,24 @@ describe("verifyStripeIntentForReservation (binding + amount)", () => {
     expect(await check(pi({ metadata: {} }))).toMatchObject({ ok: false, status: 403 });
   });
   it("underpaid and wrong-currency intents are refused", async () => {
-    expect(await check(pi({ amount: 100 }))).toMatchObject({ ok: false, status: 409 });
+    expect(await check(pi({ amount: 500, amount_received: 500 }))).toMatchObject({ ok: false, status: 409 });
     expect(await check(pi({ currency: "usd" }))).toMatchObject({ ok: false, status: 409 });
+  });
+  it("distinguishes missing evidence or unavailable totals from confirmed mismatches", async () => {
+    expect(await check(pi(), fx(null, 1000))).toMatchObject({ ok: false, status: 503 });
+    for (const total of [null, 0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(await check(pi(), fx("r1", total))).toMatchObject({ ok: false, status: 503 });
+    }
+    expect(await check(pi(), { intentReservationId: async () => { throw new Error("synthetic DB error"); }, totalPrice: async () => 1000 })).toMatchObject({ ok: false, status: 503 });
+    expect(await check(pi(), { intentReservationId: async () => "r1", totalPrice: async () => { throw new Error("synthetic DB error"); } })).toMatchObject({ ok: false, status: 503 });
+  });
+  it("requires a successful PaymentIntent with sufficient actually received minor units", async () => {
+    expect(await check(pi({ status: "processing" }))).toMatchObject({ ok: false, status: 409 });
+    expect(await check(pi({ object: "charge" }))).toMatchObject({ ok: false, status: 409 });
+    expect(await check(pi({ id: "" }))).toMatchObject({ ok: false, status: 409 });
+    expect(await check(pi({ amount_received: 49999 }))).toMatchObject({ ok: false, status: 409 });
+    expect(await check(pi({ amount_received: 50001 }))).toMatchObject({ ok: false, status: 409 });
+    expect(await check(pi({ amount: 50000.5 }))).toMatchObject({ ok: false, status: 409 });
+    expect(await check(pi({ amount_received: Number.NaN }))).toMatchObject({ ok: false, status: 409 });
   });
 });

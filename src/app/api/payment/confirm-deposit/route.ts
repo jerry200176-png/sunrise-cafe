@@ -3,6 +3,9 @@ import { stripe, isStripeEnabled } from "@/lib/stripe";
 import { createClient } from "@supabase/supabase-js";
 import { markDepositPaid, verifyStripeIntentForReservation } from "@/lib/deposit-paid";
 import { logOps } from "@/lib/ops-log";
+import { verifyGuestBookingByTokenOrCredentials } from "@/lib/guest-auth";
+import { enforceGuestLookupLimit } from "@/lib/guest-rate-limit";
+import { getLookupSigningSecret } from "@/lib/lookup-token";
 
 function supabaseAdmin() {
   return createClient(
@@ -36,12 +39,30 @@ export async function POST(request: NextRequest) {
       reservationId: string;
     };
 
-    if (!paymentIntentId || !reservationId) {
+    if (typeof paymentIntentId !== "string" || !paymentIntentId || typeof reservationId !== "string" || !reservationId) {
       return NextResponse.json(
         { error: "缺少必填欄位（paymentIntentId, reservationId）" },
         { status: 400 }
       );
     }
+
+    // Authenticate the guest before accessing the payment provider or changing state.
+    if ([body.token, body.phone, body.bookingCode].some((value) => value != null && typeof value !== "string")) {
+      return NextResponse.json({ error: "付款驗證資料格式不正確" }, { status: 400 });
+    }
+    const limit = await enforceGuestLookupLimit(request, "");
+    if (limit) return limit;
+    if (typeof body.token === "string" && body.token.trim() && process.env.NODE_ENV === "production" &&
+        getLookupSigningSecret() === "sunrise-guest-lookup-dev-secret") {
+      return NextResponse.json({ error: "付款驗證暫時無法使用，請聯繫店家" }, { status: 503 });
+    }
+    const guest = await verifyGuestBookingByTokenOrCredentials({
+      id: reservationId,
+      token: typeof body.token === "string" ? body.token : null,
+      phone: typeof body.phone === "string" ? body.phone : null,
+      bookingCode: typeof body.bookingCode === "string" ? body.bookingCode : null,
+    });
+    if (!guest.ok) return NextResponse.json({ error: guest.error }, { status: guest.status });
 
     // 從 Stripe 取得 PaymentIntent 最新狀態
     const paymentIntent = await stripe!.paymentIntents.retrieve(paymentIntentId);
@@ -58,9 +79,12 @@ export async function POST(request: NextRequest) {
       .from("reservations")
       .select("id, deposit_status, is_deposit_paid")
       .eq("id", reservationId)
-      .single();
+      .maybeSingle();
 
-    if (resError || !reservation) {
+    if (resError) {
+      return NextResponse.json({ error: "付款資料暫時無法確認，請稍後再試或聯繫店家" }, { status: 503 });
+    }
+    if (!reservation) {
       return NextResponse.json({ error: "預約不存在" }, { status: 404 });
     }
 
@@ -89,9 +113,8 @@ export async function POST(request: NextRequest) {
       status: "succeeded",
       depositStatus: "paid",
     });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "確認付款失敗";
-    console.error("[confirm-deposit] error:", err);
-    return NextResponse.json({ error: message }, { status: 500 });
+  } catch {
+    console.error("[confirm-deposit] payment confirmation failed");
+    return NextResponse.json({ error: "確認付款失敗，請稍後再試或聯繫店家" }, { status: 500 });
   }
 }
