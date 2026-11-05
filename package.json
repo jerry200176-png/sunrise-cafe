@@ -67,10 +67,10 @@
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "recharts": "^3.10.1",
-    "resend": "^6.35.0",
+    "resend": "^6.37.0",
     "stripe": "~22.3.2",
-    "three": "0.186.1",
-    "ws": "^8.22.0"
+    "three": "0.187.0",
+    "ws": "^8.22.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
@@ -80,7 +80,7 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@types/three": "0.186.0",
+    "@types/three": "0.187.0",
     "cross-env": "^7.0.3",
     "dotenv": "^16.4.5",
     "eslint": "^9",
