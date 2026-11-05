@@ -337,6 +337,7 @@ export default function AdminOrdersPage() {
             accentColor="yellow"
             orders={pendingOrders}
             lockedOrders={lockedOrders}
+            reviewState={reviewState}
             onAction={(id) => updateStatus(id, "preparing")}
             actionLabel="開始備餐"
             actionIcon={<ChefHat className="h-4 w-4" />}
@@ -349,6 +350,7 @@ export default function AdminOrdersPage() {
             accentColor="blue"
             orders={preparingOrders}
             lockedOrders={lockedOrders}
+            reviewState={reviewState}
             onAction={(id) => updateStatus(id, "ready")}
             actionLabel="完成出餐"
             actionIcon={<Bell className="h-4 w-4" />}
@@ -361,6 +363,7 @@ export default function AdminOrdersPage() {
             accentColor="green"
             orders={readyOrders}
             lockedOrders={lockedOrders}
+            reviewState={reviewState}
             onAction={(id) => updateStatus(id, "completed")}
             actionLabel="已出餐"
             actionIcon={<CheckCircle className="h-4 w-4" />}
@@ -384,6 +387,7 @@ function KanbanColumn({
   accentColor,
   orders,
   lockedOrders,
+  reviewState,
   onAction,
   actionLabel,
   actionIcon,
@@ -393,6 +397,7 @@ function KanbanColumn({
   accentColor: "yellow" | "blue" | "green";
   orders: AdminOrderListRow[];
   lockedOrders: Set<string>;
+  reviewState: Map<string, Review>;
   onAction: (id: string) => void;
   actionLabel: string;
   actionIcon: React.ReactNode;
@@ -425,6 +430,7 @@ function KanbanColumn({
             actionIcon={actionIcon}
             btnColor={btnColor}
             locked={lockedOrders.has(order.id)}
+            needsReview={reviewState.has(order.id)}
           />
         ))}
       </div>
@@ -439,6 +445,7 @@ function OrderCard({
   actionIcon,
   btnColor,
   locked,
+  needsReview,
 }: {
   order: AdminOrderListRow;
   onAction: (id: string) => void;
@@ -446,6 +453,7 @@ function OrderCard({
   actionIcon: React.ReactNode;
   btnColor: string;
   locked: boolean;
+  needsReview: boolean;
 }) {
   const timeStr = order.created_at === null ? "時間未提供" : format(parseISO(order.created_at), "HH:mm", { locale: zhTW });
 
@@ -490,11 +498,13 @@ function OrderCard({
           className="inline-flex min-h-[44px] items-center rounded-lg bg-amber-700 px-4 text-sm font-medium text-white">查看餐點與出餐</Link> : <button
           type="button"
           disabled={locked}
+          aria-busy={locked && !needsReview}
+          aria-label={locked ? `訂單操作${needsReview ? "待核對" : "處理中"}` : undefined}
           onClick={() => onAction(order.id)}
           className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-lg px-4 text-sm font-medium text-white disabled:opacity-50 ${btnColor}`}
         >
           {actionIcon}
-          {actionLabel}
+          {locked ? (needsReview ? "待核對" : "處理中…") : actionLabel}
         </button>}
       </div>
     </div>

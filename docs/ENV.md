@@ -108,8 +108,8 @@
 
 ## Deploy-health source of truth
 
-deploy-health 不需要 Vercel Production 的 GitHub token。既有的
-`production-deploy-migrate` GitHub Actions workflow 在處理 `main` 時，使用
+deploy-health 不需要 Vercel Production 的 GitHub token。
+`production-code-only` workflow 的 `record-head` job 在每次 `main` push 時，使用
 workflow 內建的 repository-scoped identity 記錄 `github.sha` 到 Supabase
 `ops_events`；production Cron 只讀取這筆受控 metadata，再與公開的
 `/api/version` 比對。這避免個人 PAT、GitHub App private key 與 runtime

@@ -1,29 +1,17 @@
 {
   "approved_files": {
-    "docs/plans/2026-11-taipei-price-date.md":
-      "001e029a31521de4684d61e8a4ea079febe51e48",
-    "e2e/booking-price-timezone.spec.ts":
-      "e69840f92dbd61fdf2f8c24f9f217b706492a1fd",
-    "scripts/code-only-release.py":
-      "f7fa1ce2f6fc9839a62ff4c86f5177b31a7eb02f",
-    "src/app/api/reservations/route.test.ts":
-      "f1742469c71fd46d8a63cf07f27ef50c3230808c",
-    "src/app/api/waitlist/confirm/route.test.ts":
-      "4e87ce6047c51b109687dc0997e2c0baea4327e0",
-    "src/app/api/waitlist/confirm/route.ts":
-      "d0f62140e2edc41bcb1d6d2b18c17e4283a2eeb8",
-    "src/app/book/booking-price.integration.test.tsx":
-      "bad5e31c83fefce6b978c8219a71bee79b4fa2bf",
-    "src/app/book/page.tsx":
-      "d6f85508ea65a1491d52468b757e116601b1e0b8",
-    "src/lib/booking-utils.test.ts":
-      "81ffc5bffeefca0db9807440e184f4f5d6973d24",
-    "src/lib/booking-utils.ts":
-      "2469095b78ffae44544622171c9153a204c1b981",
-    "src/lib/room-checkout.test.ts":
-      "d6b214b2466e60ce9570dfca554a5a7b01e406e0",
-    "src/lib/room-checkout.ts":
-      "d092009fe62f5a579548ba6999ef7fcff74d7af5"
+    ".github/workflows/production-code-only.yml": "d1cb1dbf21756745eb8c0e6b3184867a5e1b7326",
+    "docs/ENV.md": "7447880984e428ef9342cfe9d3abc89fa476ce6f",
+    "docs/plans/2026-11-order-board-action-feedback.md": "53e1e8a72bd8d21f98401dfb62029965808bec12",
+    "scripts/code-only-release.py": "28083b9f7fde865850b5ad78bbf712f15b498a76",
+    "scripts/verify-production-workflow-contract.mjs": "2b9130c8a4e16e1744e00b3150e3c7419eeb77d6",
+    "src/app/admin/orders/page.refresh.test.tsx": "df8aa99c07eec801fbeba1bedeab3bb5f209130c",
+    "src/app/admin/orders/page.tsx": "81ec19349cd70aa2895bb3e5a6ee3cbb6c792953",
+    "src/components/ReservationList.restore.test.tsx": "dce6d858fc01473cc87a00b7a5181904a970b2e5",
+    "src/components/ReservationList.tsx": "f8d007382f2ad444ae6f42c76123a71b82b28e46",
+    "src/lib/reservation-lifecycle.supabase.test.ts": "b8871ceb18104bcff27bf11533860f039bb74414",
+    "src/lib/reservation-lifecycle.test.ts": "3d81445158a2fe38e86c204c9724a4ff22c29517",
+    "src/lib/reservation-lifecycle.ts": "0e6822ca285e4e6b384debfd8536cabf598e664f"
   },
-  "baseline": "e55ffb4792ee37dc94b2c45cb8ce3d2168a90f7e"
+  "baseline": "893977a6f1411698409d2080c79951e506b8d9a2"
 }
