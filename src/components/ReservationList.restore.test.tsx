@@ -108,7 +108,7 @@ describe("ReservationList history restore (一鍵還原)", () => {
     const confirmButtons = within(dialog).getAllByRole("button");
     fireEvent.click(confirmButtons[confirmButtons.length - 1]);
 
-    expect(await screen.findByText("原時段已被佔用")).toBeTruthy();
+    expect(await screen.findByText(/原時段已被佔用/)).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /一鍵還原/ })).toHaveLength(3);
     expect(calls.filter((call) => call.init?.method === "PATCH")).toHaveLength(1);
   });
