@@ -23,7 +23,7 @@ REPO = '/repos/jerry200176-png/sunrise-cafe'
 SHA = re.compile(r'[a-f0-9]{40}\Z')
 DEPLOYMENT = re.compile(r'dpl_[A-Za-z0-9]+\Z')
 MAX_BODY = 1024 * 1024
-APPROVED_BASELINE = 'e55ffb4792ee37dc94b2c45cb8ce3d2168a90f7e'
+APPROVED_BASELINE = '9d92aef84bd95fdecd4922555a4117fdd0c377b4'
 CONTROL_FILES = frozenset({
     '.github/workflows/ci.yml', '.github/workflows/production-code-only.yml',
     '.github/workflows/production-deploy-migrate.yml', '.github/workflows/verify-production.yml',
@@ -40,6 +40,29 @@ source = importlib.util.module_from_spec(spec); spec.loader.exec_module(source)
 
 
 class Unknown(Exception):
+    pass
+
+
+HTTP_CATEGORIES = frozenset({'http_2xx', 'http_429', 'http_4xx', 'http_5xx', 'http_other', 'unclassified'})
+
+
+def http_category(code):
+    # Never stringify untrusted status, reason, URL, headers or response body.
+    if type(code) is not int or not 100 <= code <= 599: return 'unclassified'
+    if code == 429: return 'http_429'
+    if 400 <= code <= 499: return 'http_4xx'
+    if 500 <= code <= 599: return 'http_5xx'
+    if 200 <= code <= 299: return 'http_2xx'
+    return 'http_other'
+
+
+class HTTPStatusUnknown(Unknown):
+    def __init__(self, category):
+        super().__init__('upstream response unconfirmed')
+        self.category = category if type(category) is str and category in HTTP_CATEGORIES else 'unclassified'
+
+
+class CreateStatusUnknown(HTTPStatusUnknown):
     pass
 
 
@@ -69,12 +92,25 @@ class HTTP:
             # The workflow supplies its own credential; do not inherit proxy
             # settings that could receive it or redirect the API request.
             with urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect()).open(req, timeout=timeout) as response:
-                raw = response.read(MAX_BODY + 1)
-                if len(raw) > MAX_BODY: raise Unknown('response too large')
+                try:
+                    raw = response.read(MAX_BODY + 1)
+                    if len(raw) > MAX_BODY: raise ValueError('response too large')
+                except Exception:
+                    try: category = http_category(response.status)
+                    except Exception: category = 'unclassified'
+                    raise HTTPStatusUnknown(category) from None
                 if not raw: return response.status, {}, b''
                 try: value = json.loads(raw, object_pairs_hook=source.strict_object)
                 except Exception: value = None
                 return response.status, value, raw
+        except urllib.error.HTTPError as exc:
+            try: category = http_category(exc.code)
+            except Exception: category = 'unclassified'
+            try: exc.close()
+            except Exception: pass
+            raise HTTPStatusUnknown(category) from None
+        except HTTPStatusUnknown:
+            raise
         except Exception:
             raise Unknown('upstream request failed or outcome unknown') from None
 
@@ -102,7 +138,7 @@ class Vercel:
     def request(self, path, body=None):
         status, result, _ = self.http.request('api.vercel.com', path + ('&' if '?' in path else '?') +
                                               urllib.parse.urlencode({'teamId': TEAM}), self.token, body)
-        if not 200 <= status < 300 or not isinstance(result, dict): raise Unknown('Vercel response invalid')
+        if not 200 <= status < 300 or not isinstance(result, dict): raise HTTPStatusUnknown(http_category(status))
         return result
     def alias(self):
         result = self.request('/v4/aliases/' + HOST)
@@ -117,11 +153,14 @@ class Vercel:
             raise Unknown('deployment project mismatch')
         return result
     def create(self, sha):
-        result = self.request('/v13/deployments', {'name': 'sunrise-cafe', 'project': PROJECT,
-            'target': 'production', 'gitSource': {'type': 'github', 'org': 'jerry200176-png',
-            'repo': 'sunrise-cafe', 'ref': 'main', 'sha': sha}})
+        try:
+            result = self.request('/v13/deployments', {'name': 'sunrise-cafe', 'project': PROJECT,
+                'target': 'production', 'gitSource': {'type': 'github', 'org': 'jerry200176-png',
+                'repo': 'sunrise-cafe', 'ref': 'main', 'sha': sha}})
+        except HTTPStatusUnknown as exc:
+            raise CreateStatusUnknown(exc.category) from None
         ident = result.get('id')
-        if not isinstance(ident, str) or not DEPLOYMENT.fullmatch(ident): raise Unknown('deployment ID unavailable')
+        if not isinstance(ident, str) or not DEPLOYMENT.fullmatch(ident): raise CreateStatusUnknown('http_2xx')
         return ident
     def rollback(self, ident):
         if not DEPLOYMENT.fullmatch(ident): raise Unknown('invalid rollback target')
@@ -175,6 +214,10 @@ def verify_code_only(previous, sha, *, git=None, manifest_path=None):
             raise ValueError('invalid approved manifest')
         git('merge-base', '--is-ancestor', previous, sha)
         changes = git('diff', '--name-only', '--no-renames', '-z', previous, sha).decode('utf-8').split('\0')
+        # Python may load a committed .pyc even with -B; never accept one.
+        for path in (*filter(None, changes), *approved):
+            if '__pycache__' in str(path) or str(path).endswith('.pyc'):
+                raise ValueError('bytecode in code-only release')
         for path in filter(None, changes):
             if path not in approved and path not in CONTROL_FILES:
                 raise ValueError('unreviewed file in code-only release')
@@ -245,9 +288,12 @@ def recover(api, http, record, candidate=None, *, clock=time.monotonic, sleep=ti
     raise Unknown('deployment still in flight; immediate manual recovery may be required')
 
 
-def create_candidate(api, record, *, on_candidate=lambda _value: None):
+def create_candidate(api, record, *, on_candidate=lambda _value: None, on_attempt=lambda: None):
     baseline, sha = record['baseline'], record['commit']
     if api.alias() != baseline: raise Unknown('production baseline changed before deploy')
+    # This marks a conservative boundary: create may fail locally before its
+    # HTTP request is sent. It never proves the provider received the request.
+    on_attempt()
     candidate = api.create(sha)  # Never retry an unknown create response.
     on_candidate(candidate)
     return candidate
@@ -326,6 +372,18 @@ def recovery_candidate(path, sha, ident, commit):
 def main():
     if len(sys.argv) != 2 or sys.argv[1] not in ('prepare', 'create', 'verify', 'recover'):
         raise SystemExit('invalid release phase')
+    create_attempted = False
+    def mark_create_attempt():
+        nonlocal create_attempted
+        create_attempted = True
+
+    def log_create_boundary():
+        if sys.argv[1] == 'create':
+            if create_attempted:
+                print('Create diagnostic: request may have been attempted; outcome unknown', file=sys.stderr)
+            else:
+                print('Create diagnostic: request not attempted by this process', file=sys.stderr)
+
     try:
         sha, ref = os.environ.get('GITHUB_SHA', ''), os.environ.get('GITHUB_REF', '')
         if not SHA.fullmatch(sha) or ref != 'refs/heads/main': raise Unknown('not a main release')
@@ -350,7 +408,7 @@ def main():
                 def retain(ident):
                     output_candidate(os.environ['GITHUB_OUTPUT'], ident, sha)
                     write_candidate(candidate_path, ident, sha)
-                create_candidate(api, record, on_candidate=retain)
+                create_candidate(api, record, on_candidate=retain, on_attempt=mark_create_attempt)
             elif sys.argv[1] == 'verify':
                 candidate = read_candidate(candidate_path, sha)
                 if candidate is None: raise Unknown('candidate record unavailable')
@@ -360,7 +418,16 @@ def main():
                                                os.environ.get('CANDIDATE_COMMIT', ''))
                 recover(api, http, record, candidate)
         print('Release phase complete:', sys.argv[1])
+    except CreateStatusUnknown as exc:
+        # The real CreateStatusUnknown is raised only inside api.create. Even
+        # if an unexpected path produces it, never label it not attempted.
+        create_attempted = True
+        log_create_boundary()
+        category = exc.category if type(exc.category) is str and exc.category in HTTP_CATEGORIES else 'unclassified'
+        print('Deployment create outcome unknown; HTTP status category:', category, file=sys.stderr)
+        raise SystemExit('Release failed or outcome unknown; follow documented rollback procedure') from None
     except Exception:
+        log_create_boundary()
         raise SystemExit('Release failed or outcome unknown; follow documented rollback procedure') from None
 
 

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import importlib.util
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -195,6 +197,13 @@ class Tests(unittest.TestCase):
             state['blob'] = blob; state['mode'] = '120000'
             with self.assertRaises(r.Unknown): r.verify_code_only(r.APPROVED_BASELINE, SHA, git=git, manifest_path=manifest)
             with self.assertRaises(r.Unknown): r.verify_code_only(OLD, SHA, git=git, manifest_path=manifest)
+            state['mode'] = '100644'
+            for bad in ('scripts/__pycache__/x.cpython-312.pyc', 'scripts/x.pyc'):
+                state['paths'].append(bad)
+                with self.assertRaises(r.Unknown): r.verify_code_only(r.APPROVED_BASELINE, SHA, git=git, manifest_path=manifest)
+                state['paths'].pop()
+                manifest.write_text(json.dumps({'baseline': r.APPROVED_BASELINE, 'approved_files': {bad: blob}}))
+                with self.assertRaises(r.Unknown): r.verify_code_only(r.APPROVED_BASELINE, SHA, git=git, manifest_path=manifest)
 
     def test_manifest_against_isolated_git_history(self):
         # Validate actual Git objects without binding the test suite to this
@@ -238,6 +247,158 @@ class Tests(unittest.TestCase):
                 changed = git('rev-parse', 'HEAD').decode().strip()
                 with self.assertRaises(r.Unknown):
                     r.verify_code_only(baseline, changed, git=git, manifest_path=manifest)
+
+
+class CreateDiagnosticTests(unittest.TestCase):
+    """Synthetic responses only: never connect to Vercel or print response details."""
+
+    class Response:
+        def __init__(self, status, data): self.status, self.data = status, data
+        def __enter__(self): return self
+        def __exit__(self, *_args): return False
+        def read(self, _size):
+            if isinstance(self.data, Exception): raise self.data
+            return self.data
+
+    class Body(io.BytesIO):
+        def __init__(self): super().__init__(b'synthetic-body-canary'); self.reads = 0
+        def read(self, *args): self.reads += 1; return super().read(*args)
+
+    def run_create(self, response, *, stage='post', accepted=False):
+        calls, bodies, state = [], [], {'accepted': False, 'alias': BASE}
+        record = {'baseline': BASE, 'previous': OLD, 'commit': SHA}
+
+        def http_error(code):
+            body = self.Body(); bodies.append(body)
+            return r.urllib.error.HTTPError(
+                'https://synthetic.invalid/path?synthetic-query-canary', code,
+                'synthetic-reason-canary', {'X-Fake': 'synthetic-header-canary'}, body)
+
+        def open_request(req, timeout):
+            del timeout
+            parsed = r.urllib.parse.urlsplit(req.full_url)
+            calls.append((parsed.hostname, parsed.path, req.get_method()))
+            if parsed.hostname == 'api.github.com':
+                if stage == 'github': raise http_error(response)
+                return self.Response(200, json.dumps({'object': {'sha': SHA}}).encode())
+            if parsed.path.startswith('/v4/aliases/'):
+                if stage == 'alias': raise http_error(response)
+                return self.Response(200, json.dumps({'deploymentId': BASE, 'projectId': r.PROJECT}).encode())
+            if parsed.path == '/v13/deployments' and req.get_method() == 'POST':
+                state['accepted'] = accepted
+                if accepted: state['alias'] = NEW
+                if isinstance(response, tuple): return self.Response(*response)
+                if isinstance(response, Exception): raise response
+                if response == 'redirect':
+                    r.NoRedirect().redirect_request(req, None, 302, 'synthetic-reason-canary', {},
+                                                    'https://synthetic.invalid/?synthetic-query-canary')
+                raise http_error(response)
+            raise AssertionError('Unexpected synthetic request')
+
+        opener = mock.Mock(); opener.open.side_effect = open_request
+        env = {'GITHUB_SHA': SHA, 'GITHUB_REF': 'refs/heads/main',
+               'VERCEL_TOKEN': 'synthetic-token-canary', 'GH_TOKEN': 'synthetic-gh-canary',
+               'RUNNER_TEMP': '/synthetic', 'GITHUB_OUTPUT': '/synthetic/output'}
+        stderr, stdout = io.StringIO(), io.StringIO()
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(r.sys, 'argv', ['release', 'create']), \
+             mock.patch.object(r, 'read_record', return_value=record), mock.patch.object(r, 'verify_code_only'), \
+             mock.patch.object(r.urllib.request, 'build_opener', return_value=opener), \
+             contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(stdout):
+            with self.assertRaises(SystemExit) as failure: r.main()
+        output = stdout.getvalue() + stderr.getvalue() + str(failure.exception)
+        for canary in ('synthetic-token-canary', 'synthetic-gh-canary', 'synthetic-query-canary',
+                       'synthetic-reason-canary', 'synthetic-header-canary', 'synthetic-body-canary'):
+            self.assertNotIn(canary, output)
+        self.assertIn('Release failed or outcome unknown', output)
+        self.assertTrue(all(body.reads == 0 for body in bodies))
+        return calls, state, output
+
+    def test_http_status_categories_and_redaction(self):
+        for code, category in [(403, 'http_4xx'), (429, 'http_429'), (503, 'http_5xx'),
+                               (302, 'http_other'), ('synthetic-status-canary', 'unclassified')]:
+            with self.subTest(code=code):
+                calls, _state, output = self.run_create(code)
+                self.assertIn('Deployment create outcome unknown; HTTP status category: ' + category, output)
+                self.assertIn('Create diagnostic: request may have been attempted; outcome unknown', output)
+                self.assertNotIn('synthetic-status-canary', output)
+                self.assertEqual(sum(method == 'POST' for _host, _path, method in calls), 1)
+
+    def test_preflight_get_errors_are_not_called_create_post(self):
+        for stage in ('github', 'alias'):
+            with self.subTest(stage=stage):
+                calls, _state, output = self.run_create(429, stage=stage)
+                self.assertNotIn('HTTP status category:', output)
+                self.assertIn('Create diagnostic: request not attempted by this process', output)
+                self.assertEqual(sum(method == 'POST' for _host, _path, method in calls), 0)
+
+    def test_network_error_and_redirect_remain_unknown_without_status_or_retry(self):
+        for response in (TimeoutError('synthetic-reason-canary'), 'redirect'):
+            with self.subTest(response_type=type(response).__name__):
+                calls, _state, output = self.run_create(response)
+                self.assertNotIn('HTTP status category:', output)
+                self.assertIn('Create diagnostic: request may have been attempted; outcome unknown', output)
+                self.assertEqual(sum(method == 'POST' for _host, _path, method in calls), 1)
+
+    def test_unusable_2xx_response_is_still_unknown(self):
+        cases = [(200, b'{'), (200, b'{}'), (200, b'[]'), (200, b''),
+                 (200, b'{"id":"synthetic-body-canary"}'),
+                 (200, TimeoutError('synthetic-reason-canary')),
+                 (200, b'x' * (r.MAX_BODY + 1))]
+        for response in cases:
+            with self.subTest(response_type=type(response[1]).__name__):
+                calls, _state, output = self.run_create(response)
+                self.assertIn('Deployment create outcome unknown; HTTP status category: http_2xx', output)
+                self.assertIn('Create diagnostic: request may have been attempted; outcome unknown', output)
+                self.assertEqual(sum(method == 'POST' for _host, _path, method in calls), 1)
+
+    def test_accepted_then_error_is_not_retried_or_inferred_recoverable(self):
+        for status in (429, 503):
+            with self.subTest(status=status):
+                calls, state, output = self.run_create(status, accepted=True)
+                self.assertTrue(state['accepted'])
+                self.assertIn('create outcome unknown', output)
+                self.assertEqual(sum(method == 'POST' for _host, _path, method in calls), 1)
+                fake_http = FakeHTTP(); api = FakeVercel(fake_http); api.current = state['alias']
+                with self.assertRaises(r.Unknown):
+                    r.recover(api, fake_http, {'baseline': BASE, 'previous': OLD, 'commit': SHA}, None,
+                              clock=FakeClock(), sleep=lambda _seconds: None, seconds=1)
+                self.assertEqual(api.rollbacks, [])
+
+    def test_candidate_retention_failure_remains_attempted_unknown(self):
+        calls, _state, output = self.run_create((200, json.dumps({'id': NEW}).encode()))
+        self.assertEqual(sum(method == 'POST' for _host, _path, method in calls), 1)
+        self.assertIn('Create diagnostic: request may have been attempted; outcome unknown', output)
+        self.assertNotIn('request not attempted', output)
+
+    def test_no_credentials_fail_before_attempt_without_printing_values(self):
+        env = {'GITHUB_SHA': SHA, 'GITHUB_REF': 'refs/heads/main', 'VERCEL_TOKEN': 'synthetic-token-canary'}
+        stderr = io.StringIO()
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(r.sys, 'argv', ['release', 'create']), \
+             contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            r.main()
+        self.assertIn('Create diagnostic: request not attempted by this process', stderr.getvalue())
+        self.assertNotIn('synthetic-token-canary', stderr.getvalue())
+
+    def test_invalid_category_and_exception_text_cannot_reach_output(self):
+        fake = r.CreateStatusUnknown('synthetic-category-canary')
+        self.assertEqual(fake.category, 'unclassified')
+        self.assertNotIn('synthetic-category-canary', str(fake))
+        for status in (True, None, -1, 999, 'synthetic-status-canary'):
+            self.assertEqual(r.http_category(status), 'unclassified')
+
+    def test_main_rechecks_category_before_output(self):
+        forged = r.CreateStatusUnknown('http_429')
+        forged.category = 'synthetic-category-canary'
+        env = {'GITHUB_SHA': SHA, 'GITHUB_REF': 'refs/heads/main', 'VERCEL_TOKEN': 'synthetic-token-canary',
+               'GH_TOKEN': 'synthetic-gh-canary', 'RUNNER_TEMP': '/synthetic'}
+        stderr = io.StringIO()
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(r.sys, 'argv', ['release', 'create']), \
+             mock.patch.object(r, 'read_record', return_value={'baseline': BASE, 'previous': OLD, 'commit': SHA}), \
+             mock.patch.object(r, 'verify_code_only'), mock.patch.object(r, 'create_candidate', side_effect=forged), \
+             mock.patch.object(r.GitHub, 'main_sha', return_value=SHA), contextlib.redirect_stderr(stderr):
+            with self.assertRaises(SystemExit): r.main()
+        self.assertIn('HTTP status category: unclassified', stderr.getvalue())
+        self.assertNotIn('synthetic-category-canary', stderr.getvalue())
 
 
 if __name__ == '__main__': unittest.main()

@@ -47,3 +47,7 @@ OIP.*
 test-results/
 # ExoProtocol is retired (Founder 2026-10-14)
 .exo/
+
+# python bytecode
+__pycache__/
+*.pyc

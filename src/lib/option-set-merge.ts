@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 
 /**
  * 預覽「既有每個餐點各自的選項」會被合併成哪些選項組。
- * 規則和 supabase/migration-menu-option-sets.sql 的 DO 區塊完全一致：
+ * 以下為近似規劃；JavaScript 的字串排序與數值表示可能與 PostgreSQL 不同，
+ * 不能用來證明 migration 的精確結果，請以 SQL 核對：
  *   同分店 + 同組名 + 選項名稱與加價完全相同 → 同一個選項組；
  *   同組名但內容不同 → 另建「組名 (2)」…（內容相同餐點數最多的叫原名）；
  *   同一餐點同組內選項名稱重複 → 不合併（保留原樣）。

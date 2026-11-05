@@ -100,3 +100,23 @@ jobs:
           CANDIDATE_ID: ${{ needs.release.outputs.candidate }}
           CANDIDATE_COMMIT: ${{ needs.release.outputs.candidate_commit }}
         run: python3 -B scripts/code-only-release.py recover
+
+  # deploy-health compares /api/version against this record. Recorded on every
+  # main push, even if the release fails, so a failed release shows as drift.
+  record-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Record trusted main head for deploy-health
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_WORKFLOW: ${{ github.workflow }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/record-deploy-health-head.mjs
