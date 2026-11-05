@@ -2,13 +2,16 @@
   "approved_files": {
     ".github/workflows/production-code-only.yml": "d1cb1dbf21756745eb8c0e6b3184867a5e1b7326",
     "docs/ENV.md": "7447880984e428ef9342cfe9d3abc89fa476ce6f",
-    "scripts/code-only-release.py": "16a2d0d481d0c8ede6a9f1bbdae33777465720c4",
+    "docs/plans/2026-11-order-board-action-feedback.md": "53e1e8a72bd8d21f98401dfb62029965808bec12",
+    "scripts/code-only-release.py": "28083b9f7fde865850b5ad78bbf712f15b498a76",
     "scripts/verify-production-workflow-contract.mjs": "2b9130c8a4e16e1744e00b3150e3c7419eeb77d6",
+    "src/app/admin/orders/page.refresh.test.tsx": "df8aa99c07eec801fbeba1bedeab3bb5f209130c",
+    "src/app/admin/orders/page.tsx": "81ec19349cd70aa2895bb3e5a6ee3cbb6c792953",
     "src/components/ReservationList.restore.test.tsx": "dce6d858fc01473cc87a00b7a5181904a970b2e5",
     "src/components/ReservationList.tsx": "f8d007382f2ad444ae6f42c76123a71b82b28e46",
     "src/lib/reservation-lifecycle.supabase.test.ts": "b8871ceb18104bcff27bf11533860f039bb74414",
     "src/lib/reservation-lifecycle.test.ts": "3d81445158a2fe38e86c204c9724a4ff22c29517",
     "src/lib/reservation-lifecycle.ts": "0e6822ca285e4e6b384debfd8536cabf598e664f"
   },
-  "baseline": "707aa748204fbe18668ed574877923526c7765d3"
+  "baseline": "893977a6f1411698409d2080c79951e506b8d9a2"
 }
