@@ -150,12 +150,12 @@ describe("order board refresh scheduling", () => {
     await user.selectOptions(screen.getByRole("combobox"), "b2");
     await screen.findByText("乙店餐點");
     await user.selectOptions(screen.getByRole("combobox"), "b1");
-    const ready = await screen.findByRole("button", { name: "已出餐" });
+    const ready = await screen.findByRole("button", { name: "訂單操作處理中" });
     expect((ready as HTMLButtonElement).disabled).toBe(true);
     await act(async () => { oldPatch.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) } as Response); });
     await screen.findByText(/訂單沒有更新成功/);
     expect(screen.queryByRole("button", { name: "完成出餐" })).toBeNull();
-    expect((screen.getByRole("button", { name: "已出餐" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "訂單操作待核對" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText(/核對尚未完成/)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "重新整理" }));
     await waitFor(() => expect((screen.getByRole("button", { name: "已出餐" }) as HTMLButtonElement).disabled).toBe(false));
@@ -180,10 +180,12 @@ describe("order board refresh scheduling", () => {
     act(() => { fireEvent.click(button); fireEvent.click(button); });
     expect(patches).toBe(1);
     expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "訂單操作處理中" }).getAttribute("aria-busy")).toBe("true");
     await act(async () => { patch.resolve({ ok: false, status: 500, json: async () => ({ error: "結果未知" }) } as Response); });
     await screen.findByText(/訂單操作結果尚未確認/);
     await screen.findByText(/訂單沒有更新成功/);
-    expect((screen.getByRole("button", { name: "開始備餐" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "訂單操作待核對" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "訂單操作待核對" }).getAttribute("aria-busy")).toBe("false");
     expect((screen.getByRole("button", { name: "已核對，解除鎖定" }) as HTMLButtonElement).disabled).toBe(true);
     await user.click(screen.getByRole("button", { name: "重新整理" }));
     const release = await screen.findByRole("button", { name: "已核對，解除鎖定" });
@@ -267,7 +269,7 @@ describe("order board refresh scheduling", () => {
     await user.click(await screen.findByRole("button", { name: "開始備餐" }));
     await screen.findByText(/訂單操作結果尚未確認/);
     await screen.findByText(/目前後台狀態：待處理/);
-    expect((screen.getByRole("button", { name: "開始備餐" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "訂單操作待核對" }) as HTMLButtonElement).disabled).toBe(true);
     expect(patches).toBe(1);
   });
 
@@ -287,7 +289,7 @@ describe("order board refresh scheduling", () => {
     await user.click(await screen.findByRole("button", { name: "開始備餐" }));
     await screen.findByText(/訂單操作結果尚未確認/, {}, { timeout: 18000 });
     await screen.findByText(/目前後台狀態：待處理/);
-    expect((screen.getByRole("button", { name: "開始備餐" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "訂單操作待核對" }) as HTMLButtonElement).disabled).toBe(true);
     expect(patches).toBe(1);
   }, 22000);
 });

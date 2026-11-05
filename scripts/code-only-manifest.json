@@ -2,20 +2,16 @@
   "approved_files": {
     ".github/workflows/production-code-only.yml": "d1cb1dbf21756745eb8c0e6b3184867a5e1b7326",
     "docs/ENV.md": "7447880984e428ef9342cfe9d3abc89fa476ce6f",
-    "docs/plans/2026-11-option-preview-pagination.md": "74e4c6a985646aa14442c1a26844f273d3d1b532",
-    "scripts/code-only-release.py": "38809ed78ca4f9dd8ad918b8e53daedbf6509e09",
-    "scripts/lib/option-preview-reader.ts": "05710419d32a95cd1fd49e423780c3c884e516dd",
-    "scripts/preview-option-set-merge.ts": "1e8d5e5ee9f85de5b8b030b5e44ee8f40aca34b4",
+    "docs/plans/2026-11-order-board-action-feedback.md": "53e1e8a72bd8d21f98401dfb62029965808bec12",
+    "scripts/code-only-release.py": "28083b9f7fde865850b5ad78bbf712f15b498a76",
     "scripts/verify-production-workflow-contract.mjs": "2b9130c8a4e16e1744e00b3150e3c7419eeb77d6",
-    "src/app/admin/orders/page.refresh.test.tsx": "67a1f14659cf64d33f175e34e846fa2779c15557",
-    "src/app/admin/orders/page.tsx": "ed4b800de0a7624bdec480af7f834d7f15e4f8c1",
+    "src/app/admin/orders/page.refresh.test.tsx": "df8aa99c07eec801fbeba1bedeab3bb5f209130c",
+    "src/app/admin/orders/page.tsx": "81ec19349cd70aa2895bb3e5a6ee3cbb6c792953",
     "src/components/ReservationList.restore.test.tsx": "dce6d858fc01473cc87a00b7a5181904a970b2e5",
     "src/components/ReservationList.tsx": "f8d007382f2ad444ae6f42c76123a71b82b28e46",
-    "src/lib/option-preview-reader.test.ts": "9a3a7a6beae3be975955eec1f7878a55ccf18c3e",
-    "src/lib/option-set-merge.ts": "be5334c1f5e0593a6a49278072b905ad52369d39",
     "src/lib/reservation-lifecycle.supabase.test.ts": "b8871ceb18104bcff27bf11533860f039bb74414",
     "src/lib/reservation-lifecycle.test.ts": "3d81445158a2fe38e86c204c9724a4ff22c29517",
     "src/lib/reservation-lifecycle.ts": "0e6822ca285e4e6b384debfd8536cabf598e664f"
   },
-  "baseline": "45a0606ea81fa6f3254c07cf5dba8415fd88e0dc"
+  "baseline": "893977a6f1411698409d2080c79951e506b8d9a2"
 }
