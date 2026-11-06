@@ -23,12 +23,14 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      MAIN_SHA: ${{ github.sha }}
       PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
     steps:
       - name: Compare production with main
         run: |
           set -euo pipefail
+          # Resolve main independently of the ref this run was dispatched from.
+          MAIN_SHA=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
+          [[ "$MAIN_SHA" =~ ^[a-f0-9]{40}$ ]] || { echo "::error::cannot resolve main"; exit 1; }
           prod=$(curl -fsS --max-time 20 --retry 3 "$PRODUCTION_URL/api/version" | jq -r '.commit // empty')
           [[ "$prod" =~ ^[a-f0-9]{40}$ ]] || { echo "::error::production /api/version is unreadable"; exit 1; }
           open=$(gh issue list --label deploy-drift --state open --json number --jq '.[0].number // empty')

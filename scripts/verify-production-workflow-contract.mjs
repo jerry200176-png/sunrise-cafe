@@ -33,6 +33,8 @@ assert.match(verifyWorkflow, /Production code-only release is the deploy owner/)
 assert.match(driftWorkflow, /schedule:[\s\S]*workflow_dispatch:/);
 assert.match(driftWorkflow, /permissions:\s*\n\s*issues:\s*write\s*\n\s*contents:\s*read\s*\n/);
 assert.match(driftWorkflow, /Production drift: main \$\{MAIN_SHA:0:7\} vs prod \$\{prod:0:7\}/);
+assert.match(driftWorkflow, /MAIN_SHA=\$\(gh api "repos\/\$GH_REPO\/commits\/main" --jq \.sha\)/);
+assert.doesNotMatch(driftWorkflow, /github\.sha/);
 assert.match(driftWorkflow, /--label deploy-drift/);
 assert.match(driftWorkflow, /gh issue close/);
 assert.doesNotMatch(driftWorkflow, /secrets\.|VERCEL|LINE_|uses:/);
