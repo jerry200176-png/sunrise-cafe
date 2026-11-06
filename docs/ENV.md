@@ -120,6 +120,11 @@ metadata 缺失，deploy-health 會保留 fail-safe 並回報 source unavailable
 不會以 fallback 或 hardcode SHA 掩蓋錯誤。`CRON_SECRET` 仍是獨立且必要的
 Cron auth gate。
 
+版本漂移（正式 `/api/version` ≠ main head）**不會**推送店員 LINE 群組：app 的
+deploy-health 只寫 server log 與 job_runs／ops 記錄；每日 `Deploy Drift` workflow
+（`.github/workflows/deploy-drift.yml`，僅 `GITHUB_TOKEN`，無額外 secret）在不一致時開／更新
+label `deploy-drift` 的 GitHub issue，一致時關閉。
+
 ## CTO Outcome Pipeline
 
 | 變數 | 說明 | 設定位置 |
