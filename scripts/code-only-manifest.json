@@ -1,26 +1,34 @@
 {
   "approved_files": {
+    ".github/workflows/deploy-drift.yml": "972f04e3caa0516e0b8a5f5cfc56646e39c5ac45",
     ".github/workflows/production-code-only.yml": "d1cb1dbf21756745eb8c0e6b3184867a5e1b7326",
     ".gitignore": "57558eec1b63b5909a1ff735ff1ed83a646f5596",
-    "docs/ENV.md": "7447880984e428ef9342cfe9d3abc89fa476ce6f",
+    "docs/ENV.md": "32049c22bf1c175bed73c3946f91d28c6e4003c7",
     "docs/plans/2026-11-code-only-create-diagnostics.md": "41c274432360c049c6987c6b96630009d51ae792",
     "docs/plans/2026-11-option-preview-pagination.md": "74e4c6a985646aa14442c1a26844f273d3d1b532",
     "docs/plans/2026-11-order-board-action-feedback.md": "53e1e8a72bd8d21f98401dfb62029965808bec12",
+    "docs/plans/2026-11-quiet-deploy-health.md": "dcbd6187a191a7c973b9a26fa89142960b0173ef",
+    "docs/research/2026-09-line-usage-audit.md": "391b92299f48d4f84f0e738433472231adeec0ea",
     "package-lock.json": "688aa3c917af8c1ede93ce51962eec4588512772",
     "package.json": "d31f800df9042c0d9cb02023d989be1329f1d21e",
-    "scripts/code-only-release.py": "57cd1b17c65a3b33c216852e6dd753e7cf2b2fc5",
+    "scripts/code-only-release.py": "118822cbffefede0053244ec2557e730212d8334",
     "scripts/lib/option-preview-reader.ts": "05710419d32a95cd1fd49e423780c3c884e516dd",
     "scripts/preview-option-set-merge.ts": "1e8d5e5ee9f85de5b8b030b5e44ee8f40aca34b4",
-    "scripts/verify-production-workflow-contract.mjs": "2b9130c8a4e16e1744e00b3150e3c7419eeb77d6",
+    "scripts/verify-production-workflow-contract.mjs": "ccff20b926062519be6ac106977a585a45179506",
     "src/app/admin/orders/page.refresh.test.tsx": "df8aa99c07eec801fbeba1bedeab3bb5f209130c",
     "src/app/admin/orders/page.tsx": "81ec19349cd70aa2895bb3e5a6ee3cbb6c792953",
+    "src/app/api/admin/reminders/deploy-health/route.test.ts": "4f7ae7648885db868fbf2823e1f9ca699e3492ed",
+    "src/app/api/admin/reminders/deploy-health/route.ts": "8fb41baa6b23230079d533fbe3403e2d61e6e27c",
     "src/components/ReservationList.restore.test.tsx": "dce6d858fc01473cc87a00b7a5181904a970b2e5",
     "src/components/ReservationList.tsx": "f8d007382f2ad444ae6f42c76123a71b82b28e46",
+    "src/lib/deploy-alert.test.ts": "d8b7468d3ba2f186cbb95d7eda711e2642fed19f",
+    "src/lib/deploy-alert.ts": "af62a76b86f13dac3f98a82eebe7fa1c13424fed",
+    "src/lib/job-runs.ts": "896dcccacf6ddfe6bceafaca756f53486165d415",
     "src/lib/option-preview-reader.test.ts": "9a3a7a6beae3be975955eec1f7878a55ccf18c3e",
     "src/lib/option-set-merge.ts": "be5334c1f5e0593a6a49278072b905ad52369d39",
     "src/lib/reservation-lifecycle.supabase.test.ts": "b8871ceb18104bcff27bf11533860f039bb74414",
     "src/lib/reservation-lifecycle.test.ts": "3d81445158a2fe38e86c204c9724a4ff22c29517",
     "src/lib/reservation-lifecycle.ts": "0e6822ca285e4e6b384debfd8536cabf598e664f"
   },
-  "baseline": "b884f86a7b35458cd70abbb071d6167e1d2c541b"
+  "baseline": "3d72cf2c59c4f785f177c0cb44440741e637a59c"
 }

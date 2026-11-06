@@ -68,7 +68,7 @@ Main modeled savings:
 | Waitlist fan-out / confirm | cancellation, release, reschedule, or confirm endpoint | waitlist guest and needs-call staff group | waitlist state/stamps plus deterministic provider retry key |
 | LINE webhook | `POST /api/webhooks/line`, event-driven | payment-review staff group + reply message | pending payment-event check; reply uses LINE reply API |
 | Payment approval / LINE Pay retry | approval action plus Vercel retry `0 4 * * *` UTC | staff + guest approval, LINE Pay staff outbox | stored retry keys / outbox CAS and deterministic outbox retry key |
-| Cron/deploy health | Vercel `deploy-health` daily `0 14 * * *` UTC and job failures | critical staff alerts | failure-only path; never informational-throttled |
+| Cron/deploy health | Vercel `deploy-health` daily `0 14 * * *` UTC | none (2026-11-06: drift reports go to a GitHub issue via `deploy-drift.yml`, not LINE) | server log and ops record only; LINE account-collision check unchanged |
 
 ## Root causes
 
