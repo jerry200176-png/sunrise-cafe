@@ -228,6 +228,24 @@ describe("payment-notify", () => {
     expect(sendLineFlexMessageSpy).not.toHaveBeenCalled();
   });
 
+  it("still notifies staff but skips the guest link when signing is unavailable", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    delete process.env.SESSION_SECRET;
+    delete process.env.GUEST_LOOKUP_SECRET;
+    const mockClient = createFakeSupabase(defaultRow);
+    const groupSpy = vi.spyOn(lineNotify, "sendLineFlexToBranchGroup").mockResolvedValue(undefined);
+    const guestSpy = vi.spyOn(line, "sendLineFlexMessage").mockResolvedValue(undefined);
+
+    const result = await notifyPaymentApproved("res-123", { client: mockClient });
+
+    expect(groupSpy).toHaveBeenCalledTimes(1);
+    expect(guestSpy).not.toHaveBeenCalled();
+    expect(result.group_notified).toBe(true);
+    expect(result.guest_notified).toBeFalsy();
+    expect(mockClient.getRow().deposit_approved_notified_at).toBeNull();
+    vi.unstubAllEnvs();
+  });
+
   it("only marks deposit_approved_notified_at upon confirmed sent", async () => {
     const mockClient = createFakeSupabase(defaultRow);
 

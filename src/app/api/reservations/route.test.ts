@@ -22,7 +22,8 @@ vi.mock("@/lib/reservation-preorder", () => ({
 vi.mock("@/lib/line-notify", () => ({ sendLineFlexToBranchGroup: mocks.sendLineFlexToBranchGroup, buildNewBookingFlex: () => ({}) }));
 vi.mock("@/lib/branch-line-group", () => ({ branchLineGroupIdForRoom: (_db: unknown, roomId: string) => mocks.fetchBranchLineGroupIdForRoom(roomId) }));
 vi.mock("@/lib/ops-log", () => ({ logOps: mocks.logOps }));
-vi.mock("@/lib/lookup-token", () => ({ signLookupToken: () => "lookup" }));
+const signing = vi.hoisted(() => ({ ok: true }));
+vi.mock("@/lib/lookup-token", () => ({ signLookupToken: () => "lookup", isLookupSigningConfigured: () => signing.ok }));
 vi.mock("@/lib/line-retry-key", () => ({ stableLineRetryKey: () => "retry" }));
 
 import { POST } from "./route";
@@ -43,12 +44,22 @@ function request(extra: object) {
 describe("booking meals submit", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    signing.ok = true;
     mocks.fetchRoom.mockResolvedValue({ id: base.room_id, branch_id: "branch-1", price_weekday: 200, price_weekend: 300 });
     mocks.checkBookable.mockResolvedValue({ ok: true });
     mocks.rpc.mockResolvedValue({ data: { id: "reservation-1", booking_code: "ABC123" }, error: null });
     mocks.insertReservationAdmin.mockResolvedValue({ id: "reservation-2", booking_code: "DEF456" });
     mocks.sendLineFlexToBranchGroup.mockResolvedValue(undefined);
     mocks.fetchBranchLineGroupIdForRoom.mockResolvedValue(null);
+  });
+
+  it("refuses before any DB write or notification when lookup signing is unconfigured", async () => {
+    signing.ok = false;
+    const response = await POST(request({}));
+    expect(response.status).toBe(503);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(mocks.insertReservationAdmin).not.toHaveBeenCalled();
+    expect(mocks.sendLineFlexToBranchGroup).not.toHaveBeenCalled();
   });
 
   it("uses the atomic RPC and server-computed room price when meals are selected", async () => {

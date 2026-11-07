@@ -12,7 +12,7 @@ import { BOOKABLE_HTTP, checkBookable } from "@/lib/bookable";
 import { SlotConflictError } from "@/lib/slot-conflict";
 import { createClient } from "@supabase/supabase-js";
 import { logOps } from "@/lib/ops-log";
-import { signLookupToken } from "@/lib/lookup-token";
+import { isLookupSigningConfigured, signLookupToken } from "@/lib/lookup-token";
 import { stableLineRetryKey } from "@/lib/line-retry-key";
 import { canonicalDraftItems, isReservationPreorderEnabled, type DraftItemInput } from "@/lib/reservation-preorder";
 import { branchLineGroupIdForRoom } from "@/lib/branch-line-group";
@@ -64,6 +64,10 @@ export async function POST(request: NextRequest) {
       { error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY" },
       { status: 503 }
     );
+  }
+  if (!isLookupSigningConfigured()) {
+    console.error("[reservations] guest lookup signing unconfigured; refusing booking");
+    return NextResponse.json({ error: "訂位服務暫時無法使用，請稍後再試" }, { status: 503 });
   }
   try {
     const body = await request.json();

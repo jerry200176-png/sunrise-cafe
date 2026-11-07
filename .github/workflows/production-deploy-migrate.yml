@@ -321,7 +321,7 @@ jobs:
               if grep -q '^GUEST_LOOKUP_SECRET=' .env.vercel.prod 2>/dev/null; then
                 echo "GUEST_LOOKUP_SECRET: configured in Vercel"
               else
-                echo "GUEST_LOOKUP_SECRET: unset in Vercel (safe fallback to SESSION_SECRET active)"
+                echo "GUEST_LOOKUP_SECRET: unset in Vercel (SESSION_SECRET must be set, else guest lookup signing fails closed)"
               fi
             fi
           fi
