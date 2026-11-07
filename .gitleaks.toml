@@ -1,0 +1,10 @@
+# Keep gitleaks' default rules; only skip lines that map a repo file path to a
+# 40-hex git blob id (scripts/code-only-manifest.json). Paths like
+# src/lib/lookup-token.ts otherwise trip generic-api-key.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "code-only release manifest: file path -> git blob id"
+regexTarget = "line"
+regexes = ['''^\s*"[\w.@-]+(/[\w.@-]+)+\.\w+": "[0-9a-f]{40}",?\s*$''']
