@@ -49,7 +49,7 @@ import {
 import { sendLineFlexMessage } from "@/lib/line";
 import { branchLineGroupIdForReservation } from "@/lib/branch-line-group";
 import { buildGuestPaymentApprovedFlex } from "@/lib/line-cards";
-import { isLookupSigningConfigured, signLookupToken } from "@/lib/lookup-token";
+import { signLookupToken } from "@/lib/lookup-token";
 
 function defaultClient(): SupabaseClient {
   return createClient(
@@ -204,10 +204,6 @@ export async function notifyPaymentApproved(
   try {
     if (!isAdminConfigured()) {
       return { ok: false, error: "admin_unconfigured" };
-    }
-    if (!isLookupSigningConfigured()) {
-      console.error("[payment-notify] guest lookup signing unconfigured; no notification sent");
-      return { ok: false, error: "lookup_signing_unconfigured" };
     }
 
     let r: ReservationNotifyTarget | null = null;

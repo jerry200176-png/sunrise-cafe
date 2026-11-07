@@ -91,6 +91,7 @@ export async function GET(request: NextRequest) {
   }
 
   const rateLimitMode = getRateLimitMode();
+  const signingOk = isLookupSigningConfigured();
   const defenses = {
     rate_limit_mode: rateLimitMode,
     rate_limit_grade:
@@ -100,17 +101,22 @@ export async function GET(request: NextRequest) {
           ? "degraded_per_isolate"
           : "disabled",
     stripe_enabled: isStripeEnabled(),
-    guest_lookup_signing: isLookupSigningConfigured() ? "configured" : "missing",
+    guest_lookup_signing: signingOk ? "configured" : "missing",
   };
 
   if (!isAdmin) {
-    return NextResponse.json({ ok: true, ...defenses });
+    return NextResponse.json({ ok: signingOk, ...defenses }, { status: signingOk ? 200 : 503 });
   }
 
-  return NextResponse.json({
-    ok: true,
-    message: "訂位後端正常（Service Role 與 get_blocked_slots 可用）",
-    serviceRoleConfigured: true,
-    ...defenses,
-  });
+  return NextResponse.json(
+    {
+      ok: signingOk,
+      message: signingOk
+        ? "訂位後端正常（Service Role 與 get_blocked_slots 可用）"
+        : "未設定 GUEST_LOOKUP_SECRET 或 SESSION_SECRET：客人查詢／確認連結無法簽章",
+      serviceRoleConfigured: true,
+      ...defenses,
+    },
+    { status: signingOk ? 200 : 503 }
+  );
 }

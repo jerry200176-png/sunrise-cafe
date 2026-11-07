@@ -6,42 +6,18 @@
  * Domain-separated prefix "lookup:" prevents token confusion with attendance tokens.
  */
 import crypto from "crypto";
+import {
+  LookupSigningUnavailableError,
+  getGuestTokenSecret,
+  isLookupSigningConfigured,
+} from "@/lib/signing-secret";
 
 const DEFAULT_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
 
-export class LookupSigningUnavailableError extends Error {
-  constructor() {
-    super("Guest lookup signing is not configured (set GUEST_LOOKUP_SECRET or SESSION_SECRET)");
-    this.name = "LookupSigningUnavailableError";
-  }
-}
+export { LookupSigningUnavailableError, isLookupSigningConfigured };
 
-/**
- * Secret for signing and verifying guest lookup tokens (fail closed in production).
- * 1. Dedicated `GUEST_LOOKUP_SECRET`.
- * 2. `SESSION_SECRET`.
- * 3. Non-production only: a fixed local dev string (tests / local dev).
- * Production without 1 or 2 throws. `ADMIN_PASSWORD` is never used: as an HMAC key
- * it could be brute-forced offline from any guest token.
- *
- * NEVER reuse `SUPABASE_SERVICE_ROLE_KEY` here.
- */
 export function getLookupSigningSecret(): string {
-  const configured =
-    process.env.GUEST_LOOKUP_SECRET?.trim() || process.env.SESSION_SECRET?.trim();
-  if (configured) return configured;
-  if (process.env.NODE_ENV === "production") throw new LookupSigningUnavailableError();
-  return "sunrise-guest-lookup-dev-secret";
-}
-
-/** Boolean-only check for callers that must stop before any DB write or notification. */
-export function isLookupSigningConfigured(): boolean {
-  try {
-    getLookupSigningSecret();
-    return true;
-  } catch {
-    return false;
-  }
+  return getGuestTokenSecret();
 }
 
 function secret(): string {

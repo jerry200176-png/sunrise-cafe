@@ -279,10 +279,6 @@ export async function lookupGuestBookingByToken(
     return { ok: false, error: errorMsg, status: 400 };
   }
 
-  if (!isLookupSigningConfigured()) {
-    return { ok: false, error: "目前無法查詢訂位，請稍後再試", status: 503 };
-  }
-
   if (!isAdminConfigured()) {
     return { ok: false, error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY", status: 503 };
   }

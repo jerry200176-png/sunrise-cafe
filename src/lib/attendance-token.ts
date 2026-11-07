@@ -3,15 +3,9 @@
  * Format: base64url(reservationId).base64url(hmac)
  */
 import crypto from "crypto";
+import { getGuestTokenSecret, isLookupSigningConfigured } from "@/lib/signing-secret";
 
-function secret(): string {
-  return (
-    process.env.SESSION_SECRET ||
-    process.env.ADMIN_PASSWORD ||
-    process.env.CRON_SECRET ||
-    "sunrise-attendance-dev"
-  );
-}
+const secret = getGuestTokenSecret;
 
 function b64url(buf: Buffer | string): string {
   const b = typeof buf === "string" ? Buffer.from(buf, "utf8") : buf;
@@ -36,6 +30,7 @@ export function verifyAttendanceToken(token: string): string | null {
     return null;
   }
   if (!reservationId || reservationId.length > 64) return null;
+  if (!isLookupSigningConfigured()) return null;
   const expected = crypto.createHmac("sha256", secret()).update(reservationId).digest();
   const got = Buffer.from(mac, "base64url");
   if (got.length !== expected.length) return null;

@@ -426,6 +426,30 @@ describe("runSendLineReminder — retry regression", () => {
     expect(sendLineFlexMessage).toHaveBeenCalledTimes(1);
   });
 
+  it("reports not-ok with a warning when guest reminders are skipped for signing", async () => {
+    const { isLookupSigningConfigured } = await import("@/lib/lookup-token");
+    vi.mocked(isLookupSigningConfigured).mockReturnValueOnce(false);
+    vi.mocked(fetchBranches).mockResolvedValue([
+      { id: "b1", name: "大安店", line_group_id: "G123" },
+    ] as never);
+    vi.mocked(fetchReservationsForReminder).mockResolvedValue([
+      {
+        id: "p1", booking_code: "A1",
+        start_time: "2026-07-17T10:00:00+08:00", end_time: "2026-07-17T12:00:00+08:00",
+        customer_name: "A", phone: "0912", line_user_id: "U1", is_deposit_paid: true,
+        room: { name: "包廂1", branch_id: "b1", branch: { id: "b1", name: "大安店" } },
+      },
+    ] as never);
+
+    const json = await (await runSendLineReminder({ trigger_source: "cron" })).json();
+
+    expect(json.ok).toBe(false);
+    expect(json.warning).toBe("guest_signing_unconfigured");
+    expect(json.guest_skipped_signing).toBe(1);
+    expect(json.guest_sent_count).toBe(0);
+    expect(sendLineFlexMessage).not.toHaveBeenCalled();
+  });
+
   it("includes unpaid reservations in the group reminder", async () => {
     const unpaid = {
       id: "unpaid-1",
