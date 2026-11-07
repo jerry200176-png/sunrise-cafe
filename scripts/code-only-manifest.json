@@ -3,7 +3,7 @@
   "approved_files": {
     ".github/workflows/production-code-only.yml": "d1cb1dbf21756745eb8c0e6b3184867a5e1b7326",
     ".gitignore": "57558eec1b63b5909a1ff735ff1ed83a646f5596",
-    ".gitleaks.toml": "55a0c29b60fb6a6c84e8e114d5f2b8f7b8f9526c",
+    ".gitleaks.toml": "0a9e74d43fe133842629dd27a9e5b4ec18c320f8",
     "CHANGELOG.md": "5d1f13646fe2b85a4f68e2a4834d09a78400a2e0",
     "docs/ENV.md": "7447880984e428ef9342cfe9d3abc89fa476ce6f",
     "docs/plans/2026-11-code-only-create-diagnostics.md": "41c274432360c049c6987c6b96630009d51ae792",
