@@ -6,6 +6,9 @@
 
 ## [Unreleased]
 
+### 安全 — 客人查詢連結簽章 fail closed (GHSA-423h-c789-hhf7)
+- 正式環境必須設定 `GUEST_LOOKUP_SECRET`（優先）或 `SESSION_SECRET`；不再退回 `ADMIN_PASSWORD` 或寫死金鑰。未設定時訂位、確認出席、付款通知、客人提醒會在寫入／推播前拒絕；`/api/booking-health` 新增 `guest_lookup_signing`（configured|missing）。
+
 ### 訂位 — 未付訂金不自動取消 (2026-11-01)
 - 依店主指示，未付訂金不自動取消或釋出時段；舊 `DEPOSIT_DEADLINE_AUTO_CANCEL` 設定不再影響新版程式。下方 2026-10-21 開關內容保留作歷史記錄，已被此政策取代。
 - 歷史失敗釋放通知暫不自動補送，以免已還原的訂位被錯報取消；既有記錄仍保留待人工核對。

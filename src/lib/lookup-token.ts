@@ -9,33 +9,39 @@ import crypto from "crypto";
 
 const DEFAULT_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
 
+export class LookupSigningUnavailableError extends Error {
+  constructor() {
+    super("Guest lookup signing is not configured (set GUEST_LOOKUP_SECRET or SESSION_SECRET)");
+    this.name = "LookupSigningUnavailableError";
+  }
+}
+
 /**
- * Dedicated secret for signing and verifying guest lookup tokens.
- * Key separation rules:
- * 1. Dedicated `GUEST_LOOKUP_SECRET` if configured.
- * 2. Fallback to `SESSION_SECRET` (application session signing secret).
- * 3. Fallback to `ADMIN_PASSWORD` (legacy bootstrap).
- * 4. In development/testing, fallback to local dev string.
+ * Secret for signing and verifying guest lookup tokens (fail closed in production).
+ * 1. Dedicated `GUEST_LOOKUP_SECRET`.
+ * 2. `SESSION_SECRET`.
+ * 3. Non-production only: a fixed local dev string (tests / local dev).
+ * Production without 1 or 2 throws. `ADMIN_PASSWORD` is never used: as an HMAC key
+ * it could be brute-forced offline from any guest token.
  *
- * CRITICAL SECURITY INVARIANT:
- * NEVER reuse or fallback to `SUPABASE_SERVICE_ROLE_KEY`. Database administrative
- * keys must remain strictly isolated from public guest token HMAC signatures.
+ * NEVER reuse `SUPABASE_SERVICE_ROLE_KEY` here.
  */
 export function getLookupSigningSecret(): string {
-  const dedicated = process.env.GUEST_LOOKUP_SECRET?.trim();
-  if (dedicated) return dedicated;
-
-  const sessionSecret = process.env.SESSION_SECRET?.trim();
-  if (sessionSecret) return sessionSecret;
-
-  const adminPassword = process.env.ADMIN_PASSWORD?.trim();
-  if (adminPassword) return adminPassword;
-
-  if (process.env.NODE_ENV === "production") {
-    console.warn("[lookup-token] GUEST_LOOKUP_SECRET and SESSION_SECRET unset in production");
-  }
-
+  const configured =
+    process.env.GUEST_LOOKUP_SECRET?.trim() || process.env.SESSION_SECRET?.trim();
+  if (configured) return configured;
+  if (process.env.NODE_ENV === "production") throw new LookupSigningUnavailableError();
   return "sunrise-guest-lookup-dev-secret";
+}
+
+/** Boolean-only check for callers that must stop before any DB write or notification. */
+export function isLookupSigningConfigured(): boolean {
+  try {
+    getLookupSigningSecret();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function secret(): string {
@@ -66,7 +72,7 @@ export function signLookupToken(reservationId: string, ttlMs = DEFAULT_TTL_MS): 
 
 export type VerifyLookupTokenResult =
   | { ok: true; reservationId: string }
-  | { ok: false; error: "invalid_format" | "expired" | "signature_mismatch" };
+  | { ok: false; error: "invalid_format" | "expired" | "signature_mismatch" | "signing_unavailable" };
 
 /**
  * Verify a lookup token. Timing-safe verification of HMAC signature and expiration.
@@ -106,6 +112,9 @@ export function verifyLookupToken(token: string): VerifyLookupTokenResult {
     return { ok: false, error: "invalid_format" };
   }
 
+  if (!isLookupSigningConfigured()) {
+    return { ok: false, error: "signing_unavailable" };
+  }
   const expected = computeMac(reservationId, exp);
   let got: Buffer;
   try {

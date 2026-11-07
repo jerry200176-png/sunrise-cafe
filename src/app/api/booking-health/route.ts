@@ -7,6 +7,7 @@ import {
 import { hasValidAdminSession } from "@/lib/admin-api-auth";
 import { getRateLimitMode } from "@/lib/rate-limit";
 import { isStripeEnabled } from "@/lib/stripe";
+import { isLookupSigningConfigured } from "@/lib/lookup-token";
 
 /**
  * 訂位後端健康檢查：確認 Vercel 上 SUPABASE_SERVICE_ROLE_KEY 與 get_blocked_slots 是否正常。
@@ -99,6 +100,7 @@ export async function GET(request: NextRequest) {
           ? "degraded_per_isolate"
           : "disabled",
     stripe_enabled: isStripeEnabled(),
+    guest_lookup_signing: isLookupSigningConfigured() ? "configured" : "missing",
   };
 
   if (!isAdmin) {

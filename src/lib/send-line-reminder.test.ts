@@ -34,6 +34,7 @@ vi.mock("@/lib/attendance-token", () => ({
 
 vi.mock("@/lib/lookup-token", () => ({
   signLookupToken: vi.fn(() => "lookup-tok"),
+  isLookupSigningConfigured: vi.fn(() => true),
 }));
 
 vi.mock("@/lib/job-runs", async () => {
