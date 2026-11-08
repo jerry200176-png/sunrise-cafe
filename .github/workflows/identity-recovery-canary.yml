@@ -17,6 +17,60 @@ on:
 permissions: {}
 
 jobs:
+  # These intentionally failing synthetic jobs use no checkout, secrets or
+  # external services. The downstream verifier must see exact step outcomes.
+  phase-prepare-failure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    outputs:
+      prepare: ${{ steps.prepare.outcome }}
+      baseline: ${{ steps.baseline.outcome }}
+      create: ${{ steps.create.outcome }}
+    steps:
+      - id: prepare
+        run: exit 1
+      - id: baseline
+        run: echo 'unexpected baseline'
+      - id: create
+        run: echo 'unexpected create'
+
+  phase-baseline-failure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    outputs:
+      prepare: ${{ steps.prepare.outcome }}
+      baseline: ${{ steps.baseline.outcome }}
+      create: ${{ steps.create.outcome }}
+    steps:
+      - id: prepare
+        run: exit 0
+      - id: baseline
+        run: exit 1
+      - id: create
+        run: echo 'unexpected create'
+
+  verify-phase-outputs:
+    needs: [phase-prepare-failure, phase-baseline-failure]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify cross-job step outcomes
+        env:
+          PREPARE_FAILED_PREPARE: ${{ needs.phase-prepare-failure.outputs.prepare }}
+          PREPARE_FAILED_BASELINE: ${{ needs.phase-prepare-failure.outputs.baseline }}
+          PREPARE_FAILED_CREATE: ${{ needs.phase-prepare-failure.outputs.create }}
+          BASELINE_FAILED_PREPARE: ${{ needs.phase-baseline-failure.outputs.prepare }}
+          BASELINE_FAILED_BASELINE: ${{ needs.phase-baseline-failure.outputs.baseline }}
+          BASELINE_FAILED_CREATE: ${{ needs.phase-baseline-failure.outputs.create }}
+        run: |
+          set -euo pipefail
+          [[ "$PREPARE_FAILED_PREPARE" == failure && "$PREPARE_FAILED_BASELINE" == skipped && "$PREPARE_FAILED_CREATE" == skipped ]]
+          [[ "$BASELINE_FAILED_PREPARE" == success && "$BASELINE_FAILED_BASELINE" == failure && "$BASELINE_FAILED_CREATE" == skipped ]]
+          echo 'Synthetic failed-job step outcomes propagated as expected.'
+
   upload:
     runs-on: ubuntu-latest
     timeout-minutes: 10
