@@ -37,7 +37,11 @@ assert.match(driftWorkflow, /MAIN_SHA=\$\(gh api "repos\/\$GH_REPO\/commits\/mai
 assert.doesNotMatch(driftWorkflow, /github\.sha/);
 assert.match(driftWorkflow, /--label deploy-drift/);
 assert.match(driftWorkflow, /gh issue close/);
-assert.doesNotMatch(driftWorkflow, /secrets\.|VERCEL|LINE_|uses:/);
+assert.match(driftWorkflow, /actions\/checkout@[a-f0-9]{40}/);
+assert.match(driftWorkflow, /ref:\s*\$\{\{ steps\.main\.outputs\.sha \}\}/);
+assert.match(driftWorkflow, /fetch-depth:\s*0/);
+assert.match(driftWorkflow, /scripts\/classify-deploy-drift\.py/);
+assert.doesNotMatch(driftWorkflow, /secrets\.|VERCEL|LINE_/);
 assert.match(deployWorkflow, /group:\s*production-deploy-migrate-disabled/);
 assert.match(deployWorkflow, /predeploy_migrate:\s*\n(?:[^\n]*\n){0,4}\s*if:\s*\$\{\{\s*false\s*\}\}/);
 assert.match(codeOnlyWorkflow, /group:\s*production-deploy-main/);
