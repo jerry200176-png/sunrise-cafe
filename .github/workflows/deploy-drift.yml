@@ -57,11 +57,13 @@ jobs:
             fi
             exit 0
           fi
-          # A release takes ~25 min; a fresh main commit is not drift yet.
-          committed=$(gh api "repos/$GH_REPO/commits/$MAIN_SHA" --jq .commit.committer.date)
-          age=$(( $(date +%s) - $(date -d "$committed" +%s) ))
+          # Only a recent runtime change gets a release grace period: a later
+          # documentation commit must not keep an older failed release quiet.
+          committed=$(python3 scripts/classify-deploy-drift.py --latest-actionable "$prod" "$MAIN_SHA") || { echo "::error::cannot determine runtime change age"; exit 1; }
+          [[ "$committed" =~ ^[0-9]+$ ]] || { echo "::error::invalid runtime change age"; exit 1; }
+          age=$(( $(date +%s) - committed ))
           if [ "$age" -lt 3600 ]; then
-            echo "main ${MAIN_SHA:0:7} is under 60 minutes old; release may be in flight"
+            echo "Latest runtime change is under 60 minutes old; release may be in flight"
             exit 0
           fi
           title="Production drift: main ${MAIN_SHA:0:7} vs prod ${prod:0:7}"

@@ -28,10 +28,12 @@ function fixture(): string {
   return git("rev-parse", "HEAD");
 }
 
-function commit(file: string, contents: string): string {
+function commit(file: string, contents: string, date?: string): string {
   writeFileSync(path.join(directory, file), contents);
   git("add", "-A");
-  git("commit", "-qm", "change");
+  execFileSync("git", ["commit", "-qm", "change"], { cwd: directory,
+    env: { ...process.env, ...(date ? { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date } : {}) },
+    stdio: "pipe" });
   return git("rev-parse", "HEAD");
 }
 
@@ -128,7 +130,31 @@ describe("deployment drift classification", () => {
 
   it("opens an alert for an old runtime difference", () => {
     const production = fixture();
-    const main = commit("src/app.ts", "runtime change\n");
+    const main = commit("src/app.ts", "runtime change\n", "2020-01-01T00:00:00Z");
+    const result = runWorkflow(production, main, "");
+    expect(result.status).toBe(0);
+    expect(result.calls).toMatch(/issue create/);
+  });
+
+  it("does not let a fresh documentation commit hide an old runtime change", () => {
+    const production = fixture();
+    commit("src/app.ts", "runtime change\n", "2020-01-01T00:00:00Z");
+    const main = commit("docs/change.md", "fresh documentation\n");
+    const result = runWorkflow(production, main, "");
+    expect(result.status).toBe(0);
+    expect(result.calls).toMatch(/issue create/);
+  });
+
+  it("grants the release grace period to a recent runtime change after old docs", () => {
+    const production = fixture();
+    commit("docs/change.md", "old documentation\n", "2020-01-01T00:00:00Z");
+    const main = commit("src/app.ts", "recent runtime change\n");
+    expect(runWorkflow(production, main, "")).toEqual({ status: 0, calls: "" });
+  });
+
+  it("does not grant grace when production is not an ancestor of main", () => {
+    const main = fixture();
+    const production = commit("src/app.ts", "a different deployed revision\n");
     const result = runWorkflow(production, main, "");
     expect(result.status).toBe(0);
     expect(result.calls).toMatch(/issue create/);
