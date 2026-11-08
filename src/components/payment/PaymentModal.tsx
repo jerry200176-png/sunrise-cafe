@@ -26,6 +26,9 @@ interface PaymentModalProps {
   reservationId: string;
   branchId: string;
   amount: number;
+  lookupToken: string | null;
+  phone: string;
+  bookingCode: string;
   onClose: () => void;
   onPaymentComplete: (paymentIntentId: string) => void;
 }
@@ -42,6 +45,9 @@ export function PaymentModal({
   reservationId,
   branchId,
   amount,
+  lookupToken,
+  phone,
+  bookingCode,
   onClose,
   onPaymentComplete,
 }: PaymentModalProps) {
@@ -57,7 +63,7 @@ export function PaymentModal({
       const res = await fetchWithTimeout("/api/payment/create-intent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reservationId, branchId, amount }),
+        body: JSON.stringify({ reservationId, branchId, amount, ...(lookupToken ? { token: lookupToken } : { phone, bookingCode }) }),
       });
       const data = await res.json();
 
@@ -72,13 +78,13 @@ export function PaymentModal({
       setState({
         phase: "error",
         message: isTimeout
-          ? "付款連線逾時，請檢查網路後重試"
+          ? "付款連線逾時，結果尚待確認，請勿重複付款並聯絡店家"
           : err instanceof Error
           ? err.message
           : "無法建立付款連線",
       });
     }
-  }, [open, reservationId, branchId, amount]);
+  }, [open, reservationId, branchId, amount, lookupToken, phone, bookingCode]);
 
   useEffect(() => {
     createIntent();
@@ -93,7 +99,7 @@ export function PaymentModal({
         const res = await fetchWithTimeout("/api/payment/confirm-deposit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ paymentIntentId, reservationId }),
+          body: JSON.stringify({ paymentIntentId, reservationId, ...(lookupToken ? { token: lookupToken } : { phone, bookingCode }) }),
         });
         const data = await res.json();
 
@@ -103,7 +109,7 @@ export function PaymentModal({
         } else {
           setState({
             phase: "error",
-            message: data.error ?? "付款確認失敗，請聯絡店家",
+            message: "付款結果尚待確認，請勿重複付款並聯絡店家",
           });
         }
       } catch (err) {
@@ -111,16 +117,14 @@ export function PaymentModal({
         setState({
           phase: "error",
           message: isTimeout
-            ? "付款確認逾時，您的付款可能已成功，請勿重複付款"
-            : err instanceof Error
-            ? err.message
-            : "付款確認失敗",
+            ? "付款確認逾時，您的付款可能已成功，請勿重複付款並聯絡店家"
+            : "付款結果尚待確認，請勿重複付款並聯絡店家",
         });
       } finally {
         setConfirming(false);
       }
     },
-    [reservationId, onPaymentComplete]
+    [reservationId, lookupToken, phone, bookingCode, onPaymentComplete]
   );
 
   const handlePaymentError = useCallback((message: string) => {
@@ -178,13 +182,6 @@ export function PaymentModal({
                 {state.message}
               </div>
               <div className="flex justify-center gap-3">
-                <button
-                  type="button"
-                  onClick={createIntent}
-                  className="rounded-[1.4rem] bg-gradient-to-br from-caramel to-caramel-deep px-5 py-2.5 text-sm font-semibold text-white shadow-[0_10px_30px_-12px_rgba(157,101,25,0.45)] transition hover:-translate-y-0.5"
-                >
-                  重試
-                </button>
                 <button
                   type="button"
                   onClick={onClose}
