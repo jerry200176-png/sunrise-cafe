@@ -1,0 +1,16 @@
+# Keep gitleaks' default rules. For generic-api-key only, skip lines in the
+# code-only release manifest that map a repo file path to a 40-hex git blob id
+# (paths like src/lib/lookup-token.ts trip the rule). Both the path and the
+# line shape must match (AND). code-only-release.py also checks every blob
+# against git. Rule-level allowlists need gitleaks >= 8.21; CI runs 8.24.3.
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+[[rules.allowlists]]
+description = "code-only release manifest: file path -> git blob id"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^scripts/code-only-manifest\.json$''']
+regexes = ['''^\s*"[\w.@-]+(/[\w.@-]+)+\.\w+": "[0-9a-f]{40}",?\s*$''']

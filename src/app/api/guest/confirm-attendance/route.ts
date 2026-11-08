@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { isAdminConfigured } from "@/lib/supabase-admin";
 import { verifyAttendanceToken } from "@/lib/attendance-token";
-import { signLookupToken } from "@/lib/lookup-token";
+import { isLookupSigningConfigured, signLookupToken } from "@/lib/lookup-token";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import {
   sendLineFlex,
@@ -155,6 +155,9 @@ export async function GET(request: NextRequest) {
   if (!isAdminConfigured()) {
     return NextResponse.json({ error: "後端未設定" }, { status: 503 });
   }
+  if (!isLookupSigningConfigured()) {
+    return NextResponse.json({ error: "服務暫時無法使用，請稍後再試" }, { status: 503 });
+  }
   const { success } = await rateLimit(getClientIp(request), "guestLookup");
   if (!success) return NextResponse.json({ error: "Too Many Requests" }, { status: 429 });
 
@@ -176,6 +179,9 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   if (!isAdminConfigured()) {
     return NextResponse.json({ error: "後端未設定" }, { status: 503 });
+  }
+  if (!isLookupSigningConfigured()) {
+    return NextResponse.json({ error: "服務暫時無法使用，請稍後再試" }, { status: 503 });
   }
   const { success } = await rateLimit(getClientIp(request), "guestLookup");
   if (!success) return NextResponse.json({ error: "Too Many Requests" }, { status: 429 });

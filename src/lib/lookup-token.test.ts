@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { signLookupToken, verifyLookupToken } from "./lookup-token";
+import { signLookupToken, verifyLookupToken, isLookupSigningConfigured, LookupSigningUnavailableError } from "./lookup-token";
 import { signAttendanceToken } from "./attendance-token";
 
 describe("lookup-token", () => {
@@ -114,5 +114,47 @@ describe("lookup-token", () => {
       const result = verifyLookupToken(token);
       expect(result.ok).toBe(true);
     });
+  });
+
+  describe("production fail-closed", () => {
+    beforeEach(() => {
+      delete process.env.GUEST_LOOKUP_SECRET;
+      delete process.env.SESSION_SECRET;
+      delete process.env.ADMIN_PASSWORD;
+      vi.stubEnv("NODE_ENV", "production");
+    });
+    afterEach(() => vi.unstubAllEnvs());
+
+    it("refuses with no secret", () => {
+      expect(isLookupSigningConfigured()).toBe(false);
+      expect(() => signLookupToken("r1")).toThrow(LookupSigningUnavailableError);
+    });
+
+    it("refuses with ADMIN_PASSWORD alone", () => {
+      process.env.ADMIN_PASSWORD = "admin-pass";
+      expect(isLookupSigningConfigured()).toBe(false);
+      expect(() => signLookupToken("r1")).toThrow(LookupSigningUnavailableError);
+    });
+
+    it("works with GUEST_LOOKUP_SECRET or SESSION_SECRET", () => {
+      process.env.GUEST_LOOKUP_SECRET = "dedicated";
+      expect(verifyLookupToken(signLookupToken("r1"))).toEqual({ ok: true, reservationId: "r1" });
+      delete process.env.GUEST_LOOKUP_SECRET;
+      process.env.SESSION_SECRET = "session";
+      expect(verifyLookupToken(signLookupToken("r2"))).toEqual({ ok: true, reservationId: "r2" });
+    });
+
+    it("verify fails closed (no throw, no hardcoded-key forgery)", () => {
+      vi.stubEnv("NODE_ENV", "test");
+      const forged = signLookupToken("r1"); // dev fallback key
+      vi.stubEnv("NODE_ENV", "production");
+      expect(verifyLookupToken(forged)).toEqual({ ok: false, error: "signing_unavailable" });
+    });
+  });
+
+  it("keeps the dev fallback outside production", () => {
+    delete process.env.SESSION_SECRET;
+    delete process.env.GUEST_LOOKUP_SECRET;
+    expect(verifyLookupToken(signLookupToken("r1")).ok).toBe(true);
   });
 });

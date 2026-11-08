@@ -26,7 +26,7 @@ import {
 import { errorToDetail } from "@/lib/cron-alert";
 import { reservationMatchesBranch, type ReminderReservationShape } from "@/lib/reminder-branch-match";
 import { signAttendanceToken } from "@/lib/attendance-token";
-import { signLookupToken } from "@/lib/lookup-token";
+import { isLookupSigningConfigured, signLookupToken } from "@/lib/lookup-token";
 import { LINE_SITE_URL } from "@/lib/line-flex";
 import { taipeiDateString } from "@/lib/datetime";
 import {
@@ -605,9 +605,15 @@ export async function runSendLineReminder(
     // a group-only success from suppressing a guest retry after a LINE failure.
     let guest_sent_count = 0;
     let guest_rejected = 0;
+    const guestSigningOk = isLookupSigningConfigured();
     const guestRows = allRows.filter(
       (row) => row.line_user_id && !row.d1_guest_reminder_sent_at
     );
+    const guestSkippedForSigning = guestSigningOk ? 0 : guestRows.length;
+    if (guestSkippedForSigning > 0) {
+      console.error("[send-line] guest signing unconfigured; skipping guest reminders");
+      guestRows.length = 0;
+    }
     // One digest per guest per store: each store's own LINE account sends its bookings.
     const guestByUser = new Map<string, Record<string, unknown>[]>();
     for (const row of guestRows) {
@@ -711,7 +717,10 @@ export async function runSendLineReminder(
     }
 
     return NextResponse.json({
-      ok: totalRejected === 0,
+      ok: totalRejected === 0 && guestSkippedForSigning === 0,
+      ...(guestSkippedForSigning > 0
+        ? { warning: "guest_signing_unconfigured", guest_skipped_signing: guestSkippedForSigning }
+        : {}),
       sent: totalMessages,
       message_count: totalMessages,
       errors: line_rejected + guest_rejected,

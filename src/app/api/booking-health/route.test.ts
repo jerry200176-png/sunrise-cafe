@@ -38,6 +38,15 @@ describe("public booking health", () => {
     expect(getBlockedSlots).toHaveBeenCalledWith("active", expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
   });
 
+  it("reports not-ok when guest lookup signing is missing in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("GUEST_LOOKUP_SECRET", "");
+    vi.stubEnv("SESSION_SECRET", "");
+    const result = await GET(request());
+    expect(result.status).toBe(503);
+    expect(await result.json()).toMatchObject({ ok: false, guest_lookup_signing: "missing" });
+  });
+
   it("fails without an active branch and does not call the RPC", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(response([]));
     const result = await GET(request());

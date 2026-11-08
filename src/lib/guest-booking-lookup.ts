@@ -19,7 +19,7 @@ import {
 } from "@/lib/guest-auth";
 import { createClient } from "@supabase/supabase-js";
 import { signAttendanceToken } from "@/lib/attendance-token";
-import { signLookupToken, verifyLookupToken } from "@/lib/lookup-token";
+import { isLookupSigningConfigured, signLookupToken, verifyLookupToken } from "@/lib/lookup-token";
 import { LINE_SITE_URL } from "@/lib/line-flex";
 import { isLinePayConfigured } from "@/lib/line-pay";
 import { guestAllowedActions, type GuestAction } from "@/lib/reservation-lifecycle";
@@ -172,6 +172,10 @@ export async function lookupGuestBookings(
     return { ok: false, error: "請提供電話號碼與訂位代號", status: 400 };
   }
 
+  if (!isLookupSigningConfigured()) {
+    return { ok: false, error: "目前無法查詢訂位，請稍後再試", status: 503 };
+  }
+
   if (!isAdminConfigured()) {
     return { ok: false, error: "後端未設定 SUPABASE_SERVICE_ROLE_KEY", status: 503 };
   }
@@ -228,6 +232,10 @@ export async function lookupGuestBookingsByDate(
       error: "僅可查詢今日起 90 天內的訂位日期",
       status: 400,
     };
+  }
+
+  if (!isLookupSigningConfigured()) {
+    return { ok: false, error: "目前無法查詢訂位，請稍後再試", status: 503 };
   }
 
   if (!isAdminConfigured()) {

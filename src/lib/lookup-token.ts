@@ -6,36 +6,18 @@
  * Domain-separated prefix "lookup:" prevents token confusion with attendance tokens.
  */
 import crypto from "crypto";
+import {
+  LookupSigningUnavailableError,
+  getGuestTokenSecret,
+  isLookupSigningConfigured,
+} from "@/lib/signing-secret";
 
 const DEFAULT_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
 
-/**
- * Dedicated secret for signing and verifying guest lookup tokens.
- * Key separation rules:
- * 1. Dedicated `GUEST_LOOKUP_SECRET` if configured.
- * 2. Fallback to `SESSION_SECRET` (application session signing secret).
- * 3. Fallback to `ADMIN_PASSWORD` (legacy bootstrap).
- * 4. In development/testing, fallback to local dev string.
- *
- * CRITICAL SECURITY INVARIANT:
- * NEVER reuse or fallback to `SUPABASE_SERVICE_ROLE_KEY`. Database administrative
- * keys must remain strictly isolated from public guest token HMAC signatures.
- */
+export { LookupSigningUnavailableError, isLookupSigningConfigured };
+
 export function getLookupSigningSecret(): string {
-  const dedicated = process.env.GUEST_LOOKUP_SECRET?.trim();
-  if (dedicated) return dedicated;
-
-  const sessionSecret = process.env.SESSION_SECRET?.trim();
-  if (sessionSecret) return sessionSecret;
-
-  const adminPassword = process.env.ADMIN_PASSWORD?.trim();
-  if (adminPassword) return adminPassword;
-
-  if (process.env.NODE_ENV === "production") {
-    console.warn("[lookup-token] GUEST_LOOKUP_SECRET and SESSION_SECRET unset in production");
-  }
-
-  return "sunrise-guest-lookup-dev-secret";
+  return getGuestTokenSecret();
 }
 
 function secret(): string {
@@ -66,7 +48,7 @@ export function signLookupToken(reservationId: string, ttlMs = DEFAULT_TTL_MS): 
 
 export type VerifyLookupTokenResult =
   | { ok: true; reservationId: string }
-  | { ok: false; error: "invalid_format" | "expired" | "signature_mismatch" };
+  | { ok: false; error: "invalid_format" | "expired" | "signature_mismatch" | "signing_unavailable" };
 
 /**
  * Verify a lookup token. Timing-safe verification of HMAC signature and expiration.
@@ -106,6 +88,9 @@ export function verifyLookupToken(token: string): VerifyLookupTokenResult {
     return { ok: false, error: "invalid_format" };
   }
 
+  if (!isLookupSigningConfigured()) {
+    return { ok: false, error: "signing_unavailable" };
+  }
   const expected = computeMac(reservationId, exp);
   let got: Buffer;
   try {
