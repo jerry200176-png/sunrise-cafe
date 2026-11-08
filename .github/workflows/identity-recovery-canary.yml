@@ -17,6 +17,43 @@ on:
 permissions: {}
 
 jobs:
+  cancellation-producer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      prepare: ${{ steps.prepare.outcome }}
+      baseline: ${{ steps.baseline.outcome }}
+      create: ${{ steps.create.outcome }}
+    steps:
+      - id: prepare
+        run: echo 'Synthetic prepare completed; no provider call.'
+      - name: Hold synthetic pre-create barrier (180 seconds)
+        id: baseline
+        run: |
+          echo 'SYNTHETIC_PRE_CREATE_BARRIER: no create or provider call; waiting 180 seconds.'
+          sleep 180
+      - id: create
+        run: echo 'Synthetic create boundary completed; no provider call.'
+
+  observe-cancellation:
+    needs: cancellation-producer
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Observe native result with production classifier and offline recovery
+        env:
+          RELEASE_RESULT: ${{ needs.cancellation-producer.result }}
+          PREPARE_OUTCOME: ${{ needs.cancellation-producer.outputs.prepare }}
+          BASELINE_OUTCOME: ${{ needs.cancellation-producer.outputs.baseline }}
+          CREATE_OUTCOME: ${{ needs.cancellation-producer.outputs.create }}
+        run: python3 -B scripts/identity-recovery-canary.py observe-cancellation
+
   # These intentionally failing synthetic jobs use no checkout, secrets or
   # external services. The downstream verifier must see exact step outcomes.
   phase-prepare-failure:
