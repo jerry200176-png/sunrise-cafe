@@ -1,17 +1,14 @@
-import { describe, expect, it } from "vitest";
-import { formatDeployMismatchAlert } from "./deploy-alert";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { recordDeployMismatch } from "./deploy-alert";
 
-describe("deploy-alert", () => {
-  it("formats SHA mismatch for LINE", () => {
-    const text = formatDeployMismatchAlert({
-      mainSha: "abcdef1234567890",
-      prodSha: "1111111111111111",
-      mainShort: "abcdef1",
-      prodShort: "1111111",
+describe("deployment mismatch recording", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("records short versions without exposing full commits", () => {
+    const record = vi.spyOn(console, "error").mockImplementation(() => {});
+    recordDeployMismatch({ mainSha: "abcdef1234567890", prodSha: "1111111222222222" });
+    expect(record).toHaveBeenCalledWith("[deploy-health] production version mismatch", {
+      main: "abcdef1", prod: "1111111",
     });
-    expect(text).toContain("Production 部署異常");
-    expect(text).toContain("abcdef1");
-    expect(text).toContain("1111111");
-    expect(text).toContain("vercel deploy --prod");
   });
 });

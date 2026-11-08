@@ -1,0 +1,79 @@
+# Daily production drift report: production /api/version vs main head.
+# Reports to a GitHub issue (label deploy-drift), never to the staff LINE group.
+# Read-only for production; uses only GITHUB_TOKEN (no Vercel token, no secrets).
+name: Deploy Drift
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+concurrency:
+  group: deploy-drift
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PRODUCTION_URL: https://sunrise-cafe-six.vercel.app
+    steps:
+      - name: Resolve main
+        id: main
+        run: |
+          set -euo pipefail
+          # Resolve main independently of the ref this run was dispatched from.
+          MAIN_SHA=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
+          [[ "$MAIN_SHA" =~ ^[a-f0-9]{40}$ ]] || { echo "::error::cannot resolve main"; exit 1; }
+          echo "sha=$MAIN_SHA" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.main.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Compare production with main
+        env:
+          MAIN_SHA: ${{ steps.main.outputs.sha }}
+        run: |
+          set -euo pipefail
+          prod=$(curl -fsS --max-time 20 --retry 3 "$PRODUCTION_URL/api/version" | jq -r '.commit // empty')
+          [[ "$prod" =~ ^[a-f0-9]{40}$ ]] || { echo "::error::production /api/version is unreadable"; exit 1; }
+          classification=$(python3 scripts/classify-deploy-drift.py "$prod" "$MAIN_SHA") || { echo "::error::cannot safely compare production with main"; exit 1; }
+          open=$(gh issue list --label deploy-drift --state open --json number --jq '.[0].number // empty')
+          if [ "$classification" = exact ] || [ "$classification" = benign ]; then
+            echo "No actionable drift ($classification): main ${MAIN_SHA:0:7}, production ${prod:0:7}"
+            if [ -n "$open" ]; then
+              current_main=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
+              current_prod=$(curl -fsS --max-time 20 --retry 3 "$PRODUCTION_URL/api/version" | jq -r '.commit // empty')
+              [[ "$current_main" = "$MAIN_SHA" && "$current_prod" = "$prod" ]] || { echo "::error::versions changed during comparison"; exit 1; }
+              gh issue close "$open" --comment "No actionable production drift ($classification): main ${MAIN_SHA:0:7}, production ${prod:0:7}."
+            fi
+            exit 0
+          fi
+          # Only a recent runtime change gets a release grace period: a later
+          # documentation commit must not keep an older failed release quiet.
+          committed=$(python3 scripts/classify-deploy-drift.py --latest-actionable "$prod" "$MAIN_SHA") || { echo "::error::cannot determine runtime change age"; exit 1; }
+          [[ "$committed" =~ ^[0-9]+$ ]] || { echo "::error::invalid runtime change age"; exit 1; }
+          age=$(( $(date +%s) - committed ))
+          if [ "$age" -ge 0 ] && [ "$age" -lt 3600 ]; then
+            echo "Latest runtime change is under 60 minutes old; release may be in flight"
+            exit 0
+          fi
+          title="Production drift: main ${MAIN_SHA:0:7} vs prod ${prod:0:7}"
+          body="Production /api/version reports ${prod}, main is ${MAIN_SHA}. Check the Production code-only release runs and follow the release recovery procedure. Run: ${GITHUB_SERVER_URL}/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}"
+          current_main=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
+          current_prod=$(curl -fsS --max-time 20 --retry 3 "$PRODUCTION_URL/api/version" | jq -r '.commit // empty')
+          [[ "$current_main" = "$MAIN_SHA" && "$current_prod" = "$prod" ]] || { echo "::error::versions changed during comparison"; exit 1; }
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body "$title"$'\n\n'"$body"
+          else
+            gh label create deploy-drift --color B60205 --description "Production differs from main" 2>/dev/null || true
+            gh issue create --label deploy-drift --title "$title" --body "$body"
+          fi

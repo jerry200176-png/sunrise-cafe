@@ -1,10 +1,10 @@
 {
-  "baseline": "fba352ff13b57b385182b85d8a5e72b8ca069f5c",
+  "baseline": "c8b9ba0d10d6590511dbaa2d752df8207bc13041",
   "approved_files": {
     ".github/workflows/identity-recovery-canary.yml": "5e057c7db86567f54f28a2b39597739726cf5593",
     ".github/workflows/production-code-only.yml": "01842dc85e60e9c654a082f0267e01b0d0efa977",
     "docs/plans/2026-11-issue-577-recovery.md": "6c86b5afa8c63ce443fd66fc43c424e6e85d7b81",
-    "scripts/code-only-release.py": "db7b4abbb14b60aa2a94716fff8e7efb42fa9cbf",
+    "scripts/code-only-release.py": "1ecc494d1d829a5bf83b5b0e77f823f796e00ca6",
     "scripts/test_identity_recovery_canary.py": "f37534f69dd46b2950028095e7dd1632d1a51704",
     "src/lib/actions-upgrade-contract.test.ts": "163855c8b4c1e20c3a41a42b95f4032872c9b9da"
   }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchExpectedMainHead } from "@/lib/expected-main-head";
 import { fetchProductionVersion } from "@/lib/production-version";
-import { notifyDeployMismatch } from "@/lib/deploy-alert";
+import { recordDeployMismatch } from "@/lib/deploy-alert";
 import { errorToDetail } from "@/lib/cron-alert";
 import { runCronJob } from "@/lib/job-runs";
 import { runBootstrapMigrations } from "@/lib/bootstrap-migrations";
@@ -48,28 +48,28 @@ async function handleRun() {
       });
     }
 
-    const alerted = await notifyDeployMismatch({ mainSha, prodSha: prod.commit });
+    recordDeployMismatch({ mainSha, prodSha: prod.commit });
     return NextResponse.json({
       ok: false,
       sha_parity: false,
       main: mainSha.slice(0, 7),
       prod: prod.commit_short,
-      alerted,
-      hint: "Run vercel deploy --prod or check Vercel dashboard",
+      alerted: false,
+      hint: "Check the deployment status and follow the release recovery procedure",
     });
   } catch (err) {
     return NextResponse.json({ error: errorToDetail(err) }, { status: 500 });
   }
 }
 
-/** GET: Vercel Cron — production SHA parity check + LINE alert on drift */
+/** GET: Vercel Cron — record production SHA parity without a group alert. */
 export async function GET(request: NextRequest) {
   const cronAuth = authorizeCronGet(request);
   if (!cronAuth.ok) return cronAuth.response;
-  return runCronJob("deploy-health", () => handleRun());
+  return runCronJob("deploy-health", () => handleRun(), { notifyFailure: false });
 }
 
 /** POST: manual trigger (admin session or cron secret via middleware) */
 export async function POST() {
-  return runCronJob("deploy-health", () => handleRun());
+  return runCronJob("deploy-health", () => handleRun(), { notifyFailure: false });
 }

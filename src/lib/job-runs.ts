@@ -15,6 +15,8 @@ export type ReminderTriggerSource = "cron" | "manual" | "github";
 
 export type CronJobOptions = {
   trigger_source?: ReminderTriggerSource;
+  /** Keep recording failures, but do not push them to the staff LINE group. */
+  notifyFailure?: boolean;
 };
 
 export type JobRunSummary = {
@@ -244,8 +246,10 @@ export async function runCronJob(
     });
 
     if (!ok || partialFailure) {
-      await notifyCronFailure(jobName, error_message ?? `Cron ${jobName} failed`);
-      logOps("cron", partialFailure ? "cron.partial_failure" : "cron.failure_notified", {
+      if (options.notifyFailure !== false) {
+        await notifyCronFailure(jobName, error_message ?? `Cron ${jobName} failed`);
+      }
+      logOps("cron", partialFailure ? "cron.partial_failure" : options.notifyFailure === false ? "cron.run_failed" : "cron.failure_notified", {
         job_name: jobName,
         error_message,
         items_processed,
@@ -279,7 +283,7 @@ export async function runCronJob(
         wall_duration_ms: Date.now() - runStarted,
       },
     });
-    await notifyCronFailure(jobName, err);
+    if (options.notifyFailure !== false) await notifyCronFailure(jobName, err);
     const message = errorToDetail(err);
     logOps("cron", "cron.run_failed", {
       job_name: jobName,
