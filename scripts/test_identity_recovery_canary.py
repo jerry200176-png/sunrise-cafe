@@ -59,6 +59,29 @@ class IdentityCanaryTests(unittest.TestCase):
         for forbidden in ('secrets.', 'github.token', 'actions: read', 'VERCEL_TOKEN', 'SUPABASE', 'GH_TOKEN'):
             self.assertNotIn(forbidden, json.dumps(self.w))
 
+    def test_phase_probes_are_synthetic_and_verifier_rejects_missing_outcomes(self):
+        for name in ('phase-prepare-failure', 'phase-baseline-failure'):
+            job = self.w['jobs'][name]
+            self.assertEqual(job['runs-on'], 'ubuntu-latest')
+            self.assertEqual(job['timeout-minutes'], 5)
+            self.assertTrue(job['continue-on-error'])
+            self.assertNotIn('permissions', job)
+            self.assertEqual(job['outputs'], {key: '${{ steps.' + key + '.outcome }}'
+                                              for key in ('prepare', 'baseline', 'create')})
+            self.assertTrue(all('uses' not in step for step in job['steps']))
+        verifier = self.w['jobs']['verify-phase-outputs']
+        self.assertEqual(verifier['needs'], ['phase-prepare-failure', 'phase-baseline-failure'])
+        self.assertEqual(verifier['if'], '${{ always() }}')
+        self.assertNotIn('permissions', verifier)
+        script = verifier['steps'][0]['run']
+        env = {'PATH': os.defpath, 'PREPARE_FAILED_PREPARE': 'failure',
+               'PREPARE_FAILED_BASELINE': 'skipped', 'PREPARE_FAILED_CREATE': 'skipped',
+               'BASELINE_FAILED_PREPARE': 'success', 'BASELINE_FAILED_BASELINE': 'failure',
+               'BASELINE_FAILED_CREATE': 'skipped'}
+        self.assertEqual(subprocess.run(['bash', '-c', script], env=env, capture_output=True).returncode, 0)
+        for key in env.keys() - {'PATH'}:
+            self.assertNotEqual(subprocess.run(['bash', '-c', script], env={**env, key: ''}, capture_output=True).returncode, 0)
+
     def test_artifact_actions_names_inputs_and_output_wiring(self):
         upload, verify = self.w['jobs']['upload'], self.w['jobs']['verify']
         self.assertEqual(len(upload['steps']), 3)
