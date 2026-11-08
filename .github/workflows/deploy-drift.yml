@@ -62,7 +62,7 @@ jobs:
           committed=$(python3 scripts/classify-deploy-drift.py --latest-actionable "$prod" "$MAIN_SHA") || { echo "::error::cannot determine runtime change age"; exit 1; }
           [[ "$committed" =~ ^[0-9]+$ ]] || { echo "::error::invalid runtime change age"; exit 1; }
           age=$(( $(date +%s) - committed ))
-          if [ "$age" -lt 3600 ]; then
+          if [ "$age" -ge 0 ] && [ "$age" -lt 3600 ]; then
             echo "Latest runtime change is under 60 minutes old; release may be in flight"
             exit 0
           fi

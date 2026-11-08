@@ -160,6 +160,14 @@ describe("deployment drift classification", () => {
     expect(result.calls).toMatch(/issue create/);
   });
 
+  it("does not let a future commit timestamp suppress the alert", () => {
+    const production = fixture();
+    const main = commit("src/app.ts", "runtime with clock skew\n", "2099-01-01T00:00:00Z");
+    const result = runWorkflow(production, main, "");
+    expect(result.status).toBe(0);
+    expect(result.calls).toMatch(/issue create/);
+  });
+
   it("leaves the alert alone if the comparison is unknown or main moved", () => {
     fixture();
     const main = commit("docs/change.md", "documentation\n");
