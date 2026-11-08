@@ -1,18 +1,11 @@
 {
-  "baseline": "fba352ff13b57b385182b85d8a5e72b8ca069f5c",
+  "baseline": "c8b9ba0d10d6590511dbaa2d752df8207bc13041",
   "approved_files": {
-    ".github/workflows/deploy-drift.yml": "70a99275caa22fbbefb1865ecb70d2f24b134272",
-    "docs/ENV.md": "32049c22bf1c175bed73c3946f91d28c6e4003c7",
-    "docs/plans/2026-11-quiet-deploy-health.md": "c83e263e9321018496cceb827603d4a2daa864af",
-    "docs/research/2026-09-line-usage-audit.md": "391b92299f48d4f84f0e738433472231adeec0ea",
-    "scripts/classify-deploy-drift.py": "bf5936c5de7707fb521e9f74eb251dd3b3d56eb5",
-    "scripts/code-only-release.py": "db7b4abbb14b60aa2a94716fff8e7efb42fa9cbf",
-    "scripts/verify-production-workflow-contract.mjs": "8005b69af20cdad7d10c67b67c21edceda95d76a",
-    "src/app/api/admin/reminders/deploy-health/route.test.ts": "4f7ae7648885db868fbf2823e1f9ca699e3492ed",
-    "src/app/api/admin/reminders/deploy-health/route.ts": "8fb41baa6b23230079d533fbe3403e2d61e6e27c",
-    "src/lib/deploy-alert.test.ts": "d8b7468d3ba2f186cbb95d7eda711e2642fed19f",
-    "src/lib/deploy-alert.ts": "af62a76b86f13dac3f98a82eebe7fa1c13424fed",
-    "src/lib/deploy-drift-workflow.test.ts": "6f54774c195008987232dd9fcfb048d7b7ca3c34",
-    "src/lib/job-runs.ts": "896dcccacf6ddfe6bceafaca756f53486165d415"
+    ".github/workflows/identity-recovery-canary.yml": "5e057c7db86567f54f28a2b39597739726cf5593",
+    ".github/workflows/production-code-only.yml": "01842dc85e60e9c654a082f0267e01b0d0efa977",
+    "docs/plans/2026-11-issue-577-recovery.md": "6c86b5afa8c63ce443fd66fc43c424e6e85d7b81",
+    "scripts/code-only-release.py": "1ecc494d1d829a5bf83b5b0e77f823f796e00ca6",
+    "scripts/test_identity_recovery_canary.py": "f37534f69dd46b2950028095e7dd1632d1a51704",
+    "src/lib/actions-upgrade-contract.test.ts": "163855c8b4c1e20c3a41a42b95f4032872c9b9da"
   }
 }
