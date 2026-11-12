@@ -56,13 +56,13 @@
     "@sentry/nextjs": "^10.78.0",
     "@stripe/react-stripe-js": "^3.11.0",
     "@stripe/stripe-js": "^5.5.0",
-    "@supabase/supabase-js": "2.118.0",
+    "@supabase/supabase-js": "2.119.0",
     "@types/qrcode": "^1.5.6",
     "@upstash/ratelimit": "^2.2.0",
-    "@upstash/redis": "^1.40.0",
+    "@upstash/redis": "^1.41.0",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.577.0",
-    "next": "^15.5.28",
+    "next": "^15.5.29",
     "qrcode": "^1.5.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
@@ -70,7 +70,7 @@
     "resend": "^6.37.0",
     "stripe": "~22.3.2",
     "three": "0.187.0",
-    "ws": "^8.22.1"
+    "ws": "^8.22.2"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
