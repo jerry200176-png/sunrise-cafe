@@ -7,3 +7,4 @@ fail-on-scopes:
 comment-summary-in-pr: never
 allow-ghsas:
   - GHSA-vfj7-8cjw-p6xm
+  - GHSA-fc5q-39xc-vjpf
