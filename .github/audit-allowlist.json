@@ -4,5 +4,11 @@
     "package": "braces (via tailwindcss 3 -> chokidar/micromatch, build-time only)",
     "reason": "Stack-exhaustion DoS on crafted glob patterns. Only reachable through dev/build tooling (tailwindcss 3, eslint-config-next); no runtime path takes untrusted globs. npm's fix is a tailwindcss major upgrade, tracked as a separate migration.",
     "expires": "2026-12-31"
+  },
+  {
+    "id": "GHSA-fc5q-39xc-vjpf",
+    "package": "picomatch (via @sentry/nextjs -> @rollup/plugin-commonjs, tailwindcss 3 -> chokidar/micromatch, vitest, eslint; build/test-time only)",
+    "reason": "ReDoS on crafted extglob patterns. Affects every release (<= 4.0.7) and upstream has no patched version yet, so no upgrade exists. Only reachable through build and test tooling; application code never calls picomatch and no runtime path takes untrusted globs. Founder approved a dated exception on 2026-11-18; remove it as soon as a patched release ships.",
+    "expires": "2026-12-31"
   }
 ]
