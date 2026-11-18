@@ -8,7 +8,7 @@
   {
     "id": "GHSA-fc5q-39xc-vjpf",
     "package": "picomatch (via @sentry/nextjs -> @rollup/plugin-commonjs, tailwindcss 3 -> chokidar/micromatch, vitest, eslint; build/test-time only)",
-    "reason": "ReDoS on crafted extglob patterns. Affects every release (<= 4.0.7) and upstream has no patched version yet, so no upgrade exists. Only reachable through build and test tooling; application code never calls picomatch and no runtime path takes untrusted globs. Founder approved a dated exception on 2026-11-18; remove it as soon as a patched release ships.",
+    "reason": "ReDoS on crafted extglob patterns. Affects every release (<= 4.0.7) and upstream has no patched version yet, so no upgrade exists. Only reachable through build and test tooling; this repo's source never calls picomatch and no runtime path takes untrusted globs (Next.js bundles its own copy, used only with the static image host patterns from next.config). The id is matched for any package path, so a new dependency that pulls picomatch also passes until expiry. Founder approved a dated exception on 2026-11-18; remove it as soon as a patched release ships.",
     "expires": "2026-12-31"
   }
 ]
