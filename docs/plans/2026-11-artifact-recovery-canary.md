@@ -17,3 +17,32 @@ PR-only workflow 不使用使用者 secrets、Vercel、資料庫、真實備份�
 - [actions/upload-artifact v7.0.2](https://github.com/actions/upload-artifact/tree/v7.0.2)（MIT）：使用預設 ZIP 與不可變 artifact；以無 secrets 合成材料進行同 run 測試。
 - [actions/download-artifact v4.3.0](https://github.com/actions/download-artifact/tree/v4.3.0)（MIT）：依名稱下載同 run artifacts；server metadata、跨 run 權限與雜湊驗證另議。
 - 沿用 `scripts/test_code_only_release.py` 的 fake API 注入；根因是 artifact 傳遞與真實恢復邏輯未接在一起驗證，並非真實 rollback 已驗證。
+
+## Cancellation evidence extension (local candidate)
+
+The prior phase probes end immediately. They prove ordinary failure output propagation,
+but offer no observable point for an external cancellation. Repeating them cannot prove
+that a cancelled producer still reaches the real classifier and conservative recovery.
+Searched `phase`, `pre_create`, `recovery_candidate` and `recover` in the workflows,
+existing canary, tests and #577 plan; reuse those helpers and the production shell text.
+
+Add one synthetic producer with a named, finite 180-second pre-create barrier and native
+job result, plus an `always()` observer in this existing workflow. The observer extracts
+the production classifier's exact shell, feeds the real producer result/outcomes, and
+records the classifier digest. Normal completion must pass. Cancellation must retain
+`pre_create=false`; with no candidate identity, existing offline fake recovery must refuse
+unknown ownership without rollback. Its synthetic baseline is observer-local, so this
+does not test retention of the producer's baseline or production artifact downloads.
+Reject another workflow or copied classifier: either would separate evidence from the
+contract being tested. Focused tests cover wiring, both result branches, absent outputs
+and refusal to accept an attempted create as pre-create cancellation. Rollback: revert
+this canary-only extension; no production workflow, manifest, permission or gate changes.
+
+參考做法: GitHub's [cancellation sequence](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-cancellation)
+re-evaluates `always()` and signals processes; [actions/runner (MIT)](https://github.com/actions/runner)
+distinguishes outcome from conclusion. Reuse the patterns and existing code, without
+copying runner internals. After review, an authorized no-secret PR run must first finish
+normally; rerun only the producer and dependent observer, observe the named running
+barrier through native GitHub job metadata, then cancel that exact run. Preserve native
+cancelled status and collect run/attempt/head/job/step evidence. Hosted observer survival,
+runner loss, provider rollback, concurrent writers and database restore remain unverified.

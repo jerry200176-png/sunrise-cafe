@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -10,9 +11,83 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / '.github/workflows/identity-recovery-canary.yml'
 
 
-def workflow():
+def workflow(path=WORKFLOW):
     js = "const fs=require('fs'),y=require('js-yaml');process.stdout.write(JSON.stringify(y.load(fs.readFileSync(process.argv[1],'utf8'))))"
-    return json.loads(subprocess.check_output(['node', '-e', js, str(WORKFLOW)], cwd=ROOT))
+    return json.loads(subprocess.check_output(['node', '-e', js, str(path)], cwd=ROOT))
+
+
+class CancellationCanaryTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.env = {'PATH': os.defpath, 'RUNNER_TEMP': self.temp.name,
+                    'GITHUB_RUN_ID': '123', 'GITHUB_RUN_ATTEMPT': '2',
+                    'RELEASE_RESULT': 'cancelled', 'PREPARE_OUTCOME': 'success',
+                    'BASELINE_OUTCOME': 'cancelled', 'CREATE_OUTCOME': 'skipped'}
+
+    def observe(self, **changes):
+        return subprocess.run(['python3', '-B', str(ROOT / 'scripts/identity-recovery-canary.py'),
+                               'observe-cancellation'], env={**self.env, **changes},
+                              capture_output=True, text=True, timeout=15)
+
+    def test_native_producer_and_always_observer_wiring(self):
+        w = workflow()
+        producer, observer = (w['jobs'][name] for name in ('cancellation-producer', 'observe-cancellation'))
+        self.assertEqual(w['permissions'], {})
+        self.assertEqual(set(w['on']), {'pull_request'})
+        for job in (producer, observer):
+            self.assertEqual(job['runs-on'], 'ubuntu-latest')
+            self.assertEqual(job['timeout-minutes'], 5)
+            self.assertNotIn('continue-on-error', job)
+        self.assertNotIn('permissions', producer)
+        self.assertTrue(all('uses' not in step and 'if' not in step for step in producer['steps']))
+        self.assertEqual(producer['outputs'], {key: '${{ steps.' + key + '.outcome }}'
+                                               for key in ('prepare', 'baseline', 'create')})
+        self.assertEqual([step['id'] for step in producer['steps']], ['prepare', 'baseline', 'create'])
+        barrier = producer['steps'][1]
+        self.assertEqual(barrier['name'], 'Hold synthetic pre-create barrier (180 seconds)')
+        self.assertEqual(barrier['run'].splitlines()[-1], 'sleep 180')
+        self.assertEqual(observer['needs'], 'cancellation-producer')
+        self.assertEqual(observer['if'], '${{ always() }}')
+        self.assertEqual(observer['permissions'], {'contents': 'read'})
+        self.assertEqual(observer['steps'][0]['uses'], 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1')
+        self.assertEqual(observer['steps'][0]['with'], {'persist-credentials': False})
+        step = observer['steps'][1]
+        self.assertEqual(step['run'], 'python3 -B scripts/identity-recovery-canary.py observe-cancellation')
+        self.assertEqual(step['env'], {'RELEASE_RESULT': '${{ needs.cancellation-producer.result }}',
+                                     **{key.upper() + '_OUTCOME': '${{ needs.cancellation-producer.outputs.' + key + ' }}'
+                                        for key in ('prepare', 'baseline', 'create')}})
+        for forbidden in ('secrets.', 'github.token', 'actions: read', 'VERCEL_TOKEN', 'SUPABASE', 'GH_TOKEN'):
+            self.assertNotIn(forbidden, json.dumps(w))
+
+    def test_normal_completion_passes_without_recovery(self):
+        result = self.observe(RELEASE_RESULT='success', BASELINE_OUTCOME='success', CREATE_OUTCOME='success')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('production recovery is not required', result.stdout)
+        self.assertNotIn('recovery entered', result.stdout)
+
+    def test_cancelled_and_absent_outputs_use_exact_classifier_and_refuse_unknown_ownership(self):
+        production = workflow(ROOT / '.github/workflows/production-code-only.yml')
+        classifier = next(step['run'] for step in production['jobs']['recovery']['steps'] if step.get('id') == 'phase')
+        for changes in ({}, {'PREPARE_OUTCOME': '', 'BASELINE_OUTCOME': '', 'CREATE_OUTCOME': ''}):
+            with self.subTest(changes=changes):
+                result = self.observe(**changes)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                line = next(line for line in result.stdout.splitlines() if line.startswith('Synthetic phase evidence: '))
+                evidence = json.loads(line.removeprefix('Synthetic phase evidence: '))
+                self.assertEqual(evidence['classifier_sha256'], hashlib.sha256(classifier.encode()).hexdigest())
+                self.assertEqual((evidence['run_id'], evidence['attempt'], evidence['RELEASE_RESULT']), ('123', '2', 'cancelled'))
+                self.assertEqual(evidence['pre_create'], 'pre_create=false')
+                self.assertIn('recovery entered; missing identity refused unknown ownership; no rollback', result.stdout)
+
+    def test_unplanned_failure_or_attempted_create_cannot_claim_cancellation_proof(self):
+        for changes in ({'RELEASE_RESULT': 'failure'}, {'RELEASE_RESULT': ''},
+                        {'CREATE_OUTCOME': 'success'}, {'CREATE_OUTCOME': 'cancelled'},
+                        {'RELEASE_RESULT': 'success', 'BASELINE_OUTCOME': 'success', 'CREATE_OUTCOME': ''}):
+            with self.subTest(changes=changes):
+                result = self.observe(**changes)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn('recovery entered', result.stdout)
 
 
 class IdentityCanaryTests(unittest.TestCase):
@@ -58,6 +133,29 @@ class IdentityCanaryTests(unittest.TestCase):
         self.assertEqual(verify['steps'][-1]['run'], 'python3 -B scripts/identity-recovery-canary.py')
         for forbidden in ('secrets.', 'github.token', 'actions: read', 'VERCEL_TOKEN', 'SUPABASE', 'GH_TOKEN'):
             self.assertNotIn(forbidden, json.dumps(self.w))
+
+    def test_phase_probes_are_synthetic_and_verifier_rejects_missing_outcomes(self):
+        for name in ('phase-prepare-failure', 'phase-baseline-failure'):
+            job = self.w['jobs'][name]
+            self.assertEqual(job['runs-on'], 'ubuntu-latest')
+            self.assertEqual(job['timeout-minutes'], 5)
+            self.assertTrue(job['continue-on-error'])
+            self.assertNotIn('permissions', job)
+            self.assertEqual(job['outputs'], {key: '${{ steps.' + key + '.outcome }}'
+                                              for key in ('prepare', 'baseline', 'create')})
+            self.assertTrue(all('uses' not in step for step in job['steps']))
+        verifier = self.w['jobs']['verify-phase-outputs']
+        self.assertEqual(verifier['needs'], ['phase-prepare-failure', 'phase-baseline-failure'])
+        self.assertEqual(verifier['if'], '${{ always() }}')
+        self.assertNotIn('permissions', verifier)
+        script = verifier['steps'][0]['run']
+        env = {'PATH': os.defpath, 'PREPARE_FAILED_PREPARE': 'failure',
+               'PREPARE_FAILED_BASELINE': 'skipped', 'PREPARE_FAILED_CREATE': 'skipped',
+               'BASELINE_FAILED_PREPARE': 'success', 'BASELINE_FAILED_BASELINE': 'failure',
+               'BASELINE_FAILED_CREATE': 'skipped'}
+        self.assertEqual(subprocess.run(['bash', '-c', script], env=env, capture_output=True).returncode, 0)
+        for key in env.keys() - {'PATH'}:
+            self.assertNotEqual(subprocess.run(['bash', '-c', script], env={**env, key: ''}, capture_output=True).returncode, 0)
 
     def test_artifact_actions_names_inputs_and_output_wiring(self):
         upload, verify = self.w['jobs']['upload'], self.w['jobs']['verify']

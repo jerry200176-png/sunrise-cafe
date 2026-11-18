@@ -22,6 +22,9 @@ jobs:
     outputs:
       candidate: ${{ steps.create.outputs.candidate }}
       candidate_commit: ${{ steps.create.outputs.candidate_commit }}
+      prepare_outcome: ${{ steps.prepare.outcome }}
+      baseline_outcome: ${{ steps.baseline.outcome }}
+      create_outcome: ${{ steps.create.outcome }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -34,6 +37,7 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: python3 -B scripts/code-only-release.py prepare
       - name: Retain baseline before creating a deployment
+        id: baseline
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           archive: true
@@ -82,18 +86,39 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Classify proven pre-create failure
+        id: phase
+        env:
+          RELEASE_RESULT: ${{ needs.release.result }}
+          PREPARE_OUTCOME: ${{ needs.release.outputs.prepare_outcome }}
+          BASELINE_OUTCOME: ${{ needs.release.outputs.baseline_outcome }}
+          CREATE_OUTCOME: ${{ needs.release.outputs.create_outcome }}
+        run: |
+          set -euo pipefail
+          if [[ "$RELEASE_RESULT" == failure && "$CREATE_OUTCOME" == skipped ]] &&
+             { [[ "$PREPARE_OUTCOME" == failure && "$BASELINE_OUTCOME" == skipped ]] ||
+               [[ "$PREPARE_OUTCOME" == success && "$BASELINE_OUTCOME" == failure ]]; }; then
+            echo 'pre_create=true' >> "$GITHUB_OUTPUT"
+            echo '::notice::This attempt failed before create; it performed no deployment create or rollback. Production state is not inferred.'
+          else
+            echo 'pre_create=false' >> "$GITHUB_OUTPUT"
+            echo 'Recovery remains required: phase evidence is not a proven pre-create failure.'
+          fi
       - name: Recover retained baseline
+        if: ${{ steps.phase.outputs.pre_create != 'true' }}
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: code-only-baseline-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}
       - name: Recover candidate identity when available
+        if: ${{ steps.phase.outputs.pre_create != 'true' }}
         continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: code-only-candidate-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}
       - name: Verify production and restore prior deployment if needed
+        if: ${{ steps.phase.outputs.pre_create != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}

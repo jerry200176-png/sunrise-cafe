@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """Run only synthetic artifact identities against real recovery logic and fake APIs."""
+import hashlib
 import importlib.util
+import json
 import os
 from pathlib import Path
 import re
 import shutil
 import socket
+import subprocess
+import sys
 import tempfile
 
 
@@ -76,6 +80,63 @@ def expect_rejection(directory, output_id, output_commit, *, current=NEW):
     raise AssertionError('invalid synthetic identity was not rejected')
 
 
+def production_classifier():
+    source = (root.parent / '.github/workflows/production-code-only.yml').read_text()
+    marker = '      - name: Classify proven pre-create failure\n'
+    if source.count(marker) != 1:
+        raise AssertionError('production phase classifier missing or ambiguous')
+    step = source.split(marker)[1].split('\n      - ', 1)[0]
+    header, body = step.split('        run: |\n')
+    if '        id: phase\n' not in header or not body.strip():
+        raise AssertionError('production phase classifier shape changed')
+    lines = body.splitlines()
+    if any(line and not line.startswith('          ') for line in lines):
+        raise AssertionError('production phase classifier indentation changed')
+    return '\n'.join(line[10:] for line in lines) + '\n'
+
+
+def observe_cancellation():
+    keys = ('RELEASE_RESULT', 'PREPARE_OUTCOME', 'BASELINE_OUTCOME', 'CREATE_OUTCOME')
+    values = {key: os.environ.get(key, '') for key in keys}
+    classifier = production_classifier()
+    evidence = {'run_id': os.environ.get('GITHUB_RUN_ID', ''),
+                'attempt': os.environ.get('GITHUB_RUN_ATTEMPT', ''), **values,
+                'classifier_sha256': hashlib.sha256(classifier.encode()).hexdigest()}
+    with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP']) as temp:
+        work = Path(temp)
+        output = work / 'phase-output'
+        result = subprocess.run(['bash', '-c', classifier],
+                                env={'PATH': os.defpath, **values, 'GITHUB_OUTPUT': str(output)},
+                                capture_output=True, text=True, timeout=10, check=True)
+        print(result.stdout, end='')
+        phase = output.read_text()
+        evidence['pre_create'] = phase.strip()
+        print('Synthetic phase evidence: ' + json.dumps(evidence, sort_keys=True), flush=True)
+        if phase != 'pre_create=false\n':
+            raise AssertionError('success or cancellation unexpectedly bypassed recovery')
+        if values['RELEASE_RESULT'] == 'success':
+            if any(values[key] != 'success' for key in keys[1:]):
+                raise AssertionError('successful producer has inconsistent phase evidence')
+            print('Synthetic producer completed; production recovery is not required.')
+            return
+        if values['RELEASE_RESULT'] != 'cancelled':
+            raise AssertionError('producer did not complete or receive native cancellation')
+        if values['CREATE_OUTCOME'] not in ('', 'skipped'):
+            raise AssertionError('producer was not cancelled before synthetic create')
+        # The observer's synthetic baseline is not a retained producer artifact.
+        # Missing candidate identity must reach real recovery, then refuse ownership.
+        (work / BASEFILE).write_text(json.dumps({'baseline': BASE, 'previous': OLD, 'commit': SHA}))
+        api = FakeAPI()
+        try:
+            run_recovery(work, api, '', '')
+        except release.Unknown as error:
+            if str(error) != 'production deployment ownership is unknown' or api.rollbacks:
+                raise AssertionError('unexpected fake recovery refusal') from error
+        else:
+            raise AssertionError('missing candidate identity did not refuse fake recovery')
+        print('Synthetic cancelled producer: recovery entered; missing identity refused unknown ownership; no rollback.')
+
+
 def main():
     ids = [os.environ.get('BASELINE_ID', ''), os.environ.get('CANDIDATE_ID', '')]
     digests = [os.environ.get('BASELINE_DIGEST', ''), os.environ.get('CANDIDATE_DIGEST', '')]
@@ -128,4 +189,9 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    if sys.argv[1:] == ['observe-cancellation']:
+        observe_cancellation()
+    elif sys.argv[1:]:
+        raise SystemExit('invalid canary mode')
+    else:
+        main()
