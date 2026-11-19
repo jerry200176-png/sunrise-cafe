@@ -74,11 +74,11 @@ export async function loadAdvice(db: SupabaseClient, scope: string[] | null, now
       .lt("start_time", now.toISOString())
       .order("start_time")
       .range(a, b);
-    if (scope) q = q.in("rooms.branch_id", scope);
+    if (scope) q = q.in("room.branch_id", scope);
     return q as never;
   });
   let first = db.from("reservations").select("start_time,room:rooms!inner(branch_id)").order("start_time").limit(1);
-  if (scope) first = first.in("rooms.branch_id", scope);
+  if (scope) first = first.in("room.branch_id", scope);
   const { data: earliest, error } = await first;
   if (error) throw new Error(error.message);
   const t = earliest?.[0]?.start_time ? new Date(earliest[0].start_time).getTime() : now.getTime();

@@ -253,7 +253,7 @@ export async function fetchDailyPrep(branchId: string, date: string) {
   const { data: reservations, error: reservationError } = await supabaseAdmin()
     .from("reservations")
     .select("id,booking_code,customer_name,guest_count,start_time,end_time,status,room:rooms!inner(id,name,branch_id)")
-    .eq("rooms.branch_id", branchId).gte("start_time", start).lt("start_time", end).neq("status", "cancelled").order("start_time");
+    .eq("room.branch_id", branchId).gte("start_time", start).lt("start_time", end).neq("status", "cancelled").order("start_time");
   if (reservationError) throw reservationError;
   const ids = (reservations ?? []).map((row) => row.id);
   if (ids.length === 0) return { date, branch_id: branchId, reservations: [], aggregates: [] };
