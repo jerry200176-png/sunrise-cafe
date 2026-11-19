@@ -1,17 +1,10 @@
 {
-  "baseline": "c8b9ba0d10d6590511dbaa2d752df8207bc13041",
+  "baseline": "c2a3106dce82fbe18f523abff8cd1094d885e639",
   "approved_files": {
-    ".github/audit-allowlist.json": "a2ffd29093a31205366c903564ecaa99bf807cf7",
-    ".github/dependency-review-config.yml": "2705d6a6bdb17150d928ca929371d37544c09bc0",
-    "e2e/admin-reports.spec.ts": "997923f4bb2c1153ccdc62376316b2165c3eca2a",
-    "governance/RULEBOOK.lock": "33c121de9352613e6565c979477bce7e729fc9e0",
-    "governance/RULEBOOK.md": "ee711a128c2105724dd594052b7df78fbdaa4f6d",
-    "scripts/code-only-release.py": "1ecc494d1d829a5bf83b5b0e77f823f796e00ca6",
-    "src/app/admin/analytics-scope.test.tsx": "1fc8fc804fea7bad2a3857a2176f58f19a88c75b",
-    "src/app/admin/reports/page.tsx": "8d76061116e5204511352eef85f7d851b289baae",
-    "src/app/api/admin/reports/detail/route.test.ts": "26e5b898e86b2e8e25cb38b9f2fbbfcadea11808",
-    "src/app/api/admin/reports/detail/route.ts": "fc0541346fb1a200c761841e65a1770d749a0c74",
-    "src/lib/report-detail.test.ts": "ad68dc3fca32f0fc20172880cc4b3c8c55dcd55a",
-    "src/lib/report-detail.ts": "dc9d0038108112e5ca3846eec23b0cda97f75dba"
+    "scripts/code-only-release.py": "264329e35e8912256bf31bb97faf9045c7599474",
+    "src/lib/advice-data.ts": "5d12f863741ea92234d4be891e0e5246367a8029",
+    "src/lib/overview-data.ts": "239d212ca7499082613f29089e4c7fc0292e350c",
+    "src/lib/postgrest-alias-filter.test.ts": "de7ce8984c4990ae01e5258f16f477b79c71829e",
+    "src/lib/reservation-preorder.ts": "a14b3d9cb1ed4d3bed4d05d4968cd04ddce56dde"
   }
 }
