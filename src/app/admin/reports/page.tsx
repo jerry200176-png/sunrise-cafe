@@ -6,6 +6,7 @@ import { responseError, thrownMessage } from "@/lib/friendly-error";
 import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import { useAdminBranches } from "@/lib/use-admin-branches";
 import { csvRow } from "@/lib/csv";
+import { taipeiDateString } from "@/lib/datetime";
 import { ArrowLeft, Download, TrendingUp, CalendarDays, XCircle, Wallet, type LucideIcon } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -99,6 +100,9 @@ export default function ReportsPage() {
   const { branches, loading: branchesLoading, error: branchesError, retry: retryBranches } = useAdminBranches();
   const branchScopeKey = JSON.stringify(branches.map((branch) => branch.id).sort());
   const [branchId, setBranchId] = useState("");
+  const [detailMonth, setDetailMonth] = useState(() => taipeiDateString().slice(0, 7));
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const branchUnavailable = !branchesLoading && !branchesError && Boolean(branchId) && !branches.some((branch) => branch.id === branchId);
   const requestSequence = useRef(0);
   const invalidateRequests = useCallback(() => { requestSequence.current++; }, []);
@@ -133,6 +137,26 @@ export default function ReportsPage() {
     if (!branchUnavailable) void load();
     return invalidateRequests;
   }, [load, invalidateRequests, branchUnavailable]);
+
+  // 做帳用：每筆訂位的金額＋備註（伺服器產 CSV，分店跟上方選擇一樣）
+  const downloadDetail = async () => {
+    setDetailLoading(true);
+    setDetailError(null);
+    try {
+      const res = await fetchWithTimeout(`/api/admin/reports/detail?month=${detailMonth}${branchId ? `&branchId=${encodeURIComponent(branchId)}` : ""}`, undefined, 30000);
+      if (!res.ok) throw new Error(await responseError(res));
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `昇咖啡訂位明細-${detailMonth}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setDetailError(thrownMessage(err, "明細暫時匯出失敗，請重試"));
+    } finally {
+      setDetailLoading(false);
+    }
+  };
 
   const maxHour = Math.max(...(data?.by_hour.map((h) => h.count) ?? [1]), 1);
 
@@ -179,6 +203,26 @@ export default function ReportsPage() {
               </button>
             )}
           </div>
+        </div>
+
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl bg-white p-4 shadow-sm">
+          <p className="mr-auto text-sm text-gray-700">每筆訂位明細（金額＋備註，做帳用）</p>
+          <input
+            type="month"
+            value={detailMonth}
+            onChange={(e) => setDetailMonth(e.target.value)}
+            aria-label="明細月份"
+            className="min-h-[44px] rounded-lg border border-gray-200 bg-white px-2 text-sm text-gray-700"
+          />
+          <button
+            type="button"
+            onClick={() => void downloadDetail()}
+            disabled={detailLoading || !detailMonth}
+            className="flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          >
+            <Download size={14} /> {detailLoading ? "匯出中…" : "匯出明細"}
+          </button>
+          {detailError && <p role="alert" className="w-full text-sm text-red-600">{detailError}</p>}
         </div>
 
         {branchesError && (

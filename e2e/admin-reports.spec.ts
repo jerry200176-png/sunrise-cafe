@@ -28,6 +28,24 @@ test("營收報表：實收與預計分開、不加總；訂金收款率分母�
   await expect(page.getByText("15 / 20 筆已付訂金")).toBeVisible();
   await page.getByLabel("分店").selectOption("b1");
   await expect.poll(() => urls.some((u) => u.includes("branchId=b1"))).toBe(true);
-  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: /匯出/ }).click()]);
+  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "匯出", exact: true }).click()]);
   expect(download.suggestedFilename()).toMatch(/^昇咖啡營收報表-\d\d-\d\d\.csv$/);
+});
+
+test("營收報表：匯出某月每筆訂位明細（含備註），帶月份與分店", async ({ page, context }) => {
+  await seedAdminSession(context);
+  await page.route("**/api/branches", (r) => r.fulfill({ json: [{ id: "b1", name: "E2E 店" }] }));
+  await page.route("**/api/admin/reports**", (r) => r.fulfill({ json: report }));
+  let detailUrl = "";
+  await page.route((url) => url.pathname === "/api/admin/reports/detail", (r) => {
+    detailUrl = r.request().url();
+    return r.fulfill({ body: "\uFEFF日期,備註\n", contentType: "text/csv; charset=utf-8" });
+  });
+  await page.goto("/admin/reports");
+  await page.getByLabel("分店").selectOption("b1");
+  await page.getByLabel("明細月份").fill("2026-10");
+  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "匯出明細" }).click()]);
+  expect(download.suggestedFilename()).toBe("昇咖啡訂位明細-2026-10.csv");
+  expect(detailUrl).toContain("month=2026-10");
+  expect(detailUrl).toContain("branchId=b1");
 });
