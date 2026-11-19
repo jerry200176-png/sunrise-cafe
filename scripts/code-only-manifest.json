@@ -7,10 +7,11 @@
     "governance/RULEBOOK.lock": "33c121de9352613e6565c979477bce7e729fc9e0",
     "governance/RULEBOOK.md": "ee711a128c2105724dd594052b7df78fbdaa4f6d",
     "scripts/code-only-release.py": "1ecc494d1d829a5bf83b5b0e77f823f796e00ca6",
+    "src/app/admin/analytics-scope.test.tsx": "1fc8fc804fea7bad2a3857a2176f58f19a88c75b",
     "src/app/admin/reports/page.tsx": "8d76061116e5204511352eef85f7d851b289baae",
     "src/app/api/admin/reports/detail/route.test.ts": "26e5b898e86b2e8e25cb38b9f2fbbfcadea11808",
     "src/app/api/admin/reports/detail/route.ts": "fc0541346fb1a200c761841e65a1770d749a0c74",
-    "src/lib/report-detail.test.ts": "575304d831cc5b0798b5ff95a9e6de49bfa71f4c",
-    "src/lib/report-detail.ts": "831f33d6bda42cc114b6cc42c5ece55e1b8cf4a7"
+    "src/lib/report-detail.test.ts": "ad68dc3fca32f0fc20172880cc4b3c8c55dcd55a",
+    "src/lib/report-detail.ts": "dc9d0038108112e5ca3846eec23b0cda97f75dba"
   }
 }

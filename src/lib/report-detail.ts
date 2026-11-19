@@ -63,7 +63,7 @@ export async function fetchDetailRows(db: SupabaseClient, scope: string[] | null
   const base = "booking_code,status,total_price,is_deposit_paid,guest_count,start_time,notes,room:rooms!inner(id,name,branch_id,branch:branches(name))";
   const read = (columns: string) => fetchAll<DetailReservation>((a, b) => {
     let q = db.from("reservations").select(columns).gte("start_time", from).lt("start_time", to).order("start_time").range(a, b);
-    if (scope) q = q.in("rooms.branch_id", scope);
+    if (scope) q = q.in("room.branch_id", scope); // embed 有別名 room，篩選要用別名（同 webhooks/line）
     return q as unknown as PromiseLike<{ data: DetailReservation[] | null; error: { message: string } | null }>;
   });
   // 結帳紀錄表還沒套用 migration 時，只匯出訂位本身的欄位

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DETAIL_HEADER, detailCsv, type DetailReservation } from "./report-detail";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { DETAIL_HEADER, detailCsv, fetchDetailRows, type DetailReservation } from "./report-detail";
 
 const room = { id: "r1", name: "A包廂", branch_id: "b1", branch: { name: "測試店" } };
 const base: DetailReservation = {
@@ -32,5 +33,25 @@ describe("detailCsv", () => {
   it("food-only settlement with no money flow shows no payment method", () => {
     const out = lines([{ ...base, settlement: { room_fee: 0, food_total: 0, deposit_credit: 0, discount_amount: 0, discount_reason: null, refund_amount: 0, amount_collected: 0, payment_method: "none", settled_at: "2026-10-31T18:00:00Z" } }]);
     expect(out[1].split(",")[17]).toBe("");
+  });
+});
+
+describe("fetchDetailRows", () => {
+  it("filters the branch on the embed alias (room), and an empty scope never queries", async () => {
+    const calls: unknown[][] = [];
+    const q: Record<string, unknown> = {};
+    for (const k of ["select", "gte", "lt", "order", "range", "in"]) q[k] = (...args: unknown[]) => { calls.push([k, ...args]); return q; };
+    q.then = (resolve: (v: unknown) => void) => resolve({ data: [], error: null });
+    const db = { from: (t: string) => { calls.push(["from", t]); return q; } } as unknown as SupabaseClient;
+
+    expect(await fetchDetailRows(db, ["b1"], "F", "T")).toEqual([]);
+    // PostgREST 對有別名的 embed 要用別名篩選（rooms.branch_id 會 PGRST108）
+    expect(calls).toContainEqual(["in", "room.branch_id", ["b1"]]);
+    expect(calls).toContainEqual(["gte", "start_time", "F"]);
+    expect(calls).toContainEqual(["lt", "start_time", "T"]);
+
+    const before = calls.length;
+    expect(await fetchDetailRows(db, [], "F", "T")).toEqual([]);
+    expect(calls.length).toBe(before);
   });
 });

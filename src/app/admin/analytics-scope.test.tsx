@@ -113,12 +113,12 @@ describe("analytics branch scope shrinks", () => {
     expect(await screen.findByText("$1,234")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("分店"), { target: { value: "b2" } });
     expect(await screen.findByText("$9,876")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /匯出/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "匯出" })).toBeTruthy();
     holdFallback = true;
     mocked.branchState.branches = [{ id: "b1", name: "甲店" }];
     view.rerender(<ReportsPage />);
     expect(screen.queryByText("$9,876")).toBeNull();
-    expect(screen.queryByRole("button", { name: /匯出/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "匯出" })).toBeNull();
     expect((screen.getByLabelText("分店") as HTMLSelectElement).value).toBe("");
   });
 
@@ -140,12 +140,12 @@ describe("analytics branch scope shrinks", () => {
     mocked.fetch.mockImplementation(async () => holdReload ? never() : json(report(9876)));
     const view = render(<ReportsPage />);
     expect(await screen.findByText("$9,876")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /匯出/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "匯出" })).toBeTruthy();
     holdReload = true;
     mocked.branchState.branches = [{ id: "b1", name: "甲店" }];
     view.rerender(<ReportsPage />);
     expect(screen.queryByText("$9,876")).toBeNull();
-    expect(screen.queryByRole("button", { name: /匯出/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "匯出" })).toBeNull();
     expect((screen.getByLabelText("分店") as HTMLSelectElement).value).toBe("");
   });
 
@@ -176,10 +176,10 @@ describe("report response errors", () => {
       mocked.fetch.mockResolvedValueOnce(json(invalid)).mockResolvedValueOnce(json(report(1234)));
       render(<ReportsPage />);
       expect((await screen.findByRole("alert")).textContent).toContain("報表資料格式錯誤");
-      expect(screen.queryByRole("button", { name: /匯出/ })).toBeNull();
+      expect(screen.queryByRole("button", { name: "匯出" })).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: "重試載入報表" }));
       expect(await screen.findByText("$1,234")).toBeTruthy();
-      expect(screen.getByRole("button", { name: /匯出/ })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "匯出" })).toBeTruthy();
       expect(screen.queryByRole("alert")).toBeNull();
     },
   );
@@ -190,7 +190,7 @@ describe("report response errors", () => {
     mocked.fetch.mockResolvedValue(json(empty));
     render(<ReportsPage />);
     expect(await screen.findByText("無資料")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /匯出/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "匯出" })).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
@@ -210,7 +210,7 @@ describe("report response errors", () => {
       render(<ReportsPage />);
       expect(await screen.findByText("甲店 A房")).toBeTruthy();
       expect(screen.getByText("乙店 B房")).toBeTruthy();
-      fireEvent.click(screen.getByRole("button", { name: /匯出/ }));
+      fireEvent.click(screen.getByRole("button", { name: "匯出" }));
       expect(create).toHaveBeenCalledTimes(1);
       const blob = create.mock.calls[0][0] as Blob;
       const csv = await new Promise<string>((resolve, reject) => {
