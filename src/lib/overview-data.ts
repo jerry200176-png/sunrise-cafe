@@ -43,7 +43,7 @@ export async function fetchReportRows(db: SupabaseClient, scope: string[] | null
       .lt("start_time", to)
       .order("start_time")
       .range(a, b);
-    if (scope) q = q.in("rooms.branch_id", scope);
+    if (scope) q = q.in("room.branch_id", scope);
     return q as unknown as Page<ReportReservation>;
   });
   // 結帳紀錄表還不存在（migration 未套用）時，退回只讀訂位總價
