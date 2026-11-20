@@ -206,6 +206,28 @@ export function buildWaitlistFlex(params: {
   });
 }
 
+/** 「我的訂位」：客人在 LINE 選單查自己接下來的訂位。 */
+export function buildGuestMyBookingFlex(params: {
+  roomName?: string | null;
+  startTime: string;
+  endTime: string;
+  bookingCode?: string | null;
+  /** 待確認（尚未成立）的訂位 */
+  pending: boolean;
+  queryUrl: string;
+}): LineFlexContainer {
+  const rows = dateTimeRows(params.startTime, params.endTime);
+  if (params.roomName) rows.push({ label: "包廂", value: params.roomName });
+  if (params.bookingCode) rows.push({ label: "訂位碼", value: params.bookingCode });
+  return flexBubble({
+    icon: "📅",
+    title: params.pending ? "訂位待確認" : "訂位已確認",
+    accentColor: params.pending ? LINE_BRAND.warning : LINE_BRAND.success,
+    rows,
+    primaryAction: { label: "查看／改期／取消", uri: params.queryUrl },
+  });
+}
+
 export function buildGuestBindSuccessFlex(opts: {
   confirmed: boolean;
   paymentSent?: boolean;

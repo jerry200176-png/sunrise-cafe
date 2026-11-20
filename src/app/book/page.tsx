@@ -27,6 +27,7 @@ import {
 } from "@/lib/datetime";
 import {
   clearBookingDraft,
+  bookingDraftFromParams,
   loadBookingDraft,
   saveBookingDraft,
   saveBookingSuccessMeta,
@@ -223,6 +224,9 @@ export default function BookPage() {
 
   // 手機重整／返回後恢復未完成訂位草稿（6 小時內）
   useEffect(() => {
+    // LINE 聊天室已選好包廂／日期／時段：存成草稿，下面照草稿還原到填資料那一步
+    const fromLine = bookingDraftFromParams(new URLSearchParams(window.location.search), loadBookingDraft());
+    if (fromLine) saveBookingDraft(fromLine);
     const draft = loadBookingDraft();
     if (draft) {
       if (draft.branchId) setBranchId(draft.branchId);

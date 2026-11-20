@@ -8,7 +8,8 @@ import {
 } from "@/lib/supabase-admin";
 import { fetchSettings } from "@/lib/supabase-fetch";
 import { resolveDay } from "@/lib/bookable";
-import { buildHalfHourSlots } from "@/lib/slot-grid";
+import { roomSlotsForDay } from "@/lib/slot-grid";
+import { taipeiDateString } from "@/lib/datetime";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -25,19 +26,6 @@ type RoomDetails = {
   price_weekend: number;
   image_url: string | null;
 };
-
-function buildSlotsForRoom(
-  day: { startIso: string; endIso: string },
-  roomBlocked: { start_time: string; end_time: string }[],
-  isToday: boolean
-): { start: string; end: string; available: boolean }[] {
-  return buildHalfHourSlots({
-    dayStartIso: day.startIso,
-    dayEndIso: day.endIso,
-    blocked: roomBlocked,
-    isToday,
-  });
-}
 
 export async function GET(request: NextRequest) {
   const branchId = request.nextUrl.searchParams.get("branchId");
@@ -59,18 +47,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const now = new Date();
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Taipei",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(now);
-  const y = parts.find((p) => p.type === "year")?.value ?? "";
-  const m = parts.find((p) => p.type === "month")?.value ?? "";
-  const d = parts.find((p) => p.type === "day")?.value ?? "";
-  const taiwanTodayStr = `${y}-${m}-${d}`;
-  const isToday = date === taiwanTodayStr;
+  const isToday = date === taipeiDateString();
 
   try {
     const [settings, branch] = await Promise.all([
@@ -98,8 +75,7 @@ export async function GET(request: NextRequest) {
       if (!room || room.branch_id !== branchId) {
         return NextResponse.json({ error: "分店或包廂不存在" }, { status: 404 });
       }
-      const roomBlocked = blocked.filter((b) => b.room_id === roomId);
-      const slots = buildSlotsForRoom(day, roomBlocked, isToday);
+      const slots = roomSlotsForDay(day, blocked, roomId, isToday);
 
       return NextResponse.json({
         slots,
@@ -121,8 +97,7 @@ export async function GET(request: NextRequest) {
     const blocked = blockedRaw as BlockedSlot[];
 
     const roomList = rooms.map((room) => {
-      const roomBlocked = blocked.filter((b) => b.room_id === room.id);
-      const slots = buildSlotsForRoom(day, roomBlocked, isToday);
+      const slots = roomSlotsForDay(day, blocked, room.id, isToday);
       return {
         roomId: room.id,
         roomName: room.name,

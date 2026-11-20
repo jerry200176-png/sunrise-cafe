@@ -145,6 +145,28 @@ export async function replyLineFlexMessage(
   }
 }
 
+/** Webhook 回覆任意訊息（快速回覆按鈕、carousel）；一次最多 5 則 */
+export async function replyLineMessages(
+  replyToken: string,
+  messages: Record<string, unknown>[],
+  channelToken?: string
+): Promise<void> {
+  const token = channelToken ?? process.env.LINE_CUSTOMER_ACCESS_TOKEN;
+  if (!token) return;
+
+  const res = await fetch(REPLY_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ replyToken, messages }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    observeLineProviderRejection({ channel: "customer", operation: "reply", status: res.status });
+    throw new Error(`LINE reply 失敗：${res.status} ${text}`);
+  }
+}
+
 /** Webhook 回覆純文字（僅用於無 replyToken 或 fallback） */
 export async function replyLineTextMessage(replyToken: string, text: string, channelToken?: string): Promise<void> {
   const token = channelToken ?? process.env.LINE_CUSTOMER_ACCESS_TOKEN;

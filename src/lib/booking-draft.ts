@@ -1,3 +1,5 @@
+import { getDurationOptions } from "@/lib/slot-grid";
+
 /** Persist /book wizard progress so mobile refresh doesn't abandon the funnel. */
 export const BOOKING_DRAFT_KEY = "sunrise_booking_draft_v1";
 export const BOOKING_SUCCESS_META_KEY = "booking_success_meta";
@@ -102,6 +104,40 @@ export function saveBookingDraft(draft: Omit<BookingDraft, "v" | "savedAt">): vo
   } catch {
     /* private mode / quota */
   }
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * 從 LINE 聊天室訂位帶來的網址參數（包廂／日期／開始／時長）組成草稿，直接落在填資料那一步。
+ * 聯絡資料沿用客人先前的草稿。參數不完整或不合法時回 null（照一般流程走）；
+ * 時段是否真的可訂仍由送出時的 /api/reservations 檢查。
+ */
+export function bookingDraftFromParams(
+  params: URLSearchParams,
+  previous: BookingDraft | null = null
+): Omit<BookingDraft, "v" | "savedAt"> | null {
+  const branchId = params.get("branchId") ?? "";
+  const roomId = params.get("roomId") ?? "";
+  const date = params.get("date") ?? "";
+  const selectedStart = params.get("start") ?? "";
+  const duration = Number(params.get("duration"));
+  if (!UUID.test(branchId) || !UUID.test(roomId) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  if (!Number.isFinite(Date.parse(selectedStart)) || !getDurationOptions().includes(duration)) return null;
+  return {
+    step: "form",
+    branchId,
+    branchName: params.get("branchName") ?? "",
+    roomId,
+    roomName: params.get("roomName") ?? "",
+    date,
+    selectedStart: new Date(selectedStart).toISOString(),
+    duration,
+    name: previous?.name ?? "",
+    phone: previous?.phone ?? "",
+    email: previous?.email ?? "",
+    guestCount: previous?.guestCount ?? "",
+  };
 }
 
 export function clearBookingDraft(): void {

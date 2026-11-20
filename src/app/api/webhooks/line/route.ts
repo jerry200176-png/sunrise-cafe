@@ -21,6 +21,7 @@ import {
 } from "@/lib/line-bind";
 import {
   replyLineFlexMessage,
+  replyLineMessages,
   replyLineTextMessage,
 } from "@/lib/line";
 import {
@@ -32,6 +33,8 @@ import { sendDepositPaymentRequest } from "@/lib/payment-request-line";
 import { groupJoinedMessage, matchWebhookBot, replyGroupText } from "@/lib/line-group-bots";
 import { matchCustomerBotSignature } from "@/lib/customer-line-bots";
 import { branchLineGroupIdForReservation } from "@/lib/branch-line-group";
+import { menuMessage, parseBookingPostback } from "@/lib/line-booking-menu";
+import { bookingReply } from "@/lib/line-booking-chat";
 
 async function fetchPaymentKeywords(): Promise<string[]> {
   try {
@@ -296,6 +299,7 @@ export async function POST(request: NextRequest) {
       replyToken?: string;
       source: { userId?: string; type?: string; groupId?: string };
       message?: { type: string; id?: string; text?: string };
+      postback?: { data?: string; params?: { date?: string } };
     }[];
   };
 
@@ -326,11 +330,29 @@ export async function POST(request: NextRequest) {
     const account: GuestAccount = storeAccount
       ? { token: storeAccount.token, branchId: storeAccount.branchId }
       : DEFAULT_ACCOUNT;
-    if (event.type !== "message") continue;
-
     const userId = event.source.userId;
     const replyToken = event.replyToken;
     if (!userId) continue;
+
+    // 聊天室訂位：加好友給主選單；按鈕（postback）走訂位流程。只回覆，不推播。
+    if ((event.type === "follow" || event.type === "postback") && event.source.type === "user" && replyToken) {
+      try {
+        const messages = event.type === "follow"
+          ? [menuMessage()]
+          : await bookingReply(
+              parseBookingPostback(event.postback?.data ?? "", event.postback?.params?.date),
+              { userId, branchId: account.branchId }
+            );
+        await replyLineMessages(replyToken, messages, account.token);
+        logOps("webhook", "webhook.event_handled", { route: "line", event_type: event.type, handler: "booking_chat" });
+      } catch (err) {
+        logOps("webhook", "webhook.event_error", { user_id: userId, error: err instanceof Error ? err.message : String(err) });
+        console.error("[webhook] booking chat error:", err);
+        await replyMessage(replyToken, "系統忙碌中，請稍後再試，或直接到官網訂位。", account);
+      }
+      continue;
+    }
+    if (event.type !== "message") continue;
 
     try {
       const msgType = event.message?.type;
