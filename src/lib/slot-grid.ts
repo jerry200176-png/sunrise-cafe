@@ -120,6 +120,23 @@ export function buildHalfHourSlots(opts: {
   return slots;
 }
 
+/** One room's half-hour grid for a resolved day, from the branch's blocked slots. */
+export function roomSlotsForDay(
+  day: { startIso: string; endIso: string },
+  blocked: { room_id: string; start_time: string; end_time: string }[],
+  roomId: string,
+  isToday: boolean,
+  nowMs?: number
+): GridSlot[] {
+  return buildHalfHourSlots({
+    dayStartIso: day.startIso,
+    dayEndIso: day.endIso,
+    blocked: blocked.filter((b) => b.room_id === roomId),
+    isToday,
+    nowMs,
+  });
+}
+
 function slotEndMs(startMs: number) {
   return startMs + SLOT_STEP_MS;
 }

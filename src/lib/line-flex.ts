@@ -38,7 +38,8 @@ export type FlexBubbleOptions = {
   rows?: FlexRow[];
   paragraphs?: string[];
   note?: string;
-  primaryAction?: { label: string; uri: string; color?: string };
+  /** `action` (postback, datetimepicker…) replaces the default link action when set. */
+  primaryAction?: { label: string; uri?: string; action?: Record<string, unknown>; color?: string };
   secondaryAction?: { label: string; uri: string };
   /** 是否顯示底部「開啟官網」連結（類 inline 小站入口） */
   showSiteLink?: boolean;
@@ -110,7 +111,7 @@ function flexFooterActions(
       style: "primary",
       color: primary.color ?? LINE_BRAND.caramelDeep,
       height: "sm",
-      action: { type: "uri", label: primary.label, uri: primary.uri },
+      action: primary.action ?? { type: "uri", label: primary.label, uri: primary.uri },
     });
   }
   if (secondary) {

@@ -3,11 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
-  from: vi.fn(), replyText: vi.fn(), replyFlex: vi.fn(), logOps: vi.fn(),
+  from: vi.fn(), replyText: vi.fn(), replyFlex: vi.fn(), replyMessages: vi.fn(), logOps: vi.fn(),
   groupSend: vi.fn(async () => {}), countPending: vi.fn(async () => 0),
 }));
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ from: mocks.from }) }));
-vi.mock("@/lib/line", () => ({ replyLineTextMessage: mocks.replyText, replyLineFlexMessage: mocks.replyFlex }));
+vi.mock("@/lib/line", () => ({ replyLineTextMessage: mocks.replyText, replyLineFlexMessage: mocks.replyFlex, replyLineMessages: mocks.replyMessages }));
 vi.mock("@/lib/ops-log", () => ({ logOps: mocks.logOps }));
 vi.mock("@/lib/payment-events-admin", () => ({ countPendingPaymentEventsForReservation: mocks.countPending }));
 vi.mock("@/lib/line-notify", () => ({ sendLineFlexToBranchGroup: mocks.groupSend, buildPaymentPendingReviewGroupFlex: () => ({}) }));
@@ -118,5 +118,35 @@ describe("LINE webhook with a store's own customer account", () => {
     const lookup = calls.find((c) => c.table === "reservations")!;
     expect(lookup.eqs.some(([col]) => col === "room.branch_id")).toBe(false);
     expect(mocks.replyFlex).toHaveBeenCalledWith("rt-8", "付款已收到", expect.anything(), undefined);
+  });
+});
+
+describe("LINE webhook chat booking", () => {
+  const STORE = { branch_id: "11111111-2222-4333-8444-555555555555", name: "同德店客人", secret: "store-secret", token: "store-token" };
+  beforeEach(() => vi.stubEnv("LINE_BRANCH_CUSTOMER_BOTS", JSON.stringify([STORE])));
+
+  it("a store account answers a button from its own channel", async () => {
+    const res = await POST(webhook([{ type: "postback", replyToken: "rt-s", source: { type: "user", userId: "U-guest" }, postback: { data: "nonsense" } }], STORE.secret));
+    expect(res.status).toBe(200);
+    const [replyToken, messages, token] = mocks.replyMessages.mock.calls[0];
+    expect(replyToken).toBe("rt-s");
+    expect(token).toBe("store-token");
+    expect(messages[0].quickReply.items.map((i: { action: { label: string } }) => i.action.label)).toEqual(["我要訂位", "我的訂位", "看菜單", "店家資訊"]);
+  });
+
+  it("does not greet new friends yet (waits for the rich menu rollout)", async () => {
+    await POST(webhook([{ type: "follow", replyToken: "rt-f", source: { type: "user", userId: "U-new" } }], STORE.secret));
+    expect(mocks.replyMessages).not.toHaveBeenCalled();
+  });
+
+  it("answers an unreadable button with the menu instead of touching bookings", async () => {
+    await POST(webhook([{ type: "postback", replyToken: "rt-p", source: { type: "user", userId: "U-guest" }, postback: { data: "a=dur&r=nope" } }], "default-secret"));
+    expect(mocks.replyMessages).toHaveBeenCalledWith("rt-p", [expect.objectContaining({ text: expect.stringContaining("過期") })], undefined);
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("ignores postbacks from the staff group bot", async () => {
+    await POST(webhook([{ type: "postback", replyToken: "rt-g", source: { type: "group", groupId: "C-tongde", userId: "U-staff" }, postback: { data: "a=book" } }], TONGDE.secret));
+    expect(mocks.replyMessages).not.toHaveBeenCalled();
   });
 });

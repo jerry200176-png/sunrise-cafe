@@ -94,6 +94,28 @@
 
 ---
 
+## 聊天室訂位（按鈕選包廂／日期／時段）
+
+客人在客人帳號的聊天室點按鈕訂位，最後一步開已帶好資料的 `/book` 填姓名、電話、人數並送出。
+聊天室不收個資；時段要到 `/book` 送出才保留。全部用 reply（不吃推播額度）。
+
+| 事件 | 回覆 |
+|---|---|
+| postback `a=book` | 包廂卡片（每張有 LINE 內建日期選擇器，今天～一個月內） |
+| postback `a=date`（含 `params.date`） | 可開始的時間（最短 2 小時放得下才列；一頁 12 個＋「更晚的時段」）；公休或訂滿給「換一天」「排候補」 |
+| postback `a=start` | 可選時長（只列到下一筆訂位前放得下的） |
+| postback `a=dur` | 確認卡片＋「填資料完成訂位」→ `/book?branchId&roomId&date&start&duration&line_user_id` |
+| postback `a=mine` | 這個 LINE 帳號接下來的訂位（分店帳號只列該店） |
+| postback `a=info` | 分店地址、電話 |
+
+- 對話狀態全放在按鈕的 postback data，不存資料庫。看不懂或過期的按鈕一律回主選單。
+- 空位計算與 `/api/availability` 共用 `resolveDay` + `roomSlotsForDay`；是否可訂仍以 `/api/reservations` 送出時為準。
+- 分店自己的客人帳號只列、只訂該店的包廂；預設帳號列出沒有自己帳號的分店（多家時先選分店）。
+- 程式：`src/lib/line-booking-menu.ts`（訊息）、`src/lib/line-booking-chat.ts`（讀資料）、`src/app/api/webhooks/line/route.ts`（分流）。
+- 還沒有底部選單（rich menu）時客人不會送出 postback，看不到任何變化；加好友歡迎訊息與底部選單一起上（先單一帳號試點）。既有的訂位代號、付款截圖流程不變。
+
+---
+
 ## Flex 卡片（統一版型）
 
 所有營運通知盡量以 **Flex Bubble** 呈現（對齊 DESIGN.md 焦糖品牌色），並附「查看訂位」「開啟官網」等按鈕（類 inline 小站入口）。

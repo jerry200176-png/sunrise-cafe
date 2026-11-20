@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
+  bookingDraftFromParams,
   clearBookingDraft,
   loadBookingDraft,
   saveBookingDraft,
@@ -94,5 +95,32 @@ describe("booking-draft", () => {
       })
     );
     expect(loadBookingDraft()?.phone).toBe("0912345678");
+  });
+});
+
+describe("bookingDraftFromParams (LINE chat booking prefill)", () => {
+  const ok = "branchId=aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee&roomId=11111111-2222-4333-8444-555555555555&date=2026-11-25&start=2026-11-25T06%3A00%3A00.000Z&duration=2.5&roomName=A";
+
+  it("lands on the form step and keeps the guest's earlier contact details", () => {
+    vi.useFakeTimers({ now: new Date("2026-11-20T02:00:00.000Z") });
+    const previous = { v: 1 as const, savedAt: 1, step: "date", branchId: "", branchName: "", roomId: "", roomName: "", date: "", selectedStart: "", duration: 2, name: "王小明", phone: "0912345678", email: "", guestCount: 4 as const };
+    expect(bookingDraftFromParams(new URLSearchParams(ok), previous)).toMatchObject({
+      step: "form", date: "2026-11-25", selectedStart: "2026-11-25T06:00:00.000Z", duration: 2.5, roomName: "A", name: "王小明", guestCount: 4,
+    });
+    vi.useRealTimers();
+  });
+
+  it("ignores a stale link whose date has passed", () => {
+    vi.useFakeTimers({ now: new Date("2026-11-26T02:00:00.000Z") });
+    expect(bookingDraftFromParams(new URLSearchParams(ok))).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it("ignores incomplete or invalid links", () => {
+    vi.useFakeTimers({ now: new Date("2026-11-20T02:00:00.000Z") });
+    expect(bookingDraftFromParams(new URLSearchParams("line_user_id=U1"))).toBeNull();
+    expect(bookingDraftFromParams(new URLSearchParams(ok.replace("duration=2.5", "duration=9")))).toBeNull();
+    expect(bookingDraftFromParams(new URLSearchParams(ok.replace("roomId=1111", "roomId=zzzz")))).toBeNull();
+    vi.useRealTimers();
   });
 });
