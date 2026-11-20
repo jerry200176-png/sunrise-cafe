@@ -2,7 +2,7 @@
   "baseline": "2bdb503b942a23149a4583d2c1cf16e9e35b2683",
   "approved_files": {
     "docs/LINE.md": "b9a095ef60a2408b3328d19006d7bc958cad0f77",
-    "scripts/code-only-release.py": "d6adcda48d26c5556eca6985133c63369c4439a7",
+    "scripts/code-only-release.py": "4322f44cbcf1e64228cda09120a48cff7d908893",
     "src/app/api/availability/route.ts": "48005b887f44c28a534d477902ddaca198713ec9",
     "src/app/api/webhooks/line/route.test.ts": "bbf06bc0963cf1d195b23f85ef676ec3e3d4ba83",
     "src/app/api/webhooks/line/route.ts": "82315ac6fda85ebd650bc1618679a2862790d339",
