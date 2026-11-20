@@ -124,7 +124,10 @@ export async function bookingReply(step: BookingStep | null, ctx: Ctx): Promise<
   }
 
   const room = await fetchRoom(step.r);
-  if (!room || (ctx.branchId && room.branch_id !== ctx.branchId)) return [menuMessage("找不到這個包廂，請重新開始：")];
+  const wrongAccount = room && (ctx.branchId
+    ? room.branch_id !== ctx.branchId
+    : branchCustomerBots().some((b) => b.branchId === room.branch_id));
+  if (!room || wrongAccount) return [menuMessage("找不到這個包廂，請重新開始：")];
   if (step.d < dates.min || step.d > dates.max) return [menuMessage("這個日期已經不能訂了，請重新開始：")];
   const [branch, settings, blocked] = await Promise.all([
     fetchBranch(room.branch_id),

@@ -122,7 +122,7 @@ export function dayFullMessage(
 ): LineMessage {
   const waitlist = `${LINE_BOOK_URL}/waitlist?${encode({ branchId: room.branch_id, roomId: room.id, date })}`;
   return text(
-    closed ? `${formatReservationDateKey(date)} 公休，請換一天。` : `${room.name} ${formatReservationDateKey(date)} 已經訂滿了。`,
+    closed ? `${formatReservationDateKey(date)} 公休，請換一天。` : `${room.name} ${formatReservationDateKey(date)} 已經沒有可訂的時段了。`,
     [quick(datePicker("換一天", room.id, dates)), ...(closed ? [] : [quick({ type: "uri", label: "排候補", uri: waitlist })])]
   );
 }

@@ -125,13 +125,18 @@ describe("LINE webhook chat booking", () => {
   const STORE = { branch_id: "11111111-2222-4333-8444-555555555555", name: "同德店客人", secret: "store-secret", token: "store-token" };
   beforeEach(() => vi.stubEnv("LINE_BRANCH_CUSTOMER_BOTS", JSON.stringify([STORE])));
 
-  it("greets a new friend with the menu, from the account they added", async () => {
-    const res = await POST(webhook([{ type: "follow", replyToken: "rt-f", source: { type: "user", userId: "U-new" } }], STORE.secret));
+  it("a store account answers a button from its own channel", async () => {
+    const res = await POST(webhook([{ type: "postback", replyToken: "rt-s", source: { type: "user", userId: "U-guest" }, postback: { data: "nonsense" } }], STORE.secret));
     expect(res.status).toBe(200);
     const [replyToken, messages, token] = mocks.replyMessages.mock.calls[0];
-    expect(replyToken).toBe("rt-f");
+    expect(replyToken).toBe("rt-s");
     expect(token).toBe("store-token");
     expect(messages[0].quickReply.items.map((i: { action: { label: string } }) => i.action.label)).toEqual(["我要訂位", "我的訂位", "看菜單", "店家資訊"]);
+  });
+
+  it("does not greet new friends yet (waits for the rich menu rollout)", async () => {
+    await POST(webhook([{ type: "follow", replyToken: "rt-f", source: { type: "user", userId: "U-new" } }], STORE.secret));
+    expect(mocks.replyMessages).not.toHaveBeenCalled();
   });
 
   it("answers an unreadable button with the menu instead of touching bookings", async () => {

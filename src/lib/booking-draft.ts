@@ -1,4 +1,5 @@
 import { getDurationOptions } from "@/lib/slot-grid";
+import { taipeiDateString } from "@/lib/datetime";
 
 /** Persist /book wizard progress so mobile refresh doesn't abandon the funnel. */
 export const BOOKING_DRAFT_KEY = "sunrise_booking_draft_v1";
@@ -122,7 +123,7 @@ export function bookingDraftFromParams(
   const date = params.get("date") ?? "";
   const selectedStart = params.get("start") ?? "";
   const duration = Number(params.get("duration"));
-  if (!UUID.test(branchId) || !UUID.test(roomId) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  if (!UUID.test(branchId) || !UUID.test(roomId) || !/^\d{4}-\d{2}-\d{2}$/.test(date) || date < taipeiDateString()) return null;
   if (!Number.isFinite(Date.parse(selectedStart)) || !getDurationOptions().includes(duration)) return null;
   return {
     step: "form",

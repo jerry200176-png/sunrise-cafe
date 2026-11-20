@@ -33,7 +33,7 @@ import { sendDepositPaymentRequest } from "@/lib/payment-request-line";
 import { groupJoinedMessage, matchWebhookBot, replyGroupText } from "@/lib/line-group-bots";
 import { matchCustomerBotSignature } from "@/lib/customer-line-bots";
 import { branchLineGroupIdForReservation } from "@/lib/branch-line-group";
-import { menuMessage, parseBookingPostback } from "@/lib/line-booking-menu";
+import { parseBookingPostback } from "@/lib/line-booking-menu";
 import { bookingReply } from "@/lib/line-booking-chat";
 
 async function fetchPaymentKeywords(): Promise<string[]> {
@@ -334,15 +334,13 @@ export async function POST(request: NextRequest) {
     const replyToken = event.replyToken;
     if (!userId) continue;
 
-    // 聊天室訂位：加好友給主選單；按鈕（postback）走訂位流程。只回覆，不推播。
-    if ((event.type === "follow" || event.type === "postback") && event.source.type === "user" && replyToken) {
+    // 聊天室訂位：按鈕（postback）走訂位流程。只回覆，不推播。
+    if (event.type === "postback" && event.source.type === "user" && replyToken) {
       try {
-        const messages = event.type === "follow"
-          ? [menuMessage()]
-          : await bookingReply(
-              parseBookingPostback(event.postback?.data ?? "", event.postback?.params?.date),
-              { userId, branchId: account.branchId }
-            );
+        const messages = await bookingReply(
+          parseBookingPostback(event.postback?.data ?? "", event.postback?.params?.date),
+          { userId, branchId: account.branchId }
+        );
         await replyLineMessages(replyToken, messages, account.token);
         logOps("webhook", "webhook.event_handled", { route: "line", event_type: event.type, handler: "booking_chat" });
       } catch (err) {

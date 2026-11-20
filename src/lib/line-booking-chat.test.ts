@@ -64,11 +64,17 @@ describe("bookingReply", () => {
 
   it("a date outside the booking window is refused", async () => {
     const [message] = await bookingReply({ ...dur, d: "2027-03-01" }, guest);
-    expect(JSON.stringify(message)).not.toContain("/book?");
+    expect(message).toMatchObject({ text: expect.stringContaining("不能訂") });
   });
 
   it("a store's own account never books another store's room", async () => {
     const [message] = await bookingReply(dur, { userId: "U-guest", branchId: OTHER });
+    expect(message).toMatchObject({ text: expect.stringContaining("找不到") });
+  });
+
+  it("the default account never books a store that has its own account", async () => {
+    vi.stubEnv("LINE_BRANCH_CUSTOMER_BOTS", JSON.stringify([{ branch_id: BRANCH, name: "大安", secret: "s", token: "t" }]));
+    const [message] = await bookingReply(dur, guest);
     expect(message).toMatchObject({ text: expect.stringContaining("找不到") });
   });
 
