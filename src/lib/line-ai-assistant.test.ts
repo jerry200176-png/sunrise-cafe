@@ -17,7 +17,7 @@ vi.mock("@anthropic-ai/sdk", () => {
   return { default: Object.assign(Anthropic, { APIError, RateLimitError: class extends APIError {}, AuthenticationError: class extends APIError {}, APIConnectionError: class extends APIError {} }) };
 });
 
-import { AI_FALLBACK_TEXT, AI_LIMIT_TEXT, AI_TOO_LONG_TEXT, GUEST_DAILY_LIMIT, aiAssistantEnabled, askAssistant, buildStoreFacts } from "./line-ai-assistant";
+import { AI_FALLBACK_TEXT, AI_LIMIT_TEXT, AI_TOO_LONG_TEXT, GUEST_DAILY_LIMIT, aiAssistantEnabled, askAssistant, buildStoreFacts, worthAnswering } from "./line-ai-assistant";
 
 const ask = (question: string, userId = "U1") => askAssistant({ accountKey: "default", userId, question, facts: async () => "FACTS" });
 const says = (text: string, stop_reason = "end_turn") => ({ content: [{ type: "text", text }], stop_reason });
@@ -37,6 +37,13 @@ describe("aiAssistantEnabled", () => {
     vi.stubEnv("UPSTASH_REDIS_REST_URL", "u");
     vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "t");
     expect(aiAssistantEnabled()).toBe(true);
+  });
+});
+
+describe("worthAnswering", () => {
+  it("skips digits, symbols and single characters; keeps real questions", () => {
+    for (const t of ["12345", "?", "👍", "嗨", "1822 !!"]) expect(worthAnswering(t)).toBe(false);
+    for (const t of ["平日多少錢", "幾點開", "hi there"]) expect(worthAnswering(t)).toBe(true);
   });
 });
 

@@ -36,7 +36,7 @@ import { branchLineGroupIdForReservation } from "@/lib/branch-line-group";
 import { parseBookingPostback } from "@/lib/line-booking-menu";
 import { assistantFacts, bookingReply } from "@/lib/line-booking-chat";
 import { menuMessage } from "@/lib/line-booking-menu";
-import { aiAssistantEnabled, askAssistant } from "@/lib/line-ai-assistant";
+import { aiAssistantEnabled, askAssistant, worthAnswering } from "@/lib/line-ai-assistant";
 
 /** AI 客服最多等 12 秒；給足時間，避免回覆被平台中斷。 */
 export const maxDuration = 30;
@@ -386,7 +386,7 @@ export async function POST(request: NextRequest) {
           event_type: event.type,
           handler: "booking_code",
         });
-      } else if (aiAssistantEnabled() && event.source.type === "user" && replyToken && !isPaymentMessage(rawText, paymentKeywords)) {
+      } else if (aiAssistantEnabled() && event.source.type === "user" && replyToken && worthAnswering(rawText) && !isPaymentMessage(rawText, paymentKeywords)) {
         // AI 客服：不是訂位代號、也不是付款回報的文字才交給 AI。它只回答，訂位仍走按鈕。
         const ctx = { userId, branchId: account.branchId };
         const answer = await askAssistant({ accountKey: account.branchId ?? "default", userId, question: rawText, facts: () => assistantFacts(ctx) });

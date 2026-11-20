@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   groupSend: vi.fn(async () => {}), countPending: vi.fn(async () => 0),
   aiOn: false, ask: vi.fn(async () => ({ text: "平日每小時 NT$300。", outcome: "answer" })),
 }));
-vi.mock("@/lib/line-ai-assistant", () => ({ aiAssistantEnabled: () => mocks.aiOn, askAssistant: mocks.ask, buildStoreFacts: () => "" }));
+vi.mock("@/lib/line-ai-assistant", () => ({ aiAssistantEnabled: () => mocks.aiOn, askAssistant: mocks.ask, buildStoreFacts: () => "", worthAnswering: (t: string) => (t.match(/\p{L}/gu) ?? []).length >= 2 }));
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ from: mocks.from }) }));
 vi.mock("@/lib/line", () => ({ replyLineTextMessage: mocks.replyText, replyLineFlexMessage: mocks.replyFlex, replyLineMessages: mocks.replyMessages }));
 vi.mock("@/lib/ops-log", () => ({ logOps: mocks.logOps }));
@@ -167,6 +167,9 @@ describe("LINE webhook chat booking", () => {
     expect(mocks.replyMessages).toHaveBeenCalledWith("rt-q", [expect.objectContaining({ text: "平日每小時 NT$300。", quickReply: expect.anything() })], undefined);
     mocks.ask.mockClear();
     await POST(typed("已匯款 末五碼 12345"));
+    expect(mocks.ask).not.toHaveBeenCalled();
+    await POST(typed("12345"));
+    await POST(typed("?"));
     expect(mocks.ask).not.toHaveBeenCalled();
     mocks.aiOn = false;
   });

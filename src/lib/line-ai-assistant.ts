@@ -38,6 +38,14 @@ export function aiAssistantEnabled(): boolean {
     && !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
 }
 
+/**
+ * 嚴格模式：純數字（例如匯款末五碼）、符號、貼圖字、單一個字不是問題，AI 不回，留給店員。
+ * 至少要有 2 個文字字元才算。
+ */
+export function worthAnswering(text: string): boolean {
+  return (text.match(/\p{L}/gu) ?? []).length >= 2;
+}
+
 export type StoreFactsInput = {
   branches: {
     id: string;
