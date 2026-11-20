@@ -5,7 +5,9 @@ import { NextRequest } from "next/server";
 const mocks = vi.hoisted(() => ({
   from: vi.fn(), replyText: vi.fn(), replyFlex: vi.fn(), replyMessages: vi.fn(), logOps: vi.fn(),
   groupSend: vi.fn(async () => {}), countPending: vi.fn(async () => 0),
+  aiOn: false, ask: vi.fn(async () => ({ text: "平日每小時 NT$300。", outcome: "answer" })),
 }));
+vi.mock("@/lib/line-ai-assistant", () => ({ aiAssistantEnabled: () => mocks.aiOn, askAssistant: mocks.ask, buildStoreFacts: () => "", worthAnswering: (t: string) => (t.match(/\p{L}/gu) ?? []).length >= 2 }));
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ from: mocks.from }) }));
 vi.mock("@/lib/line", () => ({ replyLineTextMessage: mocks.replyText, replyLineFlexMessage: mocks.replyFlex, replyLineMessages: mocks.replyMessages }));
 vi.mock("@/lib/ops-log", () => ({ logOps: mocks.logOps }));
@@ -148,5 +150,31 @@ describe("LINE webhook chat booking", () => {
   it("ignores postbacks from the staff group bot", async () => {
     await POST(webhook([{ type: "postback", replyToken: "rt-g", source: { type: "group", groupId: "C-tongde", userId: "U-staff" }, postback: { data: "a=book" } }], TONGDE.secret));
     expect(mocks.replyMessages).not.toHaveBeenCalled();
+  });
+
+  const typed = (text: string) => webhook([{ type: "message", replyToken: "rt-q", source: { type: "user", userId: "U-guest" }, message: { type: "text", text } }], "default-secret");
+
+  it("leaves typed questions alone while the AI assistant is off", async () => {
+    mocks.aiOn = false;
+    await POST(typed("平日多少錢"));
+    expect(mocks.ask).not.toHaveBeenCalled();
+    expect(mocks.replyMessages).not.toHaveBeenCalled();
+  });
+
+  it("answers a typed question with the AI assistant plus the menu buttons, never payment reports", async () => {
+    mocks.aiOn = true;
+    await POST(typed("平日多少錢"));
+    expect(mocks.replyMessages).toHaveBeenCalledWith("rt-q", [expect.objectContaining({ text: "平日每小時 NT$300。", quickReply: expect.anything() })], undefined);
+    mocks.ask.mockClear();
+    await POST(typed("已匯款 末五碼 12345"));
+    expect(mocks.ask).not.toHaveBeenCalled();
+    const q = { type: "message", replyToken: "rt-b", source: { type: "user", userId: "U-guest" }, message: { type: "text", text: "幾點開門" } };
+    await POST(webhook([q, q, q], "default-secret"));
+    expect(mocks.ask).toHaveBeenCalledTimes(1); // one AI answer per webhook batch
+    mocks.ask.mockClear();
+    await POST(typed("12345"));
+    await POST(typed("?"));
+    expect(mocks.ask).not.toHaveBeenCalled();
+    mocks.aiOn = false;
   });
 });

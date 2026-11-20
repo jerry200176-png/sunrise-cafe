@@ -51,6 +51,7 @@
     "line:usage-audit": "npx tsx scripts/line-usage-audit.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.11.0",
     "@react-three/drei": "10.7.9",
     "@react-three/fiber": "9.8.2",
     "@sentry/nextjs": "^10.78.0",

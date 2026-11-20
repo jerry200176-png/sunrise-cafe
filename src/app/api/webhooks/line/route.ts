@@ -33,8 +33,14 @@ import { sendDepositPaymentRequest } from "@/lib/payment-request-line";
 import { groupJoinedMessage, matchWebhookBot, replyGroupText } from "@/lib/line-group-bots";
 import { matchCustomerBotSignature } from "@/lib/customer-line-bots";
 import { branchLineGroupIdForReservation } from "@/lib/branch-line-group";
-import { parseBookingPostback } from "@/lib/line-booking-menu";
-import { bookingReply } from "@/lib/line-booking-chat";
+import { menuMessage, parseBookingPostback } from "@/lib/line-booking-menu";
+import { assistantFacts, bookingReply } from "@/lib/line-booking-chat";
+import { aiAssistantEnabled, askAssistant, worthAnswering } from "@/lib/line-ai-assistant";
+
+/** AI 客服最多等 12 秒；給足時間，避免回覆被平台中斷。 */
+export const maxDuration = 30;
+/** 一次 webhook 最多讓 AI 回一則，其餘事件（付款回報、訂位代號）不會被拖到逾時。 */
+const MAX_AI_ANSWERS_PER_WEBHOOK = 1;
 
 async function fetchPaymentKeywords(): Promise<string[]> {
   try {
@@ -312,6 +318,7 @@ export async function POST(request: NextRequest) {
   const paymentKeywords = await fetchPaymentKeywords();
 
   const events = payload.events ?? [];
+  let aiAnswers = 0;
   for (const event of events) {
     // Any group bot added to a group reports that group's ID so staff can paste it into the branch.
     if (event.type === "join" && event.source.type === "group" && event.source.groupId && event.replyToken) {
@@ -381,6 +388,13 @@ export async function POST(request: NextRequest) {
           event_type: event.type,
           handler: "booking_code",
         });
+      } else if (aiAnswers < MAX_AI_ANSWERS_PER_WEBHOOK && aiAssistantEnabled() && event.source.type === "user" && replyToken && worthAnswering(rawText) && !isPaymentMessage(rawText, paymentKeywords)) {
+        // AI 客服：不是訂位代號、也不是付款回報的文字才交給 AI。它只回答，訂位仍走按鈕。
+        aiAnswers += 1;
+        const ctx = { userId, branchId: account.branchId };
+        const answer = await askAssistant({ accountKey: account.branchId ?? "default", userId, question: rawText, facts: () => assistantFacts(ctx) });
+        await replyLineMessages(replyToken, [menuMessage(answer.text)], account.token);
+        logOps("webhook", "webhook.event_handled", { route: "line", msg_type: "text", event_type: event.type, handler: "ai_assistant", outcome: answer.outcome });
       } else {
         await handlePaymentReport(userId, rawText, "line_text", replyToken, paymentKeywords, account);
         logOps("webhook", "webhook.event_handled", {
