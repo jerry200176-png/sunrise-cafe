@@ -41,14 +41,6 @@ jobs:
       - name: Code-only release contract (offline)
         run: python3 -B -m unittest discover -s scripts -p 'test_code_only_*.py'
 
-      # The release after merge runs this same check and refuses the release when it fails
-      # (2026-11-20: two refused releases). Failing here means: update scripts/code-only-manifest.json
-      # and APPROVED_BASELINE (docs/plans/2026-11-code-only-release.md), or merge main into the PR.
-      - name: Release approval list matches this PR
-        if: github.event_name == 'pull_request'
-        run: |
-          python3 -B -I -c "import importlib.util as u,subprocess as p;s=u.spec_from_file_location('r','scripts/code-only-release.py');r=u.module_from_spec(s);s.loader.exec_module(r);r.verify_code_only(r.APPROVED_BASELINE,p.run(['git','rev-parse','HEAD'],capture_output=True,text=True,check=True).stdout.strip());print('release approval list OK')"
-
       - name: Offline backup input and diagnostic tests
         run: |
           env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -I -B scripts/backup/test-safe-inputs.py
@@ -121,6 +113,15 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: placeholder_service_role_key
           ADMIN_PASSWORD: placeholder_password
           # Sentry/Upstash 未設定時自動停用，不影響 build
+
+      # The release after merge runs this same check and refuses the release when it fails
+      # (2026-11-20: two refused releases). Failing here means: update scripts/code-only-manifest.json
+      # and APPROVED_BASELINE (docs/plans/2026-11-code-only-release.md), or merge main into the PR.
+      # Last step on purpose: a stale list must not hide the lint, test and build results above.
+      - name: Release approval list matches this PR
+        if: github.event_name == 'pull_request'
+        run: |
+          python3 -B -I -c "import importlib.util as u,subprocess as p;s=u.spec_from_file_location('r','scripts/code-only-release.py');r=u.module_from_spec(s);s.loader.exec_module(r);r.verify_code_only(r.APPROVED_BASELINE,p.run(['git','rev-parse','HEAD'],capture_output=True,text=True,check=True).stdout.strip());print('release approval list OK')"
 
   e2e-smoke:
     name: Playwright smoke
