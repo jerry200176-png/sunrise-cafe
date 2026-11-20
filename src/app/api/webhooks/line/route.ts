@@ -41,6 +41,7 @@ import { aiAssistantEnabled, askAssistant, worthAnswering } from "@/lib/line-ai-
 export const maxDuration = 30;
 /** 一次 webhook 最多讓 AI 回一則，其餘事件（付款回報、訂位代號）不會被拖到逾時。 */
 const MAX_AI_ANSWERS_PER_WEBHOOK = 1;
+const MENU_WORDS = new Set(["訂位", "我要訂位", "預約", "我要預約", "選單"]);
 
 async function fetchPaymentKeywords(): Promise<string[]> {
   try {
@@ -378,6 +379,13 @@ export async function POST(request: NextRequest) {
 
       const rawText = event.message?.text?.trim() ?? "";
       if (!rawText) continue;
+
+      // 系統關鍵字：打「訂位」「選單」叫出主選單（沒有底部選單時的入口）。
+      if (MENU_WORDS.has(rawText) && event.source.type === "user" && replyToken) {
+        await replyLineMessages(replyToken, [menuMessage()], account.token);
+        logOps("webhook", "webhook.event_handled", { route: "line", msg_type: "text", event_type: event.type, handler: "menu_keyword" });
+        continue;
+      }
 
       const bookingCode = extractBookingCode(rawText);
       if (bookingCode) {
