@@ -17,7 +17,7 @@ beforeEach(() => {
   vi.spyOn(console, "info").mockImplementation(() => {});
   vi.stubEnv("LINE_CUSTOMER_ACCESS_TOKEN", "default-token");
   vi.stubEnv("LINE_CHANNEL_ACCESS_TOKEN", "staff-group-token");
-  vi.stubEnv("LINE_BRANCH_CUSTOMER_BOTS", JSON.stringify([{ branchId: STORE, name: "同德店", secret: "s", token: "store-token" }]));
+  vi.stubEnv("LINE_BRANCH_CUSTOMER_BOTS", JSON.stringify([{ branch_id: STORE, name: "同德店", secret: "s", token: "store-token" }]));
 });
 afterEach(() => vi.unstubAllEnvs());
 
