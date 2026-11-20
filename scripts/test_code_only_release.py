@@ -69,6 +69,29 @@ class Tests(unittest.TestCase):
         self.api.bad_health = True
         with self.assertRaises(r.Unknown): self.deploy()
         self.assertEqual(self.api.rollbacks, [BASE]); self.assertEqual(self.api.current, BASE)
+    def test_alias_lag_right_after_ready_is_retried_not_rolled_back(self):
+        candidate = r.create_candidate(self.api, self.record)
+        self.http.commit = OLD  # production still answers with the old build for a moment
+        real_sleep = self.clock.sleep
+        def sleep(delay): real_sleep(delay); self.http.commit = SHA
+        self.assertEqual(r.verify_candidate(self.api, self.http, self.record, candidate, clock=self.clock,
+                                            sleep=sleep, seconds=600), NEW)
+        self.assertEqual(self.api.rollbacks, [])
+    def test_unhealthy_candidate_names_the_failed_check(self):
+        self.api.bad_health = True
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(r.Unknown):
+            candidate = r.create_candidate(self.api, self.record)
+            r.verify_candidate(self.api, self.http, self.record, candidate, clock=self.clock,
+                               sleep=self.clock.sleep, seconds=600)
+        self.assertIn('health check failed: booking_health', err.getvalue())
+        self.assertEqual(self.api.rollbacks, [BASE])
+    def test_recovery_finishes_once_restored_baseline_has_settled(self):
+        # verify rolled back: alias is the baseline, the candidate is READY but not live.
+        self.assertEqual(r.recover(self.api, self.http, self.record, NEW, clock=self.clock,
+                                   sleep=self.clock.sleep, seconds=600), 'baseline')
+        self.assertGreaterEqual(self.clock.now, r.SETTLED_SECONDS)
+        self.assertEqual(self.api.rollbacks, [])
     def test_changed_baseline_never_creates(self):
         self.api.current = 'dpl_other'
         with self.assertRaises(r.Unknown): self.deploy()
