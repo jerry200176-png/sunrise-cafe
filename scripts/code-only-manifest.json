@@ -1,10 +1,21 @@
 {
-  "baseline": "c2a3106dce82fbe18f523abff8cd1094d885e639",
+  "baseline": "2bdb503b942a23149a4583d2c1cf16e9e35b2683",
   "approved_files": {
-    "scripts/code-only-release.py": "264329e35e8912256bf31bb97faf9045c7599474",
-    "src/lib/advice-data.ts": "5d12f863741ea92234d4be891e0e5246367a8029",
-    "src/lib/overview-data.ts": "239d212ca7499082613f29089e4c7fc0292e350c",
-    "src/lib/postgrest-alias-filter.test.ts": "de7ce8984c4990ae01e5258f16f477b79c71829e",
-    "src/lib/reservation-preorder.ts": "a14b3d9cb1ed4d3bed4d05d4968cd04ddce56dde"
+    "docs/LINE.md": "b9a095ef60a2408b3328d19006d7bc958cad0f77",
+    "scripts/code-only-release.py": "d6adcda48d26c5556eca6985133c63369c4439a7",
+    "src/app/api/availability/route.ts": "48005b887f44c28a534d477902ddaca198713ec9",
+    "src/app/api/webhooks/line/route.test.ts": "bbf06bc0963cf1d195b23f85ef676ec3e3d4ba83",
+    "src/app/api/webhooks/line/route.ts": "82315ac6fda85ebd650bc1618679a2862790d339",
+    "src/app/book/page.tsx": "44af263594dbd85d3da7a8d5457626258d55d23f",
+    "src/lib/booking-draft.test.ts": "bb635380fb20a1e3ed2c59aaf440196e341a8658",
+    "src/lib/booking-draft.ts": "cc415e7e6ad421413d66f5bcd25d4e5444b2d834",
+    "src/lib/line-booking-chat.test.ts": "7d21556ac67d9d8c5e8573e9ec681ab501702b2b",
+    "src/lib/line-booking-chat.ts": "a0feb58d09c16a86522c999bbfaa002447251c89",
+    "src/lib/line-booking-menu.test.ts": "edc52759781aca539140584d095234bfd1b66aa7",
+    "src/lib/line-booking-menu.ts": "533eeb2736a4bbf1482483877dd1a32670bf49e0",
+    "src/lib/line-cards.ts": "857d2cfffac30d39be2dbe9e1d29ec79027dd0d6",
+    "src/lib/line-flex.ts": "9840ce2e0411e9b9f22eb52f7cedd1016cf6cd9d",
+    "src/lib/line.ts": "7a608c611de643a7e6733055de06a4e4f5d6e32c",
+    "src/lib/slot-grid.ts": "36dcd80b7b1356516efc3cd15288d0c8ccccb8d9"
   }
 }
