@@ -99,6 +99,20 @@ class Tests(unittest.TestCase):
             r.verify_candidate(self.api, self.http, self.record, candidate, clock=self.clock,
                                sleep=self.clock.sleep, seconds=600)
         self.assertEqual(self.clock.now, 0); self.assertEqual(self.api.rollbacks, [BASE])
+    def test_real_503_from_booking_health_or_home_is_not_retried(self):
+        # Production answers an unhealthy check with 503, which HTTP.request raises.
+        for bad in ('/api/booking-health', '/'):
+            self.setUp()
+            candidate = r.create_candidate(self.api, self.record)
+            real = self.http.request
+            def failing(host, path, *a, _bad=bad, **k):
+                if path == _bad and self.api.current == NEW: raise r.HTTPStatusUnknown('http_5xx')
+                return real(host, path, *a, **k)
+            self.http.request = failing
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(r.Unknown):
+                r.verify_candidate(self.api, self.http, self.record, candidate, clock=self.clock,
+                                   sleep=self.clock.sleep, seconds=600)
+            self.assertEqual(self.clock.now, 0, bad); self.assertEqual(self.api.rollbacks, [BASE], bad)
     def test_version_lag_longer_than_grace_is_rolled_back(self):
         candidate = r.create_candidate(self.api, self.record)
         self.http.commit = OLD
