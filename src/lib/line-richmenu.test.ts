@@ -62,6 +62,20 @@ describe("publishRichMenu", () => {
   });
 });
 
+describe("publishRichMenu failures", () => {
+  it("still reports success when only the tidy-up of old menus fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    stubLine((c) => c.url.endsWith("/richmenu/list"));
+    expect(await publishRichMenu("tok")).toBe("richmenu-new");
+  });
+
+  it("deletes the new menu when it cannot be shown to the user", async () => {
+    const calls = stubLine((c) => c.url.includes("/user/"));
+    await expect(publishRichMenu("tok", "U" + "b".repeat(32))).rejects.toThrow(/→ 400$/);
+    expect(calls.at(-1)).toMatchObject({ method: "DELETE", url: "https://api.line.me/v2/bot/richmenu/richmenu-new" });
+  });
+});
+
 describe("removeRichMenu", () => {
   it("unsets the default without deleting menus", async () => {
     const calls = stubLine();

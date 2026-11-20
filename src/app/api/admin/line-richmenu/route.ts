@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminApiAuth } from "@/lib/admin-api-auth";
+import { requirePermission } from "@/lib/admin-api-auth";
 import { branchCustomerBots } from "@/lib/customer-line-bots";
 import { publishRichMenu, removeRichMenu } from "@/lib/line-richmenu";
 
 const USER_ID = /^U[0-9a-f]{32}$/;
+/** Up to six LINE calls plus the image download. */
+export const maxDuration = 30;
 
 /**
- * 發布／移除 LINE 底部選單。只有後台登入可用。
+ * 發布／移除 LINE 底部選單。只有店主（line:audit）可用。
  * body: { action: "publish" | "remove", userId?: 只給這位 LINE 使用者（試用）, branchId?: 分店自己的客人帳號 }
  */
 export async function POST(request: NextRequest) {
-  const denied = await requireAdminApiAuth(request);
+  // Owner-only, same permission as the LINE account audit: this changes what every guest sees.
+  const denied = await requirePermission(request, "line:audit");
   if (denied) return denied;
 
   const body = (await request.json().catch(() => null)) as { action?: string; userId?: string; branchId?: string } | null;

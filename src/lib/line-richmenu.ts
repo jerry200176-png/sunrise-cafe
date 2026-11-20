@@ -61,11 +61,16 @@ export async function publishRichMenu(token: string, userId?: string): Promise<s
     throw err;
   }
   if (!userId) {
-    const list = (await (await line(token, "GET", `${API}/richmenu/list`)).json()) as { richmenus?: { richMenuId: string; name: string }[] };
-    for (const old of list.richmenus ?? []) {
-      if (old.name === RICH_MENU_NAME && old.richMenuId !== richMenuId) {
-        await line(token, "DELETE", `${API}/richmenu/${old.richMenuId}`).catch(() => {});
+    // The new menu is already live; a failed tidy-up must not be reported as a failed publish.
+    try {
+      const list = (await (await line(token, "GET", `${API}/richmenu/list`)).json()) as { richmenus?: { richMenuId: string; name: string }[] };
+      for (const old of list.richmenus ?? []) {
+        if (old.name === RICH_MENU_NAME && old.richMenuId !== richMenuId) {
+          await line(token, "DELETE", `${API}/richmenu/${old.richMenuId}`).catch(() => {});
+        }
       }
+    } catch (err) {
+      console.error("[line-richmenu] old menus not removed:", err instanceof Error ? err.message : err);
     }
   }
   return richMenuId;
