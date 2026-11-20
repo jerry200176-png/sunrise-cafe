@@ -1,13 +1,6 @@
 {
-  "baseline": "de3e2b88d2e8c35c7e090e9b8e503bde6d1bc00e",
+  "baseline": "86d976b8bb1d45c85f437a472ed6c0883f513dbe",
   "approved_files": {
-    "docs/LINE.md": "e49bfefbc329c1ad46c0f21dc2b4ff451608f014",
-    "public/line/richmenu.png": "dd5986e7e93a64d65f624c2de57b554d20a45b28",
-    "src/app/api/admin/line-richmenu/route.test.ts": "0dc56dc25a45344dc4bdc51e8adeaf8ff4cc54c1",
-    "src/app/api/admin/line-richmenu/route.ts": "b2c11aee7d3d8c0261f851e16bd3b328bf538d7c",
-    "src/app/api/webhooks/line/route.test.ts": "523c7f7782a75704700c048faf9f585814317156",
-    "src/app/api/webhooks/line/route.ts": "944540793d9676ed72eba2d610f13d7467704b57",
-    "src/lib/line-richmenu.test.ts": "a9ac8dd12746d95474807bad103ee1cb72086d01",
-    "src/lib/line-richmenu.ts": "27eff72d310304b5c9bb0fbcd89e45f331f66a64"
+    "src/app/api/admin/route-guards.test.ts": "51dcd1e9aabac12aef306a9b13942800fa6f5a41"
   }
 }
