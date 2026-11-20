@@ -387,6 +387,13 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
+      // 打「我的ID」回自己的 LINE userId（只回給本人），給後台指定「選單試用對象」用。
+      if (rawText.toUpperCase() === "我的ID" && event.source.type === "user" && replyToken) {
+        await replyMessage(replyToken, `你的 LINE ID：\n${userId}`, account);
+        logOps("webhook", "webhook.event_handled", { route: "line", msg_type: "text", event_type: event.type, handler: "my_id" });
+        continue;
+      }
+
       const bookingCode = extractBookingCode(rawText);
       if (bookingCode) {
         await handleBookingCode(userId, rawText, replyToken, account);

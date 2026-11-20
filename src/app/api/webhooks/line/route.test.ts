@@ -160,6 +160,12 @@ describe("LINE webhook chat booking", () => {
     expect(mocks.ask).not.toHaveBeenCalled();
   });
 
+  it("tells a guest their own LINE ID when they ask for it", async () => {
+    await POST(typed("我的id"));
+    expect(mocks.replyText).toHaveBeenCalledWith("rt-q", expect.stringContaining("U-guest"), undefined);
+    expect(mocks.ask).not.toHaveBeenCalled();
+  });
+
   it("leaves typed questions alone while the AI assistant is off", async () => {
     mocks.aiOn = false;
     await POST(typed("平日多少錢"));

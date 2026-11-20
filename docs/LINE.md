@@ -131,6 +131,7 @@ await (await fetch("/api/admin/line-richmenu", { method: "POST", headers: { "Con
 await (await fetch("/api/admin/line-richmenu", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "remove" }) })).json()
 ```
 
+- 取得 userId：用那支手機對官方帳號打「我的ID」，機器人只回給本人。
 - 分店自己的客人帳號加 `branchId`。沒有自己帳號的分店不能指定（不會落到別家店的帳號）。
 - 重新發布會刪掉本系統先前建立的選單；在 LINE 官方後台手動做的選單不會被動到，但「預設選單」只能有一個，發布後以這個為準。
 - 換圖：換掉 PNG（同尺寸、格子位置不變）後重新發布。
