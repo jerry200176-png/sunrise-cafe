@@ -23,6 +23,10 @@ REPO = '/repos/jerry200176-png/sunrise-cafe'
 SHA = re.compile(r'[a-f0-9]{40}\Z')
 DEPLOYMENT = re.compile(r'dpl_[A-Za-z0-9]+\Z')
 MAX_BODY = 1024 * 1024
+HEALTH_GRACE_SECONDS = 60
+SETTLED_SECONDS = 120
+RETRYABLE_HEALTH = frozenset({'version_mismatch', 'version_unavailable'})
+SAFE_REASON = re.compile(r'[a-z0-9 ;,_-]{1,120}\Z', re.I)
 APPROVED_BASELINE = '2bdb503b942a23149a4583d2c1cf16e9e35b2683'
 CONTROL_FILES = frozenset({
     '.github/workflows/ci.yml', '.github/workflows/production-code-only.yml',
@@ -174,14 +178,34 @@ class Vercel:
         return status == 200 and isinstance(value, dict) and value.get('readyState') == 'CANCELED'
 
 
+def health_failure(http, expected):
+    """Return None when production serves `expected` and is healthy, else a fixed category.
+
+    HTTP.request raises on any non-2xx (booking-health answers 503 when unhealthy),
+    so each endpoint maps its own errors: a failing page must never look retryable.
+    """
+    try:
+        status, value, _ = http.request(HOST, '/api/version')
+    except Exception:
+        return 'version_unavailable'
+    if status != 200 or not isinstance(value, dict): return 'version_unavailable'
+    if value.get('commit') != expected: return 'version_mismatch'
+    try:
+        status, _, html = http.request(HOST, '/')
+    except Exception:
+        return 'home_page'
+    if status != 200 or not html: return 'home_page'
+    try:
+        status, data, _ = http.request(HOST, '/api/booking-health')
+    except Exception:
+        return 'booking_health'
+    if status != 200 or not isinstance(data, dict) or data.get('ok') is not True: return 'booking_health'
+    return None
+
+
 def health(http, expected):
-    status, value, _ = http.request(HOST, '/api/version')
-    if status != 200 or not isinstance(value, dict) or value.get('commit') != expected:
-        return False
-    status, _, html = http.request(HOST, '/')
-    if status != 200 or not html: return False
-    status, data, _ = http.request(HOST, '/api/booking-health')
-    return status == 200 and isinstance(data, dict) and data.get('ok') is True
+    """Never raises: a failed request is simply not healthy."""
+    return health_failure(http, expected) is None
 
 
 def same_source(deployment, sha):
@@ -251,6 +275,7 @@ def prepare(api, github, http, sha, tree):
 def recover(api, http, record, candidate=None, *, clock=time.monotonic, sleep=time.sleep, seconds=3000):
     baseline, previous = record['baseline'], record['previous']
     deadline = clock() + seconds
+    settled_since = None
     while clock() < deadline:
         try:
             current = api.alias()
@@ -270,6 +295,14 @@ def recover(api, http, record, candidate=None, *, clock=time.monotonic, sleep=ti
             if candidate:
                 state = api.deployment(candidate).get('readyState')
                 if state in ('ERROR', 'CANCELED', 'CANCELLED') and health(http, previous): return 'baseline'
+                # verify already restored the baseline and the candidate is READY:
+                # nothing is left to recover once that has held long enough to rule
+                # out a late promotion. A changed alias is handled above.
+                if state == 'READY' and health(http, previous):
+                    settled_since = clock() if settled_since is None else settled_since
+                    if clock() - settled_since >= SETTLED_SECONDS: return 'baseline'
+                else:
+                    settled_since = None
                 if state in ('BUILDING', 'INITIALIZING', 'QUEUED'):
                     try:
                         if api.cancel(candidate) and api.alias() == baseline and health(http, previous):
@@ -310,9 +343,17 @@ def verify_candidate(api, http, record, candidate, *, clock=time.monotonic, slee
             # Vercel may not expose optional Git fields while still building.
             # They must be present and match before claiming a ready release.
             if not same_source(deployment, sha): raise Unknown('candidate source unverified')
-            try: healthy = health(http, sha)
-            except Exception: healthy = False
-            if healthy and api.alias() == candidate: return candidate
+            # The alias can lag a moment behind READY. Re-check for a short,
+            # bounded grace period before deciding the candidate is unhealthy.
+            grace = min(deadline, clock() + HEALTH_GRACE_SECONDS)
+            while True:
+                failure = health_failure(http, sha)
+                # Only identity lag is worth waiting for. A failing home page or
+                # booking check is a real fault: one later pass must not hide it.
+                if failure not in RETRYABLE_HEALTH or api.alias() != candidate or clock() >= grace: break
+                sleep(min(5, max(0, grace - clock())))
+            if failure is None and api.alias() == candidate: return candidate
+            if failure is not None: print('Verify diagnostic: health check failed:', failure, file=sys.stderr)
             if api.alias() != candidate: raise Unknown('production changed before rollback')
             api.rollback(baseline)
             if api.alias() == baseline and health(http, record['previous']):
@@ -426,8 +467,11 @@ def main():
         category = exc.category if type(exc.category) is str and exc.category in HTTP_CATEGORIES else 'unclassified'
         print('Deployment create outcome unknown; HTTP status category:', category, file=sys.stderr)
         raise SystemExit('Release failed or outcome unknown; follow documented rollback procedure') from None
-    except Exception:
+    except Exception as exc:
         log_create_boundary()
+        # Unknown reasons are fixed literals from this file, never response data.
+        if type(exc) is Unknown and SAFE_REASON.fullmatch(str(exc)):
+            print('Release diagnostic:', str(exc), file=sys.stderr)
         raise SystemExit('Release failed or outcome unknown; follow documented rollback procedure') from None
 
 
