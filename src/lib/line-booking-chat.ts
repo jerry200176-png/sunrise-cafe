@@ -29,6 +29,7 @@ import {
   type BookingStep,
   type LineMessage,
 } from "@/lib/line-booking-menu";
+import { buildStoreFacts, type StoreFactsInput } from "@/lib/line-ai-assistant";
 
 type Ctx = { userId: string; /** The store whose own account got the event; null = the default account. */ branchId: string | null };
 type BlockedSlot = { room_id: string; start_time: string; end_time: string };
@@ -44,6 +45,16 @@ async function accountBranches(ctx: Ctx): Promise<{ id: string; name: string; ad
   }
   const own = new Set(branchCustomerBots().map((b) => b.branchId));
   return ((await fetchBranches()) ?? []).filter((b: { id: string }) => !own.has(b.id));
+}
+
+/** AI 客服看得到的店家資料：只有這個帳號負責的分店，全部是公開資訊。 */
+export async function assistantFacts(ctx: Ctx): Promise<string> {
+  const branches = (await accountBranches(ctx)) as StoreFactsInput["branches"];
+  const [settings, rooms] = await Promise.all([
+    fetchSettings(),
+    Promise.all(branches.map(async (b) => [b.id, await fetchRoomsWithDetails(b.id)] as const)),
+  ]);
+  return buildStoreFacts({ branches, rooms: Object.fromEntries(rooms), settings, today: taipeiDateString() });
 }
 
 async function myBookings(ctx: Ctx): Promise<LineMessage> {

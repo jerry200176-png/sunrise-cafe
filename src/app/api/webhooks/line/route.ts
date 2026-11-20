@@ -34,7 +34,12 @@ import { groupJoinedMessage, matchWebhookBot, replyGroupText } from "@/lib/line-
 import { matchCustomerBotSignature } from "@/lib/customer-line-bots";
 import { branchLineGroupIdForReservation } from "@/lib/branch-line-group";
 import { parseBookingPostback } from "@/lib/line-booking-menu";
-import { bookingReply } from "@/lib/line-booking-chat";
+import { assistantFacts, bookingReply } from "@/lib/line-booking-chat";
+import { menuMessage } from "@/lib/line-booking-menu";
+import { aiAssistantEnabled, askAssistant } from "@/lib/line-ai-assistant";
+
+/** AI 客服最多等 12 秒；給足時間，避免回覆被平台中斷。 */
+export const maxDuration = 30;
 
 async function fetchPaymentKeywords(): Promise<string[]> {
   try {
@@ -381,6 +386,12 @@ export async function POST(request: NextRequest) {
           event_type: event.type,
           handler: "booking_code",
         });
+      } else if (aiAssistantEnabled() && event.source.type === "user" && replyToken && !isPaymentMessage(rawText, paymentKeywords)) {
+        // AI 客服：不是訂位代號、也不是付款回報的文字才交給 AI。它只回答，訂位仍走按鈕。
+        const ctx = { userId, branchId: account.branchId };
+        const answer = await askAssistant({ accountKey: account.branchId ?? "default", userId, question: rawText, facts: () => assistantFacts(ctx) });
+        await replyLineMessages(replyToken, [menuMessage(answer.text)], account.token);
+        logOps("webhook", "webhook.event_handled", { route: "line", msg_type: "text", event_type: event.type, handler: "ai_assistant", outcome: answer.outcome });
       } else {
         await handlePaymentReport(userId, rawText, "line_text", replyToken, paymentKeywords, account);
         logOps("webhook", "webhook.event_handled", {
