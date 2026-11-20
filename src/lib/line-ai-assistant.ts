@@ -27,6 +27,7 @@ const HISTORY_MESSAGES = 12; // 6 turns
 const HISTORY_TTL_S = 30 * 60;
 const REPEAT_TTL_S = 60;
 const COUNTER_TTL_S = 2 * 24 * 60 * 60;
+const FACTS_TIMEOUT_MS = 5_000;
 
 export const AI_FALLBACK_TEXT = "這個問題我不確定，店員會盡快回覆您。";
 export const AI_LIMIT_TEXT = "今天的自動回覆已達上限，店員會盡快回覆您。也可以直接使用下方按鈕：";
@@ -75,7 +76,10 @@ function hoursLines(branch: StoreFactsInput["branches"][number]): string[] {
   });
 }
 
-/** The store's real, guest-facing data as text. No payment account numbers, no customer data. */
+/**
+ * The store's real, guest-facing data as text. No customer data, and no `deposit_info`:
+ * that field usually holds the bank account, which guests get only after booking.
+ */
 export function buildStoreFacts(input: StoreFactsInput): string {
   const parts: string[] = [];
   for (const branch of input.branches) {
@@ -94,7 +98,6 @@ export function buildStoreFacts(input: StoreFactsInput): string {
           `- ${r.name}：${r.min_capacity ? `${r.min_capacity}–${r.capacity}` : `最多 ${r.capacity}`} 人，平日 ${r.price_weekday}，假日 ${r.price_weekend}`
         ),
         ...guest.rental_notes.flatMap((s) => [`${s.title}：`, ...s.items.map((i) => `- ${i}`)]),
-        ...(guest.deposit_info ? [`訂金說明：${guest.deposit_info}`] : []),
       ].join("\n")
     );
   }
@@ -132,8 +135,8 @@ let client: Anthropic | undefined;
 const anthropic = () => (client ??= new Anthropic({ timeout: 12_000, maxRetries: 0 }));
 
 async function bump(redis: Redis, key: string): Promise<number> {
-  const count = await redis.incr(key);
-  if (count === 1) await redis.expire(key, COUNTER_TTL_S);
+  // One round trip, so a counter can never be left without an expiry.
+  const [count] = await redis.pipeline().incr(key).expire(key, COUNTER_TTL_S).exec<[number, number]>();
   return count;
 }
 
@@ -162,6 +165,11 @@ export async function askAssistant(p: {
     ]);
     if (storeCount > STORE_DAILY_LIMIT || guestCount > GUEST_DAILY_LIMIT) return { text: AI_LIMIT_TEXT, outcome: "limit" };
 
+    // Store data comes from the database; never let a slow read hold the webhook.
+    const facts = await Promise.race([
+      p.facts(),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("store facts timed out")), FACTS_TIMEOUT_MS)),
+    ]);
     const historyKey = `ai:h:${p.accountKey}:${p.userId}`;
     const history = (await redis.get<Turn[]>(historyKey)) ?? [];
     // The clock goes in the user turn so the system prompt stays byte-identical for prompt caching.
@@ -174,7 +182,7 @@ export async function askAssistant(p: {
       model,
       max_tokens: 2000,
       output_config: { effort: "low" },
-      system: [{ type: "text", text: INSTRUCTIONS + (await p.facts()), cache_control: { type: "ephemeral" } }],
+      system: [{ type: "text", text: INSTRUCTIONS + facts, cache_control: { type: "ephemeral" } }],
       messages: [...history, asked],
       ...fallback,
     });

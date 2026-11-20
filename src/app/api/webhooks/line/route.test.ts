@@ -168,6 +168,10 @@ describe("LINE webhook chat booking", () => {
     mocks.ask.mockClear();
     await POST(typed("已匯款 末五碼 12345"));
     expect(mocks.ask).not.toHaveBeenCalled();
+    const q = { type: "message", replyToken: "rt-b", source: { type: "user", userId: "U-guest" }, message: { type: "text", text: "幾點開門" } };
+    await POST(webhook([q, q, q], "default-secret"));
+    expect(mocks.ask).toHaveBeenCalledTimes(1); // one AI answer per webhook batch
+    mocks.ask.mockClear();
     await POST(typed("12345"));
     await POST(typed("?"));
     expect(mocks.ask).not.toHaveBeenCalled();
