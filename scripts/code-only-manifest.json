@@ -1,21 +1,13 @@
 {
-  "baseline": "2bdb503b942a23149a4583d2c1cf16e9e35b2683",
+  "baseline": "1a279da74bb984dd5b3150b37aa0530f3fe0ef3d",
   "approved_files": {
-    "docs/LINE.md": "b9a095ef60a2408b3328d19006d7bc958cad0f77",
-    "scripts/code-only-release.py": "4322f44cbcf1e64228cda09120a48cff7d908893",
-    "src/app/api/availability/route.ts": "48005b887f44c28a534d477902ddaca198713ec9",
-    "src/app/api/webhooks/line/route.test.ts": "bbf06bc0963cf1d195b23f85ef676ec3e3d4ba83",
-    "src/app/api/webhooks/line/route.ts": "82315ac6fda85ebd650bc1618679a2862790d339",
-    "src/app/book/page.tsx": "44af263594dbd85d3da7a8d5457626258d55d23f",
-    "src/lib/booking-draft.test.ts": "bb635380fb20a1e3ed2c59aaf440196e341a8658",
-    "src/lib/booking-draft.ts": "cc415e7e6ad421413d66f5bcd25d4e5444b2d834",
-    "src/lib/line-booking-chat.test.ts": "7d21556ac67d9d8c5e8573e9ec681ab501702b2b",
-    "src/lib/line-booking-chat.ts": "a0feb58d09c16a86522c999bbfaa002447251c89",
-    "src/lib/line-booking-menu.test.ts": "edc52759781aca539140584d095234bfd1b66aa7",
-    "src/lib/line-booking-menu.ts": "533eeb2736a4bbf1482483877dd1a32670bf49e0",
-    "src/lib/line-cards.ts": "857d2cfffac30d39be2dbe9e1d29ec79027dd0d6",
-    "src/lib/line-flex.ts": "9840ce2e0411e9b9f22eb52f7cedd1016cf6cd9d",
-    "src/lib/line.ts": "7a608c611de643a7e6733055de06a4e4f5d6e32c",
-    "src/lib/slot-grid.ts": "36dcd80b7b1356516efc3cd15288d0c8ccccb8d9"
+    "docs/LINE.md": "ce708bd869cd2514be2d46343f6a675daf21e7b9",
+    "package-lock.json": "80c09e87f911bd628912bedd74df8e40f4b010b8",
+    "package.json": "fc2a0ee068e98d37b93289f1d4797167e9d7e32b",
+    "src/app/api/webhooks/line/route.test.ts": "96def69a40dcdb6797cdef821eb4cc330b1fafc3",
+    "src/app/api/webhooks/line/route.ts": "3d0334363bdb4a04ea7c90b5c8c75f73c786ee56",
+    "src/lib/line-ai-assistant.test.ts": "b87ca8ed9ea69fb36556e2e2ee3f655039651149",
+    "src/lib/line-ai-assistant.ts": "2cf5f701917220d8ec1bfd73f68758deecc7c746",
+    "src/lib/line-booking-chat.ts": "31c22a4e42ee1a3737461c732d21ec85001ebc70"
   }
 }

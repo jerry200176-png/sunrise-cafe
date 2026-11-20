@@ -27,7 +27,7 @@ HEALTH_GRACE_SECONDS = 60
 SETTLED_SECONDS = 120
 RETRYABLE_HEALTH = frozenset({'version_mismatch', 'version_unavailable'})
 SAFE_REASON = re.compile(r'[a-z0-9 ;,_-]{1,120}\Z', re.I)
-APPROVED_BASELINE = '2bdb503b942a23149a4583d2c1cf16e9e35b2683'
+APPROVED_BASELINE = '1a279da74bb984dd5b3150b37aa0530f3fe0ef3d'
 CONTROL_FILES = frozenset({
     '.github/workflows/ci.yml', '.github/workflows/production-code-only.yml',
     '.github/workflows/production-deploy-migrate.yml', '.github/workflows/verify-production.yml',
