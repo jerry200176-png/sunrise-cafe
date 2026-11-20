@@ -116,6 +116,28 @@
 
 ---
 
+## 底部選單（rich menu）
+
+四格：**我要訂位**（最大）｜我的訂位｜看菜單｜店家資訊。圖片 `public/line/richmenu.png`（2500×843），格子與動作在 `src/lib/line-richmenu.ts`。客人也可以直接打「訂位」「預約」「選單」叫出同樣的按鈕。
+
+發布與移除（要先用店主帳號登入後台，在後台頁面的瀏覽器 Console 執行）：
+
+```js
+// 只給一位 LINE 使用者試用（userId 是 U 開頭 33 碼）
+await (await fetch("/api/admin/line-richmenu", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "publish", userId: "Uxxxxxxxx…" }) })).json()
+// 全帳號預設
+await (await fetch("/api/admin/line-richmenu", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "publish" }) })).json()
+// 還原（拿掉預設選單）
+await (await fetch("/api/admin/line-richmenu", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "remove" }) })).json()
+```
+
+- 只有店主帳號能發布／移除。
+- 試用結束：用同一個 `userId` 執行 `action: "remove"`；全帳號的 `remove` 不會動到個別試用者。
+- 取得 userId：用那支手機對官方帳號打「我的ID」，機器人只回給本人。
+- 分店自己的客人帳號加 `branchId`。沒有自己帳號的分店不能指定（不會落到別家店的帳號）。
+- 重新發布會刪掉本系統先前建立的選單；在 LINE 官方後台手動做的選單不會被動到，但「預設選單」只能有一個，發布後以這個為準。
+- 換圖：換掉 PNG（同尺寸、格子位置不變）後重新發布。
+
 ## AI 客服（客人打字問問題）
 
 預設**關閉**。打開後，客人在聊天室打字（不是訂位代號、也不是付款回報），由 Claude 依店裡的真實資料回答，回覆下方附「我要訂位／我的訂位／看菜單／店家資訊」按鈕。程式：`src/lib/line-ai-assistant.ts`。

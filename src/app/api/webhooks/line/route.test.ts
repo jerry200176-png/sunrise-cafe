@@ -154,6 +154,18 @@ describe("LINE webhook chat booking", () => {
 
   const typed = (text: string) => webhook([{ type: "message", replyToken: "rt-q", source: { type: "user", userId: "U-guest" }, message: { type: "text", text } }], "default-secret");
 
+  it("answers the word 訂位 with the menu buttons, AI on or off", async () => {
+    await POST(typed("訂位"));
+    expect(mocks.replyMessages).toHaveBeenCalledWith("rt-q", [expect.objectContaining({ quickReply: expect.anything() })], undefined);
+    expect(mocks.ask).not.toHaveBeenCalled();
+  });
+
+  it("tells a guest their own LINE ID when they ask for it", async () => {
+    await POST(typed("我的id"));
+    expect(mocks.replyText).toHaveBeenCalledWith("rt-q", expect.stringContaining("U-guest"), undefined);
+    expect(mocks.ask).not.toHaveBeenCalled();
+  });
+
   it("leaves typed questions alone while the AI assistant is off", async () => {
     mocks.aiOn = false;
     await POST(typed("平日多少錢"));
