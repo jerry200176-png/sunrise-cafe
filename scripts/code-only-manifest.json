@@ -1,6 +1,7 @@
 {
-  "baseline": "86d976b8bb1d45c85f437a472ed6c0883f513dbe",
+  "baseline": "7fc4da9e78e622b66ede8e636b1d791171210bec",
   "approved_files": {
-    "src/app/api/admin/route-guards.test.ts": "51dcd1e9aabac12aef306a9b13942800fa6f5a41"
+    "src/app/api/admin/reservation-orders/[id]/route.test.ts": "b5bc48151ae0afd6c238563f9b73eb47042883f4",
+    "src/app/api/admin/reservation-orders/[id]/route.ts": "f930b304ac8919d09d6e8620b10a5ffba48a0d32"
   }
 }
