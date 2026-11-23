@@ -135,6 +135,62 @@ describe("POST /api/admin/reservation-orders/[id] — extend & checkout", () => 
     });
   });
 
+  describe("billing on a database without the Stripe deposit column", () => {
+    beforeEach(() => {
+      mocks.getReservationForPreorder.mockResolvedValue({ id: "res-1", status: "confirmed", room: { name: "A", branch_id: "b1" } });
+      const base = mocks.respond;
+      mocks.respond = (call) => {
+        const select = call.ops.find(([op]) => op === "select")?.[1][0];
+        if (call.table === "reservations" && typeof select === "string" && select.split(",").includes("deposit_status")) {
+          return { data: null, error: { code: "42703", message: "column reservations.deposit_status does not exist" } };
+        }
+        if (call.table === "orders" && !hasOp(call, "update")) return { data: null, error: null };
+        if (call.table === "reservations" && !hasOp(call, "limit")) {
+          return { data: { ...reservationRow, status: "confirmed" }, error: null };
+        }
+        return base(call);
+      };
+    });
+
+    it("loads a confirmed reservation without an order and keeps the existing deposit credit", async () => {
+      const response = await get();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(await response.json()).toMatchObject({
+        reservation: { id: "res-1", status: "confirmed" },
+        preorder: null,
+        order: null,
+        billing: { is_deposit_paid: true, bill: { depositCredit: 200 } },
+      });
+    });
+
+    it("can confirm arrival before the optional deposit column is available", async () => {
+      let checkedIn = false;
+      const base = mocks.respond;
+      mocks.respond = (call) => call.table === "orders" && checkedIn
+        ? { data: order, error: null }
+        : base(call);
+      mocks.rpc.mockImplementation(async () => {
+        checkedIn = true;
+        return { data: { id: order.id }, error: null };
+      });
+      const response = await post({ action: "check_in" });
+      expect(response.status).toBe(200);
+      expect(mocks.rpc).toHaveBeenCalledWith("activate_reservation_order", { p_reservation_id: "res-1" });
+      expect(await response.json()).toMatchObject({ ok: true, order: { id: order.id } });
+    });
+
+    it("retains an error for other undefined columns without retrying", async () => {
+      const base = mocks.respond;
+      const billingRead = (call: Call) => call.table === "reservations" && !hasOp(call, "limit");
+      mocks.respond = (call) => billingRead(call)
+        ? { data: null, error: { code: "42703", message: "column reservations.total_price does not exist" } }
+        : base(call);
+      expect((await get()).status).toBe(500);
+      expect(mocks.calls.filter(billingRead)).toHaveLength(1);
+    });
+  });
+
   describe("add_items committed response (#441)", () => {
     const body = { action: "add_items", items: [{ menu_item_id: "m1", quantity: 1 }] };
     const inserts = () => mocks.calls.filter((call) => call.table === "order_items" && hasOp(call, "insert"));

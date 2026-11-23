@@ -46,9 +46,15 @@ async function load(id: string) {
 /** 現場結帳需要的包廂費率、訂位金額與同包廂下一組開始時間（延時上限）。 */
 async function loadBilling(id: string) {
   const db = supabaseAdmin();
-  const { data, error } = await db.from("reservations")
-    .select("id,room_id,start_time,end_time,status,total_price,is_deposit_paid,deposit_status,room:rooms(price_weekday,price_weekend)")
+  const billingFields = "id,room_id,start_time,end_time,status,total_price,is_deposit_paid,room:rooms(price_weekday,price_weekend)";
+  const result = await db.from("reservations")
+    .select(`${billingFields},deposit_status`)
     .eq("id", id).single();
+  // 未套用 Stripe migration 的資料庫仍以 is_deposit_paid 記錄訂金。
+  const missingDepositStatus = result.error?.code === "42703" && /\bdeposit_status\b/.test(result.error.message);
+  const { data, error } = missingDepositStatus
+    ? await db.from("reservations").select(billingFields).eq("id", id).single()
+    : result;
   if (error) throw error;
   const room = Array.isArray(data.room) ? data.room[0] : data.room;
   const { data: sameRoom, error: sameRoomError } = await db.from("reservations")
@@ -65,7 +71,7 @@ async function loadBilling(id: string) {
       end_time: data.end_time as string, status: data.status as string,
       total_price: data.total_price == null ? null : Number(data.total_price),
       // 退過款的訂金（Stripe 退款只改 deposit_status，is_deposit_paid 仍為 true）不能再扣
-      is_deposit_paid: Boolean(data.is_deposit_paid) && data.deposit_status !== "refunded" },
+      is_deposit_paid: Boolean(data.is_deposit_paid) && result.data?.deposit_status !== "refunded" },
     room: (room ?? null) as { price_weekday: number; price_weekend: number } | null,
     // 套用 migration 後「沒來」不再佔時段，延長上限也跟著放寬
     nextStart: nextBlockingStart(data, sameRoom ?? [], extensions ? ["cancelled", "no_show"] : ["cancelled"]),
