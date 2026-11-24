@@ -1,13 +1,7 @@
 {
-  "baseline": "1a279da74bb984dd5b3150b37aa0530f3fe0ef3d",
+  "baseline": "7fc4da9e78e622b66ede8e636b1d791171210bec",
   "approved_files": {
-    "docs/LINE.md": "ce708bd869cd2514be2d46343f6a675daf21e7b9",
-    "package-lock.json": "80c09e87f911bd628912bedd74df8e40f4b010b8",
-    "package.json": "fc2a0ee068e98d37b93289f1d4797167e9d7e32b",
-    "src/app/api/webhooks/line/route.test.ts": "96def69a40dcdb6797cdef821eb4cc330b1fafc3",
-    "src/app/api/webhooks/line/route.ts": "3d0334363bdb4a04ea7c90b5c8c75f73c786ee56",
-    "src/lib/line-ai-assistant.test.ts": "b87ca8ed9ea69fb36556e2e2ee3f655039651149",
-    "src/lib/line-ai-assistant.ts": "2cf5f701917220d8ec1bfd73f68758deecc7c746",
-    "src/lib/line-booking-chat.ts": "31c22a4e42ee1a3737461c732d21ec85001ebc70"
+    "src/app/api/admin/reservation-orders/[id]/route.test.ts": "b5bc48151ae0afd6c238563f9b73eb47042883f4",
+    "src/app/api/admin/reservation-orders/[id]/route.ts": "f930b304ac8919d09d6e8620b10a5ffba48a0d32"
   }
 }
