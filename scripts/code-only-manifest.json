@@ -1,7 +1,14 @@
 {
-  "baseline": "7fc4da9e78e622b66ede8e636b1d791171210bec",
+  "baseline": "8983bd82d4da72e877a137939a4d41400d67b1b9",
   "approved_files": {
-    "src/app/api/admin/reservation-orders/[id]/route.test.ts": "b5bc48151ae0afd6c238563f9b73eb47042883f4",
-    "src/app/api/admin/reservation-orders/[id]/route.ts": "f930b304ac8919d09d6e8620b10a5ffba48a0d32"
+    "docs/PAYMENT_STATE_MODEL.md": "8e76e018a27282843576228ab4d0307ed824327f",
+    "e2e/admin-payments.spec.ts": "2177260e6ded3734a2d19a7573450e079ef04a98",
+    "src/app/admin/payments/page.tsx": "e401814e771850e399249677d4e82f6ba3e54ab4",
+    "src/app/api/admin/payments/[id]/approve/route.test.ts": "c8b3ccf2803da055cf73cf503f1f23d1b3e2f29e",
+    "src/app/api/admin/payments/[id]/approve/route.ts": "f71a92cff040e2bd4b764b10ba3a9bddbc288ace",
+    "src/lib/deposit-paid.test.ts": "21a3b2d3c9e4d58181450f129b2574e6383d2de7",
+    "src/lib/deposit-paid.ts": "5d83f4107352668038246b44d4f621741c1701d2",
+    "src/lib/payment-events-admin.test.ts": "2f69bd60de77f577fe4089b40a6b29139e8e2b83",
+    "src/lib/payment-events-admin.ts": "977cea746d0ac4e2e3304ef00f0ab3bd3a686aed"
   }
 }

@@ -44,6 +44,15 @@ describe("markDepositPaid: every source writes, audits and notifies", () => {
     expect(w.notifications).toHaveLength(1);
   });
 
+  it("skipNotify records and audits the payment but sends nothing", async () => {
+    const w = world();
+    const r = await markDepositPaid("r1", "payment_review", { skipNotify: true }, null, w.fx);
+    expect(r).toEqual({ changed: true, notification: null });
+    expect(w.row.is_deposit_paid).toBe(true);
+    expect(w.audits).toHaveLength(1);
+    expect(w.notifications).toHaveLength(0);
+  });
+
   it("only Stripe sources write deposit_status", async () => {
     const a = world(); await markDepositPaid("r1", "admin_patch", {}, null, a.fx);
     const b = world(); await markDepositPaid("r1", "stripe_webhook", {}, null, b.fx);

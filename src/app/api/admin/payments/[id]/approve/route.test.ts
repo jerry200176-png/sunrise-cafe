@@ -69,6 +69,15 @@ describe("POST /api/admin/payments/[id]/approve", () => {
     });
   });
 
+  it("tells the page when an ended reservation was only recorded, not notified", async () => {
+    mocks.approvePaymentEvent.mockResolvedValue({ already_processed: false, notification: null, ended: true });
+
+    const response = await POST(request(), { params: Promise.resolve({ id: "payment-1" }) });
+
+    expect(await response.json()).toMatchObject({ ok: true, ended: true, notification: null });
+    expect(mocks.logOps).toHaveBeenCalledWith("admin", "admin.payment_approved", expect.objectContaining({ ended: true }));
+  });
+
   it("does not redispatch a notification for an already processed payment event", async () => {
     mocks.approvePaymentEvent.mockResolvedValue({ already_processed: true });
 

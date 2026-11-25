@@ -108,7 +108,16 @@ describe("payment review idempotency rules", () => {
   it("bank-transfer approval copies the reported last five and Taipei report date onto the reservation", async () => {
     mocks.from.mockImplementation((table: string) =>
       table === "reservations"
-        ? {}
+        ? {
+            select: () => ({
+              eq: () => ({
+                single: async () => ({
+                  data: { id: "reservation-1", status: "confirmed", end_time: "2999-01-01T00:00:00Z", total_price: 1000, is_deposit_paid: false },
+                  error: null,
+                }),
+              }),
+            }),
+          }
         : {
             select: () => ({
               eq: () => ({
@@ -140,6 +149,69 @@ describe("payment review idempotency rules", () => {
       expect.objectContaining({ lastFive: "54321", paidOn: "2026-09-29", paymentEventId: "event-1" }),
       "admin_payment_review"
     );
+  });
+
+  describe("reservation already ended (late confirmation)", () => {
+    function lateWorld(reservation: Record<string, unknown>, event: Record<string, unknown> = {}) {
+      const updates: Record<string, unknown>[] = [];
+      const single = (data: unknown) => ({ select: () => ({ eq: () => ({ single: async () => ({ data, error: null }) }) }) });
+      mocks.rpc.mockReset();
+      mocks.from.mockImplementation((table: string) =>
+        table === "reservations"
+          ? single({ id: "reservation-9", status: "completed", end_time: "2026-10-09T07:30:00Z", total_price: 1000, is_deposit_paid: false, ...reservation })
+          : {
+              ...single({
+                id: "event-9", reservation_id: "reservation-9", source: "bank_transfer", status: "pending_review",
+                raw_payload: "customer_portal_transfer_report", reported_account_last_five: "12345",
+                reported_amount: 500, reported_at: "2026-10-07T08:28:00Z", ...event,
+              }),
+              update: (patch: Record<string, unknown>) => {
+                updates.push(patch);
+                const chain = { eq: () => chain, select: () => chain, maybeSingle: async () => ({ data: { id: "event-9" }, error: null }) };
+                return chain;
+              },
+            }
+      );
+      return updates;
+    }
+
+    it("records a completed bank transfer without the RPC and without notifying the guest", async () => {
+      const updates = lateWorld({});
+      await expect(approvePaymentEvent("event-9", null, "operator-9"))
+        .resolves.toEqual({ already_processed: false, notification: null, ended: true });
+      expect(mocks.rpc).not.toHaveBeenCalled();
+      expect(updates).toEqual([expect.objectContaining({ status: "approved", reviewed_by: "operator-9" })]);
+      expect(mocks.markDepositPaid).toHaveBeenCalledWith(
+        "reservation-9",
+        "payment_review",
+        expect.objectContaining({ skipNotify: true, lastFive: "12345", paidOn: "2026-10-07", paymentEventId: "event-9" }),
+        "operator-9"
+      );
+    });
+
+    it("a confirmed reservation whose end time has passed counts as ended", async () => {
+      lateWorld({ status: "confirmed" }, { source: "line_text", raw_payload: "晚點匯款" });
+      await expect(approvePaymentEvent("event-9")).resolves.toMatchObject({ ended: true });
+      expect(mocks.markDepositPaid.mock.calls[0][2]).toMatchObject({ skipNotify: true });
+    });
+
+    it.each([
+      ["amount differs from the expected deposit", {}, { reported_amount: 400 }, "匯款回報資料與應收訂金不符"],
+      ["last five is malformed", {}, { reported_account_last_five: "1234" }, "匯款回報資料與應收訂金不符"],
+      ["deposit is already confirmed", { is_deposit_paid: true }, {}, "此訂位訂金已確認"],
+    ])("refuses a late bank transfer when %s", async (_name, reservation, event, message) => {
+      const updates = lateWorld(reservation, event);
+      await expect(approvePaymentEvent("event-9")).rejects.toThrow(message);
+      expect(updates).toEqual([]);
+      expect(mocks.markDepositPaid).not.toHaveBeenCalled();
+    });
+
+    it("a cancelled reservation still goes to the RPC, which refuses it", async () => {
+      lateWorld({ status: "cancelled" });
+      mocks.rpc.mockResolvedValue({ data: null, error: { message: "訂位已取消、完成或過期，無法確認匯款" } });
+      await expect(approvePaymentEvent("event-9")).rejects.toThrow("訂位已取消");
+      expect(mocks.markDepositPaid).not.toHaveBeenCalled();
+    });
   });
 
   it("already-processed confirmation is a no-op for notification callers", async () => {

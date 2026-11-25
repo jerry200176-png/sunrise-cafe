@@ -32,6 +32,8 @@ export type DepositEvidence = {
   paidOn?: string | null;
   lastFive?: string | null;
   paymentEventId?: string;
+  /** Reservation already ended: record the payment only, send no approval notification. */
+  skipNotify?: boolean;
 };
 
 export type DepositResult = {
@@ -136,7 +138,9 @@ export async function markDepositPaid(
     });
   }
 
-  // Notify on every path. notifyPaymentApproved is idempotent (notified_at +
+  if (evidence.skipNotify) return { changed, notification: null };
+
+  // Notify on every other path. notifyPaymentApproved is idempotent (notified_at +
   // claim lease + stable retry keys), so calling it again also retries a
   // notification that previously failed or timed out.
   let notification: NotifyPaymentApprovedResult | null;
