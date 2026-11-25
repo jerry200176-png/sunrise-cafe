@@ -8,18 +8,18 @@ const PENDING = {
   reported_account_last_five: null, reported_amount: null, reported_at: null,
 };
 
-async function setup(page: Page) {
+async function setup(page: Page, pending: typeof PENDING & { end_time?: string } = PENDING) {
   const calls = { approve: 0, reject: 0 };
   await page.route("**/api/admin/payments/**", async (route) => {
     const p = new URL(route.request().url()).pathname;
     const json = (b: unknown) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(b) });
     if (p.endsWith("/migration-status")) return json({ payment_events_ready: true });
-    if (p.endsWith("/pending")) return json([PENDING]);
+    if (p.endsWith("/pending")) return json([pending]);
     if (p.endsWith("/reconcile")) return json({ items: [] });
     if (p.endsWith("/approve")) {
       calls.approve++;
       await new Promise((r) => setTimeout(r, 400));
-      return json({ ok: true, notification: null });
+      return json({ ok: true, notification: null, ended: pending.reservation_status === "completed" });
     }
     if (p.endsWith("/reject")) { calls.reject++; return json({ ok: true }); }
     return json({});
@@ -37,6 +37,18 @@ test.describe("付款審核安全", () => {
     await expect(page.getByPlaceholder("駁回原因（必填）")).toBeVisible();
     expect(calls.approve).toBe(0);
     await expect(page.getByRole("dialog")).toHaveCount(0);
+  });
+
+  test("訂位已結束的單只補登收款，不說會通知客人", async ({ page, context }) => {
+    await seedAdminSession(context);
+    const calls = await setup(page, { ...PENDING, reservation_status: "completed", end_time: "2026-10-09T12:00:00Z" });
+    await page.goto("/admin/payments");
+    await expect(page.getByText("訂位已結束")).toBeVisible();
+    await page.getByRole("button", { name: "補登已收款" }).click();
+    await expect(page.getByRole("dialog")).toContainText("不會通知客人");
+    await page.getByRole("dialog").getByRole("button", { name: "補登已收款" }).click();
+    await expect(page.getByText("已補登收款（訂位已結束，未通知客人）")).toBeVisible();
+    expect(calls.approve).toBe(1);
   });
 
   test("核准要先確認，連按只送出一次", async ({ page, context }) => {

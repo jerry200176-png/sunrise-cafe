@@ -154,7 +154,19 @@ export type ApprovePaymentResult = {
   already_processed: boolean;
   /** Approval notification outcome (null when already processed) */
   notification?: NotifyPaymentApprovedResult | null;
+  /** Reservation had already ended: payment recorded, customer not notified. */
+  ended?: true;
 };
+
+/** Completed, or its end time has passed (and not cancelled): approval only records the payment. */
+export function isReservationEnded(
+  r: { status?: string | null; end_time?: string | null } | null | undefined,
+  now = Date.now()
+): boolean {
+  if (!r || r.status === "cancelled") return false;
+  return r.status === "completed" || r.status === "paid" || Date.parse(r.end_time ?? "") <= now;
+}
+
 export type RejectPaymentResult = { already_processed: boolean };
 
 export async function approvePaymentEvent(
@@ -164,14 +176,21 @@ export async function approvePaymentEvent(
 ): Promise<ApprovePaymentResult> {
   const { data: event, error: fetchErr } = await admin()
     .from("payment_events")
-    .select("id, reservation_id, source, status, raw_payload, reported_account_last_five, reported_at")
+    .select("id, reservation_id, source, status, raw_payload, reported_account_last_five, reported_amount, reported_at")
     .eq("id", eventId)
     .single();
   if (fetchErr || !event) throw new Error("找不到付款事件");
   if (event.status === "approved") return { already_processed: true };
   if (event.status !== "pending_review") throw new Error("此事件已駁回，無法核准");
 
-  if (event.source === "bank_transfer") {
+  const { data: reservation } = await admin()
+    .from("reservations")
+    .select("id, status, end_time, total_price, is_deposit_paid")
+    .eq("id", event.reservation_id)
+    .single();
+  const ended = isReservationEnded(reservation);
+
+  if (event.source === "bank_transfer" && !ended) {
     const { data, error } = await admin().rpc("confirm_bank_transfer_payment", {
       p_event_id: eventId,
       p_actor: actor,
@@ -209,18 +228,30 @@ export async function approvePaymentEvent(
     return { already_processed: false, notification };
   }
 
-  const { data: beforeRes, error: beforeErr } = await admin()
-    .from("reservations")
-    .select("id")
-    .eq("id", event.reservation_id)
-    .single();
-  if (beforeErr || !beforeRes) throw new Error("找不到訂位");
+  if (!reservation) throw new Error("找不到訂位");
+
+  // ponytail: late bank-transfer confirmation (reservation ended) is not one DB transaction like
+  // confirm_bank_transfer_payment; the conditional update below is the only double-approval guard.
+  // Move it into the RPC (F1 migration) if stricter atomicity is ever needed.
+  const lateTransfer = event.source === "bank_transfer";
+  if (lateTransfer) {
+    if (reservation.is_deposit_paid) throw new Error("此訂位訂金已確認，請保留此回報作異常紀錄");
+    const expected = getDepositAmount(Number(reservation.total_price ?? 0));
+    if (
+      expected <= 0 ||
+      event.reported_amount == null ||
+      Number(event.reported_amount) !== expected ||
+      !/^\d{5}$/.test(event.reported_account_last_five ?? "")
+    ) {
+      throw new Error("匯款回報資料與應收訂金不符，請依異常流程核對");
+    }
+  }
 
   const now = new Date().toISOString();
-  const note =
-    reviewNote?.trim() ||
-    event.raw_payload ||
-    "後台核准";
+  const note = lateTransfer
+    ? reviewNote?.trim() ||
+      `銀行轉帳人工核對：末五碼 ${event.reported_account_last_five}，金額 NT$ ${event.reported_amount}（訂位結束後補登）`
+    : reviewNote?.trim() || event.raw_payload || "後台核准";
 
   const { data: updated, error: evErr } = await admin()
     .from("payment_events")
@@ -228,6 +259,7 @@ export async function approvePaymentEvent(
       status: "approved",
       reviewed_at: now,
       review_note: reviewNote?.trim() || null,
+      ...(lateTransfer ? { reviewed_by: actor, updated_at: now, updated_by: actor } : {}),
     })
     .eq("id", eventId)
     .eq("status", "pending_review")
@@ -239,15 +271,28 @@ export async function approvePaymentEvent(
   logPayment("payment_event.approved", {
     event_id: eventId,
     reservation_id: event.reservation_id,
+    ...(ended ? { source: event.source, actor, ended: true } : {}),
   });
 
   const { notification } = await markDepositPaid(
     event.reservation_id,
     "payment_review",
-    { note, reviewNote: reviewNote?.trim() || null, paymentEventId: eventId },
+    {
+      note,
+      reviewNote: reviewNote?.trim() || null,
+      paymentEventId: eventId,
+      ...(lateTransfer
+        ? {
+            lastFive: event.reported_account_last_five,
+            paidOn: event.reported_at ? taipeiDateString(new Date(event.reported_at)) : null,
+          }
+        : {}),
+      // An ended reservation gets the record only; a "deposit confirmed" LINE weeks later is noise.
+      ...(ended ? { skipNotify: true } : {}),
+    },
     actor
   );
-  return { already_processed: false, notification };
+  return ended ? { already_processed: false, notification, ended: true } : { already_processed: false, notification };
 }
 
 export async function rejectPaymentEvent(

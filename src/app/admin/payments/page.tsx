@@ -22,6 +22,7 @@ type PendingItem = {
   customer_name: string;
   phone: string;
   start_time: string;
+  end_time?: string;
   deposit_amount: number | null;
   reservation_status?: string;
   created_at: string;
@@ -32,6 +33,13 @@ type PendingItem = {
   reported_amount: number | null;
   reported_at: string | null;
 };
+
+/** 與後端 isReservationEnded 同一條規則：已完成，或結束時間已過（已取消不算）。 */
+function isEnded(item: PendingItem): boolean {
+  if (item.reservation_status === "cancelled") return false;
+  return item.reservation_status === "completed" || item.reservation_status === "paid"
+    || Date.parse(item.end_time ?? "") <= Date.now();
+}
 
 type RiskItem = {
   booking_code: string;
@@ -174,8 +182,11 @@ export default function AdminPaymentsPage() {
       }
       const data = (await res.json().catch(() => ({}))) as {
         notification?: { status?: string; error?: string } | null;
+        ended?: boolean;
       };
-      if (data.notification && data.notification.status !== "accepted_by_platform") {
+      if (data.ended) {
+        showToast("已補登收款（訂位已結束，未通知客人）", "success");
+      } else if (data.notification && data.notification.status !== "accepted_by_platform") {
         showToast("款項已確認，但沒能通知客人，請手動傳 LINE", "error");
       } else {
         showToast("已確認收款", "success");
@@ -367,6 +378,9 @@ export default function AdminPaymentsPage() {
                         <span className={`rounded-full px-2 py-0.5 text-xs ${item.source === "bank_transfer" ? "bg-amber-100 text-amber-900" : "bg-stone-100 text-stone-600"}`}>
                           {paymentSourceLabel(item.source)}
                         </span>
+                        {isEnded(item) && (
+                          <span className="rounded-full bg-stone-200 px-2 py-0.5 text-xs text-stone-700">訂位已結束</span>
+                        )}
                       </div>
                       <p className="text-sm text-stone-600">
                         代號 {item.booking_code} · {item.phone}
@@ -416,7 +430,7 @@ export default function AdminPaymentsPage() {
                         disabled={busyId !== null}
                         className="inline-flex min-h-[44px] items-center gap-1 rounded-xl bg-emerald-600 text-white px-4 py-2 text-sm font-medium transition-[background-color] duration-200 hover:bg-emerald-700 disabled:opacity-60"
                       >
-                        <Check className="w-4 h-4" strokeWidth={1.5} /> 確認已收款
+                        <Check className="w-4 h-4" strokeWidth={1.5} /> {isEnded(item) ? "補登已收款" : "確認已收款"}
                       </button>
                       <button
                         type="button"
@@ -516,11 +530,16 @@ export default function AdminPaymentsPage() {
         title="確認已收到這筆款項？"
         message={(() => {
           const it = items.find((i) => i.id === confirmApproveId);
-          return it
-            ? `${it.customer_name}${it.deposit_amount != null ? ` 的訂金 NT$${it.deposit_amount}` : ""}。按「確認已收款」後會標記為已付訂金，並用 LINE 通知客人。`
-            : "";
+          if (!it) return "";
+          const who = `${it.customer_name}${it.deposit_amount != null ? ` 的訂金 NT$${it.deposit_amount}` : ""}。`;
+          return isEnded(it)
+            ? `${who}這筆訂位已結束，按「補登已收款」只會記錄已收訂金，不會通知客人。`
+            : `${who}按「確認已收款」後會標記為已付訂金，並用 LINE 通知客人。`;
         })()}
-        confirmLabel="確認已收款"
+        confirmLabel={(() => {
+          const it = items.find((i) => i.id === confirmApproveId);
+          return it && isEnded(it) ? "補登已收款" : "確認已收款";
+        })()}
         variant="default"
         onConfirm={() => {
           const id = confirmApproveId;

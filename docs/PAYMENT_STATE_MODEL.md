@@ -71,6 +71,8 @@ pending_review ──approve──▶ approved
 
 `approved` 時同步更新 reservation（單一 transaction 理想，現階段 sequential update）。
 
+訂位已結束（`completed`／`paid`，或結束時間已過且未取消）時核准＝「補登已收款」：只記錄已付訂金與稽核，不通知客人；銀行轉帳回報此時不走 `confirm_bank_transfer_payment`（它拒絕已結束的訂位），改由 `approvePaymentEvent` 做同樣的金額／末五碼檢查（Founder 2026-11-25）。
+
 ### `reservations`（過渡期）
 
 保留 `is_deposit_paid` 作為對外查詢欄位（客人查詢頁、報表）。未來可加 `deposit_paid_at`、`payment_method`（migration 已預留於 #53）。

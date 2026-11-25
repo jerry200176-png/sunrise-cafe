@@ -38,11 +38,12 @@ export async function POST(request: NextRequest, { params }: Params) {
     const notification = result.notification ?? null;
 
     if (!result.already_processed) {
-      logOps("admin", "admin.payment_approved", { payment_event_id: id, interaction });
+      logOps("admin", "admin.payment_approved", { payment_event_id: id, interaction, ...(result.ended ? { ended: true } : {}) });
     }
     return NextResponse.json({
       ok: true,
       already_processed: result.already_processed,
+      ended: result.ended ?? false,
       notification: notification
         ? {
             ok: notification.ok,
