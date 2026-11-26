@@ -2,7 +2,7 @@
   "baseline": "702408e37a05df44be2c39226f6b8d5de09ba93d",
   "approved_files": {
     "CHANGELOG.md": "6458b4c7fe128a64be65020cc3d190d171f44106",
-    "src/components/ReservationList.tsx": "93e45627d09693a9ea6c399b71b3490f72d35ba3",
+    "src/components/ReservationList.tsx": "202b26e11aec55441ba70652c55852b2a77d041f",
     "src/components/admin/DepositPaidDialog.tsx": "fdbea134006bf9ed4c0a05194a7b6e530edfb0d9",
     "src/components/admin/DepositStatusControl.tsx": "625a2d54ff77746dfe30109cb17a8c4e6775592d",
     "src/lib/payment-event-payload.test.ts": "55530337f7bf64083ffc166962d41e1591fa08af",

@@ -1282,7 +1282,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         title={depositDialog.is_deposit_paid ? "修改付款資料" : "核准訂金"}
         initial={depositDialog}
         reviewMessage={depositMutation ? "此訂位有操作正在處理或結果待核對；目前輸入已保留，請先核對並等待處理完成。" : depositStale ? canReviewDeposit && latestDepositRow
-          ? `資料已更新。最新狀態：${latestDepositRow.is_deposit_paid ? "已付訂金" : "未付訂金"}；${transferInfoLabel(latestDepositRow) || "無匯款資料"}；備註：${latestDepositRow.deposit_payment_note || "無"}；待審核 ${latestDepositRow.pending_payment_reviews ?? 0} 筆。請核對後再繼續。`
+          ? `資料已更新。最新狀態：${latestDepositRow.is_deposit_paid ? "已付訂金" : "未付訂金"}；${transferInfoLabel(latestDepositRow) || "無匯款資料"}；備註：${paymentNoteLabel(latestDepositRow.deposit_payment_note) || "無"}；待審核 ${latestDepositRow.pending_payment_reviews ?? 0} 筆。請核對後再繼續。`
           : "資料正在核對或訂位已不在目前清單，請勿送出；已輸入內容會保留。"
           : undefined}
         onReview={depositStale && canReviewDeposit && latestDepositRow ? () => {
