@@ -84,6 +84,15 @@ pending_review ──approve──▶ approved
 - **Phase 2（現行）：** 所有客人來源（`line_image` / `line_text` / …）一律 → `pending_review`（不動 `is_deposit_paid`）
 - 舊過渡行為 `line_text` → `auto_mark_paid` **已廢止**（以程式碼為準；勿再依 ADR-002 自動標記敘述）
 
+## 審核頁自動讀截圖（2026-11-26）
+
+`/admin/payments` 在每張 LINE 付款截圖下方顯示一行白話：截圖裡有沒有應收訂金的金額、日期、畫面上的帳號後五碼。
+
+- 開源 OCR（tesseract.js，Apache-2.0）在**店員的瀏覽器**執行，讀的是審核頁已經顯示的那張圖；截圖不送給任何第三方服務。
+- 欄位規則在 `src/lib/transfer-text.ts`（純函式）；畫面在 `src/components/admin/ScreenshotReading.tsx`。
+- **只顯示**：不寫入 `payment_events`／`reservations`，不自動核准（ADR-008 不變）。讀不到就顯示「無法自動讀取，請看截圖」。
+- OCR 的程式與模型由自家網域提供（`/ocr/*`，build 前由 `scripts/copy-ocr-assets.mjs` 從 `node_modules` 複製，不進版控），不從 CDN 載入。
+
 ## Routes Impact
 
 | 路徑 | 變更 |
