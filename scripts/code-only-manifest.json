@@ -8,8 +8,8 @@
     "package.json": "f76992f5e384d5c96363854fe1dcb07add4505cc",
     "scripts/copy-ocr-assets.mjs": "92cdd412dd3c48ca71d91dcc339965b858e5c488",
     "src/app/admin/payments/page.tsx": "fcc5f37f4001aa8204a0d8f66b2c74f14758d5ce",
-    "src/components/admin/ScreenshotReading.tsx": "80b257a2613e4ae9810592c20a03095fcbdc208f",
-    "src/lib/transfer-text.test.ts": "74fa82448df8339fd373738c1cf7bc43369602c0",
-    "src/lib/transfer-text.ts": "8cbf029624ed351c73e01f373c6c1ff23d1c66f4"
+    "src/components/admin/ScreenshotReading.tsx": "2dba4e050f795a3ce9c836481983b8755c658f97",
+    "src/lib/transfer-text.test.ts": "6e0601898e0d05edd7f358c273bebf9acbbfc30e",
+    "src/lib/transfer-text.ts": "c5ce88355c329392790d699bf936c5217b173d0a"
   }
 }

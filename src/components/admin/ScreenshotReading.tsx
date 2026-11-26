@@ -13,9 +13,13 @@ let workerPromise: Promise<Worker> | null = null;
 let queue: Promise<unknown> = Promise.resolve();
 
 function ocr(image: Blob): Promise<string> {
-  workerPromise ??= import("tesseract.js").then(({ createWorker }) => {
+  workerPromise ??= import("tesseract.js").then(async ({ createWorker, PSM }) => {
     const base = `${window.location.origin}/ocr`;
-    return createWorker("eng", 1, { workerPath: `${base}/worker.min.js`, corePath: base, langPath: base, gzip: false });
+    const worker = await createWorker("eng", 1, { workerPath: `${base}/worker.min.js`, corePath: base, langPath: base, gzip: false });
+    // Automatic layout: the library default (one text block) drops the large amount line that
+    // bank apps print apart from the detail rows (measured on synthetic screenshots, 2026-11-26).
+    await worker.setParameters({ tessedit_pageseg_mode: PSM.AUTO });
+    return worker;
   });
   const job = queue.then(async () => (await (await workerPromise!).recognize(image)).data.text);
   queue = job.catch(() => undefined);

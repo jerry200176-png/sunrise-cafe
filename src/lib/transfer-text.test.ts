@@ -37,6 +37,13 @@ describe("readTransferText", () => {
     expect(readTransferText(text, 600, TODAY)?.lastFives).toEqual([]);
   });
 
+  it("reads real OCR output (English model on Chinese bank screens, labels come out as noise)", () => {
+    const light = "BRAS\nR55 Hf\nBH RSE\nNTS 600\n2026/11/25 14:32:07\n(822) 0000-1234-5675-4321\n808 ELLFRTT\n0123-456-789012\nNTS 0\n2B";
+    expect(readTransferText(light, 600, TODAY)).toEqual({ amountFound: true, date: "2026-11-25", lastFives: ["54321", "89012"] });
+    const dark = "FERRI\n-$1,200\n115/11/24 09:05\nEBA EttEE 78901\nHH mAIRA **r**54321\nRHEE 20261124090512345678\nB] FIEREE $35,420";
+    expect(readTransferText(dark, 1200, TODAY)).toEqual({ amountFound: true, date: "2026-11-24", lastFives: ["54321"] });
+  });
+
   it("returns null for a picture that is not a transfer", () => {
     expect(readTransferText("Good morning! See you at 3", 600, TODAY)).toBeNull();
     expect(readTransferText("", 600, TODAY)).toBeNull();
