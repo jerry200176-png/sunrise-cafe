@@ -6,6 +6,7 @@ import { logPayment } from "@/lib/payment-log";
 import { taipeiDateString } from "@/lib/datetime";
 import { chunk } from "@/lib/chunk";
 import { markDepositPaid } from "@/lib/deposit-paid";
+import { paymentNoteLabel } from "@/lib/payment-event-payload";
 import { getDepositAmount } from "@/lib/booking-utils";
 import type { NotifyPaymentApprovedResult } from "@/lib/payment-notify";
 import { paymentRoomInScope } from "@/lib/payment-branch-scope";
@@ -251,7 +252,7 @@ export async function approvePaymentEvent(
   const note = lateTransfer
     ? reviewNote?.trim() ||
       `銀行轉帳人工核對：末五碼 ${event.reported_account_last_five}，金額 NT$ ${event.reported_amount}（訂位結束後補登）`
-    : reviewNote?.trim() || event.raw_payload || "後台核准";
+    : reviewNote?.trim() || paymentNoteLabel(event.raw_payload) || "後台核准";
 
   const { data: updated, error: evErr } = await admin()
     .from("payment_events")

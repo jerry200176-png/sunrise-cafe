@@ -15,6 +15,7 @@ import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout"
 import type { Reservation, ReservationStatus, Room } from "@/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DepositStatusControl } from "@/components/admin/DepositStatusControl";
+import { paymentNoteLabel } from "@/lib/payment-event-payload";
 import { DepositPaidDialog, transferInfoLabel, type DepositInfo } from "@/components/admin/DepositPaidDialog";
 import { BatchDepositMessageWorkbench } from "@/components/BatchDepositMessageWorkbench";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
@@ -1281,7 +1282,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
         title={depositDialog.is_deposit_paid ? "修改付款資料" : "核准訂金"}
         initial={depositDialog}
         reviewMessage={depositMutation ? "此訂位有操作正在處理或結果待核對；目前輸入已保留，請先核對並等待處理完成。" : depositStale ? canReviewDeposit && latestDepositRow
-          ? `資料已更新。最新狀態：${latestDepositRow.is_deposit_paid ? "已付訂金" : "未付訂金"}；${transferInfoLabel(latestDepositRow) || "無匯款資料"}；備註：${latestDepositRow.deposit_payment_note || "無"}；待審核 ${latestDepositRow.pending_payment_reviews ?? 0} 筆。請核對後再繼續。`
+          ? `資料已更新。最新狀態：${latestDepositRow.is_deposit_paid ? "已付訂金" : "未付訂金"}；${transferInfoLabel(latestDepositRow) || "無匯款資料"}；備註：${paymentNoteLabel(latestDepositRow.deposit_payment_note) || "無"}；待審核 ${latestDepositRow.pending_payment_reviews ?? 0} 筆。請核對後再繼續。`
           : "資料正在核對或訂位已不在目前清單，請勿送出；已輸入內容會保留。"
           : undefined}
         onReview={depositStale && canReviewDeposit && latestDepositRow ? () => {
@@ -1744,7 +1745,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                       <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-800 border border-green-200">
                         ✅ 已付訂金
                         {(() => {
-                          const detail = [transferInfoLabel(r), r.deposit_payment_note].filter(Boolean).join("・");
+                          const detail = [transferInfoLabel(r), paymentNoteLabel(r.deposit_payment_note)].filter(Boolean).join("・");
                           return detail ? `（${detail}）` : "";
                         })()}
                       </span>

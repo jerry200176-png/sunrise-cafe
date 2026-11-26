@@ -6,6 +6,7 @@ import { format } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { toTaipei } from "@/lib/datetime";
 import type { Reservation } from "@/types";
+import { paymentNoteLabel } from "@/lib/payment-event-payload";
 import { DepositPaidDialog, transferInfoLabel, type DepositInfo } from "@/components/admin/DepositPaidDialog";
 
 interface DepositStatusControlProps {
@@ -33,7 +34,7 @@ export function DepositStatusControl({
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const isPaid = Boolean(r.is_deposit_paid);
-  const note = r.deposit_payment_note?.trim() || null;
+  const note = paymentNoteLabel(r.deposit_payment_note);
   const transferInfo = transferInfoLabel(r);
   const notifiedAt = r.deposit_approved_notified_at ? toTaipei(r.deposit_approved_notified_at) : null;
   const hasPendingReviews = (r.pending_payment_reviews ?? 0) > 0;

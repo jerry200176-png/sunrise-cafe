@@ -50,6 +50,7 @@ import { sendLineFlexMessage } from "@/lib/line";
 import { branchLineGroupIdForReservation } from "@/lib/branch-line-group";
 import { buildGuestPaymentApprovedFlex } from "@/lib/line-cards";
 import { signLookupToken } from "@/lib/lookup-token";
+import { paymentNoteLabel } from "@/lib/payment-event-payload";
 
 function defaultClient(): SupabaseClient {
   return createClient(
@@ -487,7 +488,7 @@ export async function notifyPaymentApproved(
         bookingCode: r.booking_code,
         startTime: r.start_time,
         endTime: r.end_time,
-        rawText: opts.reviewNote?.trim() || r.deposit_payment_note || "已核准",
+        rawText: opts.reviewNote?.trim() || paymentNoteLabel(r.deposit_payment_note) || "已核准",
       });
       await sendLineFlexToBranchGroup(`💰 客人已付訂金：${r.customer_name}`, flex, await branchLineGroupIdForReservation(client, reservationId), {
         retryKey: effectiveGroupKey,

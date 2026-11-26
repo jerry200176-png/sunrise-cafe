@@ -1,14 +1,14 @@
 {
-  "baseline": "8983bd82d4da72e877a137939a4d41400d67b1b9",
+  "baseline": "702408e37a05df44be2c39226f6b8d5de09ba93d",
   "approved_files": {
-    "docs/PAYMENT_STATE_MODEL.md": "8e76e018a27282843576228ab4d0307ed824327f",
-    "e2e/admin-payments.spec.ts": "2177260e6ded3734a2d19a7573450e079ef04a98",
-    "src/app/admin/payments/page.tsx": "e401814e771850e399249677d4e82f6ba3e54ab4",
-    "src/app/api/admin/payments/[id]/approve/route.test.ts": "c8b3ccf2803da055cf73cf503f1f23d1b3e2f29e",
-    "src/app/api/admin/payments/[id]/approve/route.ts": "f71a92cff040e2bd4b764b10ba3a9bddbc288ace",
-    "src/lib/deposit-paid.test.ts": "21a3b2d3c9e4d58181450f129b2574e6383d2de7",
-    "src/lib/deposit-paid.ts": "5d83f4107352668038246b44d4f621741c1701d2",
-    "src/lib/payment-events-admin.test.ts": "2f69bd60de77f577fe4089b40a6b29139e8e2b83",
-    "src/lib/payment-events-admin.ts": "977cea746d0ac4e2e3304ef00f0ab3bd3a686aed"
+    "CHANGELOG.md": "6458b4c7fe128a64be65020cc3d190d171f44106",
+    "src/components/ReservationList.tsx": "202b26e11aec55441ba70652c55852b2a77d041f",
+    "src/components/admin/DepositPaidDialog.tsx": "fdbea134006bf9ed4c0a05194a7b6e530edfb0d9",
+    "src/components/admin/DepositStatusControl.tsx": "625a2d54ff77746dfe30109cb17a8c4e6775592d",
+    "src/lib/payment-event-payload.test.ts": "55530337f7bf64083ffc166962d41e1591fa08af",
+    "src/lib/payment-event-payload.ts": "20c762d924ac03cf6eef82553328e6696ffdc80d",
+    "src/lib/payment-events-admin.test.ts": "651f929e1b1263871aa1fa6773adcb5db750e7cd",
+    "src/lib/payment-events-admin.ts": "97ade80520f36ce6a36193a8e9dd91897ef54544",
+    "src/lib/payment-notify.ts": "e442b8cc4f3432c072329b84f2ac6132e4a36e4e"
   }
 }

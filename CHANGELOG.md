@@ -6,6 +6,9 @@
 
 ## [Unreleased]
 
+### 後台 — 已付訂金備註不再顯示程式代碼 (2026-11-26)
+- 核准 LINE 付款截圖後，訂位列表「已付訂金」旁的備註原本顯示一串 `{"kind":"line_image",…}`（LINE 圖片編號，給程式用的）。現在顯示「LINE 截圖」；舊紀錄不用改資料，畫面與 LINE 群組補發通知一併改為白話。
+
 ### 安全 — 客人查詢連結簽章 fail closed (GHSA-423h-c789-hhf7)
 - 正式環境必須設定 `GUEST_LOOKUP_SECRET`（優先）或 `SESSION_SECRET`；不再退回 `ADMIN_PASSWORD` 或寫死金鑰。未設定時訂位、確認出席、付款通知、客人提醒會在寫入／推播前拒絕；`/api/booking-health` 新增 `guest_lookup_signing`（configured|missing）。
 
