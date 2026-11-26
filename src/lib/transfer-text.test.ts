@@ -19,7 +19,8 @@ describe("readTransferText", () => {
     expect(readTransferText("NT$ 6000  2026/11/25", 600, TODAY)?.amountFound).toBe(false);
     expect(readTransferText("NT$ 600.50  2026/11/25", 600, TODAY)?.amountFound).toBe(false);
     expect(readTransferText("012-600-123456", 600, TODAY)?.amountFound).toBe(false);
-    expect(readTransferText("2026/11/25 6:00", 600, TODAY)?.amountFound).toBe(false);
+    expect(readTransferText("2026/11/25 600:15", 600, TODAY)?.amountFound).toBe(false);
+    expect(readTransferText("2026/11/25 ref.600", 600, TODAY)?.amountFound).toBe(false);
   });
 
   it("reads a 民國 year and skips impossible or future dates", () => {
@@ -29,7 +30,15 @@ describe("readTransferText", () => {
   });
 
   it("ignores mobile numbers, timestamps and over-long serials as accounts", () => {
-    expect(readTransferText("0912345678 20261125143207 12345678901234567890 NT$600", 600, TODAY)?.lastFives).toEqual([]);
+    expect(readTransferText("NT$600\n0912345678", 600, TODAY)?.lastFives).toEqual([]);
+    expect(readTransferText("NT$600\n20261125143207", 600, TODAY)?.lastFives).toEqual([]);
+    expect(readTransferText("NT$600\n12345678901234567890", 600, TODAY)?.lastFives).toEqual([]);
+  });
+
+  it("never glues two numbers separated by a space into one account", () => {
+    expect(readTransferText("012-345-678901 600", 600, TODAY)).toMatchObject({ amountFound: true, lastFives: ["78901"] });
+    expect(readTransferText("NT$600 78901 54321 12345", 600, TODAY)?.lastFives).toEqual([]);
+    expect(readTransferText("NT$600 0000 1234 5675 4321", 600, TODAY)?.lastFives).toEqual(["54321"]);
   });
 
   it("shows no account when too many candidates make the payer unclear", () => {

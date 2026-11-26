@@ -36,8 +36,10 @@ function findDate(text: string, today: string): string | null {
 function findLastFives(text: string): string[] {
   const found = new Set<string>();
   // Masked account (****12345; OCR turns some of the stars into letters, so one star directly
-  // before the digits is enough) or a long digit run, dashes and spaces allowed inside (012-345-678901).
-  for (const m of text.matchAll(/[*＊][-. ]?(\d{5})(?!\d)|(?<![\d/.:])\d(?:[- ]?\d){9,}(?![\d/.:])/g)) {
+  // before the digits is enough) a long digit run with dashes
+  // (012-345-678901), or card-style groups of four (0000 1234 5675 4321). Other spaces end the number,
+  // so two numbers side by side are never glued into one.
+  for (const m of text.matchAll(/[*＊][-. ]?(\d{5})(?!\d)|(?<![\d/.:])(?:\d{4}(?: \d{4}){2,3}|\d(?:-?\d){9,})(?![\d/.:])/g)) {
     if (m[1]) {
       found.add(m[1]);
       continue;

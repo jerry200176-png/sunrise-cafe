@@ -12,18 +12,31 @@ import { readTransferText, type TransferReading } from "@/lib/transfer-text";
 let workerPromise: Promise<Worker> | null = null;
 let queue: Promise<unknown> = Promise.resolve();
 
+async function loadWorker(): Promise<Worker> {
+  const { createWorker, PSM } = await import("tesseract.js");
+  const base = `${window.location.origin}/ocr`;
+  const worker = await createWorker("eng", 1, { workerPath: `${base}/worker.min.js`, corePath: base, langPath: base, gzip: false });
+  // Automatic layout: the library default (one text block) drops the large amount line that
+  // bank apps print apart from the detail rows (measured on synthetic screenshots, 2026-11-26).
+  await worker.setParameters({ tessedit_pageseg_mode: PSM.AUTO });
+  return worker;
+}
+
+// ponytail: the worker lives until the page is reloaded (about one wasm instance of memory).
+// Terminate it on unmount if the review page ever becomes part of a long-lived shell.
 function ocr(image: Blob): Promise<string> {
-  workerPromise ??= import("tesseract.js").then(async ({ createWorker, PSM }) => {
-    const base = `${window.location.origin}/ocr`;
-    const worker = await createWorker("eng", 1, { workerPath: `${base}/worker.min.js`, corePath: base, langPath: base, gzip: false });
-    // Automatic layout: the library default (one text block) drops the large amount line that
-    // bank apps print apart from the detail rows (measured on synthetic screenshots, 2026-11-26).
-    await worker.setParameters({ tessedit_pageseg_mode: PSM.AUTO });
-    return worker;
+  const job = queue.then(async () => {
+    // Resolved when the job runs, not when it was queued: a failure below must not break later jobs.
+    const current = (workerPromise ??= loadWorker());
+    try {
+      return (await (await current).recognize(image)).data.text;
+    } catch (err) {
+      if (workerPromise === current) workerPromise = null; // next screenshot starts a fresh worker
+      current.then((w) => w.terminate(), () => undefined);
+      throw err;
+    }
   });
-  const job = queue.then(async () => (await (await workerPromise!).recognize(image)).data.text);
   queue = job.catch(() => undefined);
-  job.catch(() => { workerPromise = null; }); // a failed load may succeed on the next screenshot
   return job;
 }
 
@@ -60,13 +73,13 @@ export function ScreenshotReading({ src, expectedAmount }: { src: string; expect
       {expectedAmount != null && (
         <p className="mt-1">
           {reading.amountFound
-            ? <>✓ 截圖裡有 <strong>NT${expectedAmount}</strong>，與應收訂金相符</>
-            : <>⚠ 截圖裡找不到 <strong>NT${expectedAmount}</strong>，請看截圖</>}
+            ? <>✓ 截圖裡有應收訂金的金額 <strong>NT${expectedAmount}</strong></>
+            : <>⚠ 截圖裡找不到應收訂金的金額 <strong>NT${expectedAmount}</strong>，請看截圖</>}
         </p>
       )}
       {reading.date && <p className="mt-1">日期：<strong>{reading.date.slice(5).replace("-", "/")}</strong></p>}
       {reading.lastFives.length > 0 && (
-        <p className="mt-1">畫面上的帳號末五碼：<strong>{reading.lastFives.join("、")}</strong></p>
+        <p className="mt-1">畫面上的帳號後五碼：<strong>{reading.lastFives.join("、")}</strong></p>
       )}
       <p className="mt-1 text-xs text-amber-800">機器讀的，請對照截圖再確認已收款。</p>
     </div>

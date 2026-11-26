@@ -86,7 +86,7 @@ pending_review ──approve──▶ approved
 
 ## 審核頁自動讀截圖（2026-11-26）
 
-`/admin/payments` 在每張 LINE 付款截圖下方顯示一行白話：截圖裡有沒有應收訂金的金額、日期、畫面上的帳號末五碼。
+`/admin/payments` 在每張 LINE 付款截圖下方顯示一行白話：截圖裡有沒有應收訂金的金額、日期、畫面上的帳號後五碼。
 
 - 開源 OCR（tesseract.js，Apache-2.0）在**店員的瀏覽器**執行，讀的是審核頁已經顯示的那張圖；截圖不送給任何第三方服務。
 - 欄位規則在 `src/lib/transfer-text.ts`（純函式）；畫面在 `src/components/admin/ScreenshotReading.tsx`。
