@@ -12,6 +12,7 @@ import { paymentSourceLabel, reservationStatusLabel } from "@/lib/status-labels"
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { isInteractiveTarget } from "@/lib/payment-shortcuts";
 import { AdminShell } from "@/components/admin/AdminShell";
+import { ScreenshotReading } from "@/components/admin/ScreenshotReading";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
 import { scrollIntoViewForInteraction } from "@/lib/interaction-scroll";
 
@@ -411,6 +412,7 @@ export default function AdminPaymentsPage() {
                               alt="付款截圖"
                               className="max-w-xs rounded-lg border border-stone-200"
                             />
+                            <ScreenshotReading src={`/api/admin/payments/${item.id}/image`} expectedAmount={item.deposit_amount} />
                           </div>
                         ) : (
                           <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">

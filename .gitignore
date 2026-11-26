@@ -9,6 +9,8 @@
 
 # next.js
 /.next/
+# OCR runtime copied from node_modules by scripts/copy-ocr-assets.mjs
+/public/ocr/
 /out/
 
 # production

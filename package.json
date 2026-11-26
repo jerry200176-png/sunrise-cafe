@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "cross-env NODE_OPTIONS=--dns-result-order=ipv4first NODE_TLS_REJECT_UNAUTHORIZED=0 next dev",
+    "predev": "node scripts/copy-ocr-assets.mjs",
+    "prebuild": "node scripts/copy-ocr-assets.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -58,6 +60,7 @@
     "@stripe/react-stripe-js": "^3.11.0",
     "@stripe/stripe-js": "^5.5.0",
     "@supabase/supabase-js": "2.118.0",
+    "@tesseract.js-data/eng": "^1.0.0",
     "@types/qrcode": "^1.5.6",
     "@upstash/ratelimit": "^2.2.0",
     "@upstash/redis": "^1.40.0",
@@ -70,6 +73,8 @@
     "recharts": "^3.10.1",
     "resend": "^6.37.0",
     "stripe": "~22.3.2",
+    "tesseract.js": "^7.0.0",
+    "tesseract.js-core": "^7.0.0",
     "three": "0.187.0",
     "ws": "^8.22.1"
   },
