@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 import { taipeiDateString } from "@/lib/datetime";
+import { paymentNoteLabel } from "@/lib/payment-event-payload";
 
 export type DepositInfo = {
   deposit_paid_on: string | null;
@@ -41,7 +42,7 @@ export function DepositPaidDialog({ title, initial, onConfirm, onCancel, reviewM
     initial?.deposit_paid_on ?? taipeiDateString()
   );
   const [lastFive, setLastFive] = useState(initial?.deposit_last_five ?? "");
-  const [note, setNote] = useState(initial?.deposit_payment_note ?? "");
+  const [note, setNote] = useState(paymentNoteLabel(initial?.deposit_payment_note) ?? "");
 
   const isTransfer = method === "transfer";
   const lastFiveOk = /^\d{5}$/.test(lastFive);

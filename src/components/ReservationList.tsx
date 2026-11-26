@@ -15,6 +15,7 @@ import { fetchWithTimeout, readJsonWithTimeout } from "@/lib/fetch-with-timeout"
 import type { Reservation, ReservationStatus, Room } from "@/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DepositStatusControl } from "@/components/admin/DepositStatusControl";
+import { paymentNoteLabel } from "@/lib/payment-event-payload";
 import { DepositPaidDialog, transferInfoLabel, type DepositInfo } from "@/components/admin/DepositPaidDialog";
 import { BatchDepositMessageWorkbench } from "@/components/BatchDepositMessageWorkbench";
 import { ToastStack, type ToastItem, type ToastVariant } from "@/components/Toast";
@@ -1744,7 +1745,7 @@ export function ReservationList({ branchId, rooms = [], focusReservationId = nul
                       <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-800 border border-green-200">
                         ✅ 已付訂金
                         {(() => {
-                          const detail = [transferInfoLabel(r), r.deposit_payment_note].filter(Boolean).join("・");
+                          const detail = [transferInfoLabel(r), paymentNoteLabel(r.deposit_payment_note)].filter(Boolean).join("・");
                           return detail ? `（${detail}）` : "";
                         })()}
                       </span>

@@ -302,6 +302,37 @@ describe("payment review idempotency rules", () => {
     expect(operations).toEqual(["payment_event_approved", "reservation_marked_paid"]);
   });
 
+  it("approving a LINE screenshot stores the source label as the note, not the image id JSON", async () => {
+    const chain = { eq: () => chain, select: () => chain, maybeSingle: async () => ({ data: { id: "event-4" }, error: null }) };
+    mocks.from.mockImplementation((table: string) => ({
+      select: () => ({
+        eq: () => ({
+          single: async () => ({
+            data: table === "payment_events"
+              ? {
+                  id: "event-4",
+                  reservation_id: "reservation-4",
+                  source: "line_image",
+                  status: "pending_review",
+                  raw_payload: JSON.stringify({ kind: "line_image", line_message_id: "100000000000000001" }),
+                }
+              : { is_deposit_paid: false, status: "confirmed", booking_code: "ABC123" },
+            error: null,
+          }),
+        }),
+      }),
+      update: () => chain,
+    }));
+
+    await approvePaymentEvent("event-4");
+    expect(mocks.markDepositPaid).toHaveBeenCalledWith(
+      "reservation-4",
+      "payment_review",
+      expect.objectContaining({ note: "LINE 截圖" }),
+      "admin_payment_review"
+    );
+  });
+
   it("does not mark a reservation paid when another reviewer wins the event transition", async () => {
     const operations: string[] = [];
     mocks.from.mockImplementation((table: string) => {
