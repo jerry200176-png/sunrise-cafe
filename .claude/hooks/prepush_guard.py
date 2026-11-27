@@ -22,7 +22,7 @@ import sys
 ROOT = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 TIMEOUT = 70  # seconds for the list; .claude/settings.json gives the hook 120
 HDOC = re.compile(r"(?<!<)<<(-?)[ \t]*(['\"\\]?)([A-Za-z_]\w*)")
-PUSH = re.compile(r"\bgit(?:\s+-[cC]\s+\S+|\s+--?[\w-]+(?:=\S+)?)*\s+push\b(?![^\n;&|]*\s--dry-run\b)")
+PUSH = re.compile(r"\bgit(?:\s+-[cC]\s+\S+|\s+-[\w-]+(?:=\S+)?)*\s+push\b(?![^\n;&|]*\s--dry-run\b)")
 QUOTED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")  # ponytail: crude; a push hidden in quotes is not checked
 
 

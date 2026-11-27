@@ -1,7 +1,7 @@
 {
   "baseline": "efe2dd591334a733cdd39c5c29e447a4345c7260",
   "approved_files": {
-    ".claude/hooks/prepush_guard.py": "156db3faf91ea19d9c0cd78a960037fbc8b5da15",
+    ".claude/hooks/prepush_guard.py": "443a42f739fbe29265972a1b2f7eee33432ee027",
     ".claude/hooks/test_prepush_guard.py": "7337f4d5c94a03bc986971440d189f18ab3225ad",
     ".claude/settings.json": "9a9090ec4d74dc00ce1dd71e43b982f8ef113215",
     ".gitignore": "0416644684b7b44e39767afa0c49770a2013a484",
