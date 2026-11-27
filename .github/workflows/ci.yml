@@ -35,6 +35,9 @@ jobs:
       - name: Rulebook pin, adapters and retired rule text
         run: python3 scripts/check-rulebook.py
 
+      - name: Agent pre-push hook self-check
+        run: python3 -B .claude/hooks/test_prepush_guard.py
+
       - name: Production identity evidence classifier (synthetic, offline)
         run: python3 -B -m unittest scripts/test_production_identity.py
 

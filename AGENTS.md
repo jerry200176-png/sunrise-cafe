@@ -17,7 +17,7 @@ Non-negotiables (digest; the rulebook has the detail):
 
 ## Commands（push 前必跑）
 
-`npm test` · `npm run lint` · `npm run build` · `python3 scripts/check-rulebook.py`。正式環境真相：`npm run production-identity`（CI 綠／merge／deploy 成功都不夠）。
+`npm test` · `npm run lint` · `npm run build` · `python3 scripts/check-rulebook.py`。快速檢查（rulebook、SQL、migration、release 清單）由 `.claude/hooks/prepush_guard.py` 在每次 `git push` 前自動跑 `scripts/agent-prepush.sh`，沒過就擋下；非 Claude 環境手動跑 `bash scripts/agent-prepush.sh`。正式環境真相：`npm run production-identity`（CI 綠／merge／deploy 成功都不夠）。
 
 ## 領域紅線與地雷
 
