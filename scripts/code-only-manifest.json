@@ -1,11 +1,11 @@
 {
   "baseline": "efe2dd591334a733cdd39c5c29e447a4345c7260",
   "approved_files": {
-    ".claude/hooks/prepush_guard.py": "1eeda8db47f66a7d8beab92f23da6e0d4c8d49d9",
-    ".claude/hooks/test_prepush_guard.py": "bca1abf08ffbdb486448174d5438ce4e2a0975dd",
+    ".claude/hooks/prepush_guard.py": "156db3faf91ea19d9c0cd78a960037fbc8b5da15",
+    ".claude/hooks/test_prepush_guard.py": "7337f4d5c94a03bc986971440d189f18ab3225ad",
     ".claude/settings.json": "9a9090ec4d74dc00ce1dd71e43b982f8ef113215",
     ".gitignore": "0416644684b7b44e39767afa0c49770a2013a484",
     "AGENTS.md": "d9e3bf803920d59310b5fc6f4bc1e7727249faa4",
-    "scripts/agent-prepush.sh": "87d02ba9c52b52ca3b5bc309939b98a7f2d7a069"
+    "scripts/agent-prepush.sh": "4f8008c10b4b74a6611b9e91d629b239dd92ac91"
   }
 }
