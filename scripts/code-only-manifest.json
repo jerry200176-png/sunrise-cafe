@@ -1,15 +1,11 @@
 {
-  "baseline": "b85de5f83496ccc77d66017d4105715cf913098f",
+  "baseline": "efe2dd591334a733cdd39c5c29e447a4345c7260",
   "approved_files": {
-    ".gitignore": "6b97b879820ffdb382076b8873c56425f3e5aab5",
-    "CHANGELOG.md": "f2ace8405cb227d6931501ec8699128bc622e7a2",
-    "docs/PAYMENT_STATE_MODEL.md": "9af08ee61be09c55fe21ca4bb20d00aa1324caec",
-    "package-lock.json": "879d9764ffe244c31a188b3c78ae2beb53a784c5",
-    "package.json": "f76992f5e384d5c96363854fe1dcb07add4505cc",
-    "scripts/copy-ocr-assets.mjs": "92cdd412dd3c48ca71d91dcc339965b858e5c488",
-    "src/app/admin/payments/page.tsx": "982510a19ff0f5974a222ac51c04f69495fda09d",
-    "src/components/admin/ScreenshotReading.tsx": "5a1e623616fa8085be483f50956a09fbe14a24ae",
-    "src/lib/transfer-text.test.ts": "06f947d01142989ad275834bc524bd0684bd1537",
-    "src/lib/transfer-text.ts": "1296bce96b66b5c94ba92d9e704f1246a6a493d2"
+    ".claude/hooks/prepush_guard.py": "443a42f739fbe29265972a1b2f7eee33432ee027",
+    ".claude/hooks/test_prepush_guard.py": "7337f4d5c94a03bc986971440d189f18ab3225ad",
+    ".claude/settings.json": "9a9090ec4d74dc00ce1dd71e43b982f8ef113215",
+    ".gitignore": "0416644684b7b44e39767afa0c49770a2013a484",
+    "AGENTS.md": "d9e3bf803920d59310b5fc6f4bc1e7727249faa4",
+    "scripts/agent-prepush.sh": "4f8008c10b4b74a6611b9e91d629b239dd92ac91"
   }
 }
