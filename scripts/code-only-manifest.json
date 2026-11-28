@@ -1,6 +1,7 @@
 {
-  "baseline": "bd741888594e1b07176d525f36d452e5377e033c",
+  "baseline": "054d7838469677a35706aefb15c1b5cba1e8f1cf",
   "approved_files": {
-    "docs/SECURITY.md": "3af811e6994f31e346de002042b51ad829a20402"
+    "docs/SECURITY.md": "4002ff6fb89301a875b98eca7477a65567ce81f0",
+    "supabase/migration-rls-waitlist-and-ops.sql": "5dca282e2f57b32decf74cf3a5aa5498e3b05aab"
   }
 }

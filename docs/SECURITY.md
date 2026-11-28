@@ -8,10 +8,10 @@
 | 資產 / 資料表 | 敏感欄位 / 內容 | 儲存與存取方式 | 目前保護狀態 |
 |---|---|---|---|
 | `reservations` | 客人姓名、電話、`line_user_id`、備註、付款狀態 | Supabase PostgreSQL | ✅ RLS 已關閉 `anon` 所有權限（`supabase/rls-policies.sql`）；所有讀寫經 Next.js API 使用 `SUPABASE_SERVICE_ROLE_KEY` |
-| `waitlist` | 候補客人姓名、電話、候補時段與確認 token | Supabase PostgreSQL | ⚠️ repo 內 `supabase/rls-policies.sql` 與 migration 未見 `waitlist` 的 `ENABLE ROW LEVEL SECURITY`（待核對正式庫並補 migration） |
+| `waitlist` | 候補客人姓名、電話、候補時段與確認 token | Supabase PostgreSQL | 🟡 已準備純新增 RLS migration（`supabase/migration-rls-waitlist-and-ops.sql`），待 Founder 於 Supabase 套用（F1）；程式碼 100% 走 `service_role` |
 | `payment_events`（LINE 轉帳截圖） | `source`、`raw_payload`（LINE message id）、審核狀態、操作紀錄 | 資料庫只存事件與 message id，**不落地持久儲存截圖檔案** | ✅ `/api/admin/payments/[id]/image` 需 `payments:read` 權限＋分店範圍檢查（`paymentEventInScope`），以 `Cache-Control: private, max-age=300` 即時向 LINE 代理讀取；截圖不會自動標記 `is_deposit_paid`，須於 `/admin/payments` 人工審核 |
-| `line_pay_payments`、`refund_requests`、`reservation_settlements` | 金流紀錄、退款申請、結帳明細 | Supabase PostgreSQL | ✅ 各對應 migration 皆已啟用 RLS（僅限後端 `service_role`）；相關審計見 `docs/PAYMENT_AUDIT_LOG.md` 與 `docs/PAYMENT_STATE_MODEL.md` |
-| `payment_intents` | 付款意圖紀錄 | Supabase PostgreSQL | ⚠️ `supabase/migration-payment-intents.sql` 未設 `ENABLE ROW LEVEL SECURITY`／`REVOKE`（待核對正式庫並補 RLS migration） |
+| `line_pay_payments`、`payment_intents`、`refund_requests`、`reservation_settlements` | 金流紀錄、付款意圖、退款申請、結帳明細 | Supabase PostgreSQL | ✅ 各對應 migration（含 `supabase/migration-stripe-payment-intents.sql`）皆已啟用 RLS（僅限後端 `service_role`）；相關審計見 `docs/PAYMENT_AUDIT_LOG.md` 與 `docs/PAYMENT_STATE_MODEL.md` |
+| `line_reminder_deliveries`、`job_runs`、`ops_events` | 提醒投遞紀錄、排程紀錄、營運事件紀錄 | Supabase PostgreSQL | 🟡 已納入 `supabase/migration-rls-waitlist-and-ops.sql` 補啟 RLS（待 Founder F1 套用）；程式碼 100% 走 `service_role` |
 | `admin_users`、`admin_user_branches`、`admin_permission_audit` | 後台角色、分店授權、權限變更稽核 | Supabase PostgreSQL | ✅ 後台驗證由 `ADMIN_PASSWORD`（及選填 `SESSION_SECRET` 簽章）＋ RBAC 控管 |
 | `menu-photos`（Supabase Storage） | 菜單餐點圖片 | Supabase Storage public bucket | ✅ 僅存放公開菜單圖，不含客人個資 |
 | `branches`、`rooms`、`settings` | 門市、包廂、公開設定 | Supabase PostgreSQL | ✅ RLS 僅開放 `anon` `SELECT`（只讀），寫入皆經後端 API |
@@ -27,7 +27,7 @@
 
 | 項目 | 風險 | 權責 | 現況 / 建議做法 |
 |---|---|---|---|
-| `waitlist` 與 `payment_intents` 缺少 repo 內 RLS migration | 高 | Founder + Agent（F1） | 須核對 Supabase 正式庫目前 RLS 狀態，並另開 additive RLS migration PR 由 Founder 核准套用 |
+| `waitlist` 與 3 張系統表（`line_reminder_deliveries`、`job_runs`、`ops_events`）套用 RLS | 高 | Founder（F1） | 純新增 SQL 已備妥於 `supabase/migration-rls-waitlist-and-ops.sql`；待 Founder 於 Supabase SQL Editor 套用並核對 `pg_class.relrowsecurity = true` |
 | 舊訂位／候補／LINE 投遞紀錄保存期限政策 | 中 | Founder（F4） | 目前尚無自動清理或去識別化排程；建議由 Founder 定案保留年限後再另開 PR 實作 |
 | `backup-recipient-canary.yml` 正式啟用 | 低 | Founder + Agent | 目前位於 `docs/workflow-drafts/backup-recipient-canary.yml`（草稿，尚未進入 `.github/workflows/`），依 `docs/plans/2026-11-backup-recipient-canary-draft.md` 前置條件完成後升格 |
 | Supabase 免費方案 7 天閒置暫停 & PITR | 中 | Founder | 目前靠排程與健康檢查維持活躍；若營業量提升可評估升級 Supabase Pro 取得自動備份與 PITR |
